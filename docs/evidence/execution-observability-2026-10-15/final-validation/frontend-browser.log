@@ -1,0 +1,14 @@
+
+Running 5 tests using 1 worker
+
+(node:174191) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:174191) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:62:9 › Activity observability — isolated browser fixture › fr/1440: exact totals, scoped filters, native evidence and cancellation request (5.5s)
+  ✓  2 [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:62:9 › Activity observability — isolated browser fixture › en/390: exact totals, scoped filters, native evidence and cancellation request (6.7s)
+  ✓  3 [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:86:7 › Activity observability — isolated browser fixture › revocation clears an open activity and a disconnected stream resumes its cursor (4.2s)
+  ✓  4 [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:94:7 › Activity observability — isolated browser fixture › feature disabled exposes only the existing operations view (2.1s)
+  ✓  5 [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:98:7 › Activity observability — isolated browser fixture › platform aggregates require the server capability and do not expose cross-workspace activities (3.4s)
+
+  5 passed (25.1s)

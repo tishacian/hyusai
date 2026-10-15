@@ -1,0 +1,86 @@
+{
+  "collected_at": "2026-10-15T10:32:37.823971+00:00",
+  "base_commit": "0b63fcec0be57a87b7578142a15c2b797dbe98cc",
+  "working_tree_uncommitted": true,
+  "scope": "Local PostgreSQL control fairness, optional native Temporal scaffolds, RabbitMQ outbox transport; not production approval or native Temporal execution qualification",
+  "source_sha256": {
+    "backend/app/workers/execution_control.py": "17db8aa48f1203a3f34a5d57416e00b20a848cc055e83d4978e12b6abb2ae860",
+    "backend/app/tests/services/test_execution_control_tick_postgres.py": "3fecf82ecc6631b6cca5a338fe94a8f54c035e7dc053d13a258e976bbe438629",
+    "backend/app/tests/services/test_execution_outbox_rabbitmq.py": "d1ed03c053872d343c9573be92665bc05c6d6c2983fae565bd7cbc2aaae04775",
+    "backend/app/tests/infra/test_temporal_execution_scaffold.py": "a3795a9c53580ffc368c70fd89cb1c573bf865fd983109e6acae19a7b577770a",
+    "backend/app/tests/infra/test_tabular_migration.py": "599c47463eb1f963ed3bc46b2164f074f73991ea287760559614193b3345e65c",
+    "backend/alembic/versions/134_execution_control.py": "c4630c4045425d7af013de254071fe83c47995fb2697a2000b9afcdf071928d2",
+    "backend/app/models/execution_control.py": "198e4c8f67d5bc90d85688c0c93b80bf94fc6ffe85b7ff3e60aa10936a4cc318",
+    "backend/app/services/execution/dispatch.py": "80a8e2c8c4e1fb8a43457a2ca1efd414d7d8ed286c4c945548289d46223c3c10",
+    "backend/app/services/execution/ml_lifecycle.py": "34b3fd05007c6dca0539cf593cd7321680586df432cdffdb0f5ad5488b0ac40a",
+    "backend/app/workers/celery_app.py": "bacd03e603aaa6a6566e75253d7d686898f7dbaf3d35242b12bbff46b3b3d168",
+    "backend/constraints-temporal.txt": "b66935d8af06bdd95d6ca7db16dd8b3abf62dcdc258aed80dbe0d5e13b64b456",
+    "backend/requirements_temporal.txt": "7143961045b5f61e18c827139868130bfd12e50a565236738dd899d8f9623f32",
+    "docker/Dockerfile.agentium-orchestration": "01d5339ae65ca2a14a10e13c6fa8d5822cdd570ba1a2d120723ba57cc01ad857",
+    "docker/Dockerfile.agentium-orchestration.dockerignore": "4b2fd55d832ddc417ce7d7de23b30b736f1cec6786336b06b1e7295c94fa1839",
+    "docker/compose.agentium.temporal.yml": "fafd000328a9d9a312f900ddedfc388f00344ae7b03e1d23855b129c3b056640",
+    "run_celery.sh": "25b58f313d329193d9d8ae2672dbe8bdf81755c8da5dfbb1a178f431c247fe43",
+    "ops/helm/agentium/templates/worker.yaml": "2a2c58f615971eb3c21582565c1c97560a0dc65f8326388ea15d162ee937bcb4",
+    "docs/agentium-temporal-native-handover.md": "7780d2761fc6ad3272f872935c0733aac0a6d5f228827a7c1f133d54e4f3d78d"
+  },
+  "commands": {
+    "combined": "PATH=/workspace/.tools/linux-amd64:$PATH ACTIVITY_POSTGRES_URL=\"$LOCAL_ACTIVITY_POSTGRES_URL\" PYTHONPATH=. /workspace/hyusai/.venv/bin/pytest app/tests/services/test_execution_control_tick_postgres.py app/tests/services/test_activity_observability_postgres.py app/tests/services/test_execution_control_postgres.py app/tests/services/test_execution_control_review_postgres.py app/tests/infra/test_temporal_execution_scaffold.py app/tests/infra/test_execution_control_scaffold.py -q --disable-warnings --maxfail=1",
+    "migration_roundtrip": "PATH=/workspace/execution-runtime-qualification-2026-10-15/tools:/workspace/hyusai/.venv/bin:$PATH PGHOST=127.0.0.1 PGPORT=15433 PGUSER=obs_test PGPASSWORD=\"$LOCAL_POSTGRES_PASSWORD\" PYTHONPATH=. /workspace/hyusai/.venv/bin/pytest app/tests/infra/test_tabular_migration.py::test_the_slice_reverts_cleanly_so_a_rollback_is_real -q --disable-warnings --maxfail=1",
+    "outbox": "ACTIVITY_POSTGRES_URL=\"$LOCAL_ACTIVITY_POSTGRES_URL\" ACTIVITY_RABBITMQ_URL=\"$LOCAL_ACTIVITY_RABBITMQ_URL\" ACTIVITY_RABBITMQ_CONTAINER=test_obs_rabbitmq PYTHONPATH=. /workspace/hyusai/.venv/bin/pytest app/tests/services/test_execution_outbox_rabbitmq.py app/tests/services/test_execution_control_review.py::test_control_worker_drains_after_all_admission_flags_are_disabled -q --disable-warnings --maxfail=1",
+    "cwd": "backend",
+    "broker_setup": "docker run -d --name test_obs_rabbitmq --hostname test-obs-rabbitmq --memory 512m --memory-swap 512m --cpus 1 --pids-limit 128 -p 127.0.0.1:15673:5672 -e RABBITMQ_DEFAULT_USER=\"$LOCAL_BROKER_USER\" -e RABBITMQ_DEFAULT_PASS=\"$LOCAL_BROKER_PASSWORD\" -e \"RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=+S 1:1 +A 4\" rabbitmq:4.1-alpine",
+    "cleanup": [
+      "docker rm -fv test_obs_rabbitmq",
+      "docker image rm rabbitmq:4.1-alpine"
+    ]
+  },
+  "results": {
+    "combined": {
+      "passed": 55,
+      "skipped": 0,
+      "elapsed_seconds": 48.52,
+      "log": "control-final-targeted.log",
+      "postgres_cases": 15,
+      "scaffold_cases": 40,
+      "helm_version": "3.17.3"
+    },
+    "migration_roundtrip": {
+      "passed": 1,
+      "skipped": 0,
+      "elapsed_seconds": 40.27,
+      "log": "migration134-final-roundtrip.log",
+      "head": "134_execution_control",
+      "includes_reconciled_at_column_and_index": true
+    },
+    "outbox": {
+      "passed": 2,
+      "skipped": 0,
+      "elapsed_seconds": 27.8,
+      "log": "outbox-rabbitmq.log",
+      "broker_version": "4.1.8",
+      "broker_metadata": "rabbitmq-metadata.json",
+      "confirmed_messages": 2,
+      "consumer_deliveries": 3,
+      "native_claims": 1,
+      "transactional_fixture_effects": 1
+    }
+  },
+  "limitations": [
+    "PostgreSQL controller callbacks inject held locks, while production tick transaction boundaries and PostgreSQL rollback are real. Limits are per lock/statement, not an overall end-to-end tick SLA.",
+    "Broker restart is real; publisher death after confirm is injected by a BaseException at the exact pre-DB-ack boundary, not an operating-system process kill.",
+    "Transport uses the production Celery configure/send_task path and a Kombu consumer invoking the actual ML lifecycle claim. It does not run a Celery worker process, an ML trainer or provider.",
+    "Only the small fixture effect is transactional; no exactly-once claim is made for arbitrary external effects.",
+    "Native Temporal image C was not built: its qualified same-revision worker base is not available locally. Compose/Helm/launcher rendering and guard execution do not qualify its runtime or resource envelope.",
+    "No VM deployment, live provider/HANA call or admission activation occurred. Existing A/B runtime reports remain historical and distinct from native candidate C."
+  ],
+  "cleanup": {
+    "rabbitmq_container_removed": true,
+    "rabbitmq_image_removed": true,
+    "generated_pg_schemas_dropped_by_fixture": true,
+    "scratch_migration_database_only": true,
+    "shared_postgres_retained": true,
+    "other_agent_temporal_untouched": true,
+    "free_disk_after_cleanup_gib_approx": 2.6
+  },
+  "redaction": "Only selected logs and whitelisted image/container metadata; credentials omitted. No full Docker Config.Env or broker logs containing fixture credentials copied."
+}

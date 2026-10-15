@@ -1,0 +1,15 @@
+# Disposable mechanics qualifier, NOT a production worker. Build from a minimal
+# staged backend context containing orchestration-wheelhouse populated with
+# `pip download -r requirements_orchestration.txt -d orchestration-wheelhouse`.
+# The offline install prevents a build from resolving different package bytes.
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
+WORKDIR /opt/agentium
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/agentium
+COPY requirements_orchestration.txt /tmp/requirements_orchestration.txt
+COPY orchestration-wheelhouse /tmp/orchestration-wheelhouse
+RUN python -m pip install --no-cache-dir --no-index --find-links=/tmp/orchestration-wheelhouse -r /tmp/requirements_orchestration.txt && rm -rf /tmp/orchestration-wheelhouse
+COPY --chown=1000:1000 app/services/execution/runtimes /opt/agentium/app/services/execution/runtimes
+COPY --chown=1000:1000 scripts/qualify_execution_runtimes.py /opt/agentium/scripts/qualify_execution_runtimes.py
+USER 1000:1000
+ENTRYPOINT ["python", "scripts/qualify_execution_runtimes.py"]

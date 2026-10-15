@@ -35,10 +35,11 @@ class SurfaceMetadata:
     notes: str = ""
 
 
-CATALOG_VERSION = "2026-10-13"
+CATALOG_VERSION = "2026-10-15"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
+    SurfaceMetadata("/api/v1/observability/platform-overview", "Operate", "Platform", "canonical", "admin", "Platform", ("/observability/operations",), notes="Platform-admin metadata aggregates; no payloads or tenant execution authority."),
     SurfaceMetadata("/api/v1/connector-watches", "Data", "Connector", "canonical", "admin", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/connector-writes", "Data", "Connector", "canonical", "admin", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/connector-governance", "Governance", "Connector", "canonical", "admin", "Platform", ("/connectors",)),

@@ -1,0 +1,91 @@
+@if (features()?.enabled) {
+  <section class="activities" data-testid="activity-monitor" [attr.aria-label]="t('title')">
+    <header class="page-heading">
+      <div><p class="eyebrow">{{ i18n.t('nav.observability') }}</p><h1>{{ t('title') }}</h1><p>{{ t('description') }}</p></div>
+      <button type="button" (click)="reload()" [disabled]="loading()">{{ t('refresh') }}</button>
+    </header>
+    <nav class="scopes" [attr.aria-label]="t('scope')">
+      @for (item of features()!.scopes; track item) {
+        <button type="button" [attr.aria-pressed]="scope() === item" (click)="setScope(item)">{{ label('scope', item) }}</button>
+      }
+    </nav>
+    @if (scope() !== 'platform') {
+      <form class="filters" (ngSubmit)="applyFilters()">
+        @if (scope() === 'system') { <label>{{ t('system') }}<select name="systemId" [(ngModel)]="systemId" required><option value="">{{ t('select_system') }}</option>@for (system of systems(); track system.id) {<option [value]="system.id">{{ system.name }}</option>}@if (systemId && !systemListed(systemId)) {<option [value]="systemId">{{ systemId }}</option>}</select></label> }
+        <label>{{ t('kind') }}<select name="kind" [(ngModel)]="kind"><option value="">{{ t('all') }}</option>@for (item of features()!.kinds; track item) {<option [value]="item">{{ label('kind', item) }}</option>}</select></label>
+        <label>{{ t('status') }}<select name="status" [(ngModel)]="status"><option value="">{{ t('all') }}</option>@for (item of features()!.statuses; track item) {<option [value]="item">{{ label('status', item) }}</option>}</select></label>
+        <label>{{ t('period') }}<select name="since" [(ngModel)]="since"><option value="24h">{{ t('period_day') }}</option><option value="7d">{{ t('period_week') }}</option><option value="30d">{{ t('period_month') }}</option></select></label>
+        <button type="submit" [disabled]="loading()">{{ t('filter') }}</button>
+      </form>
+      <div class="freshness" role="status" aria-live="polite" [class.stale]="stale()">
+        <span class="dot" [class.live]="!stale()"></span>{{ label('stream', streamState()) }}
+        @if (lastSeen()) { <span>· {{ t('last_seen') }} {{ date(lastSeen()) }}</span> }
+        @if (stale()) { <span>{{ t('stale_hint') }}</span> }
+      </div>
+    }
+    @if (error()) { <p class="notice error" role="alert">{{ t(error()) }}</p> }
+    @if (scope() === 'platform') {
+      @if (platform(); as fleet) {
+        <p class="notice">{{ t('platform_scope') }} · {{ date(fleet.generated_at) }}</p>
+        @if (fleet.resources; as resources) {
+          <h2>{{ t('resources') }}</h2>
+          <div class="stats">
+            <article><span>{{ t('active_slots') }}</span><strong>{{ number(resources.active) }} / {{ number(resources.limits.slots) }}</strong></article>
+            <article><span>{{ t('cores') }}</span><strong>{{ number(resources.reserved_cpu) }} / {{ number(resources.limits.cpu) }}</strong></article>
+            <article><span>{{ t('memory_requested') }}</span><strong>{{ number(resources.reserved_memory_mb) }} / {{ number(resources.limits.memory_mb) }} MiB</strong></article>
+            <article><span>{{ t('unreconciled') }}</span><strong>{{ number(resources.unreconciled) }}</strong></article>
+          </div>
+        }
+        <div class="stats"><article><span>{{ t('total') }}</span><strong>{{ number(fleet.aggregates.total) }}</strong></article>@for (pair of entries(fleet.aggregates.by_status); track pair[0]) {<article><span>{{ label('status', pair[0]) }}</span><strong>{{ number(pair[1]) }}</strong></article>}</div>
+        <div class="table-wrap"><table><caption>{{ t('workspace_totals') }}</caption><thead><tr><th>{{ t('workspace') }}</th><th>{{ t('total') }}</th><th>{{ t('status') }}</th></tr></thead><tbody>@for (item of fleet.workspaces; track item.workspace_id) {<tr><th class="mono">{{ item.workspace_id }}</th><td>{{ number(item.aggregates.total) }}</td><td>@for (pair of entries(item.aggregates.by_status); track pair[0]) {<span class="badge">{{ label('status', pair[0]) }} {{ number(pair[1]) }}</span>}</td></tr>}</tbody></table></div>
+      }
+    } @else if (page(); as data) {
+      <div class="stats"><article><span>{{ t('total') }}</span><strong>{{ number(data.total) }}</strong><small>{{ t('total_hint') }}</small></article>@for (pair of statusCounts(); track pair[0]) {<article><span>{{ label('status', pair[0]) }}</span><strong>{{ number(pair[1]) }}</strong></article>}</div>
+      <div class="activity-layout" [class.with-detail]="selectedId()">
+        <section class="listing" [attr.aria-busy]="loading()">
+          @if (!data.items.length) { <div class="empty"><h2>{{ t('empty') }}</h2><p>{{ t('empty_hint') }}</p></div> }
+          @else {
+            <div class="table-wrap"><table><caption class="sr-only">{{ t('title') }}</caption><thead><tr><th>{{ t('activity') }}</th><th>{{ t('status') }}</th><th>{{ t('started') }}</th><th>{{ t('duration') }}</th><th>{{ t('cost') }}</th></tr></thead><tbody>
+              @for (item of data.items; track item.id) {
+                <tr [class.selected]="selectedId() === item.id">
+                  <th><button type="button" class="activity-select" (click)="select(item.id)" [attr.aria-expanded]="selectedId() === item.id"><span>{{ label('kind', item.kind) }}</span><small class="mono">{{ item.native_id }}</small></button></th>
+                  <td><span class="badge" [class.failed]="item.status === 'failed'">{{ label('status', item.status) }}</span></td><td>{{ date(item.started_at || item.created_at) }}</td><td>{{ number(item.measurements.duration_ms, ' ms') }}</td><td>{{ item.measurements.cost_known ? number(item.measurements.provider_cost_usd, ' USD') : t('unknown') }}</td>
+                </tr>
+              }
+            </tbody></table></div>
+          }
+          <nav class="pagination" [attr.aria-label]="t('pagination')"><button type="button" (click)="nextPage(-1)" [disabled]="!offset() || loading()">{{ t('previous') }}</button><span>{{ t('page_summary', {from: data.items.length ? data.offset + 1 : 0, to: data.offset + data.items.length, total: data.total}) }}</span><button type="button" (click)="nextPage(1)" [disabled]="!data.has_more || loading()">{{ t('next') }}</button></nav>
+        </section>
+        @if (selectedId()) {
+          <aside class="detail" [attr.aria-label]="t('detail')" [attr.aria-busy]="detailLoading()" data-testid="activity-detail">
+            <header><h2>{{ t('detail') }}</h2><button type="button" (click)="closeDetail()">{{ t('close') }}</button></header>
+            @if (detailError()) { <p class="notice error" role="alert">{{ t(detailError()) }}</p> }
+            @if (detail(); as item) {
+              <h3>{{ label('kind', item.kind) }}</h3><p class="mono break">{{ item.native_id }}</p><span class="badge">{{ label('status', item.status) }}</span>
+              <dl class="facts"><dt>{{ t('native_status') }}</dt><dd>{{ item.native_status }}</dd><dt>{{ t('version') }}</dt><dd>{{ item.version }}</dd><dt>{{ t('system') }}</dt><dd>@if (item.system_id) {<a [routerLink]="objectHref('system', item.system_id)">{{ item.system_id }}</a>} @else {—}</dd><dt>{{ t('run') }}</dt><dd>@if (item.run_id) {<a [routerLink]="objectHref('run', item.run_id)">{{ item.run_id }}</a>} @else {—}</dd><dt>{{ t('parent') }}</dt><dd>@if(item.parent_activity_id) {<button class="link" type="button" (click)="select(item.parent_activity_id)">{{ item.parent_activity_id }}</button>} @else {—}</dd><dt>{{ t('started') }}</dt><dd>{{ date(item.started_at) }}</dd><dt>{{ t('finished') }}</dt><dd>{{ date(item.finished_at) }}</dd></dl>
+              <h3>{{ t('resources') }}</h3>
+              <dl class="facts"><dt>{{ t('duration') }}</dt><dd>{{ number(item.measurements.duration_ms, ' ms') }}</dd><dt>{{ t('cpu') }}</dt><dd>{{ number(item.measurements.cpu_seconds, ' s') }}</dd><dt>{{ t('allocated') }}</dt><dd>{{ number(item.measurements.core_hours, ' h') }}</dd><dt>{{ t('reserved') }}</dt><dd>{{ number(item.measurements.reserved_core_hours, ' h') }}</dd><dt>{{ t('cores') }}</dt><dd>{{ number(item.measurements.cpu_cores) }}</dd><dt>{{ t('memory_requested') }}</dt><dd>{{ number(item.measurements.memory_mb, ' MiB') }}</dd><dt>{{ t('memory') }}</dt><dd>{{ number(item.measurements.peak_memory_bytes, ' B') }}</dd><dt>{{ t('spill') }}</dt><dd>{{ number(item.measurements.spill_bytes, ' B') }}</dd><dt>{{ t('input_rows') }}</dt><dd>{{ number(item.measurements.input_rows) }}</dd><dt>{{ t('output_rows') }}</dt><dd>{{ number(item.measurements.output_rows) }}</dd><dt>{{ t('cost_basis') }}</dt><dd>{{ item.measurements.cost_basis ? label('cost_basis', item.measurements.cost_basis) : t('unknown') }}</dd><dt>{{ t('cost') }}</dt><dd>{{ item.measurements.cost_known ? number(item.measurements.provider_cost_usd, ' USD') : t('unknown') }}</dd></dl>
+              <p class="notice">{{ t('coverage') }}: {{ t('events') }} {{ coverage(item.coverage?.['events']) }} · {{ t('resources') }} {{ coverage(item.coverage?.['resources']) }} · {{ t('cost') }} {{ coverage(item.coverage?.['cost']) }}. {{ t('cost_hint') }}</p>
+              <h3>{{ t('evidence') }}</h3><ul class="evidence">@for (link of item.links.concat(item.evidence || []); track $index) {@if (safeLink(link); as href) {<li><a [routerLink]="href">{{ label('link', link.rel) }}</a></li>}}</ul>
+              @if (item.attempts.length) {<h3>{{ t('attempts') }}</h3><ol class="attempts">@for (attempt of item.attempts; track attempt.id) {<li><button type="button" class="link" (click)="select(attempt.id)">{{ label('kind', attempt.kind) }} · {{ label('status', attempt.status) }}</button><small>{{ date(attempt.started_at || attempt.created_at) }}</small></li>}</ol>}
+              @if (item.attempts_has_more) {<p class="notice">{{ t('attempts_more') }}</p>}
+              @if (item.related_activities?.length) {<h3>{{ t('related') }}</h3><ol class="attempts">@for (related of item.related_activities; track related.id) {<li><button type="button" class="link" (click)="select(related.id)">{{ label('kind', related.kind) }} · {{ label('status', related.status) }}</button><small>{{ date(related.started_at || related.created_at) }}</small></li>}</ol>}@if (item.related_has_more) {<p class="notice">{{ t('related_more') }}</p>}
+              <h3>{{ t('actions') }}</h3>
+              @if (item.capabilities.cancel) {<button type="button" (click)="confirmCancel.set(true)" [disabled]="!canCancel()">{{ t('cancel') }}</button>} @else {<p>{{ t('no_actions') }}</p>}
+              @if (confirmCancel()) {<div class="notice" role="group" [attr.aria-label]="t('cancel')"><p>{{ t('cancel_confirm') }}</p><button type="button" (click)="cancel()" [disabled]="!canCancel()">{{ t('confirm_cancel') }}</button><button type="button" (click)="confirmCancel.set(false)">{{ t('keep') }}</button></div>}
+              @if (commandUncertain()) {<button type="button" (click)="cancel()" [disabled]="submitting() || stale()">{{ t('retry_same') }}</button>}
+              @if (command(); as request) {<div class="notice" role="status" data-testid="activity-command"><strong>{{ t('command') }}: {{ label('command', request.status) }}</strong><p>{{ t('command_hint') }}</p><small class="mono">{{ request.id }}</small>@if (request.error_code) {<p>{{ request.error_code }}</p>}</div>}
+              <h3>{{ t('timeline') }}</h3><p class="muted">{{ t('timeline_hint') }}</p><div class="scopes"><button type="button" (click)="timelineLatest()" [attr.aria-pressed]="!historyMode()">{{ t('latest_events') }}</button><button type="button" (click)="timelineHistory()" [attr.aria-pressed]="historyMode()" [disabled]="eventsLoading()">{{ t('history_events') }}</button></div>
+              @if (!events().length) {<p>{{ t('no_events') }}</p>}
+              <ol class="timeline">@for (event of events(); track event.id) {<li><time>{{ date(event.occurred_at) }}</time><strong>{{ label('status', event.status) }}</strong><small>{{ label('kind', event.kind) }} · v{{ event.version }}</small></li>}</ol>
+              @if (eventMore()) {<button type="button" (click)="moreEvents()" [disabled]="eventsLoading()">{{ t('more_events') }}</button>}
+            } @else if (detailLoading()) {<p role="status">{{ t('loading') }}</p>}
+          </aside>
+        }
+      </div>
+    } @else if (loading()) { <p role="status">{{ t('loading') }}</p> }
+  </section>
+} @else {
+  @if (error()) {<p class="activities notice error" role="alert">{{ t(error()) }}</p>}
+  @if (discovering()) {<p class="activities" role="status">{{ t('loading') }}</p>} @else {<app-workspace-monitor />}
+}

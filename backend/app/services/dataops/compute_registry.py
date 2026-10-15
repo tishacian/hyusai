@@ -1,13 +1,13 @@
-"""One lifecycle while legacy DataOps tasks drain: RecipeExecution is a projection.
+"""Dispatch lifecycle calls to the controller frozen at submission.
 
 The existing task names and subprocess supervisor are retained. Admission, lease,
-absolute deadline, cancellation and accounting come from compute_runs whenever
-its foundation is enabled; no second Celery task is submitted.
+absolute deadline, cancellation and accounting stay with the original authority.
+New O3 attempts use RecipeExecution; C0 attempts drain through ComputeRun.
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 from sqlalchemy.orm import object_session
 
@@ -20,11 +20,43 @@ KINDS = {"data_prep", "ml_stream_score", "sql_transform"}
 
 def applicable(execution):
     return (
-        settings.connector_framework_enabled and (execution.input_json or {}).get("kind") in KINDS
+        execution.lifecycle_controller in {"recipe_v1", "compute_v1"}
+        or (settings.connector_framework_enabled and (execution.input_json or {}).get("kind") in KINDS)
     )
 
 
 def register(db, execution):
+    from sqlalchemy import inspect
+
+    from app.services.execution import recipe_lifecycle
+    from app.services.execution.rollout import durable_for, enabled_for
+    is_new = inspect(execution).pending
+    if is_new and (execution.input_json or {}).get("kind") in KINDS:
+        # The parent freezes an absolute deadline; queueing time must consume
+        # that same budget. A child never receives a fresh, longer T0 window.
+        if execution.run_id:
+            from app.models.run import Run
+            from app.services.execution.contracts import ExecutionPolicy
+            parent = db.get(Run, execution.run_id)
+            if parent is not None and parent.workspace_id == execution.workspace_id and parent.execution_policy:
+                policy = ExecutionPolicy.model_validate(parent.execution_policy)
+                if policy.deadline_at is not None:
+                    deadline = policy.deadline_at.astimezone(UTC).replace(tzinfo=None)
+                    execution.deadline_at = min(execution.deadline_at, deadline) if execution.deadline_at else deadline
+                    remaining = max(1, int((deadline - runs.utcnow()).total_seconds()))
+                    execution.timeout_s = min(execution.timeout_s or settings.dataops_sql_timeout_s, remaining)
+        if enabled_for(db, execution.workspace_id, "execution_control_enabled"):
+            recipe_lifecycle.register(db, execution)
+        else:
+            execution.lifecycle_controller = "compute_v1" if settings.connector_framework_enabled else "legacy"
+        if durable_for(db, execution.workspace_id):
+            from app.services.execution.dispatch import stage
+            stage(db, "recipe_execution", execution, deadline_at=execution.deadline_at or (
+                runs.utcnow() + timedelta(seconds=execution.timeout_s or settings.dataops_sql_timeout_s)))
+    if execution.lifecycle_controller == recipe_lifecycle.CONTROLLER:
+        return execution
+    if execution.lifecycle_controller == "legacy":
+        return None
     if not applicable(execution):
         return None
     db.flush()
@@ -41,7 +73,7 @@ def register(db, execution):
         run_id=execution.run_id,
         node_id=execution.node_id,
         cpu_cores=settings.dataops_duckdb_threads,
-        deadline_at=now + timedelta(seconds=execution.timeout_s or settings.dataops_sql_timeout_s),
+        deadline_at=execution.deadline_at or now + timedelta(seconds=execution.timeout_s or settings.dataops_sql_timeout_s),
     )
     row.memory_mb = settings.dataops_runner_memory_limit_mb
     row.fingerprint = execution.code_sha256
@@ -49,6 +81,27 @@ def register(db, execution):
 
 
 def start(db, execution):
+    if execution.lifecycle_controller == "recipe_v1":
+        from app.services.execution.recipe_lifecycle import start as native_start
+        return native_start(db, execution)
+    if execution.lifecycle_controller == "legacy":
+        if execution.deadline_at and execution.deadline_at <= runs.utcnow():
+            from app.services.recipe_executions import finalize_execution
+            fail_outputs(db, execution)
+            finalize_execution(execution, status="timed_out", error="EXECUTION_DEADLINE_EXCEEDED")
+            db.commit()
+            return False
+        from app.services.execution.control import parent_cancelled
+        if parent_cancelled(db, execution.run_id, execution.workspace_id):
+            from app.services.recipe_executions import request_cancel
+            request_cancel(db, execution)
+            return False
+        from app.models.execution_control import ExecutionDispatch
+        if db.query(ExecutionDispatch.id).filter_by(entity_kind="recipe_execution", entity_id=execution.id).first():
+            from app.models.recipe import RecipeExecution
+            execution = db.query(RecipeExecution).filter_by(id=execution.id).with_for_update().populate_existing().one()
+            return execution.status == "queued" and not execution.cancel_requested
+        return True
     if not applicable(execution):
         return True
     if execution.status != "queued":
@@ -84,12 +137,15 @@ def start(db, execution):
 
 
 def poll(db, execution_id):
-    if not settings.connector_framework_enabled:
-        return False
     from app.db.base import SessionLocal
     from app.models.recipe import RecipeExecution
 
     execution = db.get(RecipeExecution, execution_id)
+    if execution and execution.lifecycle_controller == "recipe_v1":
+        from app.services.execution.recipe_lifecycle import poll as native_poll
+        return native_poll(db, execution_id)
+    if not settings.connector_framework_enabled and (not execution or execution.lifecycle_controller != "compute_v1"):
+        return False
     token = getattr(execution, "_compute_lease_token", None)
     # A heartbeat must be committed independently of dataset publication. Never
     # hold the compute row lock throughout the child runtime: cancellation and
@@ -128,7 +184,10 @@ def begin_settlement(db, execution):
     transaction owns publication until the absolute deadline; a separate
     heartbeat could not renew a lease while this row is locked.
     """
-    if not applicable(execution):
+    if execution.lifecycle_controller == "recipe_v1":
+        from app.services.execution.recipe_lifecycle import begin_settlement as native_begin
+        return native_begin(db, execution)
+    if execution.lifecycle_controller == "legacy" or not applicable(execution):
         return
     with db.no_autoflush:
         row = (
@@ -175,6 +234,14 @@ def fail_outputs(db, execution):
 
 
 def finalize(execution):
+    if execution.lifecycle_controller == "recipe_v1":
+        from app.services.execution.recipe_lifecycle import finalize as native_finalize
+        db = object_session(execution)
+        if db is not None:
+            return native_finalize(db, execution)
+        return
+    if execution.lifecycle_controller == "legacy":
+        return
     if not applicable(execution):
         return
     db = object_session(execution)

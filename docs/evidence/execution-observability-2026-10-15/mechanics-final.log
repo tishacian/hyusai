@@ -1,0 +1,634 @@
+Completing activity as failed ({'activity_id': '2', 'activity_type': 'agent_data_agent.data_prepare', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-3603f174048b454db73f0b5ce105187d', 'workflow_run_id': '01a13efb-d44a-7258-abae-b38b1b5a37d1', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 51, in data_prepare
+    return await _execute_native(state, "data_prepare")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 30, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 96, in submit
+    raise RuntimeError(fail)
+RuntimeError: QUALIFICATION_FAIL_AFTER_EFFECT_COMMIT
+Completing activity as failed ({'activity_id': '1', 'activity_type': 'data_agent_delivery.data_prepare', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-21a74398326c4eadab0d8f91ddef3a7a', 'workflow_run_id': '01a13efb-da9c-71ff-8c79-611f05eb6dff', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 51, in data_prepare
+    return await _execute_native(state, "data_prepare")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 30, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 96, in submit
+    raise RuntimeError(fail)
+RuntimeError: QUALIFICATION_FAIL_AFTER_EFFECT_COMMIT
+Completing activity as failed ({'activity_id': '5', 'activity_type': 'data_agent_delivery.review', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-revoked-1a8aa206fbd942d5826289fdd41e486a', 'workflow_run_id': '01a13efb-f1b1-7507-9301-177ef859bb04', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 63, in review
+    return await _execute_native(state, "review")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 29, in _execute_native
+    await port.authorize(scope)
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 67, in authorize
+    raise PermissionError("QUALIFICATION_ACCESS_REVOKED")
+PermissionError: QUALIFICATION_ACCESS_REVOKED
+Completing activity as failed ({'activity_id': '5', 'activity_type': 'data_agent_delivery.review', 'attempt': 2, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-revoked-1a8aa206fbd942d5826289fdd41e486a', 'workflow_run_id': '01a13efb-f1b1-7507-9301-177ef859bb04', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 63, in review
+    return await _execute_native(state, "review")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 29, in _execute_native
+    await port.authorize(scope)
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 67, in authorize
+    raise PermissionError("QUALIFICATION_ACCESS_REVOKED")
+PermissionError: QUALIFICATION_ACCESS_REVOKED
+Completing activity as failed ({'activity_id': '5', 'activity_type': 'data_agent_delivery.review', 'attempt': 3, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-revoked-1a8aa206fbd942d5826289fdd41e486a', 'workflow_run_id': '01a13efb-f1b1-7507-9301-177ef859bb04', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 63, in review
+    return await _execute_native(state, "review")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 29, in _execute_native
+    await port.authorize(scope)
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 67, in authorize
+    raise PermissionError("QUALIFICATION_ACCESS_REVOKED")
+PermissionError: QUALIFICATION_ACCESS_REVOKED
+Completing activity as failed ({'activity_id': '3', 'activity_type': 'data_agent_delivery.judge', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-budget-77a4e2f584704a9e8c31949e84186586', 'workflow_run_id': '01a13efc-007b-78ca-97cb-2230b8ad0c94', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 59, in judge
+    return await _execute_native(state, "judge")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 30, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 86, in submit
+    raise RuntimeError("QUALIFICATION_BUDGET_EXCEEDED")
+RuntimeError: QUALIFICATION_BUDGET_EXCEEDED
+Completing activity as failed ({'activity_id': '3', 'activity_type': 'data_agent_delivery.judge', 'attempt': 2, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-budget-77a4e2f584704a9e8c31949e84186586', 'workflow_run_id': '01a13efc-007b-78ca-97cb-2230b8ad0c94', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 59, in judge
+    return await _execute_native(state, "judge")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 30, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 86, in submit
+    raise RuntimeError("QUALIFICATION_BUDGET_EXCEEDED")
+RuntimeError: QUALIFICATION_BUDGET_EXCEEDED
+Completing activity as failed ({'activity_id': '3', 'activity_type': 'data_agent_delivery.judge', 'attempt': 3, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-budget-77a4e2f584704a9e8c31949e84186586', 'workflow_run_id': '01a13efc-007b-78ca-97cb-2230b8ad0c94', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 59, in judge
+    return await _execute_native(state, "judge")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 30, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 86, in submit
+    raise RuntimeError("QUALIFICATION_BUDGET_EXCEEDED")
+RuntimeError: QUALIFICATION_BUDGET_EXCEEDED
+Completing activity as failed ({'activity_id': '1', 'activity_type': 'data_agent_delivery.data_prepare', 'attempt': 1, 'namespace': 'default', 'task_queue': 'qualification-ca7360b312324bcabca88b70caef9004', 'workflow_id': 'temporal-duplicate_before_effect-893654b16c084440a9b079ad76a39c6f', 'workflow_run_id': '01a13efc-0a12-70e0-9356-9408d0298b54', 'workflow_type': 'ComposedNativeWorkflow'})
+Traceback (most recent call last):
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 889, in execute_activity
+    return await input.fn(*input.args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 99, in wrapper
+    return await run(stream_writer=None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/execution-runtime-qualification-2026-10-15/venv/lib/python3.12/site-packages/temporalio/langgraph/_activity.py", line 89, in run
+    result = await func(*input.args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 51, in data_prepare
+    return await _execute_native(state, "data_prepare")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/app/services/execution/runtimes/compositions.py", line 30, in _execute_native
+    reference = await port.submit(scope, name, key)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/hyusai-observability/backend/scripts/qualify_execution_runtimes.py", line 96, in submit
+    raise RuntimeError(fail)
+RuntimeError: QUALIFICATION_FAIL_BEFORE_EFFECT
+{
+  "scope": "local mechanics with deterministic qualification port",
+  "production_enabled": false,
+  "versions": {
+    "langgraph": "1.2.15",
+    "langgraph-checkpoint-postgres": "3.2.0",
+    "temporalio": "1.34.0",
+    "temporalio-langgraph": "0.1.0",
+    "psycopg": "3.3.3"
+  },
+  "native_providers_qualified": false,
+  "native_delivery_receipt_qualified": false,
+  "comparison": {
+    "baseline_native_same_corpus": "NOT_PERFORMED",
+    "historical_native_tests": "138 passed previously; not a comparative mechanics run"
+  },
+  "coverage_limits": [
+    "deterministic fixture port, not production Skill submission",
+    "no provider calls, DataOps volume or native DeliveryReceipt publication",
+    "not the complete native failure, capacity, IAM or cost corpus",
+    "fixture timings and process RSS are not a production SLA"
+  ],
+  "gates": {
+    "O5": "NO_GO_NATIVE_SUBMISSION_ADAPTER_UNQUALIFIED",
+    "langgraph_autonomous": "NO_GO_DURABLE_DISPATCH_AND_RECOVERY_INTEGRATION_UNQUALIFIED",
+    "temporal_production": "NO_GO_PUBLIC_PREVIEW_AND_INCOMPLETE_NATIVE_FAULT_CORPUS"
+  },
+  "langgraph_postgres": {
+    "cases": [
+      {
+        "case": "agent_data_agent_durable_review_reopen",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "data_agent_delivery_durable_review_reopen",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "failure_before_effect_recovery",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "failure_after_effect_recovery",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "revoked_before_resume",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "elapsed_seconds": 3.339926236003521
+  },
+  "temporal_langgraph": {
+    "cases": [
+      {
+        "case": "agent_data_agent_retry_after_commit_review_worker_restart",
+        "passed": true,
+        "server_restarted": true,
+        "pending_activities_during_review": 0,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "agent_plan",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "data_agent_delivery_retry_after_commit_review_worker_restart",
+        "passed": true,
+        "server_restarted": true,
+        "pending_activities_during_review": 0,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "revoked",
+        "passed": true,
+        "fixture_effects": 4,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "waiting",
+            "attempts": 1,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "cancelled",
+        "passed": true,
+        "fixture_effects": 4,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "waiting",
+            "attempts": 1,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "budget",
+        "passed": true,
+        "fixture_effects": 2,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          }
+        ],
+        "active_adapter_calls": 0
+      },
+      {
+        "case": "duplicate_before_effect",
+        "passed": true,
+        "fixture_effects": 5,
+        "effects": [
+          {
+            "node": "agent_explain",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "data_prepare",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": 55
+          },
+          {
+            "node": "delivery",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "judge",
+            "status": "succeeded",
+            "attempts": 1,
+            "value": null
+          },
+          {
+            "node": "review",
+            "status": "succeeded",
+            "attempts": 2,
+            "value": null
+          }
+        ],
+        "active_adapter_calls": 0
+      }
+    ],
+    "passed": true,
+    "elapsed_seconds": 16.784031210001558
+  },
+  "elapsed_seconds": 20.183078243004275,
+  "process_peak_rss_bytes": 123629568,
+  "cleanup": {
+    "postgres_schema_dropped": true
+  }
+}

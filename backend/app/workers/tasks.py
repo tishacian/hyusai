@@ -1066,3 +1066,9 @@ def dataops_sample_recovery_task():
     from app.services.dataops.samples import recover_samples
 
     return recover_samples()
+
+
+@celery_app.task(name="agentium.execution_run", acks_late=True, reject_on_worker_lost=True)
+def execution_run_task(run_id: str):
+    from app.services.execution.run_worker import execute
+    return execute(run_id)

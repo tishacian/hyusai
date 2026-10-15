@@ -1,0 +1,31 @@
+{
+  "base_commit": "0b63fcec0be57a87b7578142a15c2b797dbe98cc",
+  "collected_at": "2026-10-15T10:43:43.459970+00:00",
+  "unit": {
+    "command": "npm run test:unit",
+    "passed": 2238,
+    "failed": 0,
+    "skipped": 0,
+    "raw_log_sha256": "2fbe6d638659af56c23c5c40080b32cd0950d79a76b4cfe018b27a25d355f584",
+    "raw_log_bytes": 192899,
+    "summary": "frontend-unit-summary.log"
+  },
+  "build": {
+    "command": "npm run build:prod",
+    "exit_code": 0,
+    "log": "frontend-build.log"
+  },
+  "browser": {
+    "command": "E2E_BASE_URL=http://127.0.0.1:4310 E2E_CHROMIUM_EXECUTABLE=/usr/bin/chromium E2E_ACTIVITY_OBSERVABILITY_FIXTURE=1 npx playwright test e2e/tests/59-activity-observability-mocked.spec.ts --reporter=list",
+    "passed": 5,
+    "failed": 0,
+    "log": "frontend-browser.log",
+    "scope": "Real Chromium with controlled HTTP/SSE responses; not VM end-to-end qualification"
+  },
+  "guards": [
+    "check:i18n",
+    "check:nav-links",
+    "check:ui-chrome"
+  ],
+  "i18n_result": "12349 keys across 26 domains, 49 navigation keys, 321 templates and 346 code files scanned, 24 lexicon rules and 6 French-term rules enforced."
+}

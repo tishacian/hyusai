@@ -139,7 +139,7 @@ def dispatch_execution(db: DBSession, execution: RecipeExecution, *, code: str) 
     return async_result.id
 
 
-def request_cancel(db: DBSession, execution: RecipeExecution) -> RecipeExecution:
+def request_cancel(db: DBSession, execution: RecipeExecution, *, commit: bool = True) -> RecipeExecution:
     """Cooperative cancel; a still-queued task is also revoked best-effort."""
 
     execution = (
@@ -154,7 +154,7 @@ def request_cancel(db: DBSession, execution: RecipeExecution) -> RecipeExecution
     execution.cancel_requested = True
     if execution.status == "queued":
         task_id = execution.celery_task_id
-        if task_id and not str(task_id).startswith("eager:"):
+        if commit and task_id and not str(task_id).startswith("eager:"):
             try:
                 from app.workers.celery_app import celery_app
 
@@ -179,7 +179,7 @@ def request_cancel(db: DBSession, execution: RecipeExecution) -> RecipeExecution
                     reserved.status = "failed"
                     reserved.error = "DATAOPS_CANCELLED"
 
-    db.commit()
+    db.commit() if commit else db.flush()
     return execution
 
 

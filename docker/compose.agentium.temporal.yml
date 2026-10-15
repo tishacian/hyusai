@@ -1,0 +1,60 @@
+# Optional native Temporal candidate. Requires the base and execution-control
+# overlays, both explicit profiles, a qualified image, and an external server.
+# No service here starts a Temporal development server or enables admission.
+x-temporal-common: &temporal-common
+  image: ${AGENTIUM_ORCHESTRATION_IMAGE:?Set the qualified orchestration image of the same source revision as the worker}
+  profiles: [execution-temporal]
+  restart: unless-stopped
+  networks: [agentium-net]
+  env_file:
+    - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+  environment: &temporal-environment
+    AGENTIUM_DISABLE_DOTENV: "1"
+    EXECUTION_TEMPORAL_ADDRESS: ${EXECUTION_TEMPORAL_ADDRESS:?Set an explicitly qualified external Temporal address}
+    EXECUTION_TEMPORAL_NAMESPACE: ${EXECUTION_TEMPORAL_NAMESPACE:-default}
+    EXECUTION_TEMPORAL_TASK_QUEUE: ${EXECUTION_TEMPORAL_TASK_QUEUE:-agentium-native-v1}
+    EXECUTION_TEMPORAL_TLS: ${EXECUTION_TEMPORAL_TLS:-true}
+    CELERY_ORCHESTRATION_QUEUE: orchestration
+    CELERY_BEAT: "0"
+  read_only: true
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  depends_on:
+    agentium-rabbitmq:
+      condition: service_healthy
+    agentium-worker-control:
+      condition: service_started
+    agentium-scheduler-control:
+      condition: service_started
+
+services:
+  agentium-orchestration-starter:
+    <<: *temporal-common
+    container_name: agentium-orchestration-starter
+    environment:
+      <<: *temporal-environment
+      CELERY_APP: app.workers.temporal_execution:app
+      CELERY_QUEUES: orchestration
+      CELERY_CONCURRENCY: "1"
+    # Proposed safety bounds; they are not measured capacity evidence.
+    mem_limit: ${AGENTIUM_TEMPORAL_STARTER_MEMORY:-512m}
+    cpus: ${AGENTIUM_TEMPORAL_STARTER_CPUS:-1}
+    pids_limit: 64
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    command: [python, -m, celery, -A, "app.workers.temporal_execution:app", worker, -Q, orchestration, -c, "1", --pool, solo, --without-gossip, --without-mingle, --loglevel, info]
+
+  agentium-orchestration-worker:
+    <<: *temporal-common
+    container_name: agentium-orchestration-worker
+    mem_limit: ${AGENTIUM_TEMPORAL_WORKER_MEMORY:-2g}
+    cpus: ${AGENTIUM_TEMPORAL_WORKER_CPUS:-1}
+    pids_limit: 128
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    # Agentic Skills/judges consume the same assets and vector store as native
+    # workers; compute child jobs keep their own worker/resource authority.
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/srv/agentium-secure-deposit}:/data/secure_deposit:ro
+      - ${AGENTIUM_FAISS_PATH:-/srv/agentium-data/faiss_db}:/data/faiss_db
+      - ${AGENTIUM_RECIPE_ENVS_PATH:-/home/ubuntu/agentium-data/recipe_envs}:/data/recipe_envs
+    command: [python, -m, app.workers.temporal_execution, worker]

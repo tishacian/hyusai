@@ -1,0 +1,10 @@
+temporal version 1.9.1 (Server 1.32.0, UI 2.54.1)
+temporal_sdk: 1.34.0
+temporal_cli: 1.9.1
+temporal_server: 1.32.0
+temporal_ui: 2.54.1
+temporal_cli_sha256: 712217694cac9f786a72d4b6c876cd15f3dcf1bf31434d9fed6af25242a327a0
+python: 3.12.14
+sqlalchemy: 2.0.52
+pytest: 9.1.1
+platform: Linux x86_64

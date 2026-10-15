@@ -1340,6 +1340,11 @@ def _next_model_version(db: DBSession, *, workspace_id: str, slug: str) -> int:
 def dispatch_training(db: DBSession, model: MLModel) -> str:
     """Enqueue the worker task; eager mode trains inline (dev/tests)."""
 
+    from app.services.execution.ml_lifecycle import register as register_execution
+    intent = register_execution(db, model)
+    if intent is not None:
+        db.commit()
+        return intent.task_id
     if settings.worker_eager_mode:
         model.celery_task_id = f"eager:{model.id}"
         db.commit()
@@ -1402,21 +1407,27 @@ def submit_training(
         run_id=run_id,
         node_id=node_id,
     )
+    from app.services.execution.ml_lifecycle import register as register_execution
+    register_execution(db, model)
     db.commit()
     dispatch_training(db, model)
     db.expire_all()
     return db.query(MLModel).filter(MLModel.id == model.id).first() or model
 
 
-def request_cancel(db: DBSession, model: MLModel) -> MLModel:
+def request_cancel(db: DBSession, model: MLModel, *, commit: bool = True) -> MLModel:
     """Cooperative cancel; a still-queued task is also revoked best-effort."""
 
+    model = (
+        db.query(MLModel).filter_by(id=model.id, workspace_id=model.workspace_id)
+        .with_for_update().populate_existing().one()
+    )
     if model.status in MODEL_TERMINAL_STATUSES:
         return model
     model.cancel_requested = True
     if model.status == "pending":
         task_id = model.celery_task_id
-        if task_id and not str(task_id).startswith("eager:"):
+        if commit and task_id and not str(task_id).startswith("eager:"):
             try:
                 from app.workers.celery_app import celery_app
 
@@ -1424,7 +1435,7 @@ def request_cancel(db: DBSession, model: MLModel) -> MLModel:
             except Exception:  # noqa: BLE001 - the DB flag stays authoritative
                 logger.warning("tabular_ml: revoke failed", model_id=model.id)
         _finalize(model, status="cancelled", error="cancel_requested")
-    db.commit()
+    db.commit() if commit else db.flush()
     return model
 
 
@@ -2162,6 +2173,11 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 db.commit()
                 return {"id": model_id, "status": model.status}
         if model.status == "training":
+            from app.models.execution_control import ExecutionDispatch
+            if db.query(ExecutionDispatch.id).filter_by(entity_kind="ml_training", entity_id=model_id).first():
+                return {"id": model_id, "status": "training"}
+            if model.execution_policy is not None:
+                return {"id": model_id, "status": "training"}
             _finalize(model, status="failed", error="ml_worker_lost_after_claim")
             db.commit()
             return {"id": model_id, "status": "failed"}
@@ -2216,11 +2232,17 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             db.commit()
             return {"id": model_id, "status": "failed"}
 
+        from app.services.execution import ml_lifecycle
+        if not ml_lifecycle.start(db, model):
+            return {"id": model_id, "status": model.status}
         model.status = "training"
         model.error = None
         mark_step(db, model, "reading")
+        db.commit()
 
         timeout_s = clamp_timeout(settings.ml_train_timeout_s)
+        if model.deadline_at:
+            timeout_s = min(timeout_s, max(0.01, (model.deadline_at-datetime.utcnow()).total_seconds()))
         if family.key == "tabular_foundation":
             timeout_s = min(600.0, timeout_s)
         scratch = Path(tempfile.mkdtemp(prefix="ml-train-"))
@@ -2245,7 +2267,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     message="The confirmed label provenance changed after training was submitted.",
                     status_code=409,
                 )
-            data_path = materialize_dataset(dataset, scratch / "data")
+            from app.services.execution.io_lease import maintain
+            with maintain(MLModel, model.id, getattr(model, "_native_lease_token", None), status="training"):
+                data_path = materialize_dataset(dataset, scratch / "data")
             manifest_path = _write_manifest(
                 scratch, model, data_path, distillation=distillation, dataset=dataset
             )
@@ -2265,7 +2289,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 scratch=scratch,
                 timeout_s=timeout_s,
                 should_cancel=lambda: (
-                    cancel_requested(db, model_id) or retraining_cancel_requested(db, model)
+                    cancel_requested(db, model_id) or ml_lifecycle.poll(db, model) or retraining_cancel_requested(db, model)
                 ),
                 # The three steps inside the fit are the child's to name, so the
                 # worker republishes them rather than guessing at the boundaries.
@@ -2304,19 +2328,21 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     )
                 else:
                     mark_step(db, model, "saving")
-                    uri, size = upload_model_dir(
-                        scratch / "model",
-                        workspace_id=model.workspace_id,
-                        model_id=model.id,
-                    )
+                    with maintain(MLModel, model.id, getattr(model, "_native_lease_token", None), status="training"):
+                        uri, size = upload_model_dir(
+                            scratch / "model",
+                            workspace_id=model.workspace_id,
+                            model_id=model.id,
+                        )
                     status, error = "ready", None
                     summary["model_uri"] = uri
                     summary["artifact_bytes"] = size
-                    summary["report_state_uri"] = upload_report_state(
-                        scratch / "report" / _REPORT_STATE_FILE,
-                        workspace_id=model.workspace_id,
-                        model_id=model.id,
-                    )
+                    with maintain(MLModel, model.id, getattr(model, "_native_lease_token", None), status="training"):
+                        summary["report_state_uri"] = upload_report_state(
+                            scratch / "report" / _REPORT_STATE_FILE,
+                            workspace_id=model.workspace_id,
+                            model_id=model.id,
+                        )
                     evaluation = (summary.get("metrics") or {}).get("evaluation")
                     if isinstance(evaluation, dict) and evaluation.get("status") == "recorded":
                         local = scratch / "report" / "evaluation.json.gz"
@@ -2331,7 +2357,8 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
 
                             if hashlib.sha256(payload).hexdigest() != evaluation.get("sha256"):
                                 raise ValueError("Evaluation artifact digest mismatch")
-                            get_object_store().write_bytes(key, payload)
+                            with maintain(MLModel, model.id, getattr(model, "_native_lease_token", None), status="training"):
+                                get_object_store().write_bytes(key, payload)
                             evaluation["key"] = key
                             evaluation["status"] = "stored"
                         except Exception:
@@ -2349,10 +2376,13 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         model = db.query(MLModel).filter(MLModel.id == model_id).first()
         if model is None:  # pragma: no cover - deleted mid-run
             return {"id": model_id, "status": "missing"}
+        status, error = ml_lifecycle.begin_settlement(db, model, status, error)
         if (model.params_json or {}).get("retraining_proposal"):
             from app.services.ml_retraining import retraining_cancel_requested
 
             if model.status in {"failed", "cancelled"}:
+                ml_lifecycle.settle(db, model, model.status, model.error)
+                db.commit()
                 return {"id": model_id, "status": model.status}
             if model.cancel_requested or retraining_cancel_requested(db, model):
                 status, error = "cancelled", "ML_RETRAIN_CANCELLED"
@@ -2389,6 +2419,11 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             _register_version(model)
         else:
             _finalize(model, status=status, error=error)
+        # Registry publication may take time. Charge until its actual return,
+        # then recheck the absolute fence before committing a ready pointer.
+        final_status, final_error = ml_lifecycle.settle(db, model, model.status, model.error)
+        if final_status != "ready":
+            _finalize(model, status=final_status, error=final_error)
         db.commit()
         if status == "ready":
             # A retrain that did not take over is exactly what "challenger"
