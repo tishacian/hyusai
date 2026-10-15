@@ -27,11 +27,9 @@ une signature cryptographique indépendante de l'archive.
 ## Intégration M1
 
 - Le router est enregistré séparément ; aucun changement à `ml_models.py`.
-- Le composant FR/EN `ModelExportComponent` est fourni séparément pour éviter les
-  éditions concurrentes de la carte. L'intégrateur doit l'importer dans la carte
-  et ajouter `<ck-model-export [modelId]="model.id" [ready]="model.status === 'ready'"
-  [canExport]="capabilities.export === true" />`, en adaptant les noms de signaux
-  locaux. Aucune déduction de rôle ne se fait dans le composant.
+- Le composant FR/EN `ModelExportComponent` est raccordé à l’onglet de réglages
+  de la fiche modèle. Sa capacité provient de `serving.permissions.export` renvoyé
+  par M1 ; aucune déduction de rôle ne se fait dans le composant.
 - Le client utilise `HttpClient` authentifié ; les changements de principal,
   workspace ou modèle invalident le téléchargement en cours. Il ne suit aucune
   URL arbitraire et libère son URL de blob.
@@ -55,8 +53,8 @@ test. Cela qualifie cette voie tabulaire/skops, pas toutes les familles ni une
 autre version de dépendances. Le serveur local est arrêté après la recette.
 
 2265 tests unitaires UI, TypeScript, i18n, navigation et un build de production
-passent. Le composant devra être raccordé à la carte M1 et validé dans cette
-composition ; aucune recette navigateur intégrée à la carte n'est revendiquée.
+passent. Le composant est raccordé à la carte M1 ; TypeScript passe après assemblage.
+Aucune recette navigateur intégrée à la carte n’est revendiquée.
 Le guard `ui-chrome` reste rouge sur le halo préexistant de `src/styles.scss`
 (7 occurrences, budget 6), inchangé dans ce lot.
 
@@ -83,3 +81,9 @@ TMPDIR=/workspace/mlops-m4-evidence/tmp GOMEMLIMIT=3GiB GOMAXPROCS=2 npm run bui
 
 Ruff ciblé et `git diff --check` passent. Aucune qualification PostgreSQL, Docker,
 VM ou tous-lots n'est revendiquée pour cet export isolé.
+
+## Vérification après assemblage
+
+Les 16 tests backend ont été rejoués avec les vraies permissions M1, sans plugin
+externe, y compris le serveur HTTP MLflow indépendant (36,74 s). La commande
+depuis `backend` est `PYTHONPATH=. python -m pytest app/tests/api/test_ml_exports_api.py app/tests/services/test_ml_exports.py -q`.
