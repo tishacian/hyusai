@@ -12,6 +12,8 @@ export interface ConnectionParameter {
 }
 export interface ConnectionProfile {
   key: string; version: number; family: string; parameters: ConnectionParameter[];
+  /** i18n key of the display name, shared with the connector catalogue. */
+  label_key?: string;
   capabilities: Record<string, boolean | string>;
   certification: 'unverified' | 'third_party'; driver_status: string;
 }
