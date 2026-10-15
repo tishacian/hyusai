@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fairnessMetrics, partialPlot, partialSeries, readableRule, surrogateRules } from './explanation-evidence.vm';
+import {
+  errorTreeChart, fairnessMetrics, largestLeaf, partialPlot, partialSeries, readableRule, surrogateChart, surrogateRules, treeNodes, worstErrorNode,
+  type ExplainTree, type ExplainTreeNode, type TreeWords,
+} from './explanation-evidence.vm';
 
 test('rules preserve learned conditions and localize numeric boundaries', () => {
   assert.equal(readableRule([], 'fr', 'Toutes', 'et'), 'Toutes');
@@ -45,4 +48,61 @@ test('categorical PDP retains labeled categories and curve values', () => {
 test('rules expose missing-value branches instead of an infinite threshold', () => {
   assert.equal(readableRule([{ feature: 'age', op: 'missing', value: null }], 'en', 'All', 'and'), 'age is missing');
   assert.equal(readableRule([{ feature: 'age', op: '<=', value: 3, missing: true }], 'en', 'All', 'and'), '(age ≤ 3 or age is missing)');
+});
+
+const words: TreeWords = {
+  group: 'Group',
+  rows: (rows, share) => `${rows} rows · ${share}`,
+  error: (error) => `error ${error}`,
+  prediction: (node) => `→ ${String(node.prediction)}`,
+};
+
+function errorTree(): ExplainTree {
+  const node = (id: number, parent: number | null, children: number[], rows: number, error: number, op?: string): ExplainTreeNode => ({
+    id, parent, depth: parent === null ? 0 : parent === 0 ? 1 : 2, children, rows, share: rows / 1000, error,
+    condition: op ? { feature: 'tenure', op, value: 3 } : null, split: children.length ? 'tenure' : null,
+  });
+  return {
+    global_error: 0.2,
+    rules: [{ rule: [], rows: 100, error: 0.6 }],
+    tree: { nodes: [node(0, null, [1, 2], 1000, 0.2), node(1, 0, [], 900, 0.15, '<='), node(2, 0, [], 100, 0.6, '>')], depth: 1, leaves: 2 },
+  };
+}
+
+test('a model trained before the tree was recorded falls back to its rules', () => {
+  assert.deepEqual(treeNodes({ rules: [{ rule: [], rows: 10 }] }), []);
+  assert.deepEqual(treeNodes({ error: 'budget', tree: errorTree().tree }), []);
+  assert.deepEqual(treeNodes({ tree: { nodes: [{ ...errorTree().tree!.nodes[1] }] } }), []);
+  assert.equal(treeNodes(errorTree()).length, 3);
+});
+
+test('error nodes are tinted only above the overall error, the worst one the most', () => {
+  const nodes = errorTreeChart(errorTree(), words);
+  assert.deepEqual(nodes.map((node) => node.title), ['tenure', 'Group', 'Group']);
+  assert.equal(nodes[0].fill, 'transparent');
+  assert.equal(nodes[1].fill, 'transparent');
+  assert.match(nodes[2].fill, /--ck-signal-neg/);
+  assert.equal(nodes[2].value, 'error 0.6');
+  assert.equal(nodes[2].detail, '100 rows · 0.1');
+});
+
+test('the card opens on the group that adds the most error, else on the root', () => {
+  assert.equal(worstErrorNode(errorTree()), 2);
+  const flat = errorTree();
+  flat.tree!.nodes = flat.tree!.nodes.map((node) => ({ ...node, error: null }));
+  assert.equal(worstErrorNode(flat), 0);
+});
+
+test('surrogate nodes show the model answer, tinted by how clear it is', () => {
+  const tree = errorTree();
+  tree.tree!.nodes = tree.tree!.nodes.map((node, index) => ({ ...node, prediction: index === 2 ? 'churn' : 'stay', purity: [0.7, 0.9, 0.55][index] }));
+  const nodes = surrogateChart(tree, words);
+  assert.equal(nodes[2].value, '→ churn');
+  assert.ok(nodes.every((node) => node.fill.includes('--ck-accent')));
+  assert.equal(largestLeaf(tree), 1);
+  // A regression surrogate is tinted by where its value sits in the range.
+  tree.tree!.nodes = tree.tree!.nodes.map((node, index) => ({ ...node, purity: undefined, prediction: [10, 5, 20][index] }));
+  const numeric = surrogateChart(tree, words);
+  assert.equal(numeric[1].fill, 'transparent');
+  assert.match(numeric[2].fill, / 36%/);
 });
