@@ -341,7 +341,12 @@ def test_only_a_catalog_regressor_is_ever_instantiated(tmp_path):
 # The worker's lifecycle, end to end
 # ---------------------------------------------------------------------------
 
-from app.tests.services.test_ml_training import enabled, store, workspace  # noqa: E402,F401
+from app.tests.services.test_ml_training import (  # noqa: E402,F401
+    authorized_flow_context,
+    enabled,
+    store,
+    workspace,
+)
 
 
 def test_a_forecast_trains_through_the_worker_lifecycle_and_lands_ready(
@@ -460,7 +465,7 @@ def test_a_trained_forecast_answers_on_demand_and_refuses_a_swapped_artifact(
 
 
 def test_the_flow_node_writes_every_series_forecast_as_a_dataset(
-    db_session, workspace, store, enabled, monkeypatch  # noqa: F811
+    db_session, workspace, store, enabled, monkeypatch, authorized_flow_context  # noqa: F811
 ):
     """train (panel) → the ml_forecast_v1 node → a dataset of series × steps.
 
@@ -514,7 +519,7 @@ def test_the_flow_node_writes_every_series_forecast_as_a_dataset(
                 "model": upstream,
                 "_forecast": {"model_slug": row.slug, "horizon": 6, "interval_level": 0.9, "node_id": "fc"},
             },
-            {"workspace_id": workspace.id, "run_id": None},
+            authorized_flow_context,
         )
     )
     assert answer["rows"] == 3 * 6
@@ -536,7 +541,7 @@ def test_the_flow_node_writes_every_series_forecast_as_a_dataset(
 
 
 def test_the_flow_node_refuses_an_unknown_model_before_reserving_anything(
-    db_session, workspace, store, enabled, monkeypatch  # noqa: F811
+    db_session, workspace, store, enabled, monkeypatch, authorized_flow_context  # noqa: F811
 ):
     import asyncio
 
@@ -546,9 +551,9 @@ def test_the_flow_node_refuses_an_unknown_model_before_reserving_anything(
 
     monkeypatch.setattr(settings, "ml_predict_enabled", True)
     with pytest.raises(ValueError, match="ML_MODEL_NOT_FOUND"):
-        asyncio.run(_ml_forecast_v1({"_forecast": {"model_slug": "nope"}}, {"workspace_id": workspace.id}))
+        asyncio.run(_ml_forecast_v1({"_forecast": {"model_slug": "nope"}}, authorized_flow_context))
     with pytest.raises(ValueError, match="forecast_config_missing"):
-        asyncio.run(_ml_forecast_v1({}, {"workspace_id": workspace.id}))
+        asyncio.run(_ml_forecast_v1({}, authorized_flow_context))
     assert db_session.query(TabularDataset).filter_by(produced_by="ml_forecast_v1").count() == 0
 
 

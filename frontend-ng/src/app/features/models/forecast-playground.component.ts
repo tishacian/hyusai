@@ -1,3 +1,4 @@
+import { WorkspaceService } from '@app/core/workspace.service';
 /**
  * `<ck-forecast-playground>` — ask a trained forecast for the next steps.
  *
@@ -286,7 +287,9 @@ import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
 export class ForecastPlaygroundComponent {
   readonly i18n = inject(I18nService);
   private readonly models = inject(ModelsService);
+  private readonly workspace = inject(WorkspaceService);
 
+  readonly storeInputs = input(true);
   readonly model = input.required<ModelDto>();
   readonly serving = input.required<ServingBlock>();
   /** The exact body the next call sends, for the playground's cURL. */
@@ -330,14 +333,14 @@ export class ForecastPlaygroundComponent {
   protected readonly request = computed<ForecastRequestBody>(() => {
     const planned = this.planned();
     const covariates = Object.fromEntries(this.covariates().map((name) => [name, Number(planned[name] ?? 0)]));
-    return forecastRequest({
+    return { store: this.storeInputs(), ...forecastRequest({
       horizon: this.horizon(),
       level: this.level(),
       series: this.levels().length > 1 ? this.series() || this.levels()[0] : null,
       covariates,
       stamps: this.stamps(),
       explain: true,
-    });
+    }) };
   });
 
   protected readonly chart = computed(() => {
@@ -424,16 +427,21 @@ export class ForecastPlaygroundComponent {
 
   protected async run(): Promise<void> {
     if (this.running()) return;
+    const id = this.model().id, scope = this.workspace.captureRequestScope();
+    const current = () => id === this.model().id && this.workspace.isRequestScopeCurrent(scope);
     this.running.set(true);
     this.error.set(null);
     try {
-      this.answer.set(await this.models.forecast(this.model().id, this.request()));
+      const answer = await this.models.forecast(id, this.request());
+      if (!current()) return;
+      this.answer.set(answer);
     } catch (failure) {
+      if (!current()) return;
       const detail = (failure as { error?: { detail?: { code?: string; message?: string } } })?.error?.detail;
       const key = servingErrorKey(detail?.code);
       this.error.set(key ? this.i18n.t(key) : (detail?.message ?? this.i18n.t('models.play.forecast.failed')));
     } finally {
-      this.running.set(false);
+      if (current()) this.running.set(false);
     }
   }
 

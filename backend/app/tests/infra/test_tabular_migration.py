@@ -46,6 +46,9 @@ CHAIN = (
     "122_ml_families",
     "133_activity_observability",
     "134_execution_control",
+    "135_mlops_governance",
+    "136_mlops_correctness",
+    "137_mlops_operations",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
@@ -64,6 +67,17 @@ PLANE_TABLES = (
     "ml_model_api_keys",
     "ml_predictions",
     "ml_runtime_heartbeats",
+    "ml_admission_counters",
+    "ml_workspace_locks",
+    "ml_prediction_feedback",
+    "ml_inference_usage",
+    "ml_usage_rollups",
+    "ml_alert_channels",
+    "ml_alert_states",
+    "ml_alerts",
+    "ml_alert_deliveries",
+    "ml_alert_sources",
+
 )
 
 # The pre-slice tables the slice points at or reads from, reduced to the
@@ -575,3 +589,30 @@ def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
     _migrate_to(HEAD)
     assert set(PLANE_TABLES) <= set(inspect(migrated).get_table_names())
     assert {"execution_capacity", "execution_reservations", "execution_dispatches"} <= set(inspect(migrated).get_table_names())
+
+
+def test_135_legacy_key_grace_and_guarded_downgrade(migrated):
+    from datetime import datetime, timedelta
+
+    _alembic("downgrade", "134_execution_control")
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("insert into workspaces (id) values ('ws-grace')")
+        connection.exec_driver_sql("""
+            insert into ml_models (id, workspace_id, name, slug, version, task, algo, target,
+                status, is_champion, created_at, updated_at)
+            values ('m-grace','ws-grace','Grace','grace',1,'regression','ridge','y','ready',true,now(),now())
+        """)
+        connection.exec_driver_sql("""
+            insert into ml_model_api_keys (id, workspace_id, model_id, name, key_prefix,
+                key_sha256, created_at, use_count)
+            values ('key-grace','ws-grace','m-grace','Legacy','agpk_fixture','not-a-real-key',
+                now() - interval '2 years',0)
+        """)
+    _alembic("upgrade", "135_mlops_governance")
+    with migrated.connect() as connection:
+        expiry = connection.exec_driver_sql("select expires_at from ml_model_api_keys where id='key-grace'").scalar_one()
+        assert datetime.utcnow() + timedelta(days=364) < expiry < datetime.utcnow() + timedelta(days=366)
+    with pytest.raises(AssertionError, match="ML_GOVERNANCE_DOWNGRADE_REFUSED"):
+        _alembic("downgrade", "134_execution_control")
+    with migrated.connect() as connection:
+        assert connection.exec_driver_sql("select expires_at from ml_model_api_keys where id='key-grace'").scalar_one() == expiry

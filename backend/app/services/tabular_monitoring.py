@@ -4,10 +4,10 @@ Three measurements, all from ``ml_predictions``:
 
 * **data drift** — PSI (numeric) and a frequency-PSI (categorical) of the
   payloads against the training dataset's ``stats_json`` / input contract;
-* **score drift** — the served score distribution against an earlier window
-  of the same journal (the fit does not keep the train-time scores);
-* **concept drift** — a rolling AUC on the rows that carry ground truth,
-  against the AUC the card recorded at train time.
+* **score drift** — served scores against the recorded final-test reference,
+  with an explicitly labelled previous-window fallback for legacy models;
+* **concept drift** — row-aligned classification or regression ground truth,
+  compared with the final-test metrics recorded at training time.
 
 Thresholds are the usual PSI bands: below 0.10 is fine, 0.10–0.25 wants a
 look, above 0.25 is an alert. The badge on the Models list is the worst of
@@ -18,15 +18,18 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from datetime import datetime
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.tabular import MLModel, MLPrediction, TabularDataset
 from app.resources.ml_drift import adjust_tests, feature_test, finite_number
+from app.services.ml_feedback import iter_labeled_samples, samples_metadata
 from app.services.tabular_datasets import (
     NUMERIC_KINDS,
     TabularError,
@@ -69,10 +72,21 @@ def population_stability(
     for edge in raw_edges[1:]:
         if edge > edges[-1]:
             edges.append(edge)
+    if len(edges) == 1:
+        pivot = edges[0]
+
+        def collapsed_hist(values):
+            counts = [0, 0, 0]
+            for value in values:
+                same = math.isclose(value, pivot, rel_tol=1e-6, abs_tol=1e-6)
+                counts[1 if same else 0 if value < pivot else 2] += 1
+            return counts
+
+        return _psi_from_counts(collapsed_hist(expected), collapsed_hist(actual))
     if len(edges) < 3:
         # A collapsed reference (every train score the same) still drifts
         # when the served mass sits somewhere else.
-        mid = sum(expected) / len(expected)
+        mid = sum(value / len(expected) for value in expected)
         return _psi_from_counts(
             [
                 sum(1 for value in expected if value <= mid),
@@ -103,9 +117,7 @@ def population_stability(
     return _psi_from_counts(expected_hist, actual_hist)
 
 
-def frequency_stability(
-    expected: dict[str, int], actual: dict[str, int]
-) -> float | None:
+def frequency_stability(expected: dict[str, int], actual: dict[str, int]) -> float | None:
     """PSI over two categorical frequency tables."""
 
     if sum(expected.values()) < MIN_PSI_SAMPLES or sum(actual.values()) < MIN_PSI_SAMPLES:
@@ -172,9 +184,13 @@ def rolling_auc(labels: list[str], scores: list[float], *, positive: str | None)
 # ---------------------------------------------------------------------------
 
 
-def _recent(db: DBSession, model: MLModel, *, limit: int = WINDOW_LIMIT, lineage: bool = False) -> list[MLPrediction]:
+def _recent(
+    db: DBSession, model: MLModel, *, limit: int = WINDOW_LIMIT, lineage: bool = False
+) -> list[MLPrediction]:
     return (
         db.query(MLPrediction)
+        .options(selectinload(MLPrediction.feedback_samples))
+        .populate_existing()
         .filter(
             MLPrediction.workspace_id == model.workspace_id,
             MLPrediction.slug == model.slug if lineage else MLPrediction.served_id == model.id,
@@ -195,11 +211,15 @@ def _payload_values(rows: list[MLPrediction], feature: str) -> list[Any]:
     return values
 
 
-def _served_scores(rows: list[MLPrediction]) -> list[float]:
+def _served_scores(rows: list[MLPrediction], *, confidence=False) -> list[float]:
     scores: list[float] = []
     for row in rows:
         block = row.scores_json if isinstance(row.scores_json, dict) else {}
         raw = block.get("scores") if isinstance(block.get("scores"), list) else []
+        if confidence:
+            raw = [
+                item.get("confidence") for item in row.output_json or [] if isinstance(item, dict)
+            ]
         for value in raw:
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 number = float(value)
@@ -280,25 +300,13 @@ def _positive_label(model: MLModel) -> str | None:
 
 
 def _labeled_pairs(rows: list[MLPrediction]) -> tuple[list[str], list[float]]:
-    labels: list[str] = []
-    scores: list[float] = []
+    labels, scores = [], []
     for row in rows:
-        if not row.label:
-            continue
-        output = row.output_json if isinstance(row.output_json, list) else []
-        first = output[0] if output and isinstance(output[0], dict) else {}
-        raw = first.get("score")
-        if raw is None:
-            block = row.scores_json if isinstance(row.scores_json, dict) else {}
-            stored = block.get("scores") if isinstance(block.get("scores"), list) else []
-            raw = stored[0] if stored else first.get("prediction")
-        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
-            continue
-        number = float(raw)
-        if number != number or abs(number) == float("inf"):
-            continue
-        labels.append(str(row.label))
-        scores.append(number)
+        for sample in iter_labeled_samples(row):
+            number = finite_number(sample["score"])
+            if number is not None:
+                labels.append(str(sample["label"]))
+                scores.append(number)
     return labels, scores
 
 
@@ -307,8 +315,12 @@ def _labeled_pairs(rows: list[MLPrediction]) -> tuple[list[str], list[float]]:
 # ---------------------------------------------------------------------------
 
 
-def data_drift(model: MLModel, rows: list[MLPrediction], dataset: TabularDataset | None) -> dict[str, Any]:
-    stats = dataset.stats_json if dataset is not None and isinstance(dataset.stats_json, dict) else {}
+def data_drift(
+    model: MLModel, rows: list[MLPrediction], dataset: TabularDataset | None
+) -> dict[str, Any]:
+    stats = (
+        dataset.stats_json if dataset is not None and isinstance(dataset.stats_json, dict) else {}
+    )
     signature = model.signature_json if isinstance(model.signature_json, dict) else {}
     contract_fields = {
         str(field.get("name")): field
@@ -327,19 +339,13 @@ def data_drift(model: MLModel, rows: list[MLPrediction], dataset: TabularDataset
         if kind == "number":
             expected = _expected_numeric(column_stats)
             actual = [
-                number
-                for item in actual_values
-                if (number := finite_number(item)) is not None
+                number for item in actual_values if (number := finite_number(item)) is not None
             ]
             value = population_stability(expected or [], actual) if expected else None
         else:
             expected_cat = _expected_categorical(column_stats) or _expected_categorical(contract)
             actual_cat = Counter(str(item) for item in actual_values if item is not None)
-            value = (
-                frequency_stability(expected_cat, dict(actual_cat))
-                if expected_cat
-                else None
-            )
+            value = frequency_stability(expected_cat, dict(actual_cat)) if expected_cat else None
         features.append(
             {
                 "name": name,
@@ -360,15 +366,35 @@ def data_drift(model: MLModel, rows: list[MLPrediction], dataset: TabularDataset
     }
 
 
-def score_drift(rows: list[MLPrediction]) -> dict[str, Any]:
-    scores = _served_scores(rows)
+def score_drift(rows: list[MLPrediction], model: MLModel | None = None) -> dict[str, Any]:
+    reference = (
+        (((model.metrics_json or {}).get("monitoring_reference") or {}).get("scores") or {})
+        if model is not None
+        else {}
+    )
+    scores = _served_scores(rows, confidence=reference.get("kind") == "confidence")
+    if reference.get("source") == "final_test":
+        values = reference.get("values") or []
+        value = population_stability(values, scores)
+        return {
+            "status": drift_status(value),
+            "value": round(value, 4) if value is not None else None,
+            "served_mean": sum(value / len(scores) for value in scores) if scores else None,
+            "reference_mean": reference.get("mean"),
+            "n": len(scores),
+            "reference_source": "final_test",
+            "reference_n": reference.get("n", 0),
+        }
     if len(scores) < MIN_PSI_SAMPLES * 2:
         return {
             "status": "unknown",
             "value": None,
-            "served_mean": round(sum(scores) / len(scores), 4) if scores else None,
+            "served_mean": round(sum(value / len(scores) for value in scores), 4)
+            if scores
+            else None,
             "reference_mean": None,
             "n": len(scores),
+            "reference_source": "previous_window",
         }
     split = max(MIN_PSI_SAMPLES, len(scores) // 2)
     # rows are newest-first, so the tail is the older window.
@@ -378,31 +404,183 @@ def score_drift(rows: list[MLPrediction]) -> dict[str, Any]:
     return {
         "status": drift_status(value),
         "value": None if value is None else round(value, 4),
-        "served_mean": round(sum(recent) / len(recent), 4),
-        "reference_mean": round(sum(reference) / len(reference), 4),
+        "served_mean": round(sum(value / len(recent) for value in recent), 4),
+        "reference_mean": round(sum(value / len(reference) for value in reference), 4),
         "n": len(scores),
+        "reference_source": "previous_window",
     }
 
 
+def _metric(model, name):
+    metrics = model.metrics_json or {}
+    primary = metrics.get("primary") or {}
+    entries = [primary, *(metrics.get("scores") or [])]
+    value = next(
+        (finite_number(entry.get("value")) for entry in entries if entry.get("key") == name), None
+    )
+    if value is None:
+        value = finite_number(
+            ((metrics.get("monitoring_reference") or {}).get("concept") or {}).get(name)
+        )
+    if (
+        value is None
+        and name == "f1_macro"
+        and (metrics.get("metric_semantics") or {}).get("averaging") == "macro"
+    ):
+        value = next(
+            (finite_number(entry.get("value")) for entry in entries if entry.get("key") == "f1"),
+            None,
+        )
+    return value
+
+
 def concept_drift(model: MLModel, rows: list[MLPrediction]) -> dict[str, Any]:
-    labels, scores = _labeled_pairs(rows)
-    auc = rolling_auc(labels, scores, positive=_positive_label(model))
-    train = _train_auc(model)
-    delta = None if auc is None or train is None else train - auc
-    if delta is None:
-        status = "unknown" if auc is None else "ok"
-    elif delta >= AUC_ALERT:
-        status = "alert"
-    elif delta >= AUC_WATCH:
-        status = "watch"
-    else:
-        status = "ok"
+    classes = (
+        (model.metrics_json or {}).get("target", {}).get("classes") or model.classes_json or []
+    )
+    if model.task != "regression" and len(classes) <= 2:
+        labels, scores = _labeled_pairs(rows)
+        auc = rolling_auc(labels, scores, positive=_positive_label(model))
+        train = _train_auc(model)
+        delta = None if auc is None or train is None else train - auc
+        status = (
+            "unknown"
+            if delta is None
+            else "alert"
+            if delta >= AUC_ALERT
+            else "watch"
+            if delta >= AUC_WATCH
+            else "ok"
+        )
+        return {
+            "status": status,
+            "metric": "roc_auc",
+            "rolling_auc": auc,
+            "train_auc": train,
+            "value": auc,
+            "reference": train,
+            "delta": delta,
+            "labeled": len(labels),
+        }
+    samples = [value for row in rows for value in iter_labeled_samples(row)]
+    measured = []
+    for sample in samples:
+        predicted = sample["output"].get("prediction")
+        actual = sample["label"]
+        if model.task == "regression":
+            actual, predicted = _feedback_number(actual), _feedback_number(predicted)
+            if actual is None or predicted is None:
+                continue
+        elif predicted is None:
+            continue
+        measured.append((actual, predicted))
+    metrics = []
+    if len(measured) >= MIN_AUC_SAMPLES:
+        if model.task == "regression":
+            errors = [float(actual) - float(predicted) for actual, predicted in measured]
+            if not all(math.isfinite(value) for value in errors):
+                return {
+                    "status": "unknown",
+                    "metric": "mae",
+                    "value": None,
+                    "reference": _metric(model, "mae"),
+                    "delta": None,
+                    "labeled": len(measured),
+                    "metrics": [],
+                    "rolling_auc": None,
+                    "train_auc": None,
+                    "reason": "numeric_range_exceeded",
+                }
+            values = {
+                "mae": sum(abs(v) / len(errors) for v in errors),
+                "rmse": math.hypot(*(v / math.sqrt(len(errors)) for v in errors)),
+            }
+            watch, alert = (
+                float(getattr(settings, "ml_concept_regression_watch", 0.10)),
+                float(getattr(settings, "ml_concept_regression_alert", 0.25)),
+            )
+            for name, value in values.items():
+                reference = _metric(model, name)
+                delta = (
+                    None
+                    if reference is None
+                    else (value - reference) / reference
+                    if reference > 0
+                    else (0.0 if value == 0 else None)
+                )
+                # Positive error against a perfect reference is an alert; keep
+                # JSON finite and explicitly state that the ratio is undefined.
+                status = (
+                    "unknown"
+                    if reference is None
+                    else "alert"
+                    if reference == 0 and value > 0 or delta is not None and delta >= alert
+                    else "watch"
+                    if delta is not None and delta >= watch
+                    else "ok"
+                )
+                metrics.append(
+                    {
+                        "metric": name,
+                        "value": value,
+                        "reference": reference,
+                        "delta": delta,
+                        "status": status,
+                        "delta_kind": "relative",
+                    }
+                )
+        else:
+            pairs = [(str(a), str(p)) for a, p in measured]
+            universe = sorted(
+                set(map(str, classes)) | {a for a, _ in pairs} | {p for _, p in pairs}
+            )
+            f1 = []
+            for label in universe:
+                tp = sum(a == p == label for a, p in pairs)
+                fp = sum(p == label and a != label for a, p in pairs)
+                fn = sum(a == label and p != label for a, p in pairs)
+                f1.append(2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0)
+            values = {
+                "accuracy": sum(a == p for a, p in pairs) / len(pairs),
+                "f1_macro": sum(f1) / len(f1),
+            }
+            watch, alert = (
+                float(getattr(settings, "ml_concept_multiclass_watch", 0.02)),
+                float(getattr(settings, "ml_concept_multiclass_alert", 0.05)),
+            )
+            for name, value in values.items():
+                reference = _metric(model, name)
+                delta = None if reference is None else reference - value
+                status = (
+                    "unknown"
+                    if delta is None
+                    else "alert"
+                    if delta >= alert
+                    else "watch"
+                    if delta >= watch
+                    else "ok"
+                )
+                metrics.append(
+                    {
+                        "metric": name,
+                        "value": value,
+                        "reference": reference,
+                        "delta": delta,
+                        "status": status,
+                        "delta_kind": "absolute",
+                    }
+                )
+    first = metrics[0] if metrics else {}
     return {
-        "status": status,
-        "rolling_auc": None if auc is None else round(auc, 4),
-        "train_auc": None if train is None else round(train, 4),
-        "delta": None if delta is None else round(delta, 4),
-        "labeled": len(labels),
+        "status": worst_status(value["status"] for value in metrics),
+        "metric": first.get("metric"),
+        "value": first.get("value"),
+        "reference": first.get("reference"),
+        "delta": first.get("delta"),
+        "labeled": len(measured),
+        "metrics": metrics,
+        "rolling_auc": None,
+        "train_auc": None,
     }
 
 
@@ -410,33 +588,44 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
     """The Monitoring tab's read model, computed on the request."""
 
     from app.services.ml_retraining import monitoring_view
-
     from app.services.ml_shadow import summary as shadow_summary
 
     if model.task == "forecasting":
         from app.services.ml.forecast_monitoring import report as forecast_report
+
         actuals = forecast_report(db, model=model)
         status = actuals["status"]
-        return {"badge": status if status in {"ok", "watch", "alert"} else None,
-                "window": {"predictions": actuals["window"].get("calls", 0),
-                           "labeled": actuals["overall"]["count"], "limit": WINDOW_LIMIT,
-                           "model_id": model.id, "served_version": model.version},
-                "data_drift": {"status": "unknown", "features": []},
-                "score_drift": score_drift([]), "concept_drift": concept_drift(model, []),
-                "scheduled": monitoring_view(db, model), "shadow": shadow_summary(db, model=model),
-                "forecast_actuals": actuals}
+        return {
+            "badge": status if status in {"ok", "watch", "alert"} else None,
+            "window": {
+                "predictions": actuals["window"].get("calls", 0),
+                "labeled": actuals["overall"]["count"],
+                "limit": WINDOW_LIMIT,
+                "model_id": model.id,
+                "served_version": model.version,
+            },
+            "data_drift": {"status": "unknown", "features": []},
+            "score_drift": score_drift([]),
+            "concept_drift": concept_drift(model, []),
+            "scheduled": monitoring_view(db, model),
+            "shadow": shadow_summary(db, model=model),
+            "forecast_actuals": actuals,
+        }
 
     rows = _recent(db, model)
     dataset = (
-        db.query(TabularDataset).filter(TabularDataset.id == model.dataset_id,
-                                       TabularDataset.workspace_id == model.workspace_id).first()
+        db.query(TabularDataset)
+        .filter(
+            TabularDataset.id == model.dataset_id, TabularDataset.workspace_id == model.workspace_id
+        )
+        .first()
         if model.dataset_id
         else None
     )
     data = data_drift(model, rows, dataset)
-    scores = score_drift(rows)
+    scores = score_drift(rows, model)
     concept = concept_drift(model, rows)
-    labeled = sum(1 for row in rows if row.label)
+    labeled = sum(1 for row in rows for _ in iter_labeled_samples(row))
     badge = worst_status(
         status
         for status in (data["status"], scores["status"], concept["status"])
@@ -459,7 +648,6 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
         "score_drift": scores,
         "concept_drift": concept,
         "scheduled": monitoring_view(db, model),
-
         "shadow": shadow_summary(db, model=model),
     }
 
@@ -470,12 +658,22 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
     if not models:
         return {}
     model_ids = {row.id for row in models}
-    ranked = db.query(
-        MLPrediction.id,
-        func.row_number().over(partition_by=MLPrediction.served_id,
-                               order_by=(MLPrediction.created_at.desc(), MLPrediction.id.desc())).label("position"),
-    ).filter(MLPrediction.served_id.in_(list(model_ids)),
-             MLPrediction.workspace_id.in_({model.workspace_id for model in models})).subquery()
+    ranked = (
+        db.query(
+            MLPrediction.id,
+            func.row_number()
+            .over(
+                partition_by=MLPrediction.served_id,
+                order_by=(MLPrediction.created_at.desc(), MLPrediction.id.desc()),
+            )
+            .label("position"),
+        )
+        .filter(
+            MLPrediction.served_id.in_(list(model_ids)),
+            MLPrediction.workspace_id.in_({model.workspace_id for model in models}),
+        )
+        .subquery()
+    )
     rows = (
         db.query(MLPrediction)
         .join(ranked, ranked.c.id == MLPrediction.id)
@@ -492,9 +690,7 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
     datasets = {
         row.id: row
         for row in (
-            db.query(TabularDataset)
-            .filter(TabularDataset.id.in_(list(dataset_ids)))
-            .all()
+            db.query(TabularDataset).filter(TabularDataset.id.in_(list(dataset_ids))).all()
             if dataset_ids
             else []
         )
@@ -502,15 +698,27 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
     badges: dict[str, str | None] = {}
     for model in models:
         if model.task == "forecasting":
-            badges[model.id] = None
+            from app.services.ml.forecast_monitoring import snapshot
+
+            try:
+                state = snapshot(db, model=model).report["status"]
+            except TabularError:
+                state = "unknown"
+            badges[model.id] = state if state in {"ok", "watch", "alert"} else None
             continue
-        window = [row for row in by_model.get(model.id, []) if row.workspace_id == model.workspace_id]
+        window = [
+            row for row in by_model.get(model.id, []) if row.workspace_id == model.workspace_id
+        ]
         if not window:
             badges[model.id] = None
             continue
         dataset = datasets.get(model.dataset_id)
-        data = data_drift(model, window, dataset if dataset is not None and dataset.workspace_id == model.workspace_id else None)
-        scores = score_drift(window)
+        data = data_drift(
+            model,
+            window,
+            dataset if dataset is not None and dataset.workspace_id == model.workspace_id else None,
+        )
+        scores = score_drift(window, model)
         concept = concept_drift(model, window)
         badge = worst_status(
             status
@@ -526,9 +734,7 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
 # ---------------------------------------------------------------------------
 
 
-def get_prediction(
-    db: DBSession, *, prediction_id: str, workspace_id: str
-) -> MLPrediction:
+def get_prediction(db: DBSession, *, prediction_id: str, workspace_id: str) -> MLPrediction:
     row = (
         db.query(MLPrediction)
         .filter(
@@ -554,48 +760,28 @@ def attach_feedback(
     prediction_id: str,
     label: Any,
     labeled_by: str | None = None,
+    sample_id: str | None = None,
 ) -> MLPrediction:
-    """Write the ground truth onto the journal row the API handed back."""
+    from app.services.ml_feedback import attach
 
     _require_feedback_task(model)
-    row = get_prediction(db, prediction_id=prediction_id, workspace_id=model.workspace_id)
-    if row.slug != model.slug:
-        raise TabularError(
-            code="ML_PREDICTION_WRONG_MODEL",
-            message="That prediction was not served by this model.",
-            status_code=409,
-            details={"prediction_id": prediction_id, "slug": row.slug},
-        )
-    if model.task == "regression":
-        number = _feedback_number(label)
-        if number is None:
-            raise TabularError(
-                code="ML_FEEDBACK_NOT_NUMERIC",
-                message="Regression ground truth must be a finite number.",
-                status_code=422,
-            )
-        # Keep the existing text column without truncating a long numeric
-        # literal (which can change its value or discard its exponent).
-        text = str(number)
-    else:
-        text = str(label).strip()
-    if not text:
-        raise TabularError(
-            code="ML_FEEDBACK_LABEL_MISSING",
-            message="A ground-truth label is required.",
-            status_code=422,
-        )
-    row.label = text[:200]
-    row.labeled_at = datetime.utcnow()
-    row.labeled_by = labeled_by
-    db.commit()
-    return row
+    return attach(
+        db,
+        model=model,
+        prediction_id=prediction_id,
+        label=label,
+        labeled_by=labeled_by,
+        sample_id=sample_id,
+    )
 
 
 def _require_feedback_task(model: MLModel) -> None:
     if model.task == "clustering":
-        raise TabularError(code="ML_CLUSTER_FEEDBACK_UNSUPPORTED",
-                           message="Cluster identifiers are not ground-truth labels.", status_code=409)
+        raise TabularError(
+            code="ML_CLUSTER_FEEDBACK_UNSUPPORTED",
+            message="Cluster identifiers are not ground-truth labels.",
+            status_code=409,
+        )
 
 
 def _feedback_number(label: Any) -> float | None:
@@ -619,6 +805,7 @@ def serialize_prediction(row: MLPrediction) -> dict[str, Any]:
         "label": row.label,
         "labeled_at": row.labeled_at.isoformat() if row.labeled_at else None,
         "dataset_id": row.dataset_id,
+        "samples": samples_metadata(row),
     }
 
 
@@ -627,34 +814,21 @@ def materialize_labeled(
 ) -> TabularDataset:
     """Turn annotated journal rows into a dataset the studio can retrain on.
 
-    Each labeled call contributes its first payload row plus the ground truth
+    Each explicitly labelled persisted sample contributes its own ground truth
     under the model's target name. That is the feedback → dataset hop; retrain
     and promote stay the same buttons they already are.
     """
 
     _require_feedback_task(model)
-    rows = [
-        row
-        for row in _recent(db, model, limit=WINDOW_LIMIT, lineage=True)
-        if row.label is not None
-    ]
-    records: list[dict[str, Any]] = []
-    target = str(model.target)
+    rows = _recent(db, model, limit=WINDOW_LIMIT, lineage=True)
+    records = []
     for row in rows:
-        label: Any = row.label
-        if model.task == "regression":
-            label = _feedback_number(label)
-            if label is None:
-                continue
-        elif not label:
-            continue
-        payload = row.payload_json if isinstance(row.payload_json, list) else []
-        first = next((item for item in payload if isinstance(item, dict)), None)
-        if first is None:
-            continue
-        record = dict(first)
-        record[target] = label
-        records.append(record)
+        for sample in iter_labeled_samples(row):
+            label = (
+                _feedback_number(sample["label"]) if model.task == "regression" else sample["label"]
+            )
+            if label is not None:
+                records.append({**sample["payload"], str(model.target): label})
     if len(records) < MIN_MATERIALIZE:
         raise TabularError(
             code="ML_FEEDBACK_TOO_FEW",
@@ -685,7 +859,16 @@ def materialize_labeled(
                 "version": int(model.version or 1),
             },
             "labeled": len(records),
-            "skipped": len(rows) - len(records),
+            "skipped": max(
+                0,
+                sum(
+                    int(row.row_count or 0)
+                    if row.label is not None
+                    else len(list(iter_labeled_samples(row)))
+                    for row in rows
+                )
+                - len(records),
+            ),
         },
     )
     db.commit()

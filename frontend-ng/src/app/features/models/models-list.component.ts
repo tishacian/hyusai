@@ -15,6 +15,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { EndpointsService } from './endpoints.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -62,6 +63,9 @@ type ModelFilter = 'all' | ModelTask | 'serving';
       [kpis]="kpis()"
     >
       <div actions class="flex items-center gap-1.5">
+        @if (endpointsEnabled()) {
+          <a [navLink]="{ leaf: 'model-endpoints' }" class="ck-btn-soft px-3 py-2 rounded text-sm">{{ i18n.t('models.endpoints.title') }}</a>
+        }
         <a
           [navLink]="{ surface: 'data' }"
           class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
@@ -127,7 +131,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
               : i18n.t('models.list.empty.no_dataset')
           "
         >
-          @if (hasDataset()) {
+          @if (canTrain()) {
             <button
               type="button"
               class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
@@ -258,6 +262,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
     @if (studioOpen()) {
       <app-model-train
         [datasets]="data.datasets()"
+        [authorized]="models.permissions()['train'] === true"
         (close)="studioOpen.set(false)"
         (trained)="onTrained()"
       />
@@ -479,6 +484,8 @@ type ModelFilter = 'all' | ModelTask | 'serving';
   ],
 })
 export class ModelsListComponent implements OnInit {
+  readonly endpointsEnabled = signal(false);
+  private readonly endpointsApi = inject(EndpointsService);
   readonly i18n = inject(I18nService);
   protected readonly models = inject(ModelsService);
   protected readonly data = inject(DataService);
@@ -512,7 +519,7 @@ export class ModelsListComponent implements OnInit {
   );
 
   protected readonly canTrain = computed(
-    () => this.models.catalog().enabled && this.hasDataset(),
+    () => this.models.permissions()['train'] === true && this.models.catalog().enabled && this.hasDataset(),
   );
 
   protected readonly visible = computed(() => {
@@ -543,6 +550,7 @@ export class ModelsListComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    void this.endpointsApi.features().then(value => this.endpointsEnabled.set(value.enabled)).catch(() => this.endpointsEnabled.set(false));
     void this.reload();
     // A dataset list is what the studio picks from, and what decides whether
     // "train a model" is even offered.
@@ -586,6 +594,7 @@ export class ModelsListComponent implements OnInit {
   }
 
   protected openStudio(): void {
+    if (!this.canTrain()) return;
     this.studioOpen.set(true);
   }
 

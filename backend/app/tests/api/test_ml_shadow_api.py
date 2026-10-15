@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.api.v1.endpoints import ml_models, workspace_jobs
+from app.core.config import settings
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
@@ -46,7 +47,7 @@ def test_config_is_explicit_preserves_train_params_and_visible_without_predictio
     assert model.params_json["mlops"]["monitoring"] == {"enabled": True}
 
 
-@pytest.mark.parametrize("role", ["workspace_viewer", "workspace_reviewer", "viewer"])
+@pytest.mark.parametrize("role", ["workspace_viewer", "viewer"])
 def test_read_only_roles_cannot_configure(api, pair, db_session, role):
     client, _, member = api
     member.role_template, member.role = (role, "member") if role.startswith("workspace_") else (None, role)
@@ -54,6 +55,28 @@ def test_read_only_roles_cannot_configure(api, pair, db_session, role):
     response = client.post(f"/models/{pair[1].id}/shadow", json={"enabled": True})
     assert response.status_code == 403
     assert client.get(f"/models/{pair[1].id}/monitoring").json()["monitoring"]["shadow"]["can_configure"] is False
+
+
+@pytest.mark.parametrize("enforced", [False, True])
+def test_reviewer_can_configure_shadow_under_m1_role_contract(
+    api, pair, db_session, monkeypatch, enforced
+):
+    # M1's explicit role matrix grants shadow configuration to reviewers,
+    # independently of the report/enforcement rollout switch.
+    monkeypatch.setattr(settings, "ml_rbac_enforced", enforced)
+    client, _, member = api
+    member.role_template, member.role = "workspace_reviewer", "member"
+    db_session.commit()
+    body = {"enabled": True, "sample_percent": 25, "timeout_s": 20}
+    response = client.post(f"/models/{pair[1].id}/shadow", json=body)
+    assert response.status_code == 200
+    assert response.json()["shadow"]["can_configure"] is True
+    assert response.json()["shadow"]["config"] == body
+    db_session.expire(pair[1])
+    assert pair[1].params_json["mlops"]["shadow"] == body
+    shadow = client.get(f"/models/{pair[1].id}/monitoring").json()["monitoring"]["shadow"]
+    assert shadow["can_configure"] is True
+    assert shadow["config"] == body
 
 
 @pytest.mark.parametrize("body", [{"enabled": "true"}, {"enabled": True, "sample_percent": 0},

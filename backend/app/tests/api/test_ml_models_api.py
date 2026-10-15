@@ -21,7 +21,7 @@ from app.api.v1.endpoints import ml_models as ml_models_api
 from app.core.config import settings
 from app.models.tabular import MLModel
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services import tabular_ml
 from app.services.recipe_executions import SupervisedRun
 
@@ -57,6 +57,8 @@ def user(db_session) -> User:
 
 @pytest.fixture()
 def client(db_session, workspace, user, tmp_path, monkeypatch) -> TestClient:
+    db_session.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="admin", role_template="workspace_admin"))
+    db_session.commit()
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
     # Eager mode settles the run inline, so the API test observes the trained row.

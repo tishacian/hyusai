@@ -638,6 +638,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'system-capture-page', parent: 'systems', route: '/systems/:systemId/capture', label: 'System capture' },
   { id: 'knowledge-doc', parent: 'knowledge', route: '/knowledge/:kbId', label: 'Knowledge collection' },
   { id: 'data-doc', parent: 'data', route: '/data/:datasetId', label: 'Dataset' },
+  { id: 'model-endpoints', parent: 'models', route: '/models/endpoints', label: 'ML endpoints' },
   { id: 'model-doc', parent: 'models', route: '/models/:modelId', label: 'Model' },
   { id: 'context-doc', parent: 'contexts', route: '/steering/contexts/:contextId', label: 'Context' },
   { id: 'conversation-doc', parent: 'conversations', route: '/conversations/:conversationId', label: 'Conversation' },
@@ -1354,7 +1355,7 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
   } else if (segments[0] === 'data' && segments[1]) {
     selectedType = 'dataset';
     selectedRef = decodedSegment(segments[1]);
-  } else if (segments[0] === 'models' && segments[1]) {
+  } else if (segments[0] === 'models' && segments[1] && segments[1] !== 'endpoints') {
     selectedType = 'model';
     selectedRef = decodedSegment(segments[1]);
   } else if (segments[0] === 'steering' && segments[1] === 'contexts' && segments[2]) {

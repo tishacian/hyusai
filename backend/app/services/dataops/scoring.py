@@ -395,6 +395,10 @@ def run_score(execution_id):
                 "max": evidence["max"],
                 "predictions": evidence["classes"],
             }
+            from app.services.ml_governance import inputs_allowed
+            from app.services.ml_operations import record_inference
+
+            persist_inputs = inputs_allowed(db, row.workspace_id, True)
             journal = MLPrediction(
                 workspace_id=row.workspace_id,
                 model_id=requested.id,
@@ -403,14 +407,19 @@ def run_score(execution_id):
                 slug=served.slug,
                 caller="score",
                 row_count=evidence["scored_rows"],
-                payload_json=evidence["sample_inputs"],
+                payload_json=evidence["sample_inputs"] if persist_inputs else [],
+                input_storage_allowed=persist_inputs,
                 output_json=evidence["sample_answers"],
                 scores_json=summary,
                 duration_ms=elapsed,
-                dataset_id=output.id,
+                dataset_id=output.id if persist_inputs else None,
             )
             db.add(journal)
             db.flush()
+            record_inference(
+                db, requested=requested, served=served, caller="score",
+                row_count=evidence["scored_rows"], duration_ms=elapsed, event_id=journal.id,
+            )
             served.predict_count = int(served.predict_count or 0) + evidence["scored_rows"]
             served.last_predict_at = datetime.utcnow()
             row.output_json = {
@@ -442,5 +451,21 @@ def run_score(execution_id):
             output = db.get(TabularDataset, spec["output_id"])
             if output and output.status == "ingesting":
                 output.status, output.error = "failed", str(exc)[:480]
+            if row.status in {"failed", "cancelled"}:
+                from app.services.ml_operations import record_inference
+
+                requested = db.query(MLModel).filter_by(
+                    id=spec.get("requested_id"), workspace_id=row.workspace_id,
+                ).first()
+                served = db.query(MLModel).filter_by(
+                    id=spec.get("served_id"), workspace_id=row.workspace_id,
+                ).first()
+                if requested is not None and served is not None:
+                    record_inference(
+                        db, requested=requested, served=served, caller="score", row_count=0,
+                        duration_ms=round((time.monotonic() - started) * 1000, 1),
+                        error_code="ML_SCORE_CANCELLED" if row.status == "cancelled" else str(exc),
+                        event_id=f"stream-score-failure:{row.id}",
+                    )
             db.commit()
         return {"id": row.id, "status": row.status, "output": row.output_json}

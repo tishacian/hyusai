@@ -1,0 +1,225 @@
+........................................................................ [ 26%]
+........................................................................ [ 53%]
+........................................................................ [ 80%]
+.....................................................                    [100%]
+=============================== warnings summary ===============================
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  /workspace/agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/services/test_ml_governance.py: 446 warnings
+app/tests/services/test_ml_governance_postgres.py: 25 warnings
+app/tests/services/test_ml_operations.py: 507 warnings
+app/tests/services/test_ml_operations_postgres.py: 52 warnings
+app/tests/services/test_ml_operations_timeout_postgres.py: 21 warnings
+app/tests/services/test_ml_stream_operations.py: 50 warnings
+app/tests/services/test_ml_monitor_alert_hooks.py: 225 warnings
+app/tests/services/test_mlops_correctness.py: 1836 warnings
+app/tests/api/test_ml_governance_api.py: 69 warnings
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_ml_governance.py: 5 warnings
+app/tests/services/test_ml_governance_postgres.py: 5 warnings
+app/tests/services/test_ml_operations.py: 1 warning
+app/tests/services/test_ml_operations_timeout_postgres.py: 1 warning
+app/tests/api/test_ml_governance_api.py: 3 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_governance.py:72: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_governance.py: 4 warnings
+app/tests/services/test_ml_governance_postgres.py: 3 warnings
+app/tests/api/test_ml_governance_api.py: 3 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1397: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_governance.py: 8 warnings
+app/tests/services/test_ml_governance_postgres.py: 6 warnings
+app/tests/api/test_ml_governance_api.py: 5 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
+app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
+app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
+app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
+app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
+app/tests/api/test_ml_governance_api.py::test_rate_refusal_has_retry_after
+app/tests/api/test_ml_governance_api.py::test_rate_refusal_has_retry_after
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1542: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_governance.py::test_key_expiry_network_pin_rotation
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_governance.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    key.expires_at = datetime.utcnow() - timedelta(seconds=1)
+
+app/tests/services/test_ml_governance.py::test_retention_deletes_expired_only
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_governance.py:305: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    db_session.get(MLPrediction, ids[0]).created_at = datetime.utcnow() - timedelta(days=31)
+
+app/tests/services/test_ml_governance.py::test_retention_deletes_expired_only
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_governance.py:162: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = now or datetime.utcnow()
+
+app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
+app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
+app/tests/services/test_ml_governance_postgres.py::test_postgres_policy_reader_refreshes_after_waiting_for_policy_api[promotion]
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_promotion.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
+app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
+app/tests/services/test_ml_governance.py::test_promotion_binds_reviewer_artifact_and_audit
+app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
+app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_promotion.py:102: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_governance.py::test_promotion_changes_champion_once_with_second_reviewer
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_ml.py:1559: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    model.updated_at = datetime.utcnow()
+
+app/tests/services/test_ml_governance_postgres.py::test_postgres_parallel_model_and_key_budget_is_exact
+app/tests/services/test_ml_governance_postgres.py::test_postgres_exposure_quota_has_one_winner
+app/tests/services/test_ml_governance_postgres.py::test_postgres_exposure_quota_has_one_winner
+app/tests/services/test_ml_governance_postgres.py::test_postgres_policy_reader_refreshes_after_waiting_for_policy_api[promotion]
+app/tests/services/test_ml_governance_postgres.py::test_postgres_policy_reader_refreshes_after_waiting_for_policy_api[promotion]
+app/tests/services/test_ml_governance_postgres.py::test_postgres_policy_reader_refreshes_after_waiting_for_policy_api[exposure]
+app/tests/services/test_ml_governance_postgres.py::test_postgres_policy_reader_refreshes_after_waiting_for_policy_api[exposure]
+  /workspace/agentium-mlops-m4-export/backend/app/services/activity_observability/projection.py:259: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_operations.py: 10 warnings
+app/tests/services/test_ml_operations_postgres.py: 4 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_operations.py:248: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = now or datetime.utcnow()
+
+app/tests/services/test_ml_operations.py::test_list_scopes_and_key_metadata_only
+app/tests/services/test_ml_operations.py::test_list_scopes_and_key_metadata_only
+app/tests/services/test_ml_operations.py::test_platform_scope_admin_only
+app/tests/services/test_ml_operations.py::test_platform_scope_admin_only
+app/tests/services/test_ml_operations.py::test_system_read_boundaries
+app/tests/services/test_ml_operations.py::test_system_read_boundaries
+app/tests/services/test_ml_operations.py::test_revoked_membership_denied
+app/tests/services/test_ml_operations.py::test_model_scoped_audit_is_metadata_only
+  /workspace/agentium-mlops-m4-export/backend/app/api/v1/endpoints/ml_operations.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_operations.py::test_real_prediction_refusal_survives_caller_rollback
+app/tests/services/test_ml_operations.py::test_real_prediction_refusal_survives_caller_rollback
+app/tests/services/test_ml_operations.py::test_failed_prediction_logs_code_only_and_preserves_exception
+app/tests/services/test_ml_operations.py::test_forecast_counter_failure_does_not_double_count
+app/tests/services/test_ml_operations_timeout_postgres.py::test_quota_refusal_returns_while_model_remains_locked[inference]
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_governance.py:114: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = now or datetime.utcnow()
+
+app/tests/services/test_ml_operations.py::test_real_prediction_refusal_survives_caller_rollback
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1094: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    predict_count=MLModel.predict_count + max(1, int(rows)), last_predict_at=datetime.utcnow()
+
+app/tests/services/test_ml_operations.py::test_real_prediction_refusal_survives_caller_rollback
+app/tests/services/test_ml_operations.py::test_exposure_quota_alert_survives_refused_key_creation
+app/tests/services/test_ml_operations_postgres.py::test_alert_and_outbox_rollback_atomically
+app/tests/services/test_ml_operations_postgres.py::test_outbox_claim_skips_locked_then_reclaims_after_rollback
+app/tests/services/test_ml_operations_postgres.py::test_expired_sender_cannot_acknowledge_replacement_lease
+app/tests/services/test_ml_operations_timeout_postgres.py::test_quota_refusal_returns_while_model_remains_locked[inference]
+app/tests/services/test_ml_operations_timeout_postgres.py::test_quota_refusal_returns_while_model_remains_locked[exposure]
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_snapshot_and_transition_roll_back_together
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = now or datetime.utcnow()
+
+app/tests/services/test_ml_operations_postgres.py::test_outbox_claim_skips_locked_then_reclaims_after_rollback
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_operations_postgres.py:146: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_operations_postgres.py::test_expired_sender_cannot_acknowledge_replacement_lease
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_operations_postgres.py:167: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_stream_operations.py: 5 warnings
+app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
+app/tests/services/test_mlops_correctness.py: 26 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/services/dataops/storage.py:497: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    dataset.ingested_at = datetime.utcnow()
+
+app/tests/services/test_ml_stream_operations.py::test_stream_success_counts_full_output_and_honors_storage_policy
+app/tests/services/test_ml_stream_operations.py::test_stream_failure_records_no_success_rows_and_no_duplicate
+app/tests/services/test_ml_stream_operations.py::test_stream_journal_and_usage_roll_back_with_failed_settlement
+  /workspace/agentium-mlops-m4-export/backend/app/services/dataops/scoring.py:277: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    .values(status="running", started_at=datetime.utcnow())
+
+app/tests/services/test_ml_stream_operations.py::test_stream_success_counts_full_output_and_honors_storage_policy
+  /workspace/agentium-mlops-m4-export/backend/app/services/dataops/scoring.py:424: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    served.last_predict_at = datetime.utcnow()
+
+app/tests/services/test_ml_stream_operations.py::test_stream_success_counts_full_output_and_honors_storage_policy
+app/tests/services/test_ml_stream_operations.py::test_stream_failure_records_no_success_rows_and_no_duplicate
+app/tests/services/test_ml_stream_operations.py::test_stream_journal_and_usage_roll_back_with_failed_settlement
+  /workspace/agentium-mlops-m4-export/backend/app/services/recipe_executions.py:204: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    execution.finished_at = datetime.utcnow()
+
+app/tests/services/test_ml_monitor_alert_hooks.py: 160 warnings
+app/tests/services/test_mlops_correctness.py: 1280 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:110: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    labeled_at=datetime.utcnow(),
+
+app/tests/services/test_ml_monitor_alert_hooks.py: 2 warnings
+app/tests/services/test_mlops_correctness.py: 16 warnings
+  /workspace/agentium-mlops-m4-export/backend/app/services/systems/flow_publication.py:423: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_snapshot_and_transition_roll_back_together
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+  /workspace/agentium-mlops-m4-export/backend/app/tests/services/test_ml_retraining.py:139: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    outcome = scheduler._fire_schedule(db, case.schedule, now=datetime.utcnow())
+
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_snapshot_and_transition_roll_back_together
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+  /workspace/agentium-mlops-m4-export/backend/app/services/systems/flow_ingress.py:360: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_snapshot_and_transition_roll_back_together
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+  /workspace/agentium-mlops-m4-export/backend/app/services/systems/flow_ingress.py:367: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_snapshot_and_transition_roll_back_together
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:496: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    completed_at=datetime.utcnow(),
+
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_snapshot_and_transition_roll_back_together
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_alerts.py:133: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now or datetime.utcnow(),
+
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_ml_monitor_alert_hooks.py::test_new_snapshot_emits_one_transition_and_replay_is_quiet
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+app/tests/services/test_mlops_correctness.py::test_each_scheduled_run_records_measurement_without_reproposing_same_window
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_retraining.py:603: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_mlops_correctness.py::test_batch_feedback_needs_sample_and_never_replicates_label
+app/tests/api/test_ml_governance_api.py::test_batch_feedback_selects_one_retained_sample
+  /workspace/agentium-mlops-m4-export/backend/app/services/ml_feedback.py:104: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_ml_governance_api.py::test_key_audit_identifies_credential_without_secret
+app/tests/api/test_ml_governance_api.py::test_key_audit_identifies_credential_without_secret
+app/tests/api/test_ml_governance_api.py::test_rate_refusal_has_retry_after
+app/tests/api/test_ml_governance_api.py::test_rate_refusal_has_retry_after
+  /workspace/agentium-mlops-m4-export/backend/app/services/tabular_predict.py:1504: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "expired": bool((row.expires_at and row.expires_at <= datetime.utcnow()) or (row.revoke_after and row.revoke_after <= datetime.utcnow())),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+269 passed, 4867 warnings in 492.23s (0:08:12)

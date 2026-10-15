@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-15",
+  "base": "47e289da",
+  "branch": "codex/mlops-m4-export",
+  "m1_dependency_commit": "b75eea2b",
+  "m1_permission_sha256": "6a623f08ef0c24395d91ab684b38a79ccb8e20b5eff78446001a8f746c651aee",
+  "node": "v24.19.0",
+  "npm": "11.9.0",
+  "results": {
+    "backend": {
+      "passed": 16,
+      "seconds": 19.48
+    },
+    "frontend_unit": {
+      "passed": 2265,
+      "failed": 0
+    },
+    "real_mlflow_http": "ping200, invocations200, predictions identical [0,0,1,1], no repository PYTHONPATH or registry credentials",
+    "build_prod": "passed",
+    "tsc": "passed",
+    "i18n": "passed",
+    "navigation": "passed",
+    "ui_chrome": "failed: pre-existing src/styles.scss halo 7 > budget 6"
+  },
+  "files": {
+    "backend-export-verified.log": {
+      "sha256": "77c2b048424f66af46d5fba1d14e7d859d482841521cca673473bcbb6df9e5e7",
+      "bytes": 100
+    },
+    "mlflow-server.log": {
+      "sha256": "ec62b39daade307226a2646a992459b45eaf6667e41b5019679d1feccbcaaa09",
+      "bytes": 742
+    },
+    "frontend-unit.log": {
+      "sha256": "ddbc347a45db72cf4ee183dc09ccc62c6c872a5170ca7280c08cf883e9b90746",
+      "bytes": 195132
+    },
+    "build-prod.log": {
+      "sha256": "06cc0f590e88a705a7bd9f90357638a6a8c6cce28f3368842d37405a83836232",
+      "bytes": 9971
+    },
+    "tsc.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "i18n.log": {
+      "sha256": "eaa3e0f8a1f752e90036b2fdbf4b6c0e5d52520a03a2ec33142b83b313b9dc89",
+      "bytes": 215
+    },
+    "nav.log": {
+      "sha256": "f95d0aeb6b302da99bc22f670bfe6bc5daed1a53aed7c8a630c46133a4549f46",
+      "bytes": 171
+    },
+    "ui-chrome.log": {
+      "sha256": "e4dfaca77ac655c8b579ad26383d72bb3a0caf718f68d3776f4775bdbe14bf2a",
+      "bytes": 620
+    },
+    "m1_test_dependency.py": {
+      "sha256": "da360669df1525f2f21b5574fcd240cea00dd17dd19f25daa621c5b465e715f6",
+      "bytes": 182
+    }
+  }
+}

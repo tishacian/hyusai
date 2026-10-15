@@ -1,0 +1,16 @@
+....................................................................     [100%]
+=============================== warnings summary ===============================
+app/tests/infra/test_tabular_migration.py::test_a_row_the_application_would_write_actually_inserts
+app/tests/infra/test_tabular_migration.py::test_a_row_the_application_would_write_actually_inserts
+app/tests/infra/test_tabular_migration.py::test_a_row_the_application_would_write_actually_inserts
+app/tests/infra/test_tabular_migration.py::test_a_row_the_application_would_write_actually_inserts
+  /workspace/agentium/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/infra/test_tabular_migration.py::test_135_legacy_key_grace_and_guarded_downgrade
+app/tests/infra/test_tabular_migration.py::test_135_legacy_key_grace_and_guarded_downgrade
+  /workspace/agentium-mlops-m3/backend/app/tests/infra/test_tabular_migration.py:614: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    assert datetime.utcnow() + timedelta(days=364) < expiry < datetime.utcnow() + timedelta(days=366)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+68 passed, 6 warnings in 1448.72s (0:24:08)
