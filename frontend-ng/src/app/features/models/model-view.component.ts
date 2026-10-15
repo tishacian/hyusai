@@ -932,6 +932,14 @@ const CHART_ASPECT = 300 / 190;
                 </section>
               }
               <ck-drift-evidence [features]="report.data_drift.features" />
+              @if (report.concept_drift.metrics?.length) {
+                <section data-testid="concept-metrics"><h3>{{i18n.t('models.monitor.concept')}}</h3>
+                  @for (metric of report.concept_drift.metrics; track metric.metric) {
+                    <p>{{i18n.t('models.correctness.metric.'+metric.metric)}}: {{metric.value}} · {{i18n.t('models.correctness.reference')}}: {{metric.reference ?? '—'}} · {{i18n.t('models.monitor.tests.status.'+metric.status)}}</p>
+                  }
+                </section>
+              }
+              <p>{{i18n.t(report.score_drift.reference_source === 'final_test' ? 'models.correctness.score_final_test' : 'models.correctness.score_previous_window')}}</p>
               @if (monitorAuc().length) {
                 <section class="ck-chart">
                   <div class="ck-section-label">{{ i18n.t('models.monitor.auc') }}</div>
@@ -958,9 +966,19 @@ const CHART_ASPECT = 300 / 190;
                       type="text"
                       class="ck-field__input"
                       [value]="feedbackId() || models.lastPredictionId() || ''"
-                      (input)="feedbackId.set($any($event.target).value)"
+                      [disabled]="feedbackBusy()"
+                      (input)="feedbackId.set($any($event.target).value); feedbackSamples.set([]); feedbackSample.set('')"
                     />
                   </label>
+                  <button type="button" class="ck-btn-soft" [disabled]="feedbackBusy()" (click)="loadFeedbackSamples()">{{i18n.t('models.correctness.load_samples')}}</button>
+                  @if (feedbackSamples().length) {
+                    <label class="ck-field">{{i18n.t('models.correctness.sample')}}
+                      <select class="ck-field__input" [value]="feedbackSample()" (change)="feedbackSample.set($any($event.target).value)">
+                        <option value="">{{i18n.t('models.correctness.choose_sample')}}</option>
+                        @for (sample of feedbackSamples(); track sample.sample_id) { <option [value]="sample.sample_id">{{sample.index+1}} · {{sample.label ?? '—'}}</option> }
+                      </select>
+                    </label>
+                  }
                   <label class="ck-field">
                     <span class="ck-field__name ck-mono">{{
                       i18n.t('models.monitor.feedback.label')
@@ -1606,6 +1624,8 @@ export class ModelViewComponent implements OnInit {
   protected readonly monitoring = signal<MonitoringReport | null>(null);
   protected readonly feedbackId = signal('');
   protected readonly feedbackLabel = signal('');
+  protected readonly feedbackSamples = signal<Array<{sample_id:string;index:number;label:string|null}>>([]);
+  protected readonly feedbackSample = signal('');
   protected readonly feedbackBusy = signal(false);
   protected readonly feedbackDataset = signal<DatasetDto | null>(null);
   protected readonly feedbackDatasetId = signal<string | null>(null);
@@ -2479,7 +2499,7 @@ export class ModelViewComponent implements OnInit {
     () =>
       Boolean(
         (this.feedbackId().trim() || this.models.lastPredictionId()) &&
-          this.feedbackLabel().trim(),
+          this.feedbackLabel().trim() && this.feedbackSamples().some(sample=>sample.sample_id===this.feedbackSample()),
       ),
   );
 
@@ -2492,17 +2512,35 @@ export class ModelViewComponent implements OnInit {
     this.syncPolling();
   }
 
+  protected async loadFeedbackSamples(): Promise<void> {
+    const model=this.model(), predictionId=this.feedbackId().trim() || this.models.lastPredictionId();
+    if (!model || !predictionId || this.feedbackBusy()) return;
+    const scope=this.workspace.captureRequestScope();
+    const current=()=>this.model()?.id===model.id && this.workspace.isRequestScopeCurrent(scope) && (this.feedbackId().trim() || this.models.lastPredictionId())===predictionId;
+    this.feedbackBusy.set(true); this.feedbackSamples.set([]); this.feedbackSample.set('');
+    try {
+      const result=await this.models.predictionSamples(model.id,predictionId);
+      if (!current()) return;
+      this.feedbackSamples.set(result.samples);
+      if (result.row_count===1 && result.samples.length===1) this.feedbackSample.set(result.samples[0].sample_id);
+      if (!result.samples.length) this.toast.info(this.i18n.t('models.correctness.no_samples'));
+    } catch {
+      if (current()) this.toast.error(this.i18n.t('models.monitor.feedback.failed'));
+    } finally { if (current()) this.feedbackBusy.set(false); }
+  }
+
   protected async sendFeedback(): Promise<void> {
     const row = this.model();
     const predictionId = this.feedbackId().trim() || this.models.lastPredictionId();
     const label = this.feedbackLabel().trim();
-    if (!row || !predictionId || !label) return;
+    if (!row || !predictionId || !label || !this.canSendFeedback()) return;
     const scope = this.workspace.captureRequestScope();
     const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     this.feedbackBusy.set(true);
     try {
       const result = await this.models.feedback(row.id, {
         prediction_id: predictionId,
+        sample_id: this.feedbackSample(),
         label,
       });
       if (!current()) return;
@@ -2624,7 +2662,7 @@ export class ModelViewComponent implements OnInit {
   private clearModelContext(): void {
     this.stopPolling();
     this.detail.set(null); this.serving.set(null); this.monitoring.set(null); this.sameRows.set(null);
-    this.feedbackId.set(''); this.feedbackLabel.set(''); this.feedbackDataset.set(null);
+    this.feedbackId.set(''); this.feedbackLabel.set(''); this.feedbackSamples.set([]); this.feedbackSample.set(''); this.feedbackDataset.set(null);
     this.feedbackDatasetId.set(null); this.feedbackBusy.set(false); this.studioOpen.set(false);
   }
 

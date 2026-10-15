@@ -27,6 +27,25 @@ from app.tests.services.test_ml_registry import registry  # noqa: F401
 from app.tests.services.test_ml_training import _stub_harness, enabled, store  # noqa: F401
 
 
+def record_partition(model, data):
+    import tempfile
+    from pathlib import Path
+
+    from app.resources.ml_evaluation import prepare, write_partition
+    from app.services.object_store import get_object_store
+    from app.services.tabular_datasets import read_frame
+    from app.services.tabular_ml import evaluation_partition_key
+    frame = read_frame(data).to_pandas()
+    evidence = prepare(frame, columns=["x", "label"], train_indices=range(60), test_indices=range(60, 80),
+                       dataset={"id": data.id, "version": data.version}, target="label", seed=42, test_size=.25)
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "evaluation.json.gz"
+        metadata = write_partition(evidence, path)
+        key = evaluation_partition_key(model.workspace_id, model.id)
+        get_object_store().write_bytes(key, path.read_bytes())
+    model.metrics_json = {**model.metrics_json, "evaluation": {**metadata, "status": "stored", "key": key}}
+
+
 @pytest.fixture()
 def case(db_session, enabled, store):
     import polars as pl
@@ -71,6 +90,8 @@ def case(db_session, enabled, store):
         signature_json={"inputs": [{"name": "x", "kind": "number"}]},
     )
     db_session.add(model)
+    db_session.flush()
+    record_partition(model, data)
     for i in range(80):
         db_session.add(
             MLPrediction(
@@ -81,8 +102,8 @@ def case(db_session, enabled, store):
                 served_version=1,
                 slug=model.slug,
                 caller="session",
-                row_count=2,
-                payload_json=[{"x": 200 + i}, {"x": -999}],
+                row_count=1,
+                payload_json=[{"x": 200 + i}],
                 output_json=[{"prediction": str(i % 2)}],
                 scores_json={},
                 label=str(i % 2),
@@ -198,9 +219,14 @@ def test_snapshot_is_immutable_bounded_feedback_and_repeated_window_deduplicates
     run, job = propose(db_session, case, monkeypatch)
     assert job.input_ref["training"]["spec"] == case.model.spec_json
     assert job.input_ref["training"]["name"] == "original-slug"
-    assert job.input_ref["labeled_rows"] == 80
+    assert job.input_ref["labeled_rows"] == 20
     data = db_session.get(TabularDataset, job.input_ref["dataset_id"])
-    assert set(read_frame(data)["x"]) == set(range(200, 280))
+    frame = read_frame(data)
+    assert set(range(80)) <= set(frame["x"])
+    assert len(frame) == 100
+    assert job.input_ref["retraining_data"]["feedback_available"] == 80
+    assert job.input_ref["retraining_data"]["feedback_fraction"] == .25
+    assert frame["x"].tail(20).to_list() == list(range(60, 80))
     result = service.monitor_cycle(db_session, model_id=case.model.id, run_id=run.id)
     assert not result["proposed"] and result["reason"] == "ML_RETRAIN_PROPOSAL_EXISTS"
     assert db_session.query(WorkspaceJob).filter_by(kind=service.SNAPSHOT_KIND).count() == 1
@@ -226,7 +252,7 @@ async def test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger
     decision = db_session.get(Decision, paused["awaiting_decision"])
     binding = decision.rationale["model_retraining"]
     assert decision.expiry_action == "reject"
-    assert binding["labeled_rows"] == 80
+    assert binding["labeled_rows"] == 20
     assert db_session.query(MLModel).count() == 1 and not captured
     if verdict.startswith("human"):
         response = _client(db_session, case.workspace, case.owner).post(
@@ -253,7 +279,17 @@ async def test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger
         if verdict == "human":
             assert captured["manifest"]["features"] == ["x"]
         else:
-            assert model.metrics_json["monitoring_reference"]["train_rows"] == 60
+            assert model.metrics_json["monitoring_reference"]["train_rows"] == 80
+            assert model.metrics_json["monitoring_reference"]["scores"]["source"] == "final_test"
+            assert model.metrics_json["monitoring_reference"]["scores"]["n"] == 20
+            from app.resources.ml_evaluation import read_partition
+            from app.services.object_store import get_object_store
+            metadata = model.metrics_json["evaluation"]
+            recorded = read_partition(get_object_store().read_bytes(metadata["key"]), sha256=metadata["sha256"])
+            source_meta = case.model.metrics_json["evaluation"]
+            original = read_partition(get_object_store().read_bytes(source_meta["key"]), sha256=source_meta["sha256"])
+            assert recorded["test_ids"] == original["test_ids"]
+            assert not set(recorded["train_ids"]) & set(original["test_ids"])
             assert model.model_uri
     else:
         assert result["status"] == "failed", result
@@ -423,7 +459,7 @@ async def test_retraining_run_link_projects_canonical_approval_rights(
     detail = admin.get(f"/runs/{run.id}")
     assert detail.status_code == 200, detail.text
     assert detail.json()["hitl"]["can_decide"] is True
-    assert detail.json()["hitl"]["model_retraining"]["labeled_rows"] == 80
+    assert detail.json()["hitl"]["model_retraining"]["labeled_rows"] == 20
     readonly = reader.get(f"/runs/{run.id}")
     assert readonly.status_code == 200, readonly.text
     assert readonly.json()["hitl"]["can_decide"] is False

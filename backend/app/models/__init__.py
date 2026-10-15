@@ -62,6 +62,7 @@ from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.meeting_decision import MeetingDecision
+from app.models.ml_feedback import MLPredictionFeedback
 from app.models.mfa import MfaChallenge
 from app.models.ml_governance import MLAdmissionCounter, MLWorkspaceLock
 from app.models.policy import AdaptivePolicy, ControlPolicy
