@@ -66,6 +66,7 @@ VM_APPLICATION_STORAGE_ENVIRONMENT = {
     "AGENTIUM_FAISS_PATH": "/srv/agentium-data/faiss_db",
     "AGENTIUM_ML_DEEP_MODELS_PATH": "/srv/agentium-data/ml-deep-models",
     "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
+    "AGENTIUM_CONNECTOR_SCRATCH_PATH": "/srv/agentium-data/connector_scratch",
     "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
     "AGENTIUM_SECURE_DEPOSIT_PATH": "/srv/agentium-secure-deposit",
 }
@@ -139,6 +140,11 @@ VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-recipes"] = dict(
 VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-dataops"] = dict(
     VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-cpu"]
 )
+for _connector_service in ("agentium-worker-connectors", "agentium-worker-connectors-interactive"):
+    VM_APPLICATION_STORAGE_MOUNTS[_connector_service] = {
+        "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
+        "/data/connector_scratch": ("AGENTIUM_CONNECTOR_SCRATCH_PATH", False),
+    }
 # The forecasting workers (profile ml-ts): they read training datasets and write
 # model directories, so they need the object store and nothing else — no
 # secure deposit, no FAISS index, no recipe venvs.
@@ -161,6 +167,8 @@ VM_APPLICATION_STORAGE_MOUNTS["agentium-openbao"] = {
 # they are skipped; present, they are held to their contract like any other.
 VM_OPTIONAL_PROFILE_SERVICES = frozenset(
     {
+        "agentium-worker-connectors",
+        "agentium-worker-connectors-interactive",
         "agentium-hub-fetch",
         "agentium-openbao",
         "agentium-worker-ml-ts",

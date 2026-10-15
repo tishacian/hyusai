@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Agentium connector bench (opt-in)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=30m
+Persistent=false
+Unit=agentium-connector-certification.service
+
+[Install]
+WantedBy=timers.target

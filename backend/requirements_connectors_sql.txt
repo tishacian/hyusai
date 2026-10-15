@@ -1,0 +1,6 @@
+# Connector runner only; optional SQL drivers are never added to the API image.
+# These versions must be qualified with the connector image and DB kit.
+PyMySQL==1.1.2
+python-tds==1.16.0
+oracledb==3.1.1
+pyOpenSSL==26.4.0

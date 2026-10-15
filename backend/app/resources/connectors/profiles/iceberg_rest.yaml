@@ -1,0 +1,35 @@
+key: iceberg_rest
+version: 1
+label_key: connections.profile.iceberg_rest
+family: iceberg_rest
+dialect: iceberg_rest
+packages:
+- httpx
+- pyarrow
+- fastavro
+- botocore
+parameters:
+- key: base_url
+  type: string
+  required: true
+- key: allowed_origins
+  type: json
+  required: true
+- key: download_origins
+  type: json
+  required: true
+- key: token
+  type: secret
+  required: true
+- key: prefix
+  type: string
+- key: region
+  type: string
+  default: us-east-1
+capabilities:
+  read: true
+  consistency: snapshot
+  write_append: true
+  write_overwrite: true
+  write_upsert: true
+  write_outcome_check: snapshot_summary

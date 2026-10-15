@@ -1,0 +1,27 @@
+key: delta_sharing
+version: 1
+label_key: connections.profile.delta_sharing
+family: delta_sharing
+dialect: delta_sharing
+packages:
+- httpx
+- pyarrow
+parameters:
+- key: base_url
+  type: string
+  required: true
+- key: allowed_origins
+  type: json
+  required: true
+- key: download_origins
+  type: json
+  required: true
+- key: token
+  type: secret
+  required: true
+- key: share
+  type: string
+  required: true
+capabilities:
+  read: true
+  consistency: snapshot

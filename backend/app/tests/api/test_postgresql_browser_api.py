@@ -538,3 +538,19 @@ def test_the_api_returns_the_sqlstate_but_never_the_server_text(setup, monkeypat
     response = client().get("/postgresql/catalog")
     assert response.status_code == 502
     assert response.json()["detail"] == {"code": "PG_QUERY_FAILED", "sqlstate": "42601"}
+
+
+@pytest.fixture(autouse=True)
+def connector_test_dns(monkeypatch):
+    # These tests replace the database/HTTP driver; resolve its test hostname
+    # locally too, while leaving the production destination policy in place.
+    import socket
+
+    from app.services.connectors import network_policy
+
+    monkeypatch.setattr(
+        network_policy.socket, "getaddrinfo",
+        lambda host, port, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+        ],
+    )

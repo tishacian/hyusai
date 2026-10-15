@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
+from app.services.connectors.http_transport import destination_for_url, pinned_client
+from app.services.connectors.legacy_network import network_scoped
 from app.services.connectors.mcp.contract import AUTH_INHERIT, AUTH_OAUTH
 from app.services.connectors.mcp.errors import McpCallFailed, McpUnconfigured, McpUnreachable
+from app.services.connectors.network_policy import ConnectorNetworkError
 
 DEFAULT_TIMEOUT_S = 20.0
 _SKEW_S = 30.0
 _DEFAULT_TTL_S = 300.0
-_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_CACHE: dict[str, tuple[str, float]] = {}
 
 
 def clear_token_cache() -> None:
@@ -37,7 +44,15 @@ def fetch_access_token(
             "MCP OAuth client-credentials is incomplete "
             "(oauth_token_url, oauth_client_id, oauth_client_secret)"
         )
-    cache_key = (token_url, client_id)
+    try:
+        checked_url, destination = destination_for_url(token_url, require_https=True)
+    except ConnectorNetworkError as exc:
+        raise McpUnreachable("MCP OAuth destination refused", code=exc.code) from None
+    # Scope and credential rotation cannot reuse an earlier grant. Only the
+    # digest is retained as the cache key; never retain the client secret there.
+    cache_key = hashlib.sha256(
+        json.dumps([str(checked_url), client_id, client_secret, scope]).encode()
+    ).hexdigest()
     now = time.monotonic()
     cached = _CACHE.get(cache_key)
     if cached and cached[1] > now:
@@ -47,19 +62,23 @@ def fetch_access_token(
     if scope:
         data["scope"] = scope
     try:
-        with httpx.Client(timeout=timeout_s) as client:
+        with pinned_client(checked_url, destination, timeout=timeout_s) as client:
             response = client.post(
                 token_url,
                 data=data,
                 auth=(client_id, client_secret),
                 headers={"Accept": "application/json"},
             )
-    except httpx.TimeoutException as exc:
-        raise McpUnreachable("MCP OAuth token endpoint timed out") from exc
-    except httpx.RequestError as exc:
-        raise McpUnreachable(f"MCP OAuth token endpoint unreachable: {exc}") from exc
+    except ConnectorNetworkError as exc:
+        raise McpUnreachable("MCP OAuth destination refused", code=exc.code) from None
+    except httpx.TimeoutException:
+        raise McpUnreachable("MCP OAuth token endpoint timed out") from None
+    except httpx.RequestError:
+        raise McpUnreachable("MCP OAuth connection failed") from None
+    if 300 <= response.status_code < 400:
+        raise McpUnreachable("MCP OAuth redirect refused", code="CONNECTOR_REDIRECT_DENIED")
     if response.status_code >= 400:
-        raise McpUnreachable(f"MCP OAuth token endpoint HTTP {response.status_code}")
+        raise McpUnreachable("MCP OAuth token request rejected")
     try:
         body = response.json()
     except Exception as exc:
@@ -73,10 +92,13 @@ def fetch_access_token(
         ttl = float(body.get("expires_in"))
     except (TypeError, ValueError):
         ttl = _DEFAULT_TTL_S
-    _CACHE[cache_key] = (token, now + max(_SKEW_S, ttl - _SKEW_S))
+    if not math.isfinite(ttl) or ttl <= 0:
+        raise McpCallFailed("MCP OAuth token expiry is invalid")
+    _CACHE[cache_key] = (token, now + max(0, ttl - _SKEW_S))
     return token
 
 
+@network_scoped
 def access_token_for_server(server: Mapping[str, Any]) -> str:
     mode = str(server.get("auth_mode") or "")
     if mode in {AUTH_OAUTH, AUTH_INHERIT}:

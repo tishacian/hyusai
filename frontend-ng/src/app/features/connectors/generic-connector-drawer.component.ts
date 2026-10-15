@@ -85,7 +85,10 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
         <div class="space-y-5">
           <p class="text-xs text-gray-400 leading-relaxed">{{ catalogDescription(c) }}</p>
 
-          @if (c.status === 'coming-soon') {
+          @if (c.status === 'on-request' || c.status === 'configuration-only') {
+            <p class="text-[11px] text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.on_request') }}</p>
+          }
+          @if (c.status === 'on-request' && !config) {
             <div class="rounded-md p-3 flex items-start gap-2 ring-1 bg-amber-500/5 ring-amber-500/20">
               <app-icon name="clock" [size]="14" class="mt-0.5 shrink-0 text-amber-400" />
               <div class="text-[11px] leading-relaxed text-amber-200/90">

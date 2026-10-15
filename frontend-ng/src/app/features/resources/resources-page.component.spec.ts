@@ -261,7 +261,7 @@ test('saved PostgreSQL configuration does not imply an operational data connecto
   const h = harness();
   try {
     const postgres = CONNECTORS.find((connector) => connector.id === 'postgresql')!;
-    assert.equal(h.component.connectorStatus(postgres), 'available');
+    assert.equal(h.component.connectorStatus(postgres), 'unverified');
     const initiallyActive = h.component.connectorsActive();
     h.responses.set('/connectors', {
       can_configure: true,
@@ -270,11 +270,30 @@ test('saved PostgreSQL configuration does not imply an operational data connecto
     });
     h.component.refresh();
     assert.equal(h.component.isConfigured('postgresql'), true);
-    assert.equal(h.component.connectorStatus(postgres), 'available');
-    assert.equal(h.component.connectorsActive(), initiallyActive);
+    assert.equal(h.component.connectorStatus(postgres), 'unverified');
+    assert.equal(h.component.connectorsActive(), initiallyActive + 1, 'only the saved-configuration count changes');
     h.component.openConnector(postgres);
     assert.equal(h.component.drawerOpen(), false);
     assert.equal(h.calls.at(-1)?.path, '/connectors/postgresql?lens=build', 'the explorer opens with the current navigation context');
+  } finally { h.close(); }
+});
+
+test('saved placeholder credentials preserve access without promotion or inflating runtime count', () => {
+  const h = harness();
+  try {
+    const runtimeCount = h.component.connectorsAvailable();
+    const s3 = CONNECTORS.find((row) => row.id === 's3')!;
+    const config = { id: 's3', values: { bucket: 'existing-bucket' },
+      secrets_set: { secret_access_key: true }, configured: true, testable: false };
+    h.responses.set('/connectors', { can_configure: true, connectors: [config] });
+    h.component.refresh();
+    assert.equal(h.component.connectorStatus(s3), 'on-request');
+    assert.equal(h.component.connectorStatusKey(s3), 'connectors.status.on_request');
+    assert.equal(h.component.connectorsAvailable(), runtimeCount);
+    h.component.openConnector(s3);
+    assert.equal(h.component.drawerOpen(), true);
+    assert.deepEqual(h.component.activeConnectorConfig(), config);
+    assert.equal(h.calls.some((call) => call.method === 'PUT' || call.method === 'DELETE'), false);
   } finally { h.close(); }
 });
 

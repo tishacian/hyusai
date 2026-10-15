@@ -29,6 +29,7 @@ from app.services.connectors.hana.network_policy import (
     canonical_host,
     resolve_destination,
 )
+from app.services.connectors.legacy_network import bind_config, network_scoped
 from app.services.secrets.compat import read_secret_field, write_secret_field
 from app.services.secrets.registry import SecretConsumer
 
@@ -166,6 +167,7 @@ def get_config(workspace: Workspace, *, include_secrets: bool = False) -> dict[s
                 or ""
             )
         config["password"] = password
+        return bind_config(config, workspace)
     return config
 
 
@@ -227,6 +229,7 @@ def set_config(db: DBSession, workspace: Workspace, payload: Mapping[str, Any]) 
     return get_config(workspace)
 
 
+@network_scoped
 def _connect(config: Mapping[str, Any]):
     host = canonical_host(str(config.get("host") or ""))
     user = str(config.get("user") or "").strip()

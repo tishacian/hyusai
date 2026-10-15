@@ -6,15 +6,11 @@ No HTTP client or redirects are involved in this SQL/TCP connector.
 
 from __future__ import annotations
 
-import ipaddress
-import logging
-import re
-import socket
+import socket as socket  # compatibility for callers/tests patching the resolver
 from dataclasses import dataclass
 
 from app.core.config import settings
-
-logger = logging.getLogger(__name__)
+from app.services.connectors import network_policy as common
 
 
 class HanaConnectorError(RuntimeError):
@@ -27,21 +23,14 @@ class HanaConnectorError(RuntimeError):
 
 
 def _csv(value: object) -> tuple[str, ...]:
-    return tuple(item.strip() for item in str(value or "").split(",") if item.strip())
+    return common.csv(value)
 
 
 def canonical_host(host: str) -> str:
-    value = host.strip().lower().rstrip(".")
     try:
-        return str(ipaddress.ip_address(value))
-    except ValueError:
-        pass
-    if not value or len(value) > 253:
-        raise HanaConnectorError("HANA_HOST_INVALID")
-    labels = value.split(".")
-    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) for part in labels):
-        raise HanaConnectorError("HANA_HOST_INVALID")
-    return value
+        return common.canonical_host(host)
+    except common.ConnectorNetworkError as exc:
+        raise HanaConnectorError(exc.code.replace("CONNECTOR_", "HANA_"), exc.status_code) from None
 
 
 def assert_tls_policy(host: str, *, encrypt: bool, verify: bool) -> None:
@@ -62,58 +51,20 @@ class HanaDestination:
 
 
 def resolve_destination(host: str, port: int) -> HanaDestination:
-    """Check every resolved address, then pin the single address used by hdbcli.
-
-    Private destinations require an explicit IP/CIDR approval; a DNS name alone
-    cannot authorize a private address introduced by a rebinding response.
-    """
-    host = canonical_host(host)
-    mode = getattr(settings, "hana_network_policy_mode", "report")
-    if mode not in {"report", "enforce"}:
+    """Keep S0's allow-list and codes; either enforced policy remains enforced."""
+    legacy_mode = settings.hana_network_policy_mode
+    common_mode = settings.connector_network_policy_mode
+    if legacy_mode not in {"report", "enforce"} or common_mode not in {"report", "enforce"}:
         raise HanaConnectorError("HANA_NETWORK_POLICY_INVALID", 503)
     try:
-        allowed_hosts = {
-            canonical_host(value) for value in _csv(getattr(settings, "hana_allowed_hosts", ""))
-        }
-        allowed_networks = [
-            ipaddress.ip_network(value, strict=True)
-            for value in _csv(getattr(settings, "hana_allowed_cidrs", ""))
-        ]
-    except (ValueError, HanaConnectorError):
-        raise HanaConnectorError("HANA_NETWORK_POLICY_INVALID", 503) from None
-    try:
-        records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-        addresses = list(dict.fromkeys(ipaddress.ip_address(row[4][0]) for row in records))
-    except (OSError, ValueError):
-        raise HanaConnectorError("HANA_DNS_FAILED", 502) from None
-    if not addresses:
-        raise HanaConnectorError("HANA_DNS_FAILED", 502)
-    for address in addresses:
-        # IPv4-mapped IPv6 must obey the same policy as the embedded address.
-        effective = getattr(address, "ipv4_mapped", None) or address
-        explicitly_allowed = str(effective) in allowed_hosts or any(
-            effective in network for network in allowed_networks
+        destination = common.resolve_destination(
+            host,
+            port,
+            mode="enforce" if "enforce" in {legacy_mode, common_mode} else "report",
+            allowed_hosts=_csv(settings.hana_allowed_hosts),
+            allowed_cidrs=_csv(settings.hana_allowed_cidrs),
+            hana=True,
         )
-        forbidden = (
-            effective.is_loopback
-            or effective.is_link_local
-            or effective.is_unspecified
-            or effective.is_multicast
-            or effective.is_reserved
-        )
-        approved = not forbidden and (
-            explicitly_allowed or (effective.is_global and host in allowed_hosts)
-        )
-        if not approved:
-            # Fixed classifications only: do not log a user-supplied hostname.
-            reason = (
-                "special_address"
-                if forbidden
-                else "private_address"
-                if not effective.is_global
-                else "host_not_allowed"
-            )
-            logger.warning("HANA_NETWORK_POLICY mode=%s reason=%s", mode, reason)
-            if mode == "enforce":
-                raise HanaConnectorError("HANA_DESTINATION_DENIED", 403)
-    return HanaDestination(host=host, address=str(addresses[0]))
+        return HanaDestination(destination.host, destination.address)
+    except common.ConnectorNetworkError as exc:
+        raise HanaConnectorError(exc.code.replace("CONNECTOR_", "HANA_"), exc.status_code) from None

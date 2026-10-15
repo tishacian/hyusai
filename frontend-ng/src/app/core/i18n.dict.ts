@@ -86,7 +86,7 @@ export const I18N_DOMAINS = {
   settings: { prefixes: ['settings', 'presets'], fr: SETTINGS_FR, en: SETTINGS_EN },
   tasks: { prefixes: ['tasks'], fr: TASKS_FR, en: TASKS_EN },
   resources: {
-    prefixes: ['resources', 'connectors', 'apps'],
+    prefixes: ['resources', 'connectors', 'connections', 'apps'],
     fr: RESOURCES_FR,
     en: RESOURCES_EN,
   },

@@ -1,0 +1,139 @@
+<app-section-header [title]="i18n.t('connections.title')" [subtitle]="i18n.t('connections.subtitle')" icon="database">
+  <ck-back-link [fallback]="{ surface: 'connectors' }" />
+</app-section-header>
+@if (disabled()) {
+  <p class="ck-surface p-5" role="status">{{ i18n.t('connections.disabled') }}</p>
+} @else {
+  @if (failure()) { <p class="ck-surface p-3 text-red-300 mb-4" role="alert">{{ failure() }}</p> }
+  <div class="grid gap-5 lg:grid-cols-[260px_1fr]">
+    <aside class="ck-surface p-4 space-y-3">
+      @if (canConfigure()) { <button class="ck-btn ck-btn-accent w-full" [disabled]="busy()" (click)="newConnection()">{{ i18n.t('connections.new') }}</button> }
+      @for (row of connections(); track row.id) {
+        <button class="ck-btn w-full flex-col items-start text-left" [class.border-cyan-400]="selected()?.id === row.id" [disabled]="busy()" (click)="select(row)">
+          <span>{{ row.name }}</span><span class="text-xs text-gray-400">{{ row.profile_key }} · {{ certificationLabel(row.certification) }}</span>
+        </button>
+      } @empty { <p class="text-sm text-gray-400">{{ i18n.t('connections.empty') }}</p> }
+      <button class="ck-btn w-full" [disabled]="busy()" (click)="load()">{{ i18n.t('connections.reload') }}</button>
+    </aside>
+    <main class="space-y-5 min-w-0">
+      @if (editing() && canConfigure()) {
+        <form class="ck-surface p-5 space-y-4" (ngSubmit)="save()">
+          <label class="block text-sm">{{ i18n.t('connections.name') }}<input class="ck-input w-full mt-1" name="connection-name" [(ngModel)]="name" required maxlength="120" /></label>
+          <label class="block text-sm">{{ i18n.t('connections.profile') }}
+            <select class="ck-input w-full mt-1" name="connection-profile" [ngModel]="profileKey()" (ngModelChange)="chooseProfile($event)" [disabled]="!!selected()">
+              @for (item of profiles(); track item.key) { <option [value]="item.key">{{ item.key }}</option> }
+            </select>
+          </label>
+          @for (parameter of profile()?.parameters ?? []; track parameter.key) {
+            @if (enabled(parameter) && (!parameter.advanced || advanced)) {
+              <div class="space-y-1">
+                <label class="block text-sm" [attr.for]="'connection-' + parameter.key">{{ parameterLabel(parameter) }} {{ parameter.required ? '*' : '' }}</label>
+                @switch (parameter.type) {
+                  @case ('secret') { <app-secret-picker [workspaceSlug]="workspace.currentSlug()" [ref]="refs[parameter.key] || null" (refChange)="refs[parameter.key] = $event || ''" scope="workspace" /> }
+                  @case ('secret_file') { <app-secret-picker [workspaceSlug]="workspace.currentSlug()" [ref]="refs[parameter.key] || null" (refChange)="refs[parameter.key] = $event || ''" scope="workspace" /> }
+                  @case ('boolean') { <input type="checkbox" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]" /> }
+                  @case ('enum') { <select class="ck-input w-full" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]">@for (choice of parameter.choices; track choice) { <option [value]="choice">{{ choice }}</option> }</select> }
+                  @case ('integer') { <input class="ck-input w-full" type="number" step="1" [id]="'connection-' + parameter.key" [name]="parameter.key" [min]="parameter.min ?? null" [max]="parameter.max ?? null" [(ngModel)]="fields[parameter.key]" /> }
+                  @case ('json') { <textarea class="ck-input w-full font-mono" rows="4" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]"></textarea> }
+                  @default { <input class="ck-input w-full" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]" /> }
+                }
+              </div>
+            }
+          }
+          <label class="flex gap-2 text-sm"><input type="checkbox" name="advanced" [(ngModel)]="advanced" />{{ i18n.t('connections.advanced') }}</label>
+          <label class="block text-sm">{{ i18n.t('connections.access') }}<select class="ck-input w-full" name="access" [(ngModel)]="access"><option value="read">{{ i18n.t('connections.read') }}</option>@if (writingAllowed()) { <option value="read_write">{{ i18n.t('connections.read_write') }}</option> }</select></label>
+          @if (advanced && !isTools()) {
+            <label class="block text-sm">{{ i18n.t('connections.schemas') }}<textarea class="ck-input w-full" name="allowed-schemas" [(ngModel)]="allowedSchemas"></textarea></label>
+            <label class="block text-sm">{{ i18n.t('connections.tables') }}<textarea class="ck-input w-full" name="allowed-tables" [(ngModel)]="allowedTables"></textarea></label>
+          }
+          <p class="text-xs text-gray-400">{{ i18n.t('connections.secret_help') }}</p>
+          <button class="ck-btn ck-btn-accent" type="submit" [disabled]="busy()">{{ i18n.t('connections.save') }}</button>
+        </form>
+      }
+      @if (selected(); as row) {
+        <section class="ck-surface p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ row.name }}</h2>
+            @if (canConfigure()) { <button class="ck-btn" [disabled]="busy() || activeRun()" (click)="editing.set(!editing())">{{ i18n.t('connections.edit') }}</button> }
+          </div>
+          <p class="text-sm text-gray-400">{{ i18n.t('connections.evidence_help') }}</p>
+          <div class="flex flex-wrap gap-2">
+            @if (canConfigure() && profile()?.key !== 'openapi') { <button class="ck-btn" [disabled]="busy() || activeRun()" (click)="startRun('test')">{{ i18n.t('connections.test') }}</button> }
+            <button class="ck-btn" [disabled]="busy() || activeRun()" (click)="startRun('catalog')">{{ i18n.t('connections.catalog') }}</button>
+          </div>
+          @if (isTools()) {
+            <label class="block text-sm">{{ i18n.t('connections.tool') }}<select class="ck-input w-full" [(ngModel)]="toolId"><option value="">—</option>@for (tool of tools(); track tool.id) { <option [value]="tool.id" [disabled]="tool.write && (!canConfigure() || row.access !== 'read_write')">{{ tool.id }}{{ tool.write ? ' · ' + i18n.t('connections.needs_approval') : '' }}</option> }</select></label>
+            <label class="block text-sm">{{ i18n.t('connections.arguments') }}<textarea class="ck-input w-full font-mono" rows="4" [(ngModel)]="argumentsJson"></textarea></label>
+          } @else if (isObjects()) {
+            <label class="block text-sm">{{ i18n.t('connections.prefix') }}<input class="ck-input w-full" [(ngModel)]="prefix" /></label>
+            <label class="block text-sm">{{ i18n.t('connections.object') }}<input class="ck-input w-full" [(ngModel)]="key" /></label>
+          } @else {
+            @if (tables().length) { <div class="flex flex-wrap gap-2">@for (item of tables(); track item.schema + '.' + item.name) { <button class="ck-btn text-xs" (click)="schema = item.schema; table = item.name">{{ item.schema }}.{{ item.name }}</button> }</div> }
+            <div class="grid sm:grid-cols-2 gap-3"><label class="block text-sm">{{ i18n.t('connections.schema') }}<input class="ck-input w-full" [(ngModel)]="schema" /></label><label class="block text-sm">{{ i18n.t('connections.table') }}<input class="ck-input w-full" [(ngModel)]="table" /></label></div>
+          }
+          <div class="flex gap-2"><button class="ck-btn" [disabled]="busy() || activeRun()" (click)="startRun('preview')">{{ i18n.t('connections.preview') }}</button>@if (!isTools()) { <button class="ck-btn" [disabled]="busy() || activeRun() || !canImport()" (click)="startRun('import')">{{ i18n.t('connections.import') }}</button> }</div>
+          @if (run(); as result) {
+            <div aria-live="polite" class="border-t border-white/10 pt-3 space-y-2"><p>{{ result.operation }} · {{ result.status }}</p>
+              @if (activeRun()) { <button class="ck-btn" [disabled]="result.cancel_requested" (click)="cancelRun()">{{ i18n.t('connections.cancel') }}</button> }
+              @if (result.error_code) { <p role="alert">{{ i18n.t('connections.run_failed') }} ({{ result.error_code }})</p> }
+              @if (result.output) { <pre class="max-h-96 overflow-auto text-xs whitespace-pre-wrap">{{ result.output | json }}</pre> }
+            </div>
+          }
+        </section>
+        @if (canConfigure() && row.profile_key === 'mcp' && run()?.operation === 'catalog' && run()?.status === 'succeeded') { <button class="ck-btn" (click)="importToolCatalog()">{{ i18n.t('connections.freeze_catalog') }}</button> }
+        @if (row.values['auth_mode'] === 'oauth_user') {
+          <section class="ck-surface p-5 space-y-3"><h2 class="font-semibold">{{ i18n.t('connections.authorizations') }}</h2><p class="text-sm text-gray-400">{{ i18n.t('connections.authorizations_help') }}</p>
+            <button class="ck-btn" (click)="authorize()">{{ i18n.t('connections.authorize') }}</button><button class="ck-btn" (click)="oauthAction('refresh')">{{ i18n.t('connections.refresh_token') }}</button>
+            @if (canConfigure() && !row.values['client_id'] && row.values['registration_endpoint']) { <button class="ck-btn" (click)="oauthAction('register-client')">{{ i18n.t('connections.register_client') }}</button> }
+            @for (grant of grants(); track grant.id) { <div class="border-t border-white/10 pt-3"><p class="text-sm">{{ grant.owner_user_id }} · {{ grant.scopes.join(', ') }} · {{ grant.revoked_at ? i18n.t('connections.revoked') : (grant.expires_at | date:'short') }}</p>
+              @if (!grant.revoked_at) { <button class="ck-btn" (click)="grantAction(grant, 'revoke')">{{ i18n.t('connections.revoke') }}</button>
+                <details class="mt-3"><summary>{{ i18n.t('connections.delegate') }}</summary><label class="block text-sm">{{ i18n.t('connections.system_version') }}<input class="ck-input w-full" [(ngModel)]="delegationVersion" /></label><label class="block text-sm">{{ i18n.t('connections.expires') }}<input class="ck-input" type="datetime-local" [(ngModel)]="delegationExpires" /></label><button class="ck-btn" (click)="grantAction(grant, 'delegate')">{{ i18n.t('connections.request_delegation') }}</button></details>
+              }
+            </div> }
+            @if (canConfigure()) { <label class="block text-sm">{{ i18n.t('connections.delegation_id') }}<input class="ck-input w-full" [(ngModel)]="delegationApproval" /></label><button class="ck-btn" (click)="approveDelegation()">{{ i18n.t('connections.approve') }}</button> }
+          </section>
+        }
+        @if (canConfigure() && row.access === 'read_write' && writingAllowed()) {
+          <section class="ck-surface p-5 space-y-3"><h2 class="font-semibold">{{ i18n.t('connections.write_title') }}</h2>
+            <label class="block text-sm">{{ i18n.t('connections.write_reference') }}<input class="ck-input w-full" [(ngModel)]="writeReference" /></label><button class="ck-btn" (click)="openWrite()">{{ i18n.t('connections.open_write') }}</button>
+            @if (isTools()) { <p class="text-sm text-gray-400">{{ i18n.t('connections.tool_write_help') }}</p> } @else {
+            <label class="block text-sm">{{ i18n.t('connections.dataset') }}<input class="ck-input w-full" [(ngModel)]="writeDataset" /></label>
+            <label class="block text-sm">{{ i18n.t('connections.write_mode') }}<select class="ck-input w-full" [(ngModel)]="writeOperation">@for (mode of ['write_append', 'write_overwrite', 'write_upsert', 'export']; track mode) { @if (profile()?.capabilities?.[mode === 'export' ? 'export_files' : mode] === true) { <option [value]="mode">{{ mode }}</option> } }</select></label>
+            @if (profile()?.family === 'iceberg_rest') { <p class="text-sm text-gray-400">{{ i18n.t('connections.iceberg_snapshot_help') }}</p><button class="ck-btn" (click)="useIcebergSnapshot()" [disabled]="run()?.status !== 'succeeded' || run()?.output?.['snapshot']?.protocol !== 'iceberg_rest'">{{ i18n.t('connections.use_snapshot') }}</button> }
+            <label class="block text-sm">{{ i18n.t('connections.write_parameters') }}<textarea class="ck-input w-full font-mono" [(ngModel)]="writeParameters"></textarea></label> }<button class="ck-btn" (click)="prepareWrite()">{{ i18n.t('connections.prepare') }}</button>
+            @if (writeContract(); as contract) {
+              <pre class="text-xs overflow-auto whitespace-pre-wrap">{{ contract | json }}</pre>
+              <p class="text-sm text-gray-400">{{ i18n.t('connections.approval_help') }}</p>
+              <div class="flex flex-wrap gap-2">
+                <button class="ck-btn" (click)="refreshWrite()">{{ i18n.t('connections.refresh_write') }}</button>
+                @if (contract['state'] === 'prepared' || contract['state'] === 'approved') {
+                  <button class="ck-btn" [disabled]="activeRun()" (click)="inspectWrite('preview')">{{ i18n.t('connections.preview_write') }}</button>
+                  @if (isTools()) { <p class="text-sm text-gray-400">{{ i18n.t('connections.tool_preview_help') }}</p> }
+                  <button class="ck-btn" [disabled]="contract['preview_ready'] !== true" (click)="writeAction('approve')">{{ i18n.t('connections.approve') }}</button>
+                  <button class="ck-btn" [disabled]="contract['state'] !== 'approved'" (click)="writeAction('execute')">{{ i18n.t('connections.execute') }}</button>
+                }
+                @if (contract['state'] === 'unknown' && profile()?.capabilities?.['write_outcome_check'] !== 'none' && profile()?.capabilities?.['write_outcome_check']) { <button class="ck-btn" [disabled]="activeRun()" (click)="inspectWrite('reconcile')">{{ i18n.t('connections.reconcile_write') }}</button> }
+                @if (contract['review_decision_id']) { <a class="ck-btn" [navLink]="{ surface: 'review-queue' }">{{ i18n.t('connections.open_review') }}</a> }
+              </div>
+              @if (contract['state'] === 'unknown') {
+                <p class="text-sm text-amber-300">{{ i18n.t('connections.unknown_help') }}</p>
+                <label class="block text-sm">{{ i18n.t('connections.abandon_reason') }}<textarea class="ck-input w-full" [(ngModel)]="abandonReason" minlength="20"></textarea></label>
+                <label class="flex gap-2 text-sm"><input type="checkbox" [(ngModel)]="acknowledgePossibleApplication" />{{ i18n.t('connections.abandon_ack') }}</label>
+                <button class="ck-btn" [disabled]="!acknowledgePossibleApplication || abandonReason.trim().length < 20" (click)="abandonWrite()">{{ i18n.t('connections.abandon_write') }}</button>
+              }
+            }
+          </section>
+        }
+        @if (canConfigure() && profile()?.capabilities?.['watch']) {
+          <section class="ck-surface p-5 space-y-3"><h2 class="font-semibold">{{ i18n.t('connections.watch_title') }}</h2><p class="text-sm text-gray-400">{{ i18n.t('connections.watch_help') }}</p>
+            <label class="block text-sm">{{ i18n.t('connections.watch_system') }}<input class="ck-input w-full" [(ngModel)]="watchSystem" /></label>
+            <label class="block text-sm">{{ i18n.t('connections.prefix') }}<input class="ck-input w-full" [(ngModel)]="prefix" /></label>
+            <label class="block text-sm">{{ i18n.t('connections.watch_interval') }}<input class="ck-input" type="number" min="60" max="86400" [(ngModel)]="watchInterval" /></label>
+            <button class="ck-btn" [disabled]="!watchSystem" (click)="createWatch()">{{ i18n.t('connections.watch_create') }}</button>
+            @for (watch of watches(); track watch['id']) { <div class="border-t border-white/10 pt-2 text-sm"><p>{{ watch['system_id'] }} · {{ watch['prefix'] }} · {{ watch['interval_s'] }} s</p><p>{{ watch['enabled'] ? i18n.t('connections.watch_enabled') : i18n.t('connections.watch_disabled') }} · {{ watch['last_error'] || '' }}</p>@if (watch['enabled']) { <button class="ck-btn" (click)="disableWatch(watch['id'])">{{ i18n.t('connections.watch_disable') }}</button> }</div> }
+          </section>
+        }
+        @if (canConfigure()) { <div class="ck-surface p-4"><label class="flex gap-2 text-sm"><input type="checkbox" [ngModel]="confirmDelete()" (ngModelChange)="confirmDelete.set($event)" />{{ i18n.t('connections.delete_confirm') }}</label><button class="ck-btn mt-3" [disabled]="!confirmDelete() || busy()" (click)="remove()">{{ i18n.t('connections.delete') }}</button></div> }
+      }
+    </main>
+  </div>
+}

@@ -1,0 +1,31 @@
+key: opensearch
+version: 1
+label_key: connections.profile.opensearch
+family: search
+dialect: opensearch
+packages:
+- httpx
+parameters:
+- key: endpoint
+  type: string
+  required: true
+- key: username
+  type: string
+- key: password
+  type: secret
+- key: api_key
+  type: secret
+- key: marker_index
+  type: string
+  default: agentium_operations
+  advanced: true
+- key: flatten_paths
+  type: json
+  default: []
+  advanced: true
+capabilities:
+  read: true
+  consistency: snapshot
+  write_append: true
+  write_upsert: true
+  write_outcome_check: marker_table

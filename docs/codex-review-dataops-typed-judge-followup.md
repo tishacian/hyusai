@@ -3,9 +3,23 @@
 La [revue indépendante](codex-review-dataops-typed-judge.md) reste inchangée : elle
 porte sur `45ccc915`. Ce suivi consigne les correctifs qui la suivent. Le premier
 bilan de livraison surestimait les suites ciblées et la conformité au plan.
-**La branche n'est toujours pas déclarée fusionnable ou déployable.**
+**Mise à jour de production :** l'opérateur rapporte `0e401afc` en service,
+avec `build-info` vérifié, DataOps et les trois options Delta/contrats/scoring
+ouverts globalement. Le miroir contient cette révision après l'intégration
+regroupée `aa99c247`. Cette intégration ne réécrit pas l'historique de revue
+antérieur et n'est pas présentée comme la qualification du juge.
+
+Le [bilan de production](ops/dataops-production-2026-10-14.md) consigne la sonde
+Delta réussie d'une ligne/une part, RabbitMQ à une heure et le nettoyage effectué.
+Le scoring en flux n'a pas été exercé, aucun contrat ni corpus de calibration
+n'est qualifié par les sondes, et HANA démo reste à activer. Le retour aux images
+`ad10dbc2` est incompatible avec les versions Delta existantes. Les appréciations
+de fusion et de déploiement ci-dessous décrivent les étapes antérieures ; cette
+mise à jour ne réécrit ni la revue originale ni les critères ouverts du plan.
 
 ## Mise à jour : mesure VM de `6dcb0d48` et plafonds autorisés
+
+Ce relevé précède la mise en production de `0e401afc` décrite ci-dessus.
 
 Le compte rendu transmis par l'utilisateur après la construction des candidates
 sur la VM donne **1 412 Mio pour le backend et 1 765 Mio pour le worker**, contre

@@ -1,0 +1,22 @@
+[Unit]
+Description=Agentium isolated connector certification bench
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/etc/agentium/connector-certification.env
+
+[Service]
+Type=oneshot
+User=agentium-bench
+Group=agentium-bench
+SupplementaryGroups=docker
+EnvironmentFile=/etc/agentium/connector-certification.env
+# Install/approve this path and account locally; this unit is never auto-enabled.
+ExecStart=/opt/agentium/scripts/agentium-connector-certification.sh
+TimeoutStartSec=2h
+Nice=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/agentium-bench/reports

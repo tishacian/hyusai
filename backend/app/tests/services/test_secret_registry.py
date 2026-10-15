@@ -318,7 +318,8 @@ def test_migration_upgrade_matches_models_and_downgrades():
             inspector = sa.inspect(bind)
             for model in (Secret, SecretVersion):
                 db_cols = {c["name"] for c in inspector.get_columns(model.__tablename__)}
-                assert db_cols == {c.name for c in model.__table__.columns}
+                # Historical migration 124 predates personal scope (added in 127).
+                assert db_cols == {c.name for c in model.__table__.columns} - ({"user_id"} if model is Secret else set())
             module.downgrade()
             assert not {"secrets", "secret_versions"} & set(sa.inspect(bind).get_table_names())
         finally:

@@ -182,6 +182,8 @@ def submit_preparation(
         },
     )
     db.add(execution)
+    from app.services.dataops.compute_registry import register as register_compute
+    register_compute(db, execution)
     db.commit()
     if settings.worker_eager_mode:
         run_preparation(execution.id)
@@ -208,6 +210,9 @@ def run_preparation(execution_id: str):
         row = db.get(RecipeExecution, execution_id)
         if row is None or row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
             return {"id": execution_id, "status": row.status if row else "missing"}
+        from app.services.dataops.compute_registry import start as start_compute
+        if not start_compute(db, row):
+            return {"id": execution_id, "status": row.status}
         claimed = db.execute(
             update(RecipeExecution)
             .where(RecipeExecution.id == execution_id, RecipeExecution.status == "queued")
@@ -305,6 +310,9 @@ def run_preparation(execution_id: str):
                     raise ValueError(
                         f"DATAPREP_{result.status or 'FAILED'}: {result.stderr_tail[-400:]}"
                     )
+                from app.services.dataops.compute_registry import begin_settlement
+
+                begin_settlement(db, row)
                 row = (
                     db.query(RecipeExecution)
                     .filter_by(id=execution_id)

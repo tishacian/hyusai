@@ -1,0 +1,37 @@
+# Optional connector pools. Enable only after runner and network qualification.
+# Require a separately qualified image, never fall back to the general worker.
+services:
+  agentium-worker-connectors:
+    image: ${AGENTIUM_CONNECTOR_RUNNER_IMAGE:?Set the qualified connector runner image}
+    container_name: agentium-worker-connectors
+    profiles: [connectors]
+    restart: unless-stopped
+    networks: [agentium-net]
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment: &connector-env
+      AGENTIUM_DISABLE_DOTENV: "1"
+      CELERY_APP: app.workers.celery_connectors:celery_connectors
+      CELERY_CONNECTORS_QUEUE: connectors
+      CELERY_CONNECTORS_INTERACTIVE_QUEUE: connectors_interactive
+      CELERY_QUEUES: connectors
+      CELERY_CONCURRENCY: "1"
+      CELERY_BEAT: "0"
+      TMPDIR: /data/connector_scratch
+      CONNECTOR_SCRATCH_DIR: /data/connector_scratch
+    mem_limit: 2g
+    cpus: 1
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_CONNECTOR_SCRATCH_PATH:-/home/ubuntu/agentium-data/connector_scratch}:/data/connector_scratch
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy
+  agentium-worker-connectors-interactive:
+    extends:
+      service: agentium-worker-connectors
+    container_name: agentium-worker-connectors-interactive
+    environment:
+      <<: *connector-env
+      CELERY_QUEUES: connectors_interactive
+    mem_limit: 1g

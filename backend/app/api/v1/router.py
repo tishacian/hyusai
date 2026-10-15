@@ -21,6 +21,10 @@ from app.api.v1.endpoints import (
     chat,
     claims_benchmark,
     client360,
+    connections,
+    connector_governance,
+    connector_watches,
+    connector_writes,
     connectors,
     contexts,
     control_plane,
@@ -95,6 +99,9 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+api_router.include_router(connector_writes.router, prefix="/connector-writes", tags=["connectors"])
+api_router.include_router(connections.router, prefix="/connections", tags=["connectors"])
+api_router.include_router(connector_governance.router, prefix="/connector-governance", tags=["connectors"])
 
 # Public, secret-free deployment identity used by protected canaries before
 # they authenticate. It deliberately lives at /api/v1/build-info.
@@ -238,3 +245,5 @@ api_router.include_router(
 api_router.include_router(
     typed_calibration.router, prefix="/typed-calibration", tags=["typed-calibration"]
 )
+
+api_router.include_router(connector_watches.router, prefix="/connector-watches", tags=["connector-watches"])
