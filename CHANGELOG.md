@@ -1,6 +1,26 @@
 # Changelog
 
+## 2026-10-15 · Execution observability production activation (`4a404d61`)
+
+- The operator reports production on `4a404d61`, with `build-info`, health,
+  backup and migration checks completed, and the control worker and scheduler
+  running. Journal, supervision, admission, deadlines, cancellation and
+  reconciliation are open to all workspaces. The activity API is accessible
+  and empty before new work; this does not establish a complete execution or
+  delivery cycle. These are operator observations, not new VM checks here.
+- `demo/agentic` and `develop` at `4a404d61`, and `main` at `05809a8d`.
+  Temporal is off; the framework comparison and connector catalogue
+  certification remain open. DataOps and connector activation states are unchanged.
+- `up` selects the execution overlay from the frozen flags or from retained
+  control containers, rejects divergent backend and control flags, and checks
+  both control processes before reopening maintenance. Control capacity stays
+  available while accepted work drains.
+  See the [production record](docs/ops/execution-observability-production-2026-10-15.md).
+
 ## 2026-10-15 · Execution observability candidate (not deployed)
+
+Historical qualification record before the operator-reported activation above.
+Its local results are not new measurements of production `4a404d61`.
 
 - Add a transactional activity journal, authenticated replayable SSE and
   System/workspace/platform views in Operations. Native completion, human

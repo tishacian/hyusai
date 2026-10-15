@@ -1,9 +1,26 @@
 # Recette et exploitation du contrôle d'exécution
 
-Ce document prépare une livraison ; il ne constate aucune modification de la
-VM. Base de développement : `demo/agentic`, `0b63fcec`. Le plan de référence est
-[O0–O7](agentium-execution-observability-plan.md). Les résultats locaux et les
-portes encore ouvertes sont consignés dans le rapport d'implémentation.
+Cette procédure a été préparée depuis `demo/agentic`, `0b63fcec`, avec le plan
+[O0–O7](agentium-execution-observability-plan.md). Elle conserve les contrôles de
+release et de recette ; sa mise à jour ne réalise aucune opération sur la VM.
+Les résultats locaux historiques sont consignés dans le
+[rapport d'implémentation](agentium-execution-observability-implementation.md).
+
+## État déclaré au 15 octobre 2026
+
+Le [bilan de production](ops/execution-observability-production-2026-10-15.md)
+rapporte `4a404d61` avec journal, supervision, admission, échéances, annulation
+et réconciliation ouverts pour tous les workspaces. L'API d'activités est
+accessible et vide avant de nouveaux travaux. La révision lue dans `build-info`,
+la santé, la sauvegarde, les migrations, les options effectives et les services
+de contrôle sont rapportés par l'opérateur, sans vérification VM indépendante
+ici. Ces références de dépôt ne prouvent pas à elles seules les états de la VM.
+
+L'activation globale remplace le périmètre initial Showcase pour cet état
+déclaré ; les valeurs par défaut et exemples de canari ci-dessous restent des
+réglages de préparation, pas un relevé des variables de production. Temporal
+reste désactivé. La comparaison des moteurs et la certification du catalogue
+restent ouvertes, et les activations DataOps/connecteurs sont inchangées.
 
 ## Préparation de la release
 
@@ -22,7 +39,8 @@ portes encore ouvertes sont consignés dans le rapport d'implémentation.
 
 ## Lecture et historique
 
-Les trois options suivantes sont désactivées par défaut :
+Les trois options suivantes sont désactivées par défaut dans le code ; cet
+exemple ne décrit pas l'activation globale rapportée en production :
 
 ```dotenv
 ACTIVITY_OBSERVABILITY_ENABLED=false
@@ -63,6 +81,40 @@ réutilisent l'image worker : un worker dédié à `control`, un scheduler disti
 Le chart refuse d'activer les options sans cette capacité et interdit cette
 file sur le worker général. Il n'y a aucun calcul DataOps dans ces processus.
 
+**Limite de la révision déclarée en production (`4a404d61`) :** le script
+`scripts/agentium-vm-deploy.sh` n'intègre pas cet overlay et sa commande `up`
+ne recrée pas les services `agentium-worker-control` et
+`agentium-scheduler-control`. Leur état actif rapporté ne garantit pas leur
+prise en charge lors de la release suivante. Le correctif est préparé sur
+`codex/control-worker-deploy`, sans déploiement à ce stade.
+
+Avec ce correctif, `AGENTIUM_EXECUTION_CONTROL=auto` est le mode par défaut.
+Il rend le backend avec l'environnement figé, puis sélectionne l'overlay et les
+deux services si une des options `ACTIVITY_OBSERVABILITY_ENABLED`,
+`EXECUTION_CONTROL_ENABLED`, `EXECUTION_DURABLE_DISPATCH_ENABLED` ou
+`EXECUTION_TEMPORAL_ENABLED` est active, ou si un des conteneurs existe encore
+(y compris arrêté). `images`, `ps`, `storage-check` et `up` utilisent cette
+sélection. Fermer les options conserve donc la capacité nécessaire au drainage.
+
+Le mode `1` prépare cette capacité avant l'ouverture des options. Le mode `0`
+est refusé si une option l'exige ou si un des conteneurs existe. Son retrait
+définitif demande de fermer les admissions, vérifier le drainage puis retirer
+explicitement les conteneurs ; changer le mode ne les supprime pas.
+
+Les deux services utilisent l'image worker du tag demandé et le même
+`AGENTIUM_ENV_FILE` figé que le backend, sans volume d'artefacts ni AppRole
+OpenBao supplémentaire. Les quatre options doivent être identiques dans les
+trois services ; un override propre au backend qui les fait diverger bloque
+le script avant toute mutation. Placer ces options dans l'environnement
+applicatif commun du bundle figé.
+
+Après `build-info`, `up` contrôle les identifiants d'image, les révisions,
+les commandes et l'isolation de la file, vérifie le PID du scheduler puis
+adresse un ping Celery au seul worker de contrôle. Un échec conserve la
+maintenance fermée lorsqu'elle est activée (`AGENTIUM_GATE=1`). Ces contrôles
+établissent la présence des processus attendus ; la recette d'un travail réel
+et de son journal reste nécessaire.
+
 Les valeurs initiales du chart (worker 512 Mio/1 CPU ; scheduler 256 Mio/0,5 CPU)
 sont des bornes à qualifier sur la VM, pas une consommation mesurée. Les tâches
 de contrôle sont courtes et ne doivent pas attendre la fin d'un calcul enfant.
@@ -82,22 +134,26 @@ réduire les plafonds opérateur. Les calculs interactifs gardent une réserve.
 Les Runs du moteur historique utilisent leur file d'orchestration existante,
 pas le quota de calcul de leurs enfants.
 
-## Recette Showcase déléguée
+## Recette d'exploitation déléguée
 
-La VM est le seul banc existant et n'est pas accessible depuis cet environnement.
-Un opérateur doit conserver les résultats suivants, liés au SHA candidat :
+La recette initiale était limitée à Showcase ; la portée de production est
+désormais globale selon le compte rendu. Les parcours doivent donc rester
+isolés dans un workspace de recette avec leurs autorisations natives, sans
+assimiler l'ouverture globale à leur validation. Cette session ne réalise
+aucun contrôle VM. Un opérateur doit conserver les résultats suivants, liés
+au SHA réellement testé :
 
-| Preuve | Recette | Statut avant exécution sur la VM |
+| Preuve | Recette | Preuve de qualification VM disponible dans ce dossier |
 |---|---|---|
-| Migration et retour arrière compatible | Copie de la base déployée, upgrade, refus de downgrade destructeur | NON EXÉCUTÉ |
-| Images | Construction réelle et budgets via le script de release | NON EXÉCUTÉ |
-| Trois profils | Responsable System, administrateur workspace, administrateur plateforme | NON EXÉCUTÉ |
-| Reprise SSE | Couper/reprendre, révoquer un droit sur un flux ouvert | NON EXÉCUTÉ |
-| Calcul réel | Préparation, SQL, scoring avec modèle/schéma compatibles et entraînement autorisé | NON EXÉCUTÉ |
-| Admission | Saturer le canari, observer attente puis reprise sans effet doublé | NON EXÉCUTÉ |
-| Contrôle | Annuler pendant calcul et publication, constater la fin native | NON EXÉCUTÉ |
-| Résultat métier | Qualification, décision d'acceptation, reçu de livraison | NON EXÉCUTÉ |
-| Charge | Accusé durable p95, transition visible p95, CPU/RAM/cgroup/disque/journal | NON EXÉCUTÉ |
+| Migration et retour arrière compatible | Copie de la base déployée, upgrade, refus de downgrade destructeur | Sauvegarde et migrations de production rapportées ; recette de restauration/retour compatible non attestée |
+| Images | Construction réelle et budgets via le script de release | Non attestée pour cette release par un relevé joint |
+| Trois profils | Responsable System, administrateur workspace, administrateur plateforme | Non attestée ; API accessible et vide seulement rapportée |
+| Reprise SSE | Couper/reprendre, révoquer un droit sur un flux ouvert | Non attestée |
+| Calcul réel | Préparation, SQL, scoring avec modèle/schéma compatibles et entraînement autorisé | Nouveau parcours avec journal non attesté |
+| Admission | Saturer le workspace de recette, observer attente puis reprise sans effet doublé | Non attestée |
+| Contrôle | Annuler pendant calcul et publication, constater la fin native | Services actifs rapportés ; parcours non attesté |
+| Résultat métier | Qualification, décision d'acceptation, reçu de livraison | Non attestée |
+| Charge | Accusé durable p95, transition visible p95, CPU/RAM/cgroup/disque/journal | Non attestée |
 
 Les pannes de broker, redémarrages forcés et destructions de workers se qualifient
 sur des services/queues de recette isolés ; ne pas arrêter les services de
