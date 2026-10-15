@@ -229,6 +229,65 @@ def test_no_storage_means_no_input_feedback_or_shadow(db_session, subject):
     assert db_session.get(MLPrediction, identifier).payload_json == []
 
 
+@pytest.mark.parametrize("workspace_blocks_storage", [False, True])
+def test_no_storage_removes_echoed_explanation_values_without_changing_response(
+    db_session, subject, monkeypatch, workspace_blocks_storage
+):
+    import json
+    from copy import deepcopy
+
+    from app.models.workspace_job import WorkspaceJob
+    from app.services import ml_shadow
+
+    workspace, _, _, model = subject
+    if workspace_blocks_storage:
+        workspace.settings = {"ml": {"store_inputs": False}}
+        db_session.commit()
+    sentinel = "caller-only-sensitive-sentinel"
+    answers = [
+        {
+            "prediction": 1.0,
+            "contributions": [
+                {"field": "x", "value": {"nested": [sentinel]}, "typical": 0, "effect": 0.5},
+            ],
+        }
+    ]
+    original = deepcopy(answers)
+    staged = []
+    monkeypatch.setattr(ml_shadow, "stage", lambda *args, **kwargs: staged.append(kwargs))
+    identifier = tabular_predict.journal_call(
+        db_session,
+        requested=model,
+        served=model,
+        caller="session",
+        rows=[{"x": sentinel}],
+        answers=answers,
+        duration_ms=1,
+        dataset_id="caller-dataset",
+        store=workspace_blocks_storage,
+    )
+    row = db_session.get(MLPrediction, identifier)
+    persisted = {column.name: getattr(row, column.name) for column in row.__table__.columns}
+    assert sentinel not in json.dumps(persisted, default=str)
+    assert row.input_storage_allowed is False and row.dataset_id is None
+    assert row.output_json == [
+        {
+            "prediction": 1.0,
+            "contributions": [
+                {"field": "x", "typical": 0, "effect": 0.5},
+            ],
+        }
+    ]
+    assert answers == original
+    assert staged == []
+    assert (
+        db_session.query(WorkspaceJob)
+        .filter_by(workspace_id=workspace.id, kind="ml_shadow")
+        .count()
+        == 0
+    )
+
+
 def test_retention_deletes_expired_only(db_session, subject):
     _, _, _, model = subject
     ids = [
