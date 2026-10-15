@@ -52,6 +52,64 @@ def test_regression_error_rules_and_fidelity_have_numeric_predictions():
     assert all(isinstance(row["prediction"], (float, int)) for row in summary["rules"])
 
 
+def _tree_invariants(tree, total):
+    nodes = {node["id"]: node for node in tree["nodes"]}
+    root = tree["nodes"][0]
+    assert root["id"] == 0 and root["parent"] is None and root["condition"] is None
+    assert root["rows"] == total and root["share"] == 1
+    for node in tree["nodes"]:
+        if node["children"]:
+            left, right = (nodes[child] for child in node["children"])
+            # A split partitions its rows, and each child names the condition
+            # that leads to it, on the feature the parent splits on.
+            assert left["rows"] + right["rows"] == node["rows"]
+            assert left["parent"] == right["parent"] == node["id"]
+            assert left["depth"] == right["depth"] == node["depth"] + 1
+            assert left["condition"]["feature"] == right["condition"]["feature"] == node["split"]
+            assert {left["condition"]["op"], right["condition"]["op"]} in ({"<=", ">"}, {"missing", "not_missing"})
+        else:
+            assert node["split"] is None
+    assert sum(1 for node in tree["nodes"] if not node["children"]) == tree["leaves"]
+    assert max(node["depth"] for node in tree["nodes"]) == tree["depth"] <= 3
+    return nodes
+
+
+def test_error_tree_carries_the_whole_tree_with_measured_errors_per_node():
+    model, x, y = classification()
+    result = explain.error_tree(model, x, y, task="classification", seed=42)
+    nodes = _tree_invariants(result["tree"], len(x))
+
+    assert nodes[0]["error"] == result["global_error"] and nodes[0]["lift"] == 1
+    # Every ranked rule is one of the drawn leaves, with the same figures.
+    leaves = {(node["rows"], node["error"]) for node in nodes.values() if not node["children"]}
+    assert all((rule["rows"], rule["error"]) in leaves for rule in result["rules"])
+    # Splits are weighted averages of their children: the tree is consistent.
+    for node in nodes.values():
+        if node["children"]:
+            left, right = (nodes[child] for child in node["children"])
+            blended = (left["error"] * left["rows"] + right["error"] * right["rows"]) / node["rows"]
+            assert abs(blended - node["error"]) < 1e-4
+    json.dumps(result)
+
+
+def test_surrogate_tree_says_what_the_model_decides_in_each_node():
+    model, x, y = classification()
+    result = explain.surrogate(model, x, task="classification", seed=42)
+    nodes = _tree_invariants(result["tree"], result["train_rows"])
+    for node in nodes.values():
+        shares = [entry["share"] for entry in node["distribution"]]
+        assert shares == sorted(shares, reverse=True) and sum(shares) <= 1 + 1e-6
+        assert node["purity"] == shares[0] and node["prediction"] == node["distribution"][0]["label"]
+
+    x, y = make_regression(n_samples=250, n_features=3, noise=10, random_state=4)
+    x, y = pd.DataFrame(x, columns=list("abc")), pd.Series(y)
+    regressor = make_pipeline(StandardScaler(), RandomForestRegressor(n_estimators=10, max_depth=4, random_state=42)).fit(x, y)
+    summary = explain.surrogate(regressor, x, task="regression", seed=42)
+    for node in _tree_invariants(summary["tree"], summary["train_rows"]).values():
+        assert isinstance(node["prediction"], float) and node["spread"] >= 0
+    json.dumps(summary)
+
+
 def test_partial_dependence_numeric_and_categorical_keep_raw_feature_names():
     model, x, y = classification()
     numeric = explain.partial_effect(model, x, "a", task="classification", seed=42)

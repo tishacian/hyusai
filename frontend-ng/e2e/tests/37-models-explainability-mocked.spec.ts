@@ -121,9 +121,22 @@ test.describe('Models · explanation pack and group comparisons', () => {
       await expect.poll(() => api.trains.length).toBe(1);
       expect(api.trains[0].spec).toEqual({ explain: 'pack', fairness_columns: ['segment'] });
       await page.goto(`/models/${model.id}`);
-      await expect(page.getByTestId('error-tree-evidence')).toContainText('visits');
-      await expect(page.getByTestId('surrogate-evidence')).toContainText('85');
-      await expect(page.getByTestId('surrogate-evidence').locator('ol')).toBeVisible();
+      // The error analysis is drawn as a tree, opened on the group that adds
+      // the most error; any other group can be read by selecting it.
+      const errors = page.getByTestId('error-tree-evidence');
+      await expect(errors).toContainText('visits');
+      await expect(errors.getByTestId('decision-tree-node')).toHaveCount(5);
+      await expect(errors.getByTestId('error-tree-selection')).toContainText('segment_B');
+      await expect(errors.locator('[data-node="2"]')).toHaveAttribute('aria-pressed', 'true');
+      await errors.locator('[data-node="4"]').click();
+      await expect(errors.locator('[data-node="4"]')).toHaveAttribute('aria-pressed', 'true');
+      await expect(errors.getByTestId('error-tree-selection')).not.toContainText('segment_B');
+      await errors.screenshot({ path: info.outputPath(`error-tree-${theme}-${locale}.png`) });
+      const simple = page.getByTestId('surrogate-evidence');
+      await expect(simple).toContainText('85');
+      await expect(simple.getByTestId('decision-tree-node')).toHaveCount(5);
+      await expect(simple.getByTestId('surrogate-tree-selection')).toContainText('South');
+      await simple.screenshot({ path: info.outputPath(`surrogate-tree-${theme}-${locale}.png`) });
       await expect(page.getByTestId('pdp-evidence').locator('canvas')).toHaveCount(2);
       const fairness = page.getByTestId('fairness-evidence');
       await expect(fairness).toHaveClass(/ck-signal/);

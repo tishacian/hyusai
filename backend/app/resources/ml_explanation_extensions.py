@@ -60,26 +60,67 @@ def _matrix(model, x):
     return values, names
 
 
+def _split_terms(tree, node, names):
+    """The two conditions a split hands to its children, left then right."""
+    threshold = float(tree.tree_.threshold[node])
+    common = {"feature": names[int(tree.tree_.feature[node])], "value": _number(threshold)}
+    missing_left = bool(tree.tree_.missing_go_to_left[node])
+    if math.isinf(threshold):
+        # sklearn uses infinity for a split that isolates missing values.
+        return {**common, "op": "not_missing"}, {**common, "op": "missing"}
+    return ({**common, "op": "<=", "missing": missing_left},
+            {**common, "op": ">", "missing": not missing_left})
+
+
 def _paths(tree, names):
     paths = {}
     def visit(node, rules):
-        feature = int(tree.tree_.feature[node])
-        if feature < 0:
+        if int(tree.tree_.feature[node]) < 0:
             paths[node] = rules
             return
-        threshold = float(tree.tree_.threshold[node])
-        common = {"feature": names[feature], "value": _number(threshold)}
-        missing_left = bool(tree.tree_.missing_go_to_left[node])
-        if math.isinf(threshold):
-            # sklearn uses infinity for a split that isolates missing values.
-            left, right = {**common, "op": "not_missing"}, {**common, "op": "missing"}
-        else:
-            left = {**common, "op": "<=", "missing": missing_left}
-            right = {**common, "op": ">", "missing": not missing_left}
+        left, right = _split_terms(tree, node, names)
         visit(tree.tree_.children_left[node], rules + [left])
         visit(tree.tree_.children_right[node], rules + [right])
     visit(0, [])
     return paths
+
+
+def _tree_nodes(tree, names, matrix, describe):
+    """The whole fitted tree, in the shape a chart draws: one entry per node.
+
+    The leaf rules above answer "where is it worst"; a reader also needs to see
+    how the population divides on the way there, which only the full tree shows.
+    Each node carries the condition that leads to it from its parent and the
+    rows that reach it, counted on the very rows the tree was fitted on, so a
+    node's figures are measured rather than read back from the estimator's
+    internal storage (whose meaning changed across sklearn versions).
+    ``describe(mask)`` adds the section's own measure for those rows.
+    """
+
+    reached = tree.decision_path(matrix).tocsc()
+    total = int(reached.shape[0])
+    t = tree.tree_
+    nodes = []
+    stack = [(0, None, 0, None)]
+    while stack:
+        node, parent, depth, condition = stack.pop()
+        mask = reached[:, node].toarray().ravel() > 0
+        rows = int(mask.sum())
+        is_split = int(t.feature[node]) >= 0
+        children = [int(t.children_left[node]), int(t.children_right[node])] if is_split else []
+        nodes.append({
+            "id": int(node), "parent": parent, "depth": depth, "children": children,
+            "condition": condition,
+            "split": names[int(t.feature[node])] if is_split else None,
+            "rows": rows, "share": _number(rows / total) if total else None,
+            **describe(mask),
+        })
+        if is_split:
+            left, right = _split_terms(tree, node, names)
+            # Pushed right first so the list reads in left-to-right preorder.
+            stack.append((children[1], int(node), depth + 1, right))
+            stack.append((children[0], int(node), depth + 1, left))
+    return {"nodes": nodes, "depth": int(t.max_depth), "leaves": int(t.n_leaves)}
 
 
 def error_tree(model, x, y, *, task, seed):
@@ -99,7 +140,14 @@ def error_tree(model, x, y, *, task, seed):
         rows.append({"rule": rule, "rows": int(mask.sum()), "error": _number(error),
                      "global_error": _number(global_error), "lift": _number(error / global_error) if global_error else None})
     rows.sort(key=lambda row: ((row["error"] - global_error) * row["rows"], row["rows"]), reverse=True)
-    return {"rules": rows[:5], "global_error": _number(global_error), "rows": len(x)}
+
+    def describe(mask):
+        error = float(np.mean(errors[mask])) if mask.any() else None
+        return {"error": _number(error),
+                "lift": _number(error / global_error) if error is not None and global_error else None}
+
+    return {"rules": rows[:5], "global_error": _number(global_error), "rows": len(x),
+            "tree": _tree_nodes(tree, names, matrix, describe)}
 
 
 def surrogate(model, x, *, task, seed):
@@ -127,11 +175,28 @@ def surrogate(model, x, *, task, seed):
             value = np.mean(guesses)
         rows.append({"rule": rule, "rows": int(mask.sum()), "prediction": _scalar(value)})
     rows.sort(key=lambda row: row["rows"], reverse=True)
+    fitted = predicted[train]
+
+    def describe(mask):
+        # What the served model decided for the rows that reach this node: the
+        # surrogate is read as "for this population, the model says…".
+        guesses = fitted[mask]
+        if not len(guesses):
+            return {"prediction": None}
+        if task == "classification":
+            values, counts = np.unique(guesses, return_counts=True)
+            order = np.argsort(-counts, kind="stable")
+            shares = counts / counts.sum()
+            return {"prediction": _scalar(values[order[0]]), "purity": _number(shares[order[0]]),
+                    "distribution": [{"label": _scalar(values[i]), "share": _number(shares[i])} for i in order[:3]]}
+        return {"prediction": _number(np.mean(guesses)), "spread": _number(np.std(guesses))}
+
     # A negative R² is retained as raw_fidelity; the display score has a floor
     # of zero so its 0–1 badge never implies a usable simplified explanation.
     return {"fidelity": _number(max(0, min(1, score))), "raw_fidelity": _number(score),
             "metric": "accuracy" if task == "classification" else "r2", "rules": rows[:5],
-            "train_rows": len(train), "validation_rows": len(test)}
+            "train_rows": len(train), "validation_rows": len(test),
+            "tree": _tree_nodes(tree, names, subset(train), describe)}
 
 
 def partial_effect(model, x, feature, *, task, seed):
