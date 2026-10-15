@@ -401,6 +401,26 @@ lucide-icon svg {
    so pages authored against the dark theme remain legible in light mode.
    Uses attribute selectors to avoid escaping forward-slash opacity modifiers.
    ============================================================================ */
+/* ============================================================================
+   Shared text field (`ck-input`) for cockpit forms — Connections, the connector
+   catalogue. It was only styled inside a few components, so elsewhere a field
+   fell back to the browser's white background with the dark theme's light text.
+   Dark is the default; the light block below re-tints it. Component-scoped
+   `.ck-input` rules (auth, models) keep precedence through their attribute.
+   ============================================================================ */
+.ck-input {
+  border-radius: 0.375rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background-color: rgb(0 0 0 / 0.3);
+  color: var(--text-primary);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.ck-input::placeholder { color: var(--text-muted); }
+.ck-input:focus { outline: none; box-shadow: 0 0 0 2px rgb(34 211 238 / 0.6); }
+.ck-input:disabled { opacity: 0.6; cursor: not-allowed; }
+
 html:not(.dark) {
   /* Text — dark-biased greys become slate tokens */
   [class~='text-white'] { color: var(--text-primary); }
@@ -448,6 +468,10 @@ html:not(.dark) {
     background-color: #ffffff;
     border-color: var(--border-default);
     color: var(--text-primary);
+  }
+  .ck-input {
+    background-color: #ffffff;
+    border-color: var(--border-default);
   }
   input::placeholder,
   textarea::placeholder { color: var(--text-muted); }

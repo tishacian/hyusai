@@ -87,6 +87,7 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
       if (!this.context.isCurrent(request)) return;
       this.profiles.set(catalog.profiles); this.connections.set(listing.connections); this.canConfigure.set(listing.can_configure); this.canImport.set(listing.can_import); this.disabled.set(false);
       await this.finishOAuth();
+      await this.applyCatalogSelection(request);
     } catch (error: any) {
       if (!this.context.isCurrent(request)) return;
       if (error?.status === 404) this.disabled.set(true); else this.fail(error);
@@ -209,6 +210,38 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
       sessionStorage.setItem(`agentium-connector-oauth:${state}`, JSON.stringify({ connection: row.id, workspace: request.scope.workspaceSlug }));
       window.location.assign(url.toString());
     } catch (error) { if (this.context.isCurrent(request)) this.fail(error); }
+  }
+  /**
+   * A catalogue card opens this page with `?profile=` (and `?server=` for an
+   * official MCP server). Only an administrator gets the prefilled form; the
+   * parameters are a starting point that the person still reviews and saves.
+   */
+  private async applyCatalogSelection(request: ReturnType<WorkspaceViewContext['beginRequest']>): Promise<void> {
+    const params = this.route.snapshot.queryParamMap;
+    const key = params.get('profile'), server = params.get('server');
+    if (!key || !this.canConfigure() || !this.profiles().some(p => p.key === key)) return;
+    this.newConnection(); this.chooseProfile(key);
+    if (key !== 'mcp' || !server) return;
+    try {
+      const catalog = await firstValueFrom(this.api.get<{ servers: Array<{ key: string; publisher: string; url: string; auth_mode?: string }> }>('/connections/tool-catalog', undefined, { workspaceSlug: request.scope.workspaceSlug }));
+      if (!this.context.isCurrent(request)) return;
+      const entry = catalog.servers.find(row => row.key === server);
+      if (!entry) return;
+      const origin = new URL(entry.url).origin;
+      this.name = entry.publisher;
+      this.fields['base_url'] = entry.url;
+      this.fields['allowed_origins'] = JSON.stringify([origin], null, 2);
+      if (entry.auth_mode && this.profile()?.parameters.some(p => p.key === 'auth_mode' && p.choices.includes(entry.auth_mode!))) this.fields['auth_mode'] = entry.auth_mode;
+    } catch { /* The form stays usable without the prefill. */ }
+  }
+  profileName(profile: Pick<ConnectionProfile, 'key' | 'label_key'> | null | undefined): string {
+    if (!profile) return '';
+    const key = profile.label_key || `connections.profile.${profile.key}`;
+    const label = this.i18n.t(key);
+    return label === key ? profile.key : label;
+  }
+  rowProfileName(row: ConnectionRow): string {
+    return this.profileName(this.profiles().find(p => p.key === row.profile_key) ?? { key: row.profile_key });
   }
   private async finishOAuth(): Promise<void> {
     const params = this.route.snapshot.queryParamMap; const state = params.get('state'), code = params.get('code');

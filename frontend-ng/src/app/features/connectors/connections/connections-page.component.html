@@ -10,7 +10,7 @@
       @if (canConfigure()) { <button class="ck-btn ck-btn-accent w-full" [disabled]="busy()" (click)="newConnection()">{{ i18n.t('connections.new') }}</button> }
       @for (row of connections(); track row.id) {
         <button class="ck-btn w-full flex-col items-start text-left" [class.border-cyan-400]="selected()?.id === row.id" [disabled]="busy()" (click)="select(row)">
-          <span>{{ row.name }}</span><span class="text-xs text-gray-400">{{ row.profile_key }} · {{ certificationLabel(row.certification) }}</span>
+          <span>{{ row.name }}</span><span class="text-xs text-gray-400">{{ rowProfileName(row) }} · {{ certificationLabel(row.certification) }}</span>
         </button>
       } @empty { <p class="text-sm text-gray-400">{{ i18n.t('connections.empty') }}</p> }
       <button class="ck-btn w-full" [disabled]="busy()" (click)="load()">{{ i18n.t('connections.reload') }}</button>
@@ -21,7 +21,7 @@
           <label class="block text-sm">{{ i18n.t('connections.name') }}<input class="ck-input w-full mt-1" name="connection-name" [(ngModel)]="name" required maxlength="120" /></label>
           <label class="block text-sm">{{ i18n.t('connections.profile') }}
             <select class="ck-input w-full mt-1" name="connection-profile" [ngModel]="profileKey()" (ngModelChange)="chooseProfile($event)" [disabled]="!!selected()">
-              @for (item of profiles(); track item.key) { <option [value]="item.key">{{ item.key }}</option> }
+              @for (item of profiles(); track item.key) { <option [value]="item.key">{{ profileName(item) }}</option> }
             </select>
           </label>
           @for (parameter of profile()?.parameters ?? []; track parameter.key) {
