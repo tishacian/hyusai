@@ -548,6 +548,11 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Register and qualify the model routes permitted to inspect image evidence.",
     ),
     SurfaceMetadata(
+        "/api/v1/ml-operations",
+        "Operate", "Model", "canonical", "workspace-user", "Platform", ("/models/endpoints",),
+        notes="Scoped endpoint metrics, durable ML alert inbox and administrator-managed delivery channels.",
+    ),
+    SurfaceMetadata(
         "/api/v1/ml-models",
         "Build",
         "Model",

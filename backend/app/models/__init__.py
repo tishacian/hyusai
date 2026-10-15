@@ -130,6 +130,14 @@ __all__ = [
     "MLPredictionFeedback",
     "MLAdmissionCounter",
     "MLWorkspaceLock",
+    "MLInferenceUsage",
+    "MLUsageRollup",
+    "MLAlertChannel",
+    "MLAlertState",
+    "MLAlert",
+    "MLAlertDelivery",
+    "MLAlertSource",
+
     "ExecutionCapacity", "ExecutionReservation", "ExecutionDispatch",
     "Activity", "ActivityCommand", "ActivityEvent", "ActivityWorkspaceCursor",
     "ConnectorWrite",
@@ -289,3 +297,5 @@ from app.models.value_contract import ValueContract
 from app.services.activity_observability.observer import install_observers
 
 install_observers()
+
+from app.models.ml_operations import (MLInferenceUsage, MLUsageRollup, MLAlertChannel, MLAlertState, MLAlert, MLAlertDelivery, MLAlertSource)

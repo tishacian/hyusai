@@ -26,6 +26,8 @@ _SAFE_IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]*$")
 _USAGE_PRICING_UNITS = frozenset(
     {
         "per_1k_tokens",
+        "per_prediction",
+        "per_1000_predictions",
         "per_1000_source_words",
         "per_char",
         "per_day",
@@ -117,6 +119,13 @@ def resolve_skill_invocation_cost(
     ):
         return _unmeasured_cost("pricing_value_invalid")
 
+    # Published ML Skills historically received a generated free tariff. Its
+    # shape cannot prove that an operator configured a free service. Require
+    # explicit catalogue confirmation; do not rewrite historical ledgers.
+    synthetic_ml_zero = unit == "per_prediction" and currency.upper() == "USD" and unit_price == 0
+    if synthetic_ml_zero and pricing.get("confirmed") is not True:
+        return _unmeasured_cost("pricing_zero_not_confirmed")
+
     tariff = {
         "currency": currency.upper(),
         "unit": unit,
@@ -134,6 +143,7 @@ def resolve_skill_invocation_cost(
             "currency": tariff["currency"],
             "unit": unit,
             "quantity": normalized_quantity,
+            **({"pricing_confirmed": True} if synthetic_ml_zero else {}),
         },
     )
 
