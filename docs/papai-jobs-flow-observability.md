@@ -1,4 +1,4 @@
-# papAI : suivi des jobs et processus, timeline et état des nœuds du flow
+# Suivi des jobs et des runs : ce que faisait papAI, où en est Agentium
 
 > **Date** : 2026-10-15.
 > **Base** : `demo/agentic` (origin = 47e289da).
@@ -22,6 +22,8 @@
 > 3. Comment le flow affiche-t-il l'état de ses nœuds, et quelle « timeline » l'utilisateur avait-il ?
 >
 > Le §9 compare avec Agentium et dit ce qu'il faut garder ou éviter.
+>
+> **Pour une reprise.** Le §10 fait l'état des lieux de l'observabilité des runs dans Agentium après le commit 8ee823c4 (supervision des activités). Le §11 découpe le travail restant en lots, avec les fichiers et les critères d'acceptation.
 
 ---
 
@@ -64,6 +66,12 @@ La couche client contient beaucoup d'heuristiques, qui compensent les incohéren
 - Un arrêt pour délai dépassé est présenté comme une annulation.
 - Un run planifié en échec envoie un e-mail de succès **(inférence)**.
 - On compte huit vocabulaires de statuts.
+
+**Agentium aujourd'hui (§10 et §11).**
+- **Aucun graphique n'a été supprimé.** Ceux de l'onglet Qualité et la cascade du détail d'un run sont intacts et alimentés.
+- Si l'on active `ACTIVITY_OBSERVABILITY_ENABLED`, la nouvelle supervision des activités **remplace entièrement** l'onglet « Opérations » d'Observabilité. Le plan disait pourtant que cette vue serait conservée.
+- La nouvelle vue n'a aucun graphique, et aucune vue d'Agentium ne montre de graphiques agrégés de runs : volume, durées, coûts, ressources.
+- La reprise comporte trois lots : R1 garde l'onglet Opérations, R2 crée les graphiques de runs à partir du journal d'activités, R3 corrige la documentation.
 
 ---
 
@@ -446,6 +454,7 @@ Ni reprise automatique, ni délai maximal côté `core`.
 | Événements de nœud | à déduire des types de job | `run_start`, `node_start`, `node_end`, `hitl_pause`, `hitl_resume`, `run_end` |
 | Calcul long | statut, plus un message de 150 caractères | `status`, `stage`, `progress` (JSON), `attempt`, bail (`lease_expires_at`), échéance (`deadline_at`), `cancel_requested`, `outcome_unknown` |
 | Coût | crédits par job (SaaS) | `cost_internal`, `provider_cost_usd`, `core_hours` et `cost_usd` par calcul |
+| Supervision transverse | page Jobs du projet | journal d'activités sur 8 sources, avec statuts unifiés et SSE rejouable (8ee823c4). C'est un **candidat**, éteint par défaut (§10). |
 
 ### 9.2 Ce qu'il faut retenir pour le suivi des flows DataOps
 
@@ -469,3 +478,182 @@ Ni reprise automatique, ni délai maximal côté `core`.
    - L'activité amont, propre et aval d'un dataset.
    - Le lien profond vers un job.
    - Le bandeau de synthèse : statut, réussis sur total, temps et coût.
+
+---
+
+## 10. Agentium : l'observabilité des runs après la supervision des activités
+
+> État au 2026-10-15, sur `demo/agentic` = 47e289da. Vérifié dans le code et dans l'historique git, sans exécution.
+> Les chemins de cette section partent de la racine du dépôt Agentium.
+
+### 10.1 Ce qu'apporte le commit 8ee823c4
+
+Commit `feat(execution): add activity supervision and controlled orchestration`, du 2026-10-15. Il couvre les lots O0 à O7. Documents :
+- `docs/agentium-execution-observability-plan.md` (plan) ;
+- `docs/agentium-execution-observability-implementation.md` (bilan) ;
+- `docs/agentium-execution-operations.md` (procédure d'exploitation).
+
+**Le journal d'activités** (migrations 133 et 134, `backend/app/models/activity.py`) compte trois tables :
+- `activities` : une ligne par travail observé. Elle porte `kind`, `status`, `native_status`, `version`, `system_id`, `run_id`, `parent_activity_id` et `snapshot`, un JSON qui contient les mesures.
+- `activity_events` : l'historique des transitions, numéroté par un curseur propre à chaque workspace.
+- `activity_commands` : les demandes d'annulation, distinctes de la fin réelle du travail.
+
+**La projection est transactionnelle.**
+- Un observateur SQLAlchemy (`backend/app/services/activity_observability/observer.py`) projette les écritures dans la même transaction.
+- Il surveille huit tables sources : `runs`, `skill_invocations`, `recipe_executions`, `compute_runs`, `ml_models`, `workspace_jobs`, `service_windows` et `delivery_receipts` (`projection.py:20-30`).
+- Il ne fait rien si le drapeau est éteint.
+
+**Les statuts sont unifiés** (`projection.py:31-58`) : `pending`, `running`, `waiting`, `succeeded`, `failed`, `cancelled`, `timed_out`, `lost`, `unknown`.
+- Le délai dépassé, la perte et l'inconnu sont distincts de l'annulation.
+- C'est la leçon n° 1 du §9.2, et cela évite les défauts n° 5 et 7 de papAI.
+
+**L'API** est sous `/api/v1/observability` (`backend/app/api/v1/endpoints/activities.py`) :
+- `GET /activities/features` : drapeau, portées, types et statuts ;
+- `GET /activities` : liste filtrée (système, type, statut, période) et paginée, avec les agrégats par statut et par type ;
+- `GET /activities/{id}`, `GET /activities/{id}/wait` et `POST /activities/{id}/commands` ;
+- `GET /activity-events` et `GET /activity-events/stream` : SSE authentifié et **rejouable** depuis un curseur ;
+- `GET /platform-overview`, réservé aux administrateurs de la plateforme : totaux par workspace, et ressources réservées par rapport aux limites.
+
+**Le contrôle d'exécution** (`backend/app/services/execution/`) ajoute :
+- des intentions de soumission durables ;
+- l'admission sur des ressources partagées ;
+- des échéances ;
+- l'annulation coopérative et la réconciliation ;
+- un candidat Temporal optionnel.
+
+**Les drapeaux sont tous à `false`** : `ACTIVITY_OBSERVABILITY_ENABLED`, `EXECUTION_CONTROL_ENABLED`, `EXECUTION_DURABLE_DISPATCH_ENABLED` et `EXECUTION_TEMPORAL_ENABLED`.
+- Références : `backend/app/core/config.py:120`, `ops/helm/agentium/values.yaml:339`, `docker/env/agentium.env.example:64`.
+- Le message du commit précise : « No production activation or deployment ».
+
+**L'historique.**
+- Un backfill paginé existe : `backend/scripts/execution_operations.py backfill <kind>`, procédure dans `docs/agentium-execution-operations.md:58-63`.
+- Il photographie l'état courant. Les transitions antérieures à l'activation ne sont pas reconstituées.
+
+### 10.2 Effet sur l'onglet « Opérations » d'Observabilité
+
+Observabilité se trouve dans la zone **Suivre** (« Monitor » en anglais). Elle a quatre onglets, choisis par le paramètre `?facet=` : `operations` (par défaut), `quality`, `performance` et `traces` (`frontend-ng/src/app/features/observability/observability-facets.ts`).
+
+Le commit a changé le composant de l'onglet par défaut : `<app-workspace-monitor />` est devenu `<app-activities />` (`observability-shell.component.ts:94-95`). Le nouveau composant appelle `/activities/features`, et l'affichage dépend de la réponse :
+
+| Situation | Ce qui s'affiche |
+|---|---|
+| drapeau éteint (le cas partout aujourd'hui), ou API absente (404) | l'**ancien moniteur**, inchangé (`activities/activities.component.html:90`) |
+| erreur pendant cet appel | un message d'erreur, puis l'ancien moniteur |
+| drapeau allumé | **la nouvelle vue seule**. L'ancien moniteur n'est plus affiché nulle part. |
+
+**Ce que l'on perd quand le drapeau est allumé.** C'est tout le contenu de `workspace-monitor.component.ts`, alimenté par `GET /api/v1/observability/workspace-overview` :
+- les alertes opérateur ;
+- les tuiles : runs, terminés, en cours, en échec, **latence P95** et seuils d'évaluation dépassés ;
+- les décisions de recherche (routes du RAG) ;
+- la liste des systèmes et la liste des travaux ;
+- la timeline d'activité du workspace ;
+- le choix de la fenêtre de temps.
+
+**Ce que l'on gagne :**
+- trois portées : workspace, système et plateforme ;
+- des filtres (système, type, statut, période) ;
+- des totaux exacts, calculés après le contrôle des droits ;
+- un indicateur de fraîcheur du flux ;
+- un tableau paginé : activité, statut, début, durée et coût ;
+- un panneau de détail : mesures et taux de couverture (événements, ressources, coût), preuves, tentatives, activités liées, annulation et historique des événements ;
+- pour la plateforme : les ressources réservées par rapport aux limites, et les totaux par workspace.
+
+**Ni l'une ni l'autre vue n'a de graphique.** L'ancien moniteur n'en avait déjà pas : il n'affichait que des tuiles et des listes.
+
+**La documentation se contredit.**
+- Le plan écrit : « Les vues existantes Opérations, Qualité, Performance et Traces sont conservées » (`docs/agentium-execution-observability-plan.md:17`).
+- Le bilan d'implémentation, au lot O6, place au contraire les nouvelles vues « dans Opérations ». Il ne cite comme vues à garder que Qualité, Performance et Traces (`docs/agentium-execution-observability-implementation.md:43`).
+- Le code suit le bilan, pas le plan.
+
+### 10.3 Où sont les graphiques, et dans quel état
+
+| Endroit | Graphiques | Données | État |
+|---|---|---|---|
+| Observabilité › Qualité | 4 tuiles avec mini-courbes ; radar et courbe d'historique en Chart.js (`quality-dashboard.component.ts:380, 414`) ; nuage de points et matrice des preuves en SVG (`quality-evidence-charts.component.ts`) | `/evaluation/dimensions`, `/evaluation/latest` et `/evaluation/history`, sur la table `EvaluationScore` | intact. La table est alimentée par l'auto-évaluation (`backend/app/services/evaluation/auto_eval.py`), le juge typé (`backend/app/services/evaluation/typed_judge.py`) et les skills. |
+| Observabilité › Performance | tuiles avec mini-courbes, tableau des latences | `/metrics` et `/metrics/cache` : métriques de l'API gardées en mémoire, **pas des runs** | intact |
+| Observabilité › Traces | aucun : un tableau des runs | liste des runs | intact |
+| Détail d'un run | cascade des appels de skills (`frontend-ng/src/app/features/runs/run-trace.component.ts:65`, puis `run-waterfall.component.ts`, calcul dans `observability/observability-chart.vm.ts`) | `skill_invocations` du run | intact |
+
+**Ce que montre l'historique git :**
+- aucun composant de graphique n'a été supprimé dans `frontend-ng/src` (`git log --diff-filter=D`) ;
+- aucun usage de Chart.js n'a été retiré (`git log -S baseChart`) ;
+- **jusqu'au 2026-06-09, l'onglet par défaut d'Observabilité était Qualité**, celui qui a les graphiques. Le commit b6eeb3ed a mis « Opérations » en premier. Depuis juin, on arrive donc sur une page sans graphique. C'est probablement l'origine de l'impression d'avoir « perdu les graphiques ».
+
+### 10.4 Ce qui manque
+
+Aucune vue ne montre de **graphiques agrégés sur les runs** : volume par statut dans le temps, distribution des durées, coût, occupation des ressources. Ni l'ancien moniteur ni la nouvelle vue ne le font.
+
+Le journal d'activités contient les données nécessaires, mais l'API ne les expose pas encore :
+- `GET /activities` ne renvoie que des comptes par statut et par type, sans découpage dans le temps.
+- Les mesures (`duration_ms`, `cpu_seconds`, `cost_known`, coût) sont rangées dans le JSON `snapshot`, pas dans des colonnes.
+- Les droits sont appliqués en Python, par lots de 250 lignes (`queries.py:92` pour `filter_visible`, `queries.py:279-342` pour `list_activities`). On ne peut donc pas agréger directement en SQL sans contourner ce contrôle.
+
+## 11. Reprise : lots proposés
+
+**Règles habituelles :**
+- chaque lot est une PR autonome sur `demo/agentic` ;
+- la fusion se fait sur accord explicite ;
+- `build:prod` est lancé une seule fois par lot ;
+- on vérifie le FR et l'EN, et on passe `check:i18n` (lexique) et `check:nav-links`.
+
+### R1 — Garder l'onglet Opérations (frontend, taille S, avant toute activation)
+
+**But.** Activer le drapeau ne doit plus rien retirer.
+
+**Option recommandée : un cinquième onglet « Activités ».**
+- Ajouter `activities` à `OBSERVABILITY_FACETS` (`observability-facets.ts`), et l'onglet au shell (`observability-shell.component.ts`).
+- N'afficher cet onglet que si `/activities/features` renvoie `enabled: true`.
+- L'onglet `operations` revient à `<app-workspace-monitor />`, sans condition.
+- `ActivitiesComponent` n'a plus besoin de son repli vers l'ancien moniteur (`activities.component.html:90`). En cas d'échec, il affiche un état vide explicite.
+- Le lien depuis la fiche d'un système, `goto('/observability')`, ajoute déjà `systemId` (`system-view.component.ts`, ajout du commit 8ee823c4). Il doit aussi ajouter `facet=activities` quand la fonction est active. Sinon, il arrive sur l'ancien moniteur.
+
+**Autre option** : garder un seul onglet Opérations, avec l'ancien moniteur en haut et la supervision en dessous. C'est moins lisible, car on aurait deux tableaux, deux périodes et deux rafraîchissements.
+
+**Critères d'acceptation :**
+- drapeau éteint : l'écran est identique à aujourd'hui, sans onglet Activités ;
+- drapeau allumé : Opérations montre l'ancien moniteur, et Activités montre la supervision ;
+- les liens profonds `?facet=activities&systemId=…` fonctionnent ;
+- les tests sont adaptés : `observability-facets.spec.ts`, `observability.routes.spec.ts`, l'e2e 59 (`frontend-ng/e2e/tests/59-activity-observability-mocked.spec.ts`, cas « feature disabled exposes only the existing operations view ») et l'e2e 60 (canari) ;
+- `check:nav-links` passe.
+
+### R2 — Graphiques des runs tirés du journal d'activités (backend et frontend, taille M)
+
+**Backend : ajouter `GET /api/v1/observability/activities/series`.**
+- Paramètres : `since` (`24h`, `7d` ou `30d`), `system_id`, `kind` et `bucket` (`hour` ou `day`).
+- Le calcul **reprend la boucle de `list_activities`** : lots de 250 lignes, puis `filter_visible`. Les droits sont ainsi appliqués avant l'agrégation.
+- Pour chaque tranche de temps, renvoyer :
+  - le nombre d'activités pour chacun des 9 statuts unifiés ;
+  - les durées p50 et p95, **calculées sur les seules durées mesurées**, avec le nombre de lignes mesurées ;
+  - la somme des coûts connus, et le nombre d'activités dont le coût est inconnu.
+- Un coût inconnu reste inconnu : il n'est jamais compté comme 0.
+
+**Frontend : un bloc de graphiques en tête de l'onglet Activités.** Autre emplacement possible : l'onglet Opérations, où la série remplacerait les tuiles « runs, terminés, en cours, en échec ».
+- Barres empilées par statut dans le temps. `timed_out`, `lost` et `unknown` ont des couleurs différentes de `cancelled`.
+- Courbes p50 et p95 des durées, avec le taux de couverture affiché.
+- Barres de coût, où la part inconnue reste visible.
+- Pour la portée plateforme : des jauges des ressources réservées par rapport aux limites, tirées de `/platform-overview`.
+- Utiliser Chart.js, déjà présent (`chart.js` 4.4 et `ng2-charts` 8), et ne le charger que dans cet onglet.
+- Respecter la sobriété de Tokens v2, en thème clair et sombre, et passer axe.
+
+**Critères d'acceptation :**
+- pour une même période et les mêmes filtres, les totaux de la série sont égaux aux `aggregates` de `GET /activities` (test) ;
+- une activité d'un run que l'utilisateur ne peut pas lire n'apparaît dans aucune tranche (test) ;
+- un coût inconnu n'est jamais additionné (test) ;
+- un e2e simulé passe en FR et en EN, en thème clair et sombre, avec axe.
+
+**Points d'attention :**
+- **Coût du calcul.** Sur 30 jours, la boucle parcourt toutes les activités de la période. Il faut le mesurer avant de livrer. Si c'est trop lent, on pourra plus tard matérialiser des agrégats par tranche, mais seulement pour des données qu'un rôle peut voir en entier.
+- **Données vides au départ.** Les graphiques restent vides tant que le drapeau est éteint. Après l'activation, le backfill ne donne que l'état courant : les tranches antérieures n'auront que les dates de création. Il faut l'indiquer à l'écran.
+
+### R3 — Remettre la documentation d'accord (taille XS)
+
+- Aligner le plan (`docs/agentium-execution-observability-plan.md:17`) et le bilan (`docs/agentium-execution-observability-implementation.md:43`) sur la décision prise en R1.
+- Ajouter une vérification visuelle à la procédure d'activation (`docs/agentium-execution-operations.md`) : après l'activation, l'onglet Opérations montre toujours le moniteur.
+
+### Ordre et dépendances
+
+1. **R1 passe avant toute activation** de `ACTIVITY_OBSERVABILITY_ENABLED`, en démo comme en production.
+2. **R3** se fait avec R1.
+3. **R2** vient ensuite. Elle n'a de valeur qu'une fois le drapeau allumé et le backfill passé.
+
+Le travail sur le flow reste séparé : état des nœuds par run et frise des nœuds (§9.2, n° 2 et 7). Il s'appuie sur les checkpoints et sur `flow_snapshot` du Run, pas sur ce journal.
