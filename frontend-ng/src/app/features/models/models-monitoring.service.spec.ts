@@ -43,7 +43,7 @@ test('actuals candidates request ready datasets before the server page limit', a
 
 test('source policy and sample-scoped feedback cross the API without changing false or null',async()=>{
   const response=new Subject<any>(),requests:any[]=[];
-  const injector=Injector.create({providers:[ModelsService,{provide:HttpClient,useValue:{
+  const injector=Injector.create({providers:[ModelsService,{provide:WorkspaceService,useValue:{registerContextReset:()=>()=>{},captureRequestScope:()=>({}),isRequestScopeCurrent:()=>true}},{provide:HttpClient,useValue:{
     post:(url:string,body:any)=>{requests.push({url,body});return response;},
     get:(url:string)=>{requests.push({url});return response;},
   }}]});
