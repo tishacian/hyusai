@@ -59,10 +59,91 @@ def test_batch_feedback_needs_sample_and_never_replicates_label(db_session, case
 def test_no_retained_input_means_no_feedback(db_session, case):
     row = _rows(db_session, case.model)[0]
     row.input_storage_allowed = False
+    db_session.commit()
     with pytest.raises(TabularError) as error:
         attach_feedback(db_session, model=case.model, prediction_id=row.id, label="0")
     assert error.value.code == "ML_FEEDBACK_NOT_STORED"
     assert list(iter_labeled_samples(row)) == []
+
+
+def test_monitoring_window_batches_feedback_and_refreshes_after_label_commit(db_session, case):
+    from sqlalchemy import event
+
+    from app.models.ml_feedback import MLPredictionFeedback
+    from app.services.tabular_monitoring import _recent
+
+    rows = _rows(db_session, case.model)
+    assert len(rows) >= 40
+    for row in rows:
+        db_session.add(
+            MLPredictionFeedback(
+                sample_id=sample_id(row, 0),
+                prediction_id=row.id,
+                workspace_id=row.workspace_id,
+                sample_index=0,
+                label="first",
+            )
+        )
+    db_session.commit()
+    workspace_id = case.model.workspace_id
+    statements = []
+
+    def count(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(db_session.bind, "before_cursor_execute", count)
+    try:
+        window = _recent(db_session, case.model)
+        for _ in range(3):
+            samples = [sample for row in window for sample in iter_labeled_samples(row)]
+            assert len(samples) == len(rows)
+            assert {sample["label"] for sample in samples} == {"first"}
+        assert len(statements) == 2  # One prediction query and one select-in load.
+        assert sum("ml_prediction_feedback" in query for query in statements) == 1
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", count)
+    first = window[0]
+    identifier = sample_id(first, 0)
+    item = db_session.get(MLPredictionFeedback, identifier)
+    item.label = "second"
+    db_session.commit()
+    refreshed = _recent(db_session, case.model)
+    labels = {
+        sample["sample_id"]: sample["label"]
+        for row in refreshed
+        for sample in iter_labeled_samples(row)
+    }
+    assert labels[identifier] == "second"
+    assert len(labels) == len(rows)
+    assert all(row.workspace_id == workspace_id for row in refreshed)
+
+
+def test_feedback_preload_does_not_join_another_workspace(db_session, case):
+    from uuid import uuid4
+
+    from app.models.ml_feedback import MLPredictionFeedback
+    from app.models.workspace import Workspace
+    from app.services.tabular_monitoring import _recent
+
+    row = _rows(db_session, case.model)[0]
+    row.label = None
+    other = Workspace(name="Other", slug="other-" + uuid4().hex)
+    db_session.add(other)
+    db_session.flush()
+    db_session.add(
+        MLPredictionFeedback(
+            sample_id=sample_id(row, 0),
+            prediction_id=row.id,
+            workspace_id=other.id,
+            sample_index=0,
+            label="foreign",
+        )
+    )
+    identifier = row.id
+    db_session.commit()
+    selected = next(value for value in _recent(db_session, case.model) if value.id == identifier)
+    assert list(iter_labeled_samples(selected)) == []
 
 
 @pytest.mark.parametrize(
@@ -291,6 +372,8 @@ def test_feedback_migration_creates_unique_samples_and_cascades_then_downgrades(
                         "INSERT INTO ml_prediction_feedback VALUES ('other','p','w',0,'no','2026-10-15',NULL)"
                     )
                 )
+        with pytest.raises(RuntimeError, match="ML_FEEDBACK_DOWNGRADE_REFUSED"):
+            module.downgrade()
         connection.execute(text("DELETE FROM ml_predictions WHERE id='p'"))
         assert connection.execute(text("SELECT count(*) FROM ml_prediction_feedback")).scalar() == 0
         module.downgrade()

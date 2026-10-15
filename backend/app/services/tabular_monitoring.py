@@ -23,6 +23,7 @@ from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -188,6 +189,8 @@ def _recent(
 ) -> list[MLPrediction]:
     return (
         db.query(MLPrediction)
+        .options(selectinload(MLPrediction.feedback_samples))
+        .populate_existing()
         .filter(
             MLPrediction.workspace_id == model.workspace_id,
             MLPrediction.slug == model.slug if lineage else MLPrediction.served_id == model.id,

@@ -716,16 +716,34 @@ def approved_proposal(db, *, proposal_id, decision_id, run):
     return job, model, dataset, decision
 
 
+def _audit_retraining_decision(db, decision, source, state):
+    from app.services.ml_permissions import audit
+
+    rationale = decision.rationale or {}
+    if (rationale.get("ml_retraining_audit") or {}).get("state") == state:
+        return
+    audit(db, action="retraining_" + state, workspace_id=decision.workspace_id,
+          actor=decision.human_confirmed_by or decision.approved_by or "system",
+          model=source, after={"decision_id": decision.id,
+                              "proposal_id": (rationale.get("model_retraining") or {}).get("proposal_id")})
+    decision.rationale = {**rationale, "ml_retraining_audit": {"state": state}}
+
+
 def settle_gate(db, decision):
     binding = (decision.rationale or {}).get("model_retraining") or {}
     if decision.status == "rejected":
         job = db.get(WorkspaceJob, binding.get("proposal_id"))
-        if job and job.kind == PROPOSAL_KIND and job.result.get("decision_id") == decision.id:
+        if job and job.workspace_id == decision.workspace_id and job.kind == PROPOSAL_KIND and job.result.get("decision_id") == decision.id:
+            source = db.get(MLModel, job.input_ref.get("model_id"))
+            if source is None or source.workspace_id != decision.workspace_id:
+                refuse("ML_RETRAIN_PROPOSAL_INVALID", "The reviewed source model is unavailable.")
+            _audit_retraining_decision(db, decision, source, "rejected")
             job.status, job.stage = "cancelled", "rejected"
             db.flush()
         refuse("ML_RETRAIN_REJECTED", "Retraining was rejected.")
     run = db.get(Run, decision.target_id)
-    approved_proposal(db, proposal_id=binding.get("proposal_id"), decision_id=decision.id, run=run)
+    _, source, _, _ = approved_proposal(db, proposal_id=binding.get("proposal_id"), decision_id=decision.id, run=run)
+    _audit_retraining_decision(db, decision, source, "approved")
     return {"proposal_id": binding["proposal_id"]}
 
 
