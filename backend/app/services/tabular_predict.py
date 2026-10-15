@@ -1023,6 +1023,24 @@ def journal_call(
 
     from app.services.ml_governance import inputs_allowed
     persist_inputs = inputs_allowed(db, served.workspace_id, store)
+    journal_answers = list(answers[:_JOURNAL_ROW_CAP])
+    if not persist_inputs:
+        # Explanations echo caller values alongside derived effects. Retain the
+        # effects, not those input values, and never mutate the answer returned
+        # to the caller (the same objects are still in the serving response).
+        journal_answers = [
+            {
+                **answer,
+                **({
+                    "contributions": [
+                        {key: value for key, value in contribution.items() if key != "value"}
+                        for contribution in answer["contributions"]
+                        if isinstance(contribution, dict)
+                    ],
+                } if isinstance(answer.get("contributions"), list) else {}),
+            }
+            for answer in journal_answers
+        ]
     row = MLPrediction(
         workspace_id=served.workspace_id,
         model_id=requested.id,
@@ -1033,7 +1051,7 @@ def journal_call(
         row_count=len(answers),
         payload_json=list(rows[:_JOURNAL_ROW_CAP]) if persist_inputs else [],
         input_storage_allowed=persist_inputs,
-        output_json=list(answers[:_JOURNAL_ROW_CAP]),
+        output_json=journal_answers,
         scores_json=_score_summary(answers, task=served.task),
         duration_ms=duration_ms,
         dataset_id=dataset_id if persist_inputs else None,

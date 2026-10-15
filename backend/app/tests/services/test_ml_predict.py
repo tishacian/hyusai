@@ -1394,6 +1394,20 @@ def test_an_explained_row_says_what_its_own_values_did_to_the_score(db_session, 
     json.dumps(answer, allow_nan=False)
 
 
+def test_real_explanation_is_returned_but_input_value_is_not_stored(db_session, model):
+    sentinel = 918273.625
+    answer = tabular_predict.predict_rows(
+        db_session, model, [_row(arpu=sentinel)], explain=True, store=False,
+    )
+    contribution = next(item for item in answer["predictions"][0]["contributions"] if item["field"] == "arpu")
+    assert contribution["value"] == sentinel
+    row = db_session.get(MLPrediction, answer["prediction_id"])
+    assert row.payload_json == [] and row.input_storage_allowed is False
+    assert str(sentinel) not in json.dumps(row.output_json)
+    assert all("value" not in item for item in row.output_json[0]["contributions"])
+    assert row.scores_json["n"] == 1
+
+
 def test_an_explanation_is_only_computed_when_it_was_asked_for(db_session, model):
     plain = tabular_predict.predict_rows(db_session, model, [_row()])
 
