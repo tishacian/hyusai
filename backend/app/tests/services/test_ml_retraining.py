@@ -297,6 +297,16 @@ async def test_real_scheduled_flow_pauses_and_only_a_human_can_create_challenger
             "ML_RETRAIN_REJECTED" if verdict == "rejected" else "ML_RETRAIN_HUMAN_REQUIRED"
         )
         assert db_session.query(MLModel).count() == 1 and not captured
+    from app.models.audit import AuditLog
+    audits = db_session.query(AuditLog).filter(AuditLog.event_type.in_([
+        "ml.model.retraining_approved", "ml.model.retraining_rejected"
+    ])).all()
+    if verdict in {"human", "human_real", "rejected"}:
+        assert len(audits) == 1
+        assert audits[0].event_type == "ml.model.retraining_" + ("rejected" if verdict == "rejected" else "approved")
+        assert audits[0].details["after"]["decision_id"] == decision.id
+    else:
+        assert not audits
 
 
 @pytest.mark.parametrize(

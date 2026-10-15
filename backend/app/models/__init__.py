@@ -127,6 +127,7 @@ from app.models.workspace_visual import (
 )
 
 __all__ = [
+    "MLPredictionFeedback",
     "MLAdmissionCounter",
     "MLWorkspaceLock",
     "ExecutionCapacity", "ExecutionReservation", "ExecutionDispatch",

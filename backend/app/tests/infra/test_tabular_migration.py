@@ -47,6 +47,7 @@ CHAIN = (
     "133_activity_observability",
     "134_execution_control",
     "135_mlops_governance",
+    "136_mlops_correctness",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
@@ -67,6 +68,7 @@ PLANE_TABLES = (
     "ml_runtime_heartbeats",
     "ml_admission_counters",
     "ml_workspace_locks",
+    "ml_prediction_feedback",
 )
 
 # The pre-slice tables the slice points at or reads from, reduced to the

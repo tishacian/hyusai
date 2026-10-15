@@ -1,6 +1,6 @@
 # M2 — Justesse MLOps, 15 octobre 2026
 
-Lot indépendant depuis `47e289da`, à assembler avec M1 et M3. Le plan historique
+Lot initialement développé depuis `47e289da`, puis rebasé sur M1 `e74de787`. Le plan historique
 reste inchangé. Ce lot ne déploie rien et n'ajoute aucune dépendance.
 
 ## Contrats livrés
@@ -32,26 +32,26 @@ La dérive multivariée optionnelle n'est pas implémentée. Le test synthétiqu
 montre l'avantage du mélange sur un feedback biaisé et un test identique ; il ne
 garantit aucune amélioration sur les données réelles.
 
-## Assemblage nécessaire avec les lots voisins
+## Assemblage avec M1 et M3
 
-1. Migration `136_mlops_correctness` après `135_mlops_governance` : nouvelle table
-   `ml_prediction_feedback`. Ajouter cette table avant `ml_predictions` dans
-   l'ordre de purge des tests PostgreSQL et vérifier la chaîne 135–137.
-2. L'API feedback doit transmettre `sample_id` à `attach_feedback`. Le GET
-   `ml-models/{id}/predictions/{prediction_id}` doit appliquer les permissions M1,
-   vérifier workspace et modèle, puis renvoyer `serialize_prediction` dans
-   `{prediction: ...}`. Le client ne reçoit pas les données d'entrée.
-3. M1 porte `input_storage_allowed` et les réglages de budget/seuils. Les entrées
-   non conservées sont refusées par M2. Les valeurs par défaut locales permettent
-   de qualifier ce lot indépendamment, sans ajouter de politique RBAC parallèle.
-4. M1 doit journaliser strictement l'approbation/rejet dans la transaction native
-   de décision via `ml_permissions.audit`. `settle_gate` est le point de liaison ;
-   son rejet lève `ML_RETRAIN_REJECTED` après `flush`, donc l'audit doit être dans
-   la transaction qui conserve effectivement la décision, pas dans un rollback.
-   Aucun import facultatif silencieux du module M1 n'est ajouté par ce lot.
-5. M3 peut appeler `ml_alerts.monitor_transition` après création d'un nouvel
-   instantané dans la même transaction, avec `source_id=snapshot.id`. Les reprises
-   de l'instantané existant ne doivent pas recréer une transition.
+La migration 136 suit 135 et l'ordre de purge inclut `ml_prediction_feedback`.
+L'API transmet `sample_id` et fournit le GET de métadonnées des échantillons,
+avec contrôle du workspace, de la lignée et des permissions M1. Aucune entrée
+brute n'est renvoyée par cette route.
+
+L'approbation et le rejet du réentraînement sont audités via M1 dans la
+transaction native, y compris le chemin de rejet qui termine le Run en échec.
+La preuve de décision évite un audit doublé lors d'une reprise. Les tests du
+Flow réel vérifient ces audits. Le downgrade 136 refuse de détruire des labels
+conservés ; le test valide ce refus puis le downgrade d'une table vide.
+
+La fenêtre de feedback est préchargée par lot : 80 prédictions et trois
+parcours des labels coûtent deux SELECT. Une correction suivie d'un commit
+est visible à la fenêtre suivante ; aucun cache applicatif persistant ne
+masque le nouveau label. Les labels d'un autre workspace sont exclus.
+
+M3 raccorde ensuite `ml_alerts.monitor_transition` à la création d'un nouvel
+instantané, dans sa transaction, avec `source_id=snapshot.id`.
 
 ## Validation
 
@@ -98,3 +98,8 @@ E2E_CHROME_V2_MOCKED=1 E2E_BASE_URL=http://127.0.0.1:4312 node_modules/.bin/play
 
 Ruff ciblé passe ; l'exception `F811` concerne les fixtures importées des tests
 existants. Aucun test global de l'assemblage M1+M2+M3 n'est revendiqué ici.
+
+Complément d’assemblage : 96 tests ciblés passent après préchargement du
+feedback, et cinq tests vérifient le Flow réel/audit ainsi que le feedback
+par ligne à travers HTTP. La chaîne PostgreSQL complète 135–137 est vérifiée
+avec M3 ; aucune qualification de la VM n’est revendiquée.

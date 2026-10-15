@@ -52,9 +52,8 @@ def iter_labeled_samples(row):
     feedback = (
         {
             value.sample_index: value
-            for value in db.query(MLPredictionFeedback)
-            .filter_by(prediction_id=row.id, workspace_id=row.workspace_id)
-            .all()
+            for value in row.feedback_samples
+            if value.prediction_id == row.id and value.workspace_id == row.workspace_id
         }
         if db is not None
         else {}

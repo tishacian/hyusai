@@ -43,4 +43,6 @@ def upgrade():
 
 
 def downgrade():
+    if op.get_bind().execute(sa.text("SELECT 1 FROM ml_prediction_feedback LIMIT 1")).first():
+        raise RuntimeError("ML_FEEDBACK_DOWNGRADE_REFUSED: retained sample labels require this schema")
     op.drop_table("ml_prediction_feedback")
