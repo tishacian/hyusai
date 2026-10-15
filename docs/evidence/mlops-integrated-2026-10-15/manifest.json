@@ -1,0 +1,59 @@
+{
+  "kind": "local-validation-not-deployment-attestation",
+  "base": "47e289da",
+  "validation_head": "c2c2885e6798d24747e4d6227a99deae2bd67c19",
+  "results": {
+    "integration": "269 passed",
+    "targeted_postgresql_migrations": "68 passed",
+    "frontend_unit": "2285 passed",
+    "export_with_real_mlflow_server": "16 passed",
+    "build_prod": "passed",
+    "typescript": "passed",
+    "i18n": "passed",
+    "navigation": "passed",
+    "ui_chrome": "pre-existing styles.scss halo: 7 versus budget 6",
+    "ml_regression": "running"
+  },
+  "logs": {
+    "integration.log": {
+      "sha256": "cdc1ca589d4550c3385542ebb1d8ebd120d6f77c526bacb949b9577e7d70fd42",
+      "bytes": 22228
+    },
+    "migrations.log": {
+      "sha256": "c17d202f3391906838857649ce0fb89073dd91611ebb87214eeafcf305104878",
+      "bytes": 1603
+    },
+    "frontend.log": {
+      "sha256": "7beae7f2eb3496e55ccd058f63b4fa646e79bb1a41725789421c316b33060c11",
+      "bytes": 196940
+    },
+    "build-prod.log": {
+      "sha256": "370d66334237fffbf3617ad6e990d30435a0a28fd0aea3b1366d5d13e7455adc",
+      "bytes": 9966
+    },
+    "i18n.log": {
+      "sha256": "833e77d90d34720d3a1e470e5c52f3ef3b851ec5e3410dc2a4fdc5e6f9f0d380",
+      "bytes": 215
+    },
+    "navigation.log": {
+      "sha256": "f95d0aeb6b302da99bc22f670bfe6bc5daed1a53aed7c8a630c46133a4549f46",
+      "bytes": 171
+    },
+    "typescript.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "ui-chrome.log": {
+      "sha256": "e4dfaca77ac655c8b579ad26383d72bb3a0caf718f68d3776f4775bdbe14bf2a",
+      "bytes": 620
+    },
+    "compliance.log": {
+      "sha256": "8b9f0352050cb74dd52847480f4586a9c60f9371ad890b08fc04d9edcdc7f3cc",
+      "bytes": 94
+    },
+    "export.log": {
+      "sha256": "cd464f8001f4aa3c9726c6bbc06523b7da899a50c8bccf64804ab8a47d841c8d",
+      "bytes": 1446
+    }
+  }
+}
