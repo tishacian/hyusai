@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-15",
+  "branch": "codex/control-worker-deploy",
+  "base": "4a404d61c8f80a9027d8ea9ababc9c30b112f8c0",
+  "scope": "Local deploy-script tests; production state is operator-reported separately. No VM connection, merge or deployment.",
+  "pytest": {
+    "cwd": "backend",
+    "command": "PATH=/workspace/.tools/linux-amd64:$PATH /workspace/omnirag/.venv/bin/python -m pytest app/tests/infra/test_agentium_control_deploy.py app/tests/infra/test_agentium_vm_deploy_guards.py app/tests/infra/test_agentium_vm_storage_guard.py app/tests/infra/test_execution_control_scaffold.py -q --disable-warnings --maxfail=5",
+    "exit_code": 0,
+    "passed": 153,
+    "failed": 0,
+    "skipped": 0,
+    "log": "pytest.log"
+  },
+  "other_checks": {
+    "bash -n scripts/agentium-vm-deploy.sh": 0,
+    "ruff check scripts/agentium_control_runtime.py backend/app/tests/infra/test_agentium_control_deploy.py": 0,
+    "git diff --check": 0
+  },
+  "tools": {
+    "platform": "Linux",
+    "python": "Python 3.12.14",
+    "compose": "2.40.3",
+    "helm": "v3.17.3+ge4da497"
+  },
+  "coverage": [
+    "Automatic selection on flags or retained (including stopped) containers; refusal of unsafe disable and Docker read failures",
+    "Control/backend feature-flag alignment, including real Compose backend override",
+    "Frozen environment isolation and optional profiles in real Docker Compose renders",
+    "Image/revision/command/queue checks, scheduler PID and targeted Celery ping using Docker stubs",
+    "Actual up branch service selection and maintenance-gate retention on readiness failure",
+    "Existing VM deployment/storage guards and execution-control Helm scaffold"
+  ],
+  "limits": [
+    "No new VM or live RabbitMQ workload validation",
+    "No runtime framework comparison, connector certification or production image measurement",
+    "Bash syntax checked and shell cases executed on the local Bash; Bash 3.2 was not executed"
+  ],
+  "sha256": {
+    "scripts/agentium-vm-deploy.sh": "d0e229da8046c0cef07238cbabe80a65487622996bf8978a9f81efd6102b479f",
+    "scripts/agentium_control_runtime.py": "6e8daeca23176d4913d8f025e5e94236a522ebcff691b8b05c0327720d039a8d",
+    "backend/app/tests/infra/test_agentium_control_deploy.py": "d8f6fd7cef042903f60be62367b5d48dbd3a27a6ff99aa849870ccf2f613be8d",
+    "backend/app/tests/infra/test_agentium_vm_deploy_guards.py": "a72a19529b889d0a7aa9ba484949b645cf7535c097eac7d803b928f88323be65",
+    "backend/app/tests/infra/test_agentium_vm_storage_guard.py": "9e3c140a8b6322b8647d93deed733926f794ca619fbfe4abff9e6654dcf6b816",
+    "backend/app/tests/infra/test_execution_control_scaffold.py": "f1108f385103e2c7ab20b2c67a7d8b1fb6bbaea97657774fce65f1cac1700080",
+    "docker/compose.agentium.execution.yml": "e69be75f70155c8152f6641b290b966b82082e183e174c75ddd9b7d5d26321ca"
+  }
+}

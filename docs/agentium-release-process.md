@@ -411,11 +411,12 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" livekit-up
 ```
 
-`up` recreates exactly `agentium-backend`, `agentium-worker-cpu`,
-`agentium-worker-recipes`, `agentium-frontend`, `agentium-p4-maintenance`,
+`up` recreates `agentium-backend`, `agentium-worker-cpu`,
+`agentium-worker-recipes`, `agentium-worker-dataops`, `agentium-frontend`, `agentium-p4-maintenance`,
 `agentium-beat` — plus `agentium-worker-ml-ts` and
 `agentium-worker-ml-ts-serve` when `AGENTIUM_ML_TS=1` (§4b) — with
 `--no-build --pull never`, so the images from §3 must exist at the tag.
+Other selected optional profiles are recreated in the same command.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path; `sftp-up` recreates SFTP alone when
 its bind changes, `keycloak-up` recreates Keycloak alone (env rotation,
@@ -436,6 +437,24 @@ that proof passes; on failure it stays closed until
 
 The frozen env bundle defaults to `/srv/agentium-data/runtime-env/2026-10-12`;
 `AGENTIUM_RUNTIME_ENV_DIR` selects another one under `/srv/agentium-data`.
+
+Execution control uses `AGENTIUM_EXECUTION_CONTROL=auto` by default. The deploy
+script includes `compose.agentium.execution.yml` and recreates both
+`agentium-worker-control` and `agentium-scheduler-control` whenever the frozen
+backend enables observability, execution control, durable dispatch or Temporal,
+or either control container still exists (including stopped containers).
+This retains drainage capacity after admissions close. Mode `1` prepares it
+before activation; mode `0` refuses active flags or retained containers.
+All four flags must agree between backend and control services; put them in
+the shared frozen application environment instead of backend-only overrides.
+
+Both services reuse the selected worker image. Before reopening the maintenance
+gate, `up` checks their image IDs, verified release revision, commands and queue
+isolation, the scheduler PID and a targeted worker ping. Failure keeps the gate
+closed when enabled. These checks do not replace a real execution and journal
+recipe. See [control operations](agentium-execution-operations.md#capacité-de-contrôle-séparée)
+and the [reported production state](ops/execution-observability-production-2026-10-15.md):
+this lifecycle fix is not present in deployed revision `4a404d61`.
 
 ### 6b. Catalog — when the slice adds or changes a canonical Skill
 
