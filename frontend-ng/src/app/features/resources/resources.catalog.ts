@@ -17,7 +17,9 @@
  *   - the System Builder wizard Skills step (enabled workspace apps).
  */
 
-export type ConnectorStatus = 'active' | 'available' | 'coming-soon' | 'beta' | 'configuration-only';
+// Catalogue availability is separate from connection health and certification.
+// C0 has no live certification feed; no static entry claims verified/certified.
+export type ConnectorStatus = 'unverified' | 'third-party' | 'on-request' | 'configuration-only';
 export type ConnectorCategory = 'microsoft' | 'channels' | 'data-storage';
 
 export interface ConnectorField {
@@ -56,7 +58,7 @@ export const CONNECTORS: ConnectorDef[] = [
   {
     id: 'huggingface', category: 'data-storage', icon: 'database', name: 'Hugging Face',
     description: 'Hugging Face models and datasets, verified imports and license controls.',
-    version: 'Hub API', status: 'available', backendPrefix: 'huggingface',
+    version: 'Hub API', status: 'unverified', backendPrefix: 'huggingface',
     fields: [
       { key: 'endpoint', label: 'Hub endpoint', type: 'url', placeholder: 'https://huggingface.co' },
       { key: 'token', label: 'Token', type: 'password' },
@@ -70,7 +72,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Dynamics 365',
     description: 'ERP / CRM data, vendor records, purchase orders.',
     version: 'v9.2',
-    status: 'available',
+    status: 'on-request',
     fields: [
       { key: 'tenant_url', label: 'Tenant URL', type: 'url', placeholder: 'https://org.crm4.dynamics.com', required: true },
       { key: 'client_id', label: 'Client ID', type: 'text', placeholder: 'app-client-id', required: true },
@@ -85,7 +87,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Microsoft Teams',
     description: 'Notifications and agent conversations via Teams channels.',
     version: 'Graph API v1.0',
-    status: 'available',
+    status: 'on-request',
     fields: [
       // An incoming-webhook URL is the credential: whoever holds it can post.
       { key: 'webhook_url', label: 'Incoming webhook URL', type: 'password', placeholder: 'https://outlook.office.com/webhook/…' },
@@ -100,7 +102,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Microsoft SharePoint',
     description: 'Document libraries, policy repositories, delegated OTP auth.',
     version: 'REST API v2',
-    status: 'active',
+    status: 'unverified',
     backendPrefix: 'sharepoint',
     fields: [
       { key: 'site_url', label: 'Site URL', type: 'url', placeholder: 'https://tenant.sharepoint.com/sites/policies', required: true },
@@ -116,7 +118,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Outlook / Exchange',
     description: 'Inbound email triggers, calendar events, task sync.',
     version: 'EWS / Graph',
-    status: 'available',
+    status: 'on-request',
     fields: [
       { key: 'mailbox', label: 'Monitored mailbox', type: 'email', placeholder: 'agent@company.com', required: true },
       { key: 'tenant_id', label: 'Tenant ID', type: 'text' },
@@ -130,7 +132,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Institutional agenda',
     description: 'Shared workspace agenda, readable and editable by authorized assistants.',
     version: 'Internal shared v1',
-    status: 'active',
+    status: 'unverified',
     backendPrefix: 'calendar',
     fields: [],
   },
@@ -143,7 +145,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Telegram Bot',
     description: 'Chat interaction via Telegram bot API.',
     version: 'Bot API 7.x',
-    status: 'available',
+    status: 'on-request',
     fields: [
       { key: 'bot_token', label: 'Bot token', type: 'password', required: true },
       { key: 'chat_id', label: 'Chat / channel ID', type: 'text', placeholder: '-1001234567890' },
@@ -157,7 +159,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'WhatsApp Business',
     description: 'System access via WhatsApp Cloud API.',
     version: 'Cloud API v18',
-    status: 'coming-soon',
+    status: 'on-request',
     fields: [
       { key: 'phone_number_id', label: 'Phone number ID', type: 'text' },
       { key: 'access_token', label: 'Access token', type: 'password' },
@@ -171,7 +173,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'SMTP / Email',
     description: 'Inbound & outbound email agent triggers.',
     version: 'SMTP / IMAP',
-    status: 'available',
+    status: 'on-request',
     fields: [
       { key: 'host', label: 'SMTP host', type: 'text', placeholder: 'smtp.gmail.com', required: true },
       { key: 'port', label: 'Port', type: 'number', placeholder: '587' },
@@ -186,7 +188,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'REST API',
     description: 'Custom integrations via documented REST endpoints.',
     version: 'OpenAPI 3.1',
-    status: 'active',
+    status: 'on-request',
     fields: [
       { key: 'base_url', label: 'Base URL', type: 'url', placeholder: 'https://api.example.com', required: true },
       { key: 'auth_header', label: 'Auth header', type: 'text', placeholder: 'Authorization' },
@@ -200,7 +202,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'MQTT',
     description: 'IoT and real-time event-driven messaging.',
     version: 'MQTT v5.0',
-    status: 'available',
+    status: 'on-request',
     fields: [
       { key: 'broker_url', label: 'Broker URL', type: 'text', placeholder: 'tls://broker.example.com:8883' },
       { key: 'topic', label: 'Topic pattern', type: 'text', placeholder: 'factory/+/telemetry' },
@@ -216,7 +218,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Institutional visual streams',
     description: 'Snapshot capture from public or authorized streams, observations and Knowledge sync.',
     version: 'Snapshot v1',
-    status: 'active',
+    status: 'unverified',
     backendPrefix: 'visual-intelligence',
     fields: [],
   },
@@ -229,7 +231,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'PostgreSQL',
     description: 'Explore tables, preview live data and import versioned datasets for DataOps.',
     version: 'v16',
-    status: 'available',
+    status: 'unverified',
     fields: [
       { key: 'host', label: 'Host', type: 'text', placeholder: 'localhost', required: true },
       { key: 'port', label: 'Port', type: 'number', placeholder: '5432' },
@@ -245,7 +247,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'SAP HANA',
     description: 'Query SAP HANA Cloud for structured ERP / maintenance data from Flow Builder skills.',
     version: 'hdbcli v2',
-    status: 'beta',
+    status: 'unverified',
     backendPrefix: 'hana',
     fields: [
       {
@@ -268,7 +270,7 @@ export const CONNECTORS: ConnectorDef[] = [
     description:
       'Workspace MCP HTTP servers (application tools). Not HANA SQL, not a dedicated SAP posting card.',
     version: 'HTTP/SSE v1',
-    status: 'beta',
+    status: 'third-party',
     backendPrefix: 'mcp',
     fields: [
       { key: 'url', label: 'Server URL', type: 'url', placeholder: 'http://127.0.0.1:8765/sap', required: true },
@@ -283,7 +285,7 @@ export const CONNECTORS: ConnectorDef[] = [
     description:
       'Dispatch jobs to an external RPA orchestrator via generic REST (UiPath, Power Automate, or custom runner).',
     version: 'REST v1',
-    status: 'beta',
+    status: 'unverified',
     backendPrefix: 'rpa',
     fields: [
       {
@@ -309,7 +311,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'AWS S3',
     description: 'Cloud object storage for documents, embeddings, artifacts.',
     version: 'SDK v3',
-    status: 'available',
+    status: 'on-request',
     fields: [
       { key: 'bucket', label: 'Bucket', type: 'text', placeholder: 'company-data', required: true },
       { key: 'region', label: 'Region', type: 'text', placeholder: 'eu-west-1' },
@@ -324,7 +326,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'SFTP / Secure Deposit',
     description: 'External upload links with password access and staged review before Knowledge ingestion.',
     version: 'Deposit v1',
-    status: 'active',
+    status: 'unverified',
     backendPrefix: 'sftp',
     fields: [],
   },
@@ -335,13 +337,18 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Elasticsearch',
     description: 'Full-text search and log analytics.',
     version: 'v8.x',
-    status: 'coming-soon',
+    status: 'on-request',
     fields: [
       { key: 'cluster_url', label: 'Cluster URL', type: 'url', placeholder: 'https://es.company.com:9200' },
       { key: 'api_key', label: 'API key', type: 'password' },
     ],
   },
 ];
+
+/** Existing integration surfaces; this does not assert their live health. */
+export function hasConnectorRuntime(connector: ConnectorDef): boolean {
+  return connector.status === 'unverified' || connector.status === 'third-party';
+}
 
 // ─── Apps / Skills / Tools ───────────────────────────────────────────────────
 

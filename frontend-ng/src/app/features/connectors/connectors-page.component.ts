@@ -10,6 +10,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import {
   CONNECTOR_CATEGORIES,
   CONNECTORS,
+  hasConnectorRuntime,
   type ConnectorDef,
 } from '@app/features/resources/resources.catalog';
 import {
@@ -37,9 +38,10 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
       <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
 
+    @if (frameworkEnabled()) { <a [navLink]="{ leaf: 'connector-connections' }" class="ck-btn ck-btn-accent mb-5">{{ i18n.t('connections.title') }}</a> }
     <section class="grid gap-3 md:grid-cols-4 mb-5">
       <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
-        <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.supported') }}</div>
+        <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.listed') }}</div>
         <div class="mt-1 text-2xl font-semibold text-white">{{ supportedCount() }}</div>
       </div>
       <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
@@ -47,11 +49,11 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
         <div class="mt-1 text-2xl font-semibold text-emerald-300">{{ configuredCount() }}</div>
       </div>
       <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
-        <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.available') }}</div>
+        <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.existing') }}</div>
         <div class="mt-1 text-2xl font-semibold text-cyan-200">{{ availableCount() }}</div>
       </div>
       <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
-        <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.planned') }}</div>
+        <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.on_request') }}</div>
         <div class="mt-1 text-2xl font-semibold text-amber-300">{{ plannedCount() }}</div>
       </div>
     </section>
@@ -210,6 +212,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   /** Server state of the connectors set up through the generic drawer. */
   readonly configs = signal<Record<string, GenericConnectorConfig>>({});
   readonly canConfigure = signal(false);
+  readonly frameworkEnabled = signal(false);
   readonly activeConfig = computed(() => {
     const connector = this.activeConnector();
     return connector ? this.configs()[connector.id] ?? null : null;
@@ -232,10 +235,10 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
     () => this.visibleConnectors().filter((connector) => this.isConnectedOrConfigured(connector)).length,
   );
   readonly availableCount = computed(
-    () => this.visibleConnectors().filter((connector) => connector.status !== 'coming-soon').length,
+    () => this.visibleConnectors().filter((connector) => hasConnectorRuntime(connector)).length,
   );
   readonly plannedCount = computed(
-    () => this.visibleConnectors().filter((connector) => connector.status === 'coming-soon').length,
+    () => this.visibleConnectors().filter((connector) => connector.status === 'on-request').length,
   );
 
   ngOnInit(): void {
@@ -251,10 +254,15 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
     this.activeConnector.set(null);
     this.configs.set({});
     this.canConfigure.set(false);
+    this.frameworkEnabled.set(false);
   }
 
   private loadConnectors(): void {
     const request = this.workspaceView.beginRequest();
+    this.api.get<{ profiles: unknown[] }>('/connections/profiles', undefined, { workspaceSlug: request.scope.workspaceSlug }).subscribe({
+      next: value => { if (this.workspaceView.isCurrent(request)) this.frameworkEnabled.set(Array.isArray(value.profiles)); },
+      error: () => { if (this.workspaceView.isCurrent(request)) this.frameworkEnabled.set(false); },
+    });
     this.api
       .get<GenericConnectorList>('/connectors', undefined, { workspaceSlug: request.scope.workspaceSlug })
       .subscribe({
@@ -275,12 +283,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   }
 
   connectorStatus(connector: ConnectorDef): string {
-    if (connector.status === 'configuration-only') return this.i18n.t('connectors.status.configuration_only');
-    if (this.isConnectedOrConfigured(connector)) return this.i18n.t('connectors.status.configured');
-    if (connector.status === 'active') return this.i18n.t('connectors.status.ready');
-    if (connector.status === 'beta') return this.i18n.t('connectors.status.beta');
-    if (connector.status === 'available') return this.i18n.t('connectors.status.available');
-    return this.i18n.t('connectors.status.planned');
+    return this.i18n.t(`connectors.status.${connector.status.replace(/-/g, '_')}`);
   }
 
   /** Static catalog entries are translated at render time by stable id, with a
@@ -299,11 +302,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   }
 
   statusClass(connector: ConnectorDef): string {
-    if (connector.status === 'configuration-only') return 'ck-tone-preview';
-    if (this.isConnectedOrConfigured(connector)) return 'ck-tone-ok';
-    if (connector.status === 'beta') return 'ck-tone-preview';
-    if (connector.status === 'active' || connector.status === 'available') return 'ck-tone-info';
-    return 'ck-tone-warn';
+    return connector.status === 'on-request' ? 'ck-tone-warn' : 'ck-tone-preview';
   }
 
   isConfigured(id: string): boolean {
@@ -312,7 +311,7 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
 
   setupLabel(connector: ConnectorDef): string {
     if (this.isConfigured(connector.id)) return this.i18n.t('connectors.setup.edit');
-    if (connector.status === 'coming-soon') return this.i18n.t('connectors.setup.preview');
+    if (connector.status === 'on-request') return this.i18n.t('connectors.setup.preview');
     return this.i18n.t('connectors.setup.connect');
   }
 

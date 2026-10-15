@@ -1,0 +1,41 @@
+key: mysql
+version: 1
+label_key: connections.profile.mysql
+family: dbapi
+dialect: mysql
+packages:
+- pymysql
+parameters:
+- key: host
+  type: host
+  required: true
+- key: port
+  type: integer
+  default: 3306
+  min: 1
+  max: 65535
+- key: database
+  type: string
+  required: true
+- key: username
+  type: string
+  required: true
+- key: password
+  type: secret
+  required: true
+- key: schema
+  type: string
+  default: ''
+capabilities:
+  read: true
+  read_partitioned: true
+  read_incremental: true
+  consistency: none
+  write_append: true
+  write_overwrite: true
+  write_upsert: true
+  write_outcome_check: marker_table
+limits:
+  preview_rows: 100
+  statement_timeout_ms: 30000
+  fetch_rows: 1000

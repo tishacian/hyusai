@@ -1045,6 +1045,10 @@ async def delete_me(
         logger.error("KC user delete failed: %s %s", resp.status_code, resp.text)
         raise HTTPException(status_code=500, detail="Failed to delete account")
 
+    from app.services.connectors.connections import revoke_user_grants
+
+    for membership in db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).all():
+        revoke_user_grants(db, workspace_id=membership.workspace_id, user_id=user.id, actor=user.id)
     db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).delete()
     db.query(MfaChallenge).filter(MfaChallenge.user_id == user.id).delete()
     db.delete(user)
@@ -1725,6 +1729,10 @@ async def delete_workspace(
             detail="Workspace name does not match. Delete cancelled.",
         )
 
+    from app.services.connectors.connections import revoke_user_grants
+
+    for member in db.query(WorkspaceMember).filter_by(workspace_id=workspace.id).all():
+        revoke_user_grants(db, workspace_id=workspace.id, user_id=member.user_id, actor=user.id)
     workspace.is_active = False
     workspace.deleted_at = datetime.utcnow()
     db.commit()
@@ -1829,6 +1837,9 @@ async def leave_workspace(
             detail="Owner cannot leave. Transfer ownership first, or delete the workspace.",
         )
 
+    from app.services.connectors.connections import revoke_user_grants
+
+    revoke_user_grants(db, workspace_id=workspace.id, user_id=user.id, actor=user.id)
     db.delete(membership)
     db.commit()
     return {"status": "ok"}
@@ -2468,6 +2479,9 @@ async def remove_member(
         },
         db=db,
     )
+    from app.services.connectors.connections import revoke_user_grants
+
+    revoke_user_grants(db, workspace_id=workspace.id, user_id=target.user_id, actor=user.id)
     db.delete(target)
     db.commit()
     return {"status": "ok"}

@@ -504,10 +504,21 @@ SET settings = jsonb_set(COALESCE(settings, '{}'::json)::jsonb,
 
 ## 9. Rollback
 
+**Storage compatibility comes before an image rollback.** Following the
+[14 October DataOps activation](ops/dataops-production-2026-10-14.md#retour-arrière-après-écriture-delta),
+Delta dataset versions exist in production. `ad10dbc2` expects a single Parquet
+object and cannot read those versions, even when a Delta table has only one
+part. Setting `DATAOPS_WRITE_DELTA_ENABLED=false` does not convert existing
+versions. Keep a reader-compatible runtime while fixing forward; reverting to
+a pre-Delta reader requires an inventory and an explicit, validated data
+compatibility procedure. Deleting the two activation probes is not sufficient
+to establish that no other Delta versions exist.
+
 Images are immutable per iteration, the database is not. Two cases:
 
 - **No migration in the slice**: point the stack back at the previous tag —
-  the `previous_tag` column of the journal.
+  the `previous_tag` column of the journal — only if it can read the current
+  persisted formats and the queued work remains compatible.
 
   ```bash
   sudo tail -3 /srv/agentium-data/deployments/journal.tsv
@@ -519,7 +530,7 @@ Images are immutable per iteration, the database is not. Two cases:
   feature flag. The dump is a disaster artifact, not an undo button.
 
 Keep the previous `<sha12>` in the release note you write afterwards; it is
-the rollback address.
+the candidate rollback address, subject to the compatibility checks above.
 
 ## 10. Traps that have actually bitten
 

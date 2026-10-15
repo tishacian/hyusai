@@ -4,9 +4,17 @@ Ce diagnostic suit la comparaison locale de `ad10dbc2` avec `bd724044`, le choix
 HANA Showcase, puis la mesure VM de `6dcb0d48` rapportée par l'utilisateur.
 Les preuves locales et le premier relevé SSH restent historiques ; le nouvel
 état et les plafonds autorisés sont consignés ci-dessous. Le plan original et
-la revue indépendante restent inchangés. Aucune fusion, mise en production ni
-activation HANA n'est effectuée. Les autres lots du plan restent hors de cette
-vérification.
+la revue indépendante restent inchangés.
+
+**État ultérieur de production :** l'opérateur rapporte `0e401afc` en service,
+révision vérifiée dans `build-info`, avec DataOps, écriture Delta, contrats et
+scoring en flux actifs globalement. Une préparation Delta d'une ligne a réussi
+dans `default`. Le [bilan de production](ops/dataops-production-2026-10-14.md)
+consigne les contrôles, le nettoyage RabbitMQ, les recettes restantes et
+l'incompatibilité d'un retour aux images `ad10dbc2` après écriture Delta.
+HANA démo reste à activer. Les sections suivantes décrivent les contrôles
+antérieurs sur leurs propres révisions, sans nouvelle mesure des images
+`0e401afc` ni nouvelle opération VM depuis cet environnement.
 
 ## Mesure candidate sur la VM et plafonds retenus
 
@@ -347,7 +355,8 @@ panneau SAP.
 L'utilisateur choisit **`demo_mode=true`, TLS strict conservé** pour la prochaine
 livraison de `agentium-showcase`. Le choix de service est tranché et le contrôle
 de budget des images existantes est passé selon le recontrôle rapporté ci-dessus.
-L'activation sur la VM reste à effectuer dans le cadre de la livraison. La
+Après la mise en production de `0e401afc`, l'activation HANA reste à effectuer
+dans Showcase selon le dernier bilan opérateur. La
 configuration effectivement relevée plus haut précède cette décision et n'a
 pas été modifiée par les travaux locaux.
 
@@ -411,5 +420,6 @@ nouvelle exécution de la suite backend complète.
 Aucune exception TLS ni démo n'est activée sur la VM par cette note. Le choix
 de l'utilisateur est enregistré et le blocage de budget des images `6dcb0d48`
 est levé avec les plafonds de `cd015ed6`. L'activation du workspace et sa recette
-restent à effectuer dans le cadre de la livraison ; ce contrôle de budget ne
-les remplace pas. Aucune fusion ni aucun déploiement n'est effectué ici.
+restent à effectuer après la livraison de `0e401afc` rapportée en tête de cette
+note ; ce contrôle de budget ne les remplace pas. Aucune nouvelle opération VM
+n'est effectuée par cette mise à jour documentaire.

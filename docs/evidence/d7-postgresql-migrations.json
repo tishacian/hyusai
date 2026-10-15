@@ -1,0 +1,12 @@
+{
+  "server_version": "PostgreSQL 17.11",
+  "container_image": "postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+  "predecessor": "4417bc4f model metadata; stamped 126_service_contracts",
+  "head": "132_connector_sync",
+  "upgrade_127_through_132": "passed",
+  "orm_column_match": "11 affected tables match",
+  "checkpoint_downgrade_guard": "refused nonempty connector_sync_states; revision remained 132",
+  "empty_downgrade_to_126_then_upgrade": "passed",
+  "full_historical_alembic_replay": "not performed",
+  "provider_certification": false
+}

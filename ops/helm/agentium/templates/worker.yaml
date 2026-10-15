@@ -2,6 +2,11 @@
 {{- if has "dataops" (splitList "," (replace " " "" .Values.worker.queues)) }}
 {{- fail "worker.queues must exclude dataops; use dataopsWorker.enabled" }}
 {{- end }}
+{{- range list "connectors" "connectors_interactive" }}
+{{- if has . (splitList "," (replace " " "" $.Values.worker.queues)) }}
+{{- fail "worker.queues must exclude connector queues; use connectorWorkers.enabled" }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

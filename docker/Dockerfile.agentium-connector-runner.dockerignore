@@ -1,0 +1,6 @@
+**
+!backend/
+!backend/requirements_connectors_sql.txt
+!backend/requirements_connectors_misc.txt
+!backend/constraints-connectors.txt
+!backend/constraints-demo-app.txt

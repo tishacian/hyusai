@@ -272,6 +272,12 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     badge: 'cron',
   },
   {
+    type: 'source.connector_watch', kind: 'source', label: 'Connector watch',
+    description: 'Trigger for a new or changed object in an approved connection prefix',
+    icon: 'database', tone: 'emerald', badge: 'event',
+    outputs: [{ name: 'watch_id', schema: 'string' }, { name: 'connection_id', schema: 'string' }, { name: 'source_fingerprint', schema: 'string' }, { name: 'objects', schema: 'array' }, { name: 'sequence', schema: 'number' }],
+  },
+  {
     type: 'source.webhook',
     kind: 'source',
     label: 'Webhook',

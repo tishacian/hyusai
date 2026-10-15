@@ -10,11 +10,16 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
 from app.services.connectors.generic.service import get_config
+from app.services.connectors.legacy_network import network_scope
+from app.services.connectors.network_policy import (
+    ConnectorNetworkError,
+    postgresql_connection_options,
+)
 
 CLAIM_ID = re.compile(r"RC-[0-9]{4,8}")
 MAX_ROWS = 100
@@ -93,7 +98,7 @@ def _value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).isoformat()
+        return value.astimezone(UTC).isoformat()
     if isinstance(value, date):
         return value.isoformat()
     return value
@@ -117,15 +122,15 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
             "password"
         ):
             raise ClaimReadError("POSTGRESQL_NOT_CONFIGURED", 409)
-        connection = psycopg2.connect(
-            host=values["host"],
-            port=int(values.get("port") or 5432),
-            dbname=values["database"],
-            user=values["username"],
-            password=secrets["password"],
-            connect_timeout=5,
-            application_name="agentium-claims-reader",
-        )
+        with network_scope(config):
+            connection = psycopg2.connect(
+                **postgresql_connection_options(values["host"], int(values.get("port") or 5432)),
+                dbname=values["database"],
+                user=values["username"],
+                password=secrets["password"],
+                connect_timeout=5,
+                application_name="agentium-claims-reader",
+            )
         connection.set_session(isolation_level="REPEATABLE READ", readonly=True, autocommit=False)
         results: dict[str, Any] = {}
         with connection.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -150,7 +155,7 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
                 "connector_id": "postgresql",
                 "read_mode": "live",
                 "isolation": "repeatable_read",
-                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "captured_at": datetime.now(UTC).isoformat(),
                 "snapshot_sha256": digest(results),
                 "business_parameters": params,
                 "queries": [
@@ -163,6 +168,8 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
         }
     except ClaimReadError:
         raise
+    except ConnectorNetworkError as exc:
+        raise ClaimReadError(exc.code, exc.status_code) from None
     except Exception as exc:
         code = {
             "42P01": "POSTGRESQL_SCHEMA_NOT_LOADED",

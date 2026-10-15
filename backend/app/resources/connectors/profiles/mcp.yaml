@@ -1,0 +1,60 @@
+key: mcp
+version: 1
+label_key: connections.profile.mcp
+family: mcp
+dialect: mcp
+packages:
+- httpx
+parameters:
+- key: base_url
+  type: string
+  required: true
+- key: allowed_origins
+  type: json
+  required: true
+- key: auth_mode
+  type: enum
+  choices:
+  - none
+  - bearer
+  - oauth_user
+  - oauth_client_credentials
+  default: none
+- key: bearer_token
+  type: secret
+  required: true
+  when:
+    auth_mode:
+    - bearer
+- key: client_id
+  type: string
+- key: client_secret
+  type: secret
+- key: authorization_endpoint
+  type: string
+- key: token_endpoint
+  type: string
+- key: registration_endpoint
+  type: string
+- key: revocation_endpoint
+  type: string
+- key: scopes
+  type: json
+  default: []
+- key: tool_allowlist
+  type: json
+  default: []
+- key: write_tools
+  type: json
+  default: []
+- key: tool_contracts
+  type: json
+  default: {}
+  advanced: true
+capabilities:
+  read: true
+  consistency: none
+limits:
+  preview_rows: 100
+  statement_timeout_ms: 30000
+  fetch_rows: 1000
