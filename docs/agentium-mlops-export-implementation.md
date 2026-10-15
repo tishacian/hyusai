@@ -61,7 +61,7 @@ Le guard `ui-chrome` reste rouge sur le halo préexistant de `src/styles.scss`
 Commandes depuis `backend` :
 
 ```bash
-PYTHONPATH=/workspace/mlops-m4-evidence:$PWD /workspace/hyusai/.venv/bin/python -m pytest \
+PYTHONPATH=/workspace/mlops-m4-evidence:$PWD /workspace/agentium/.venv/bin/python -m pytest \
   app/tests/services/test_ml_exports.py app/tests/api/test_ml_exports_api.py \
   -p m1_test_dependency -q -p no:cacheprovider -W ignore
 ```
