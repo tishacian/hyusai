@@ -68,7 +68,7 @@ def lock_workspace(db, workspace_id):
 
 
 def require_exposure_capacity(db, model):
-    lock_workspace(db, model.workspace_id)
+    limits = locked_policy(db, model.workspace_id)
     now = datetime.utcnow()
     keys = db.query(MLModelApiKey.model_id).filter(
         MLModelApiKey.workspace_id == model.workspace_id,
@@ -85,15 +85,24 @@ def require_exposure_capacity(db, model):
         )
         .distinct()
     }
-    if (
-        model.slug not in exposed
-        and len(exposed) >= policy(db, model.workspace_id).max_exposed_models
-    ):
+    if model.slug not in exposed and len(exposed) >= limits.max_exposed_models:
         raise TabularError(
             code="ML_EXPOSURE_QUOTA_EXCEEDED",
             message="The workspace model exposure quota is exhausted.",
             status_code=409,
         )
+
+
+def locked_policy(db, workspace_id):
+    """Read the committed policy after acquiring its mutation lock.
+
+    Authentication may have loaded this Workspace before a competing policy
+    update committed. Reload after waiting, without changing policy(), whose
+    configuration caller deliberately validates an unflushed candidate.
+    """
+    lock_workspace(db, workspace_id)
+    db.get(Workspace, workspace_id, populate_existing=True)
+    return policy(db, workspace_id)
 
 
 def admit(db, model, *, rows, key_id=None, now=None):

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from app.core.config import settings
 from app.models.decision import Decision
 from app.services import ml_permissions
-from app.services.ml_governance import lock_workspace, policy
+from app.services.ml_governance import lock_workspace, locked_policy
 from app.services.tabular_datasets import TabularError
 from app.services.tabular_ml import champion_for, get_model, set_champion
 
@@ -39,9 +39,9 @@ def public(decision, *, can_decide=False):
 
 def request(db, *, model, workspace, user):
     ml_permissions.require(db, "promote", workspace, user)
-    lock_workspace(db, workspace.id)
+    limits = locked_policy(db, workspace.id)
     champion = champion_for(db, workspace_id=workspace.id, slug=model.slug)
-    if not policy(db, workspace.id).promotion_requires_approval:
+    if not limits.promotion_requires_approval:
         ml_permissions.audit(
             db,
             action="promote",
