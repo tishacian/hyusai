@@ -40,3 +40,24 @@ test('actuals candidates request ready datasets before the server page limit', a
   const ready=[{id:'older-ready-actuals',status:'ready'}];
   response.next({datasets:ready});response.complete();assert.equal(await pending,ready);
 });
+
+test('source policy and sample-scoped feedback cross the API without changing false or null',async()=>{
+  const response=new Subject<any>(),requests:any[]=[];
+  const injector=Injector.create({providers:[ModelsService,{provide:WorkspaceService,useValue:{registerContextReset:()=>()=>{},captureRequestScope:()=>({}),isRequestScopeCurrent:()=>true}},{provide:HttpClient,useValue:{
+    post:(url:string,body:any)=>{requests.push({url,body});return response;},
+    get:(url:string)=>{requests.push({url});return response;},
+  }}]});
+  const service=injector.get(ModelsService);
+  const policy={enabled:false,propose_retraining:false,interval_minutes:60 as const,retraining_data:{mode:'feedback_only' as const,max_feedback_fraction:.25,feedback_window_days:null}};
+  const save=service.configureMonitoringPolicy('m',policy);
+  assert.deepEqual(requests[0].body,policy);
+  response.next({monitoring:{}});await save;
+  const feedback=service.feedback('m',{prediction_id:'p',sample_id:'sample-second',label:'0'});
+  assert.deepEqual(requests[1].body,{prediction_id:'p',sample_id:'sample-second',label:'0'});
+  response.next({prediction:{id:'p'}});await feedback;
+  const samples=service.predictionSamples('m','p');
+  assert.equal(requests[2].url,'/api/v1/ml-models/m/predictions/p');
+  response.next({prediction:{id:'p',row_count:2,samples:[{sample_id:'s',index:1,label:null}]}});
+  assert.equal((await samples).samples[0].index,1);
+  response.complete();
+});
