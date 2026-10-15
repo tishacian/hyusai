@@ -125,6 +125,7 @@ const pureSpecs = [
   'src/app/shared/ui/icon-registry.spec.ts',
   'src/app/features/data/data.vm.spec.ts',
   'src/app/features/data/viz/viz.vm.spec.ts',
+  'src/app/features/data/viz/decision-tree.vm.spec.ts',
   'src/app/features/data/viz/viz-kit-ui-contract.spec.ts',
   'src/app/features/models/models.vm.spec.ts',
   'src/app/features/models/classification-evidence.vm.spec.ts',

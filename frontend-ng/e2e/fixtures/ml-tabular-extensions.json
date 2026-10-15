@@ -371,7 +371,99 @@
             "global_error": 0.15,
             "lift": 2.67
           }
-        ]
+        ],
+        "tree": {
+          "depth": 2,
+          "leaves": 3,
+          "nodes": [
+            {
+              "id": 0,
+              "parent": null,
+              "depth": 0,
+              "children": [
+                1,
+                4
+              ],
+              "condition": null,
+              "split": "visits",
+              "rows": 325,
+              "share": 1.0,
+              "error": 0.15,
+              "lift": 1
+            },
+            {
+              "id": 1,
+              "parent": 0,
+              "depth": 1,
+              "children": [
+                2,
+                3
+              ],
+              "condition": {
+                "feature": "visits",
+                "op": "<=",
+                "value": 2.5,
+                "missing": false
+              },
+              "split": "segment_B",
+              "rows": 80,
+              "share": 0.246154,
+              "error": 0.4,
+              "lift": 2.67
+            },
+            {
+              "id": 2,
+              "parent": 1,
+              "depth": 2,
+              "children": [],
+              "condition": {
+                "feature": "segment_B",
+                "op": "<=",
+                "value": 0.5,
+                "missing": false
+              },
+              "split": null,
+              "rows": 50,
+              "share": 0.153846,
+              "error": 0.56,
+              "lift": 3.73
+            },
+            {
+              "id": 3,
+              "parent": 1,
+              "depth": 2,
+              "children": [],
+              "condition": {
+                "feature": "segment_B",
+                "op": ">",
+                "value": 0.5,
+                "missing": true
+              },
+              "split": null,
+              "rows": 30,
+              "share": 0.092308,
+              "error": 0.133333,
+              "lift": 0.89
+            },
+            {
+              "id": 4,
+              "parent": 0,
+              "depth": 1,
+              "children": [],
+              "condition": {
+                "feature": "visits",
+                "op": ">",
+                "value": 2.5,
+                "missing": true
+              },
+              "split": null,
+              "rows": 245,
+              "share": 0.753846,
+              "error": 0.068571,
+              "lift": 0.46
+            }
+          ]
+        }
       },
       "surrogate": {
         "fidelity": 0.85,
@@ -390,7 +482,149 @@
             "rows": 180,
             "prediction": "South"
           }
-        ]
+        ],
+        "tree": {
+          "depth": 2,
+          "leaves": 3,
+          "nodes": [
+            {
+              "id": 0,
+              "parent": null,
+              "depth": 0,
+              "children": [
+                1,
+                2
+              ],
+              "condition": null,
+              "split": "visits",
+              "rows": 228,
+              "share": 1.0,
+              "prediction": "South",
+              "purity": 0.71,
+              "distribution": [
+                {
+                  "label": "South",
+                  "share": 0.71
+                },
+                {
+                  "label": "North",
+                  "share": 0.29
+                }
+              ]
+            },
+            {
+              "id": 1,
+              "parent": 0,
+              "depth": 1,
+              "children": [],
+              "condition": {
+                "feature": "visits",
+                "op": "<=",
+                "value": 5,
+                "missing": false
+              },
+              "split": null,
+              "rows": 48,
+              "share": 0.210526,
+              "prediction": "North",
+              "purity": 0.79,
+              "distribution": [
+                {
+                  "label": "North",
+                  "share": 0.79
+                },
+                {
+                  "label": "South",
+                  "share": 0.21
+                }
+              ]
+            },
+            {
+              "id": 2,
+              "parent": 0,
+              "depth": 1,
+              "children": [
+                3,
+                4
+              ],
+              "condition": {
+                "feature": "visits",
+                "op": ">",
+                "value": 5,
+                "missing": true
+              },
+              "split": "tenure",
+              "rows": 180,
+              "share": 0.789474,
+              "prediction": "South",
+              "purity": 0.86,
+              "distribution": [
+                {
+                  "label": "South",
+                  "share": 0.86
+                },
+                {
+                  "label": "North",
+                  "share": 0.14
+                }
+              ]
+            },
+            {
+              "id": 3,
+              "parent": 2,
+              "depth": 2,
+              "children": [],
+              "condition": {
+                "feature": "tenure",
+                "op": "<=",
+                "value": 12,
+                "missing": false
+              },
+              "split": null,
+              "rows": 120,
+              "share": 0.526316,
+              "prediction": "South",
+              "purity": 0.97,
+              "distribution": [
+                {
+                  "label": "South",
+                  "share": 0.97
+                },
+                {
+                  "label": "North",
+                  "share": 0.03
+                }
+              ]
+            },
+            {
+              "id": 4,
+              "parent": 2,
+              "depth": 2,
+              "children": [],
+              "condition": {
+                "feature": "tenure",
+                "op": ">",
+                "value": 12,
+                "missing": true
+              },
+              "split": null,
+              "rows": 60,
+              "share": 0.263158,
+              "prediction": "South",
+              "purity": 0.64,
+              "distribution": [
+                {
+                  "label": "South",
+                  "share": 0.64
+                },
+                {
+                  "label": "North",
+                  "share": 0.36
+                }
+              ]
+            }
+          ]
+        }
       },
       "pdp": [
         {
