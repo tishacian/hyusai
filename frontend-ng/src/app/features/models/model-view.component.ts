@@ -57,6 +57,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { MlGovernanceComponent } from './ml-governance.component';
+import { ModelExportComponent } from './model-export.component';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { TabularIntervalsComponent } from './tabular-intervals.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
@@ -134,6 +135,7 @@ const CHART_ASPECT = 300 / 190;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    ModelExportComponent,
     ClassificationEvidenceComponent,
     EvaluationEvidenceComponent,
     PreprocessingEvidenceComponent,
@@ -1160,6 +1162,8 @@ const CHART_ASPECT = 300 / 190;
         <!-- ── Settings ─────────────────────────────────────────────────────── -->
         <ck-tab id="setup" [label]="i18n.t('models.detail.tab.setup')">
           <ck-ml-governance [modelId]="row.id" (changed)="reloadGovernance()" />
+          <ck-model-export [modelId]="row.id" [ready]="row.status === 'ready'"
+            [canExport]="serving()?.permissions?.['export'] === true" />
           <div class="ck-surface rounded-md ck-h-scroll">
             <table class="w-full text-sm ck-schema">
               <tbody>
