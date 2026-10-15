@@ -281,9 +281,12 @@ async def create_runner_run(
             expected_published_version_id=body.expected_published_version_id,
             expected_flow_sha256=body.expected_flow_sha256,
         )
+        from app.services.execution.submission import stage_run
+        durable = stage_run(db, run, system)
         db.commit()
         db.refresh(run)
     except flow_runner.FlowRunnerError as exc:
         _raise_runner(db, exc)
-    background_tasks.add_task(schedule_run, run.id)
+    if not durable:
+        background_tasks.add_task(schedule_run, run.id)
     return _run_row(run)

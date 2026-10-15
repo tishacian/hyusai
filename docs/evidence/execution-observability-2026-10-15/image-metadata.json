@@ -1,0 +1,40 @@
+{
+  "image": {
+    "Id": "sha256:49cbd9eafb2e4a85296a64d1717861979e9716bc998755b99aebc81fdab3e86a",
+    "Size": 300734492,
+    "Os": "linux",
+    "Architecture": "amd64",
+    "Created": "2026-10-15T09:59:30.272958303Z"
+  },
+  "measurement_method": "docker image inspect on this local Docker daemon, not VM and not main backend/worker image budget",
+  "docker": {
+    "server_version": "28.4.0",
+    "storage_driver": "vfs"
+  },
+  "temporal_server": {
+    "container": "test_obs_temporal",
+    "cli_version": "1.9.1",
+    "server_version": "1.32.0",
+    "memory_limit_bytes": 536870912,
+    "nano_cpus": 1000000000,
+    "state": {
+      "Status": "running",
+      "OOMKilled": false,
+      "ExitCode": 0
+    },
+    "cleanup": "Disposable test_obs_temporal container removed after proofs; local state/logs retained. Shared PostgreSQL left running."
+  },
+  "image_probe": {
+    "memory_limit_bytes": 536870912,
+    "cpu_cores": 1,
+    "read_only_rootfs": true,
+    "capabilities_dropped": [
+      "ALL"
+    ],
+    "auto_removed": true,
+    "server_restart_exercised": false
+  },
+  "host_venv_probe": {
+    "server_restart_exercised": true
+  }
+}

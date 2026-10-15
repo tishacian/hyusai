@@ -1,0 +1,3 @@
+# Optional native Temporal worker only. Main API/worker requirements are unchanged.
+# This candidate does not depend on LangGraph or temporalio-langgraph.
+temporalio==1.34.0

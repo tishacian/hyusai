@@ -3,7 +3,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
-import { WorkspaceMonitorComponent } from './workspace-monitor.component';
+import { ActivitiesComponent } from './activities/activities.component';
 import { QualityDashboardComponent } from './quality-dashboard.component';
 import { PerformanceDashboardComponent } from './performance-dashboard.component';
 import { TracesFacetComponent } from './traces-facet.component';
@@ -29,7 +29,7 @@ interface Tab {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     GlyphComponent,
-    WorkspaceMonitorComponent,
+    ActivitiesComponent,
     QualityDashboardComponent,
     PerformanceDashboardComponent,
     TracesFacetComponent,
@@ -92,7 +92,7 @@ interface Tab {
         <app-traces-facet />
       }
       @default {
-        <app-workspace-monitor />
+        <app-activities />
       }
     }
   `,

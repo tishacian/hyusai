@@ -1,0 +1,79 @@
+{{- range $flag := list "ACTIVITY_OBSERVABILITY_ENABLED" "EXECUTION_CONTROL_ENABLED" "EXECUTION_DURABLE_DISPATCH_ENABLED" }}
+{{- if and (has (lower (toString (index $.Values.config $flag))) (list "true" "1" "yes" "on")) (not $.Values.executionControl.enabled) }}
+{{- fail (printf "%s requires executionControl.enabled; commands need a dedicated consumer" $flag) }}
+{{- end }}
+{{- end }}
+{{- if .Values.executionControl.enabled }}
+{{- range $process := list "worker" "scheduler" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-{{ $process }}-control
+  labels:
+    {{- include "agentium.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $process }}-control
+spec:
+  replicas: 1
+  # A beat replacement must not overlap the previous scheduler.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ $process }}-control
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $process }}-control
+    spec:
+      {{- include "agentium.imagePullSecrets" $ | nindent 6 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: {{ $process }}
+          image: {{ $.Values.image.worker | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- if eq $process "worker" }}
+          command: ["python", "-m", "celery", "-A", "app.workers.execution_control:app", "worker", "-Q", "control", "-c", "1", "--pool", "solo", "--without-gossip", "--without-mingle", "--loglevel", "info"]
+          resources:
+            {{- toYaml $.Values.resources.controlWorker | nindent 12 }}
+          {{- else }}
+          command: ["python", "-m", "celery", "-A", "app.workers.execution_control:app", "beat", "--max-interval", "1", "--schedule", "/tmp/control-celerybeat-schedule", "--pidfile", "/tmp/control-beat.pid", "--loglevel", "info"]
+          resources:
+            {{- toYaml $.Values.resources.controlScheduler | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" $ }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" $ }}
+            {{- include "agentium.openbaoEnvFrom" (list $ "worker") | nindent 12 }}
+          env:
+            {{- include "agentium.appSecretEnv" $ | nindent 12 }}
+            {{- include "agentium.openbaoEnv" (list $) | nindent 12 }}
+            - name: CELERY_APP
+              value: app.workers.execution_control:app
+            - name: CELERY_CONTROL_QUEUE
+              value: control
+            - name: CELERY_QUEUES
+              value: control
+            - name: CELERY_CONCURRENCY
+              value: "1"
+            - name: CELERY_BEAT
+              value: "0"
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: temporary
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+{{- end }}
+{{- end }}

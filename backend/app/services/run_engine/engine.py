@@ -568,6 +568,9 @@ def _build_initial_ctx(
     except (TypeError, ValueError):
         max_runtime_s = 40.0
     max_runtime_s = max(1.0, min(44.0, max_runtime_s))
+    if run.execution_policy is not None:
+        from app.services.execution.contracts import ExecutionPolicy
+        max_runtime_s = ExecutionPolicy.model_validate(run.execution_policy).remaining_seconds()
     run_deadline_monotonic = time.monotonic() + max_runtime_s
     workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
     workspace_settings = (
@@ -927,6 +930,7 @@ async def _execute_task_node(
     resolved_input: Optional[dict[str, Any]] = None,
     attempt_kind: Optional[str] = None,
     attempt_index: Optional[int] = None,
+    native_invocation_id: str | None = None,
 ) -> Optional[SkillInvocation]:
     """Invoke one Skill and persist its SkillInvocation ledger row.
 
@@ -1060,6 +1064,23 @@ async def _execute_task_node(
             model=model,
         )
 
+    native_binding = None
+    if native_invocation_id is not None:
+        from app.services.execution.runtimes.native_profile import request_for_run
+        from app.services.flow_contracts import canonical_sha256
+
+        request_for_run(db, run)  # Frozen candidate only, never a caller-context flag.
+        native_binding = canonical_sha256({
+            "run_id": run.id, "node_id": node_id, "slug": slug,
+            "profile": run.execution_policy["native_profile_digest"], "input": skill_input,
+        })
+        existing = db.get(SkillInvocation, native_invocation_id, populate_existing=True)
+        if existing is not None:
+            if existing.run_id != run.id or (existing.trace or {}).get("native_binding") != native_binding:
+                raise ValueError("NATIVE_INVOCATION_BINDING_MISMATCH")
+            # Even an uncertain running invocation is never executed twice.
+            return existing
+
     execution_evidence = capture_skill_execution_evidence(
         db,
         workspace_id=run.workspace_id,
@@ -1072,7 +1093,7 @@ async def _execute_task_node(
         skill_slug=execution_evidence.skill_slug,
     )
     invocation = SkillInvocation(
-        id=str(uuid4()),
+        id=native_invocation_id or str(uuid4()),
         run_id=run.id,
         skill_id=execution_evidence.skill_id,
         skill_slug=execution_evidence.skill_slug,
@@ -1084,6 +1105,7 @@ async def _execute_task_node(
         metrics={"cost_evidence": cost_evidence.evidence},
         input_ref=skill_input,
         trace={
+            **({"native_binding": native_binding} if native_binding else {}),
             **({"node_id": node_id} if node_id else {}),
             **(
                 {"tool_contract_sha256": frozen_node["tool_contract"]["contract_sha256"]}
@@ -1100,7 +1122,17 @@ async def _execute_task_node(
         },
     )
     db.add(invocation)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:
+        from sqlalchemy.exc import IntegrityError
+        if native_invocation_id is None or not isinstance(exc, IntegrityError):
+            raise
+        db.rollback()
+        existing = db.get(SkillInvocation, native_invocation_id, populate_existing=True)
+        if existing is None or existing.run_id != run.id or (existing.trace or {}).get("native_binding") != native_binding:
+            raise ValueError("NATIVE_INVOCATION_BINDING_MISMATCH") from exc
+        return existing
 
     # Wire a token sink into ctx iff someone is actually listening on the
     # run's live bus. Skills that don't know about streaming simply
@@ -1110,6 +1142,9 @@ async def _execute_task_node(
     # don't pick up each other's sinks through a shared ctx reference.
     skill_ctx: dict[str, Any] = dict(ctx) if ctx is not None else {}
     skill_ctx["_skill_node_id"] = node_id
+    skill_ctx.pop("_native_submission_only", None)
+    if native_invocation_id is not None:
+        skill_ctx["_native_submission_only"] = True
     # These objects/callbacks are constructed here, never copied from inputs.
     # They remain in this invocation's ephemeral context, outside JSON ledgers.
     skill_ctx["_model_workspace"] = model_workspace
@@ -1168,6 +1203,33 @@ async def _execute_task_node(
         skill_ctx["token_sink"] = token_sink
 
     t0 = time.monotonic()
+    def native_publication_owned():
+        if native_invocation_id is None:
+            return True
+        # Publication and uncertain settlement share Run -> invocation order.
+        # A late provider response may add usage evidence but cannot overwrite
+        # a lost/cancelled result or publish after the parent stopped.
+        with db.no_autoflush:
+            current_run = db.query(Run).filter_by(id=run.id).with_for_update().populate_existing().one()
+            current = db.query(SkillInvocation).filter_by(id=invocation.id).with_for_update().populate_existing().one()
+        owned = (current.status == "running"
+                 and (current.trace or {}).get("native_binding") == native_binding
+                 and current_run.status == "running" and not current_run.cancel_requested)
+        if owned:
+            from app.services.execution.runtimes.native_port import authorize
+            try:
+                authorize(db, request_for_run(db, current_run))
+            except Exception:
+                owned = False
+                current.status = "failed"
+                current.error = "NATIVE_PUBLICATION_AUTHORITY_REVOKED"
+                current.completed_at = datetime.utcnow()
+        if not owned:
+            current.metrics = _model_runtime_metrics(current.metrics, skill_ctx)
+            current.trace = {**_model_runtime_trace(current.trace, skill_ctx), "native_late_response": True}
+            db.commit()
+        return owned
+
     try:
         from app.services.flow_data_sources import bound_data_sources
 
@@ -1202,7 +1264,23 @@ async def _execute_task_node(
                 code="tool_input_schema_violation",
                 subject="AgentLoop tool input",
             )
-        output = await fn(invocation.input_ref, skill_ctx)
+        from app.services.execution.rollout import enabled_for
+        if run.execution_policy is not None or enabled_for(db, run.workspace_id, "execution_control_enabled"):
+            from app.services.execution.control import invoke_controlled
+            output = await invoke_controlled(run.id, lambda: fn(invocation.input_ref, skill_ctx))
+        else:
+            output = await fn(invocation.input_ref, skill_ctx)
+        if not native_publication_owned():
+            return invocation
+        from app.services.execution.runtimes.deferred import DeferredNativeExecution
+        if isinstance(output, DeferredNativeExecution):
+            if native_invocation_id is None:
+                raise ValueError("NATIVE_DEFERRED_EXECUTION_UNEXPECTED")
+            invocation.status = "waiting"
+            invocation.trace = {**invocation.trace, "native_reference": {"kind": output.kind, "id": output.id}}
+            invocation.latency_ms = (time.monotonic() - t0) * 1000
+            db.commit()
+            return invocation
         if frozen_tool is not None:
             validate_payload(
                 output,
@@ -1216,8 +1294,10 @@ async def _execute_task_node(
         invocation.output_ref = redact_secrets(output) if output is not None else {}
         invocation.status = "completed"
     except asyncio.CancelledError:
-        invocation.status = "cancelled"
-        invocation.error = "execution_cancelled"
+        if not native_publication_owned():
+            raise
+        invocation.status = "lost" if native_invocation_id else "cancelled"
+        invocation.error = "NATIVE_OUTCOME_REQUIRES_RECONCILIATION" if native_invocation_id else "execution_cancelled"
         invocation.metrics = _model_runtime_metrics(invocation.metrics, skill_ctx)
         invocation.trace = _model_runtime_trace(invocation.trace, skill_ctx)
         invocation.latency_ms = (time.monotonic() - t0) * 1000
@@ -1228,10 +1308,14 @@ async def _execute_task_node(
         db.commit()
         raise
     except NotImplementedError as nie:
+        if not native_publication_owned():
+            return invocation
         invocation.status = "skipped"
         invocation.error = f"unimplemented: {nie}"
         logger.info("run_engine: skill unimplemented", run_id=run.id, skill=slug)
     except Exception as exc:  # noqa: BLE001
+        if not native_publication_owned():
+            return invocation
         invocation.status = "failed"
         error = redact_secrets(str(exc))
         invocation.error = error[:500]

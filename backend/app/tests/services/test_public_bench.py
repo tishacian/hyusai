@@ -110,9 +110,12 @@ def test_nightly_task_is_scheduled_by_beat():
 
 def test_connector_migrations_extend_the_single_head():
     root = Path(__file__).resolve().parents[3]
-    script = ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
-    head = "132_connector_sync"
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    script = ScriptDirectory.from_config(config)
+    head = "134_execution_control"
     assert script.get_heads() == [head]
     assert len(head) <= 32
-    assert script.get_revision(head).down_revision == "131_connector_writes"
+    assert script.get_revision(head).down_revision == "133_activity_observability"
+    assert script.get_revision("133_activity_observability").down_revision == "132_connector_sync"
     assert script.get_revision("126_service_contracts").down_revision == "125_retrieval_bench_runs"
