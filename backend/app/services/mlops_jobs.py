@@ -26,11 +26,11 @@ def can_configure_mlops(db, *, workspace, user, admin_only: bool = False) -> boo
     # Unknown legacy roles must not become contributors via normalize's legacy
     # fallback. In particular an old literal "viewer" remains read-only.
     role = member.role_template or member.role
-    if role not in {"workspace_owner", "workspace_admin", "workspace_contributor",
+    if role not in {"workspace_owner", "workspace_admin", "workspace_contributor", "workspace_reviewer",
                     "owner", "admin", "member", "user"}:
         return False
     template = normalize_role_template(member.role_template, member.role)
     allowed = {"workspace_owner", "workspace_admin"}
     if not admin_only:
-        allowed.add("workspace_contributor")
+        allowed.update({"workspace_contributor", "workspace_reviewer"})
     return template in allowed

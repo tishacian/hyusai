@@ -2893,6 +2893,8 @@ async def _ml_train_sklearn_v1(
 
     def _submit() -> str:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            actor = require_context(db, "train", str(workspace_id), ctx)
             from app.services.ml_methodology import validate_training_method
 
             method_flow = None
@@ -2926,6 +2928,7 @@ async def _ml_train_sklearn_v1(
                 cross_validation=train.get("cross_validation"),
                 spec=train.get("spec"),
                 name=train.get("model_name"),
+                created_by=actor.id,
                 run_id=ctx.get("run_id"),
                 node_id=str(train.get("node_id") or "") or None,
             )
@@ -3053,6 +3056,8 @@ async def _ml_predict_v1(
 
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            require_context(db, "predict", str(workspace_id), ctx)
             model = _resolve_model(db, spec, workspace_id)
             answer = predict_rows(
                 db,
@@ -3105,6 +3110,8 @@ async def _ml_batch_score_v1(
 
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            require_context(db, "score", str(workspace_id), ctx)
             model = _resolve_model(db, spec, workspace_id)
             dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
             return score_dataset(
@@ -3214,6 +3221,8 @@ async def _ml_forecast_v1(
 
     def _submit() -> str:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            require_context(db, "predict", str(workspace_id), ctx)
             model = _resolve_model(db, spec, str(workspace_id))
             takes_future = any(
                 isinstance(field, dict) and field.get("role") == "future"

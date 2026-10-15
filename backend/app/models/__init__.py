@@ -63,6 +63,7 @@ from app.models.knowledge_guide import KnowledgeGuide
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.meeting_decision import MeetingDecision
 from app.models.mfa import MfaChallenge
+from app.models.ml_governance import MLAdmissionCounter, MLWorkspaceLock
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.rag_preset import RagPreset
 from app.models.recipe import PythonEnv, RecipeExecution
@@ -125,6 +126,8 @@ from app.models.workspace_visual import (
 )
 
 __all__ = [
+    "MLAdmissionCounter",
+    "MLWorkspaceLock",
     "ExecutionCapacity", "ExecutionReservation", "ExecutionDispatch",
     "Activity", "ActivityCommand", "ActivityEvent", "ActivityWorkspaceCursor",
     "ConnectorWrite",

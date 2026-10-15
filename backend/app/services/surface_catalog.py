@@ -39,6 +39,7 @@ CATALOG_VERSION = "2026-10-15"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
+    SurfaceMetadata("/api/v1/ml-governance", "Governance", "Model", "canonical", "workspace-user", "Platform", ("/models",), notes="Workspace ML policy, live capabilities and artifact-bound promotion reviews."),
     SurfaceMetadata("/api/v1/observability/platform-overview", "Operate", "Platform", "canonical", "admin", "Platform", ("/observability/operations",), notes="Platform-admin metadata aggregates; no payloads or tenant execution authority."),
     SurfaceMetadata("/api/v1/connector-watches", "Data", "Connector", "canonical", "admin", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/connector-writes", "Data", "Connector", "canonical", "admin", "Platform", ("/connectors",)),

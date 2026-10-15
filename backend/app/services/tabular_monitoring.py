@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
@@ -410,7 +411,6 @@ def report(db: DBSession, *, model: MLModel) -> dict[str, Any]:
     """The Monitoring tab's read model, computed on the request."""
 
     from app.services.ml_retraining import monitoring_view
-
     from app.services.ml_shadow import summary as shadow_summary
 
     if model.task == "forecasting":
@@ -559,6 +559,8 @@ def attach_feedback(
 
     _require_feedback_task(model)
     row = get_prediction(db, prediction_id=prediction_id, workspace_id=model.workspace_id)
+    if not row.input_storage_allowed:
+        raise TabularError(code="ML_FEEDBACK_NOT_STORED", message="Input storage was disabled for this prediction.", status_code=409)
     if row.slug != model.slug:
         raise TabularError(
             code="ML_PREDICTION_WRONG_MODEL",
