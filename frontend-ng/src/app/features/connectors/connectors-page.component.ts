@@ -22,11 +22,20 @@ import {
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
+import { ConnectorCatalogComponent, type CatalogActionEvent } from './connector-catalog.component';
+import {
+  buildCatalog,
+  catalogSummary,
+  connectQueryParams,
+  type CatalogAction,
+  type CatalogEntry,
+  type ConnectorCatalogPayload,
+} from './connector-catalog.vm';
 
 @Component({
   selector: 'app-connectors-page',
   standalone: true,
-  imports: [CommonModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, GenericConnectorDrawerComponent],
+  imports: [CommonModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, GenericConnectorDrawerComponent, ConnectorCatalogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-section-header
@@ -39,6 +48,34 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
     </app-section-header>
 
     @if (frameworkEnabled()) { <a [navLink]="{ leaf: 'connector-connections' }" class="ck-btn ck-btn-accent mb-5">{{ i18n.t('connections.title') }}</a> }
+    @if (catalogPayload(); as payload) {
+      <section class="grid gap-3 md:grid-cols-4 mb-5" data-testid="catalog-summary">
+        <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.data_sources') }}</div>
+          <div class="mt-1 text-2xl font-semibold text-white" data-testid="catalog-count-data">{{ catalogCounts().dataSources }}</div>
+        </div>
+        <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.tools') }}</div>
+          <div class="mt-1 text-2xl font-semibold text-white" data-testid="catalog-count-tools">{{ catalogCounts().tools }}</div>
+        </div>
+        <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.apps') }}</div>
+          <div class="mt-1 text-2xl font-semibold text-white" data-testid="catalog-count-apps">{{ catalogCounts().apps }}</div>
+        </div>
+        <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.configured') }}</div>
+          <div class="mt-1 text-2xl font-semibold text-emerald-300">{{ configuredCount() }}</div>
+        </div>
+      </section>
+      <app-connector-catalog
+        [catalog]="catalogEntries()"
+        [frameworkEnabled]="payload.framework_enabled"
+        [configured]="configuredIds()"
+        [actionLabel]="catalogActionLabel"
+        [actionHref]="catalogActionHref"
+        (act)="onCatalogAction($event)"
+      />
+    } @else {
     <section class="grid gap-3 md:grid-cols-4 mb-5">
       <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
         <div class="text-[10px] uppercase tracking-[0.16em] text-gray-500">{{ i18n.t('connectors.kpi.listed') }}</div>
@@ -181,6 +218,8 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
       </section>
     }
 
+    }
+
     <app-generic-connector-drawer
       [open]="drawerOpen()"
       [connector]="activeConnector()"
@@ -213,6 +252,16 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
   readonly configs = signal<Record<string, GenericConnectorConfig>>({});
   readonly canConfigure = signal(false);
   readonly frameworkEnabled = signal(false);
+  /** `/connector-catalog`; null keeps the historical cards (older backend or error). */
+  readonly catalogPayload = signal<ConnectorCatalogPayload | null>(null);
+  readonly catalogEntries = computed(() => {
+    const payload = this.catalogPayload();
+    return payload ? buildCatalog(payload, this.visibleConnectors()) : [];
+  });
+  readonly catalogCounts = computed(() => catalogSummary(this.catalogEntries()));
+  readonly configuredIds = computed(
+    () => new Set(this.visibleConnectors().filter((connector) => this.isConfigured(connector.id)).map((connector) => connector.id)),
+  );
   readonly activeConfig = computed(() => {
     const connector = this.activeConnector();
     return connector ? this.configs()[connector.id] ?? null : null;
@@ -255,13 +304,23 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
     this.configs.set({});
     this.canConfigure.set(false);
     this.frameworkEnabled.set(false);
+    this.catalogPayload.set(null);
   }
 
   private loadConnectors(): void {
     const request = this.workspaceView.beginRequest();
-    this.api.get<{ profiles: unknown[] }>('/connections/profiles', undefined, { workspaceSlug: request.scope.workspaceSlug }).subscribe({
-      next: value => { if (this.workspaceView.isCurrent(request)) this.frameworkEnabled.set(Array.isArray(value.profiles)); },
-      error: () => { if (this.workspaceView.isCurrent(request)) this.frameworkEnabled.set(false); },
+    this.api.get<ConnectorCatalogPayload>('/connector-catalog', undefined, { workspaceSlug: request.scope.workspaceSlug }).subscribe({
+      next: (value) => {
+        if (!this.workspaceView.isCurrent(request)) return;
+        const valid = Array.isArray(value?.profiles) && Array.isArray(value?.tool_servers);
+        this.catalogPayload.set(valid ? value : null);
+        this.frameworkEnabled.set(valid && value.framework_enabled === true);
+      },
+      error: () => {
+        if (!this.workspaceView.isCurrent(request)) return;
+        this.catalogPayload.set(null);
+        this.frameworkEnabled.set(false);
+      },
     });
     this.api
       .get<GenericConnectorList>('/connectors', undefined, { workspaceSlug: request.scope.workspaceSlug })
@@ -346,6 +405,66 @@ export class ConnectorsPageComponent implements OnInit, OnDestroy {
     }
     this.activeConnector.set(connector);
     this.drawerOpen.set(true);
+  }
+
+  /** Buttons of cards that lead to a historical page or drawer keep their own wording. */
+  readonly catalogActionLabel = (entry: CatalogEntry, action: CatalogAction): string => {
+    const connector = entry.legacyId ? CONNECTORS.find((card) => card.id === entry.legacyId) : undefined;
+    if (!connector) return '';
+    if (action === 'dedicated' || action === 'open') {
+      const keys: Record<string, string> = {
+        huggingface: 'connectors.hf.open',
+        postgresql: 'connectors.pg.open',
+        sftp: 'connectors.open.sftp',
+        sap_hana: 'connectors.open.sap_hana',
+        rpa_bridge: 'connectors.open.rpa_bridge',
+        mcp: 'connectors.open.mcp',
+        institutional_calendar: 'connectors.open.agenda',
+        visual_streams: 'connectors.open.monitor',
+        sharepoint: 'connectors.open.sharepoint',
+      };
+      return keys[connector.id] ? this.i18n.t(keys[connector.id]) : this.setupLabel(connector);
+    }
+    return '';
+  };
+
+  /** Where a catalogue action leads; null when it opens the setup drawer instead. */
+  readonly catalogActionHref = (entry: CatalogEntry, action: CatalogAction): string | null => {
+    if (action === 'connect') {
+      const params = connectQueryParams(entry);
+      if (!params) return null;
+      const tree = this.navigation.leafUrlTree('connector-connections');
+      tree.queryParams = { ...tree.queryParams, ...params };
+      return this.router.serializeUrl(tree);
+    }
+    if ((action !== 'dedicated' && action !== 'open') || !entry.legacyId) return null;
+    const leaves: Record<string, string> = {
+      huggingface: 'connector-huggingface',
+      postgresql: 'connector-postgresql',
+      rpa_bridge: 'connector-rpa-bridge',
+      institutional_calendar: 'mission-room-agenda',
+      visual_streams: 'mission-room-monitor',
+    };
+    const surfaces: Record<string, string> = {
+      sharepoint: 'sharepoint',
+      sftp: 'secure-deposit',
+      sap_hana: 'sap-hana',
+      mcp: 'mcp',
+    };
+    if (leaves[entry.legacyId]) return this.navigation.leafUrl(leaves[entry.legacyId]);
+    if (surfaces[entry.legacyId]) return this.navigation.surfaceUrl(surfaces[entry.legacyId]);
+    return null;
+  };
+
+  onCatalogAction(event: CatalogActionEvent): void {
+    const { entry, action } = event;
+    const href = this.catalogActionHref(entry, action);
+    if (href) {
+      void this.router.navigateByUrl(href);
+      return;
+    }
+    const connector = entry.legacyId ? CONNECTORS.find((card) => card.id === entry.legacyId) : undefined;
+    if (connector && (action === 'dedicated' || action === 'open')) this.openSetup(connector);
   }
 
   closeSetup(): void {

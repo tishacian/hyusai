@@ -28,6 +28,8 @@ import { valueFieldsFromSchema, valuesToObject, objectToValues } from '@app/shar
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 import { formatSkillCost } from '../skills/skill-cost';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { BrandIconComponent } from '@app/shared/ui/brand-icon.component';
+import { CATALOG_BRANDS } from '@app/features/connectors/connector-catalog.vm';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { NavLinkDirective, StatReadoutComponent } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -108,6 +110,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     KeyValuePipe,
     NavLinkDirective,
     IconComponent,
+    BrandIconComponent,
     SectionHeaderComponent,
     StatReadoutComponent,
     EmptyStateComponent,
@@ -300,7 +303,11 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <li class="px-5 py-3 flex flex-wrap gap-3 items-center text-sm">
                 <div class="flex-1 min-w-48 flex items-center gap-2">
                   <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-white/[0.04] ring-1 ring-cyan-400/25 text-cyan-300">
-                    {{ providerInitial(m) }}
+                    @if (providerBrand(m.provider); as brand) {
+                      <app-brand-icon [name]="brand" [size]="14" />
+                    } @else {
+                      {{ providerInitial(m) }}
+                    }
                   </div>
                   <div class="min-w-0">
                     <div class="text-white truncate font-mono text-xs">{{ modelName(m) }}</div>
@@ -497,7 +504,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 <span
                   class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white/5 ring-1 ring-white/10 text-cyan-300"
                 >
-                  <app-icon [name]="p.kind === 'local' ? 'server' : 'cloud'" [size]="16" />
+                  <app-brand-icon [name]="providerBrand(p.key)" [fallback]="p.kind === 'local' ? 'server' : 'cloud'" [size]="16" />
                 </span>
                 <div class="min-w-0">
                   <h2 class="text-sm font-semibold text-white truncate">{{ providerTitle(p) }}</h2>
@@ -1070,7 +1077,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                       ? 'bg-white/5 text-gray-400'
                       : 'bg-cyan-500/15 text-cyan-400'"
                   >
-                    <app-icon [name]="c.icon" [size]="18" />
+                    <app-brand-icon [name]="connectorBrand(c.id)" [fallback]="c.icon" [size]="18" />
                   </div>
                   <span class="ck-pill ck-tone-preview">{{ i18n.t(connectorStatusKey(c)) }}</span>
                 </div>
@@ -2286,6 +2293,22 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
 
   modelKey(m: ModelInfo): string {
     return this.modelName(m) + ':' + (m.provider ?? '');
+  }
+
+  /** Brand logo of a model provider when one is known; otherwise the initial. */
+  providerBrand(key: string | null | undefined): string | null {
+    const value = String(key ?? '').toLowerCase();
+    if (!value) return null;
+    if (value.includes('azure')) return 'microsoftazure';
+    if (value.startsWith('openai')) return 'openai';
+    if (value.startsWith('anthropic') || value.startsWith('claude')) return 'anthropic';
+    if (value.startsWith('ollama')) return 'ollama';
+    if (value.startsWith('huggingface') || value === 'hf') return 'huggingface';
+    return null;
+  }
+
+  connectorBrand(id: string): string | null {
+    return CATALOG_BRANDS[id] ?? null;
   }
 
   providerInitial(m: ModelInfo): string {

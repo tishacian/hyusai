@@ -20,7 +20,7 @@ class WorkspaceStub {
   registerContextReset(reset: (value: WorkspaceContextTransition) => void) { this.resetters.add(reset); return () => this.resetters.delete(reset); }
   switch() { this.resetters.forEach(f => f({ previousSlug: this.currentSlug(), nextSlug: 'workspace-2', previousEpoch: this.epoch, nextEpoch: this.epoch + 1 })); this.epoch++; }
 }
-function harness() {
+function harness(query: Record<string, string> = {}) {
   const calls: Array<{ method: string; path: string; body?: any; options?: any }> = [];
   const responses = new Map<string, unknown>([['/connections/profiles', { profiles: [profile] }], ['/connections', { connections: [row], can_configure: true, can_import: true }]]);
   const pending = new Map<string, Subject<any>>(); const failed = new Set<string>(); const workspace = new WorkspaceStub();
@@ -32,7 +32,7 @@ function harness() {
     delete(path: string, options: unknown) { calls.push({ method: 'DELETE', path, options }); return answer(path); },
   };
   const injector = Injector.create({ providers: [ConnectionsPageComponent, { provide: ApiService, useValue: api }, { provide: WorkspaceService, useValue: workspace },
-    { provide: I18nService, useValue: { t: (key: string) => key } }, { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
+    { provide: I18nService, useValue: { t: (key: string) => key } }, { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
     { provide: Router, useValue: { navigate: async () => true } }] });
   const page = injector.get(ConnectionsPageComponent);
   return { page, calls, responses, pending, failed, workspace, close: () => { page.ngOnDestroy(); injector.destroy(); } };
@@ -129,5 +129,42 @@ test('a Flow request can only be resumed on its own selected connection', async 
     await h.page.openWrite(); assert.equal(h.page.writeContract(), null);
     h.responses.set(`/connector-writes/${id}`, { id, connection_id: row.id, state: 'prepared', preview_ready: true });
     await h.page.openWrite(); assert.equal(h.page.writeContract()?.['id'], id);
+  } finally { h.close(); }
+});
+
+const mcpProfile: ConnectionProfile = {
+  key: 'mcp', version: 1, family: 'mcp', label_key: 'connections.profile.mcp', capabilities: { read: true }, certification: 'third_party', driver_status: 'runner_unchecked',
+  parameters: [
+    { key: 'base_url', type: 'string', required: true, choices: [], when: {}, advanced: false },
+    { key: 'allowed_origins', type: 'json', required: true, choices: [], when: {}, advanced: false },
+    { key: 'auth_mode', type: 'enum', required: false, default: 'none', choices: ['none', 'bearer', 'oauth_user'], when: {}, advanced: false },
+  ],
+};
+const toolCatalog = { servers: [{ key: 'github', publisher: 'GitHub', url: 'https://api.githubcopilot.com/mcp/', auth_mode: 'bearer', certification: 'third_party' }] };
+test('a catalogue card opens a prefilled form for an official MCP server', async () => {
+  const h = harness({ profile: 'mcp', server: 'github' }); try {
+    h.responses.set('/connections/profiles', { profiles: [profile, mcpProfile] }); h.responses.set('/connections/tool-catalog', toolCatalog);
+    await h.page.load();
+    assert.equal(h.page.editing(), true); assert.equal(h.page.selected(), null); assert.equal(h.page.profileKey(), 'mcp');
+    assert.equal(h.page.name, 'GitHub'); assert.equal(h.page.fields['base_url'], 'https://api.githubcopilot.com/mcp/');
+    assert.deepEqual(JSON.parse(h.page.fields['allowed_origins']), ['https://api.githubcopilot.com']); assert.equal(h.page.fields['auth_mode'], 'bearer');
+    assert.equal(h.calls.some(c => c.method !== 'GET'), false);
+  } finally { h.close(); }
+});
+test('a catalogue preselection needs an administrator and a known profile', async () => {
+  const member = harness({ profile: 'postgresql' }); try {
+    member.responses.set('/connections', { connections: [], can_configure: false, can_import: false }); await member.page.load();
+    assert.equal(member.page.editing(), false); assert.equal(member.page.profileKey(), '');
+  } finally { member.close(); }
+  const unknown = harness({ profile: 'not-a-profile' }); try {
+    await unknown.page.load(); assert.equal(unknown.page.editing(), false);
+    assert.equal(unknown.calls.some(c => c.path === '/connections/tool-catalog'), false);
+  } finally { unknown.close(); }
+});
+test('an untranslated profile label falls back to the profile key, never to the raw i18n key', () => {
+  // The harness translator echoes keys, i.e. every label is missing here.
+  const h = harness(); try {
+    assert.equal(h.page.profileName(mcpProfile), 'mcp');
+    assert.equal(h.page.profileName({ key: 'custom' }), 'custom');
   } finally { h.close(); }
 });
