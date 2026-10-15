@@ -43,6 +43,7 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
     SurfaceMetadata("/api/v1/connector-writes", "Data", "Connector", "canonical", "admin", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/connector-governance", "Governance", "Connector", "canonical", "admin", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/connections", "Data", "Connector", "canonical", "workspace-user", "Platform", ("/connectors",)),
+    SurfaceMetadata("/api/v1/connector-catalog", "Data", "Connector", "canonical", "workspace-user", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/compute-runs", "Operate", "Run", "canonical", "workspace-user", "Platform", ("/connectors",)),
     SurfaceMetadata(
         "/api/v1/build-info",
