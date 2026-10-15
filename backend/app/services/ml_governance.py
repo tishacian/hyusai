@@ -86,6 +86,9 @@ def require_exposure_capacity(db, model):
         .distinct()
     }
     if model.slug not in exposed and len(exposed) >= limits.max_exposed_models:
+        from app.services.ml_operations import record_exposure_refusal
+
+        record_exposure_refusal(db, model)
         raise TabularError(
             code="ML_EXPOSURE_QUOTA_EXCEEDED",
             message="The workspace model exposure quota is exhausted.",

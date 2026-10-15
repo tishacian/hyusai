@@ -511,118 +511,123 @@ def request_forecast(
 ) -> dict[str, Any]:
     """Answer ``POST /forecast``: the version that serves, through its worker."""
 
-    from app.services.ml.families import get_family
-    from app.services.ml.runtime import serving_availability
-    from app.services.tabular_predict import journal_call, record_usage, serving_version
+    from app.services.ml_operations import inference_attempt
 
-    served = serving_version(db, model, version=version)
-    from app.services.huggingface.adapters import require_model_foundation
+    with inference_attempt(db, model=model, caller=caller) as observation:
 
-    require_model_foundation(served, db)
-    family = get_family(served.family)
-    if served.task != "forecasting":
-        raise TabularError(
-            code="ML_USE_PREDICT_ROUTE",
-            message="This model answers rows: call /predict.",
-            status_code=409,
-        )
-    rows = list(inputs or [])
-    if len(rows) > int(settings.ml_forecast_max_rows):
-        raise TabularError(
-            code="ML_FORECAST_TOO_MANY_ROWS",
-            message=f"At most {int(settings.ml_forecast_max_rows):,} rows of future values per call.",
-            status_code=413,
-        )
-    available, reason = serving_availability(family, db)
-    if not available:
-        raise TabularError(
-            code="ML_FAMILY_UNAVAILABLE",
-            message="No forecasting worker is listening right now.",
-            status_code=409,
-            details={"family": family.key, "reason": reason},
-        )
-    from app.services.ml_governance import admit
-    forecast_meta = (served.metrics_json or {}).get("forecast") or {}
-    try:
-        steps = int(horizon if horizon is not None else forecast_meta.get("horizon") or (served.spec_json or {}).get("horizon") or 1)
-        if isinstance(horizon, bool) or (horizon is not None and float(horizon) != steps) or steps < 1:
-            raise ValueError("invalid horizon")
-    except (ValueError, TypeError, OverflowError) as exc:
-        raise TabularError(code="ML_FORECAST_PARAMS_INVALID", message="horizon must be a positive whole number.", status_code=422) from exc
-    estimate = max(len(rows), steps * max(1, int(forecast_meta.get("series_count") or 1)))
-    admit(db, model, rows=estimate, key_id=key_id)
-    started = time.monotonic()
-    if settings.worker_eager_mode:
-        result = answer_for(served.id, horizon=horizon, level=level, inputs=rows, explain=explain)
-    else:
-        from celery.exceptions import TimeoutError as CeleryTimeout
+        from app.services.ml.families import get_family
+        from app.services.ml.runtime import serving_availability
+        from app.services.tabular_predict import journal_call, record_usage, serving_version
 
-        from app.workers.celery_app import celery_app
+        served = serving_version(db, model, version=version)
+        observation["served_id"] = served.id
+        from app.services.huggingface.adapters import require_model_foundation
 
-        pending = celery_app.send_task(
-            FORECAST_TASK,
-            args=[served.id],
-            kwargs={"horizon": horizon, "level": level, "inputs": rows, "explain": explain},
-            queue=family.serve_queue(),
-            # A forecast nobody collected in time is not worth computing later.
-            expires=float(settings.ml_forecast_timeout_s),
-        )
-        try:
-            result = pending.get(timeout=float(settings.ml_forecast_timeout_s), propagate=False)
-        except CeleryTimeout as exc:
+        require_model_foundation(served, db)
+        family = get_family(served.family)
+        if served.task != "forecasting":
             raise TabularError(
-                code="ML_FORECAST_TIMEOUT",
-                message=f"The forecasting worker did not answer within {int(settings.ml_forecast_timeout_s)}s.",
-                status_code=504,
-            ) from exc
-        finally:
-            if hasattr(pending, "forget"):
-                # The rpc:// result backend stores nothing and cannot forget.
-                with suppress(NotImplementedError):
-                    pending.forget()
-    if not isinstance(result, dict):
-        raise TabularError(
-            code="ML_FORECAST_FAILED", message="The forecasting worker failed.", status_code=500
+                code="ML_USE_PREDICT_ROUTE",
+                message="This model answers rows: call /predict.",
+                status_code=409,
+            )
+        rows = list(inputs or [])
+        if len(rows) > int(settings.ml_forecast_max_rows):
+            raise TabularError(
+                code="ML_FORECAST_TOO_MANY_ROWS",
+                message=f"At most {int(settings.ml_forecast_max_rows):,} rows of future values per call.",
+                status_code=413,
+            )
+        available, reason = serving_availability(family, db)
+        if not available:
+            raise TabularError(
+                code="ML_FAMILY_UNAVAILABLE",
+                message="No forecasting worker is listening right now.",
+                status_code=409,
+                details={"family": family.key, "reason": reason},
+            )
+        from app.services.ml_governance import admit
+        forecast_meta = (served.metrics_json or {}).get("forecast") or {}
+        try:
+            steps = int(horizon if horizon is not None else forecast_meta.get("horizon") or (served.spec_json or {}).get("horizon") or 1)
+            if isinstance(horizon, bool) or (horizon is not None and float(horizon) != steps) or steps < 1:
+                raise ValueError("invalid horizon")
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise TabularError(code="ML_FORECAST_PARAMS_INVALID", message="horizon must be a positive whole number.", status_code=422) from exc
+        estimate = max(len(rows), steps * max(1, int(forecast_meta.get("series_count") or 1)))
+        admit(db, model, rows=estimate, key_id=key_id)
+        started = time.monotonic()
+        if settings.worker_eager_mode:
+            result = answer_for(served.id, horizon=horizon, level=level, inputs=rows, explain=explain)
+        else:
+            from celery.exceptions import TimeoutError as CeleryTimeout
+
+            from app.workers.celery_app import celery_app
+
+            pending = celery_app.send_task(
+                FORECAST_TASK,
+                args=[served.id],
+                kwargs={"horizon": horizon, "level": level, "inputs": rows, "explain": explain},
+                queue=family.serve_queue(),
+                # A forecast nobody collected in time is not worth computing later.
+                expires=float(settings.ml_forecast_timeout_s),
+            )
+            try:
+                result = pending.get(timeout=float(settings.ml_forecast_timeout_s), propagate=False)
+            except CeleryTimeout as exc:
+                raise TabularError(
+                    code="ML_FORECAST_TIMEOUT",
+                    message=f"The forecasting worker did not answer within {int(settings.ml_forecast_timeout_s)}s.",
+                    status_code=504,
+                ) from exc
+            finally:
+                if hasattr(pending, "forget"):
+                    # The rpc:// result backend stores nothing and cannot forget.
+                    with suppress(NotImplementedError):
+                        pending.forget()
+        if not isinstance(result, dict):
+            raise TabularError(
+                code="ML_FORECAST_FAILED", message="The forecasting worker failed.", status_code=500
+            )
+        if result.get("error"):
+            _raise_from(result)
+        duration_ms = round((time.monotonic() - started) * 1000, 1)
+        forecast = list(result.get("forecast") or [])
+        record_usage(db, served, rows=len(forecast))
+        prediction_id = journal_call(
+            db,
+            requested=model,
+            served=served,
+            caller=caller,
+            rows=rows
+            or [{"horizon": result.get("horizon"), "interval_level": result.get("interval_level")}],
+            answers=_journal_forecast(forecast, result.get("interval_level")),
+            duration_ms=duration_ms,
+            store=store,
         )
-    if result.get("error"):
-        _raise_from(result)
-    duration_ms = round((time.monotonic() - started) * 1000, 1)
-    forecast = list(result.get("forecast") or [])
-    prediction_id = journal_call(
-        db,
-        requested=model,
-        served=served,
-        caller=caller,
-        rows=rows
-        or [{"horizon": result.get("horizon"), "interval_level": result.get("interval_level")}],
-        answers=_journal_forecast(forecast, result.get("interval_level")),
-        duration_ms=duration_ms,
-        store=store,
-    )
-    record_usage(db, served, rows=len(forecast))
-    return {
-        "served": {
-            "model_id": served.id,
-            "name": served.name,
-            "slug": served.slug,
-            "version": int(served.version or 1),
-            "is_champion": bool(served.is_champion),
+        return {
+            "served": {
+                "model_id": served.id,
+                "name": served.name,
+                "slug": served.slug,
+                "version": int(served.version or 1),
+                "is_champion": bool(served.is_champion),
+                "task": served.task,
+            },
             "task": served.task,
-        },
-        "task": served.task,
-        "target": served.target,
-        "horizon": result.get("horizon"),
-        "interval_level": result.get("interval_level"),
-        "frequency": result.get("frequency"),
-        "series": result.get("series") or [],
-        "forecast": forecast,
-        "explanation": result.get("explanation"),
-        "rows": len(forecast),
-        "duration_ms": duration_ms,
-        "load_ms": result.get("load_ms"),
-        "cached": bool(result.get("cached")),
-        "prediction_id": prediction_id,
-    }
+            "target": served.target,
+            "horizon": result.get("horizon"),
+            "interval_level": result.get("interval_level"),
+            "frequency": result.get("frequency"),
+            "series": result.get("series") or [],
+            "forecast": forecast,
+            "explanation": result.get("explanation"),
+            "rows": len(forecast),
+            "duration_ms": duration_ms,
+            "load_ms": result.get("load_ms"),
+            "cached": bool(result.get("cached")),
+            "prediction_id": prediction_id,
+        }
 
 
 def public_forecast_path(model: Any) -> str:

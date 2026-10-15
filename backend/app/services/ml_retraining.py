@@ -503,6 +503,9 @@ def monitor_cycle(db, *, model_id, run_id):
         )
         db.add(snapshot)
         db.flush()
+        from app.services.ml_alerts import monitor_transition
+
+        monitor_transition(db, model=model, badge=measured["badge"], source_id=snapshot.id)
     result = {
         "proposed": False,
         "proposal_id": "",

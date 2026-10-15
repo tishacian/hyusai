@@ -68,6 +68,7 @@ from app.api.v1.endpoints import (
     mission_room,
     ml_governance,
     ml_models,
+    ml_operations,
     model_portal,
     models,
     observability,
@@ -253,3 +254,5 @@ api_router.include_router(
 )
 
 api_router.include_router(connector_watches.router, prefix="/connector-watches", tags=["connector-watches"])
+
+api_router.include_router(ml_operations.router)
