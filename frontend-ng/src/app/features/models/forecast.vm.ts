@@ -516,6 +516,7 @@ export interface ForecastAnswer {
 }
 
 export interface ForecastRequestBody {
+  store?: boolean;
   params: { horizon: number; interval_level: number; explain?: boolean };
   inputs: Record<string, unknown>[];
 }

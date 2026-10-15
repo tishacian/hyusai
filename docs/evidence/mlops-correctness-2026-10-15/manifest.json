@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-15",
+  "base": "47e289da",
+  "branch": "codex/mlops-m2-correctness",
+  "node": "v24.19.0",
+  "npm": "11.9.0",
+  "results": {
+    "backend": {
+      "passed": 133,
+      "seconds": 58.56
+    },
+    "frontend_unit": {
+      "passed": 2265,
+      "failed": 0
+    },
+    "e2e": {
+      "passed": 6,
+      "seconds": 15.4
+    },
+    "build_prod": "passed",
+    "tsc": "passed",
+    "i18n": "passed",
+    "navigation": "passed",
+    "ui_chrome": "failed: pre-existing src/styles.scss halo 7 > budget 6"
+  },
+  "files": {
+    "backend-verified.log": {
+      "sha256": "16e5ddb757f41b759b41fc98476d9afd27d9da247735fc5a3b739821c1936fcf",
+      "bytes": 181
+    },
+    "frontend-unit.log": {
+      "sha256": "387c3e01981e5fd99ee6713cd53fdadc8d34ca1ee88187e68cf9060b854858fb",
+      "bytes": 195293
+    },
+    "e2e-verified.log": {
+      "sha256": "be2cf6effa1fd13275f5782868fb4a8ad39c35f8fb92b00030bea6f80a3e877b",
+      "bytes": 1596
+    },
+    "build-prod.log": {
+      "sha256": "c0c518428adaa5936eb787cf0322ef3b943e4a56389d9e070533b1c8816ad692",
+      "bytes": 9957
+    },
+    "tsc.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "i18n.log": {
+      "sha256": "0433bb71ffd348266b2fb8538e90f8e52eb90f01cb32cfb560562ff1ac5f579b",
+      "bytes": 215
+    },
+    "nav.log": {
+      "sha256": "f95d0aeb6b302da99bc22f670bfe6bc5daed1a53aed7c8a630c46133a4549f46",
+      "bytes": 171
+    },
+    "ui-chrome.log": {
+      "sha256": "e4dfaca77ac655c8b579ad26383d72bb3a0caf718f68d3776f4775bdbe14bf2a",
+      "bytes": 620
+    }
+  }
+}

@@ -62,7 +62,9 @@ from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.meeting_decision import MeetingDecision
+from app.models.ml_feedback import MLPredictionFeedback
 from app.models.mfa import MfaChallenge
+from app.models.ml_governance import MLAdmissionCounter, MLWorkspaceLock
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.rag_preset import RagPreset
 from app.models.recipe import PythonEnv, RecipeExecution
@@ -125,6 +127,17 @@ from app.models.workspace_visual import (
 )
 
 __all__ = [
+    "MLPredictionFeedback",
+    "MLAdmissionCounter",
+    "MLWorkspaceLock",
+    "MLInferenceUsage",
+    "MLUsageRollup",
+    "MLAlertChannel",
+    "MLAlertState",
+    "MLAlert",
+    "MLAlertDelivery",
+    "MLAlertSource",
+
     "ExecutionCapacity", "ExecutionReservation", "ExecutionDispatch",
     "Activity", "ActivityCommand", "ActivityEvent", "ActivityWorkspaceCursor",
     "ConnectorWrite",
@@ -284,3 +297,5 @@ from app.models.value_contract import ValueContract
 from app.services.activity_observability.observer import install_observers
 
 install_observers()
+
+from app.models.ml_operations import (MLInferenceUsage, MLUsageRollup, MLAlertChannel, MLAlertState, MLAlert, MLAlertDelivery, MLAlertSource)

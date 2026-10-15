@@ -834,6 +834,32 @@ class Settings(BaseSettings):
     # Keys are per model and minted from the model card, so the ceiling is about
     # keeping a card readable, not about capacity.
     ml_predict_max_keys: int = Field(default=8, ge=1, le=64)
+    ml_rbac_enforced: bool = False
+    ml_api_key_default_ttl_days: int = Field(default=365, ge=1, le=3650)
+    ml_api_key_max_overlap_hours: int = Field(default=24, ge=0, le=168)
+    ml_predict_rate_per_minute: int = Field(default=120, ge=1)
+    ml_predict_rows_per_minute: int = Field(default=12000, ge=1)
+    ml_max_exposed_models: int = Field(default=100, ge=1)
+    ml_prediction_retention_days: int = Field(default=30, ge=1, le=3650)
+    ml_retention_batch_size: int = Field(default=1000, ge=1, le=10000)
+    ml_retention_enabled: bool = False
+    ml_operations_enabled: bool = False
+    ml_alerts_enabled: bool = False
+    ml_alert_throttle_seconds: int = Field(default=3600, ge=60)
+    ml_alert_max_attempts: int = Field(default=5, ge=1, le=20)
+    ml_alert_batch_size: int = Field(default=10, ge=1, le=10)
+    ml_alert_key_expiry_days: int = Field(default=7, ge=1, le=90)
+    ml_alert_channels_max: int = Field(default=20, ge=1, le=100)
+    ml_usage_rollup_batch_size: int = Field(default=10000, ge=1, le=10000)
+    ml_usage_retention_days: int = Field(default=30, ge=1, le=3650)
+    ml_retraining_max_rows: int = Field(default=100000, ge=100)
+    ml_retraining_max_bytes: int = Field(default=33554432, ge=1048576)
+    ml_retraining_min_feedback_rows: int = Field(default=40, ge=1)
+    ml_retraining_max_feedback_fraction: float = Field(default=0.25, gt=0, lt=1)
+    ml_concept_regression_watch: float = Field(default=0.10, ge=0)
+    ml_concept_regression_alert: float = Field(default=0.25, gt=0)
+    ml_concept_multiclass_watch: float = Field(default=0.02, ge=0, le=1)
+    ml_concept_multiclass_alert: float = Field(default=0.05, gt=0, le=1)
     # MLflow tracking + Model Registry. There is no MLflow *server* to operate:
     # the client writes straight to a SQL backend store, which is the only store
     # that supports the registry at all (a bare ``mlruns/`` file store does not,

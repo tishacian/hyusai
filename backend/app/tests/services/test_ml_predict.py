@@ -16,9 +16,11 @@ import numpy as np
 import pytest
 
 from app.core.config import settings
+from app.models.run import Run
 from app.models.skill import Skill
 from app.models.tabular import MLModel, MLModelApiKey, MLPrediction
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services import tabular_predict
 from app.services.tabular_datasets import TabularError, register_frame
 from app.services.tabular_ml import set_champion, upload_model_dir
@@ -65,6 +67,11 @@ def workspace(db_session) -> Workspace:
         settings={},
     )
     db_session.add(row)
+    actor = User(id=str(uuid4()), username="predict-" + uuid4().hex, email=uuid4().hex + "@example.invalid", role="user", is_active=True)
+    db_session.add(actor)
+    db_session.flush()
+    db_session.add(WorkspaceMember(workspace_id=row.id, user_id=actor.id, role="member", role_template="workspace_contributor"))
+    db_session.add(Run(id=row.id, workspace_id=row.id, initiated_by_user_id=actor.id))
     db_session.commit()
     return row
 
@@ -1104,7 +1111,7 @@ def test_the_published_skill_answers_a_record_through_the_registry_executor(db_s
     row = db_session.query(Skill).filter(Skill.slug == published["slug"]).one()
     call = bind_executor(row.executor)
 
-    answer = asyncio.run(call(_row(), {"workspace_id": model.workspace_id}))
+    answer = asyncio.run(call(_row(), {"workspace_id": model.workspace_id, "run_id": model.workspace_id}))
 
     # One record in, one flattened answer out: an agent reading a tool result
     # should not have to index into a list of one.
@@ -1128,7 +1135,7 @@ def test_a_payload_cannot_redirect_a_published_skill_to_another_model(
     answer = asyncio.run(
         call(
             {**_row(), "_predict": {"model_id": other.id}},
-            {"workspace_id": model.workspace_id},
+            {"workspace_id": model.workspace_id, "run_id": model.workspace_id},
         )
     )
 
@@ -1153,7 +1160,7 @@ def test_the_score_node_scores_the_dataset_on_its_wire(db_session, model, scorin
                 "upstream": {"dataset_id": scoring_dataset.id},
                 "_predict": {"model_slug": model.slug, "node_id": "score-1"},
             },
-            {"workspace_id": model.workspace_id, "run_id": "run-1"},
+            {"workspace_id": model.workspace_id, "run_id": model.workspace_id},
         )
     )
 
@@ -1169,7 +1176,7 @@ def test_the_predict_node_answers_one_record_from_its_named_inputs(db_session, m
     answer = asyncio.run(
         resolve("ml_predict_v1")(
             {"rows": [_row()], "_predict": {"model_slug": model.slug}},
-            {"workspace_id": model.workspace_id},
+            {"workspace_id": model.workspace_id, "run_id": model.workspace_id},
         )
     )
 
@@ -1198,7 +1205,7 @@ def test_the_score_node_scores_the_dataset_it_pins_when_nothing_is_wired(
                     "sources": [{"dataset_slug": scoring_dataset.slug}],
                 }
             },
-            {"workspace_id": model.workspace_id},
+            {"workspace_id": model.workspace_id, "run_id": model.workspace_id},
         )
     )
 
@@ -1215,7 +1222,7 @@ def test_the_score_node_says_a_dataset_is_missing_rather_than_scoring_nothing(db
         asyncio.run(
             resolve("ml_batch_score_v1")(
                 {"_predict": {"model_slug": model.slug, "sources": []}},
-                {"workspace_id": model.workspace_id},
+                {"workspace_id": model.workspace_id, "run_id": model.workspace_id},
             )
         )
 
@@ -1239,7 +1246,7 @@ def test_the_node_says_which_model_is_missing_rather_than_guessing(db_session, w
         asyncio.run(
             resolve("ml_predict_v1")(
                 {"rows": [_row()], "_predict": {"model_slug": "nope"}},
-                {"workspace_id": workspace.id},
+                {"workspace_id": workspace.id, "run_id": workspace.id},
             )
         )
 
@@ -1385,6 +1392,20 @@ def test_an_explained_row_says_what_its_own_values_did_to_the_score(db_session, 
     tickets = next(entry for entry in contributions if entry["field"] == "support_tickets")
     assert tickets["effect"] != 0.0
     json.dumps(answer, allow_nan=False)
+
+
+def test_real_explanation_is_returned_but_input_value_is_not_stored(db_session, model):
+    sentinel = 918273.625
+    answer = tabular_predict.predict_rows(
+        db_session, model, [_row(arpu=sentinel)], explain=True, store=False,
+    )
+    contribution = next(item for item in answer["predictions"][0]["contributions"] if item["field"] == "arpu")
+    assert contribution["value"] == sentinel
+    row = db_session.get(MLPrediction, answer["prediction_id"])
+    assert row.payload_json == [] and row.input_storage_allowed is False
+    assert str(sentinel) not in json.dumps(row.output_json)
+    assert all("value" not in item for item in row.output_json[0]["contributions"])
+    assert row.scores_json["n"] == 1
 
 
 def test_an_explanation_is_only_computed_when_it_was_asked_for(db_session, model):

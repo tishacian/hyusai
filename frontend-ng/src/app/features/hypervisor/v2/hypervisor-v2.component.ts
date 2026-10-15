@@ -1,3 +1,4 @@
+import { MLAlertInboxComponent } from '@app/features/models/ml-alert-inbox.component';
 import { HypervisorAutomationComponent } from './hypervisor-automation.component';
 import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import {
@@ -196,6 +197,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     '[attr.data-testid]': '"hypervisor-v2"',
   },
   imports: [
+    MLAlertInboxComponent,
     NgTemplateOutlet,
     PageFrameComponent,
     HypervisorAutomationComponent,
@@ -231,6 +233,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       [title]="pageTitle()"
       [description]="presentationTheme() ? '' : pageSummary()"
     >
+      <app-ml-alert-inbox />
       @if (arrivalChipLabel(); as chip) {
         <ck-filter-chip
           kind="provenance"

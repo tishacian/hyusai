@@ -28,7 +28,7 @@ celery_app = configure(
         "agentium",
         broker=settings.celery_broker_url,
         backend=settings.celery_result_backend,
-        include=["app.workers.tasks", "app.workers.hf_datasets"],
+        include=["app.workers.tasks", "app.workers.hf_datasets", "app.workers.ml_governance", "app.workers.ml_operations"],
     )
 )
 
@@ -48,6 +48,10 @@ celery_app.conf.task_routes = {
 
 
 celery_app.conf.beat_schedule = {
+    "ml-prediction-retention-hourly": {
+        "task": "agentium.ml_prediction_retention", "schedule": 3600.0,
+        "options": {"queue": settings.celery_task_default_queue},
+    },
     "dataops-sample-recovery-60s": {
         "task": "agentium.dataops_sample_recovery",
         "schedule": 60.0,
@@ -91,4 +95,10 @@ if settings.connector_framework_enabled:
     celery_app.conf.beat_schedule["connector-run-recovery-30s"] = {
         "task": "agentium.connector_reap", "schedule": 30.0,
         "options": {"queue": settings.celery_connectors_interactive_queue},
+    }
+
+if getattr(settings, "ml_operations_enabled", False) or getattr(settings, "ml_alerts_enabled", False):
+    celery_app.conf.beat_schedule["ml-operations-60s"] = {
+        "task": "agentium.ml_operations_tick", "schedule": 60.0,
+        "options": {"queue": settings.celery_task_default_queue, "expires": 60},
     }

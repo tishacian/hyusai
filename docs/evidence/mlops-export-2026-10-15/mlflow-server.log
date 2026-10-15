@@ -1,0 +1,12 @@
+2026/10/15 16:11:17 INFO mlflow.models.flavor_backend_registry: Selected backend for flavor 'python_function'
+2026/10/15 16:11:17 INFO mlflow.pyfunc.backend: === Running command 'exec uvicorn --host 127.0.0.1 --port 35765 --workers 1 mlflow.pyfunc.scoring_server.app:app'
+INFO:     Started server process [24185]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:35765 (Press CTRL+C to quit)
+INFO:     127.0.0.1:41880 - "GET /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41890 - "POST /invocations HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [24185]

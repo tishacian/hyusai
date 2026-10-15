@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
 from app.models.decision import Decision
@@ -25,12 +25,12 @@ from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+from app.services.ml_retraining_data import RetrainingDataPolicy
 from app.services.mlops_jobs import can_configure_mlops, operational_job_id
 from app.services.tabular_datasets import (
     TabularError,
     dataset_digest,
     materialize_dataset,
-    register_frame,
 )
 
 MONITOR_SKILL = "ml_monitor_model_v1"
@@ -46,6 +46,7 @@ class MonitoringPolicy(BaseModel):
     enabled: bool = False
     propose_retraining: bool = False
     interval_minutes: int = 60
+    retraining_data: RetrainingDataPolicy = Field(default_factory=RetrainingDataPolicy)
 
 
 def refuse(code, message, status=409):
@@ -332,18 +333,19 @@ def _active(db, model, run):
 
 
 def _file_hash(dataset):
-    if dataset.status != "ready" or (dataset.size_bytes or 0) > 32 * 1024 * 1024:
+    maximum = int(getattr(settings, "ml_retraining_max_bytes", 32 * 1024**2))
+    if dataset.status != "ready" or (dataset.size_bytes or 0) > maximum:
         refuse(
             "ML_RETRAIN_SOURCE_UNAVAILABLE",
             "The reviewed feedback dataset is unavailable or too large.",
         )
     with tempfile.TemporaryDirectory(prefix="retrain-source-") as folder:
         try:
-            path = materialize_dataset(dataset, Path(folder) / "data", max_bytes=32 * 1024**2)
+            path = materialize_dataset(dataset, Path(folder) / "data", max_bytes=maximum)
         except FileNotFoundError:
             refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset is unavailable.")
-        if sum(p.stat().st_size for p in path) > 32 * 1024 * 1024:
-            refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed feedback dataset exceeds 32 MiB.")
+        if sum(p.stat().st_size for p in path) > maximum:
+            refuse("ML_RETRAIN_SOURCE_UNAVAILABLE", "The reviewed dataset exceeds its byte budget.")
         return dataset_digest(dataset)
 
 
@@ -372,45 +374,17 @@ def _training_options(model):
 
 
 def _feedback_dataset(db, model, rows):
-    import polars as pl
+    from app.services.ml_retraining_data import materialize
 
-    from app.services.tabular_monitoring import _feedback_number
-
-    features = _training_options(model)["features"]
-    records, ids = [], []
-    for row in rows:
-        if row.label is None or not isinstance(row.payload_json, list) or not row.payload_json:
-            continue
-        payload = row.payload_json[0]
-        if not isinstance(payload, dict) or not all(name in payload for name in features):
-            continue
-        label = _feedback_number(row.label) if model.task == "regression" else row.label
-        if label is None or label == "":
-            continue
-        records.append({**{name: payload[name] for name in features}, model.target: label})
-        ids.append(row.id)
-    required = max(40, settings.ml_train_min_rows)
-    if len(records) < required:
-        refuse(
-            "ML_RETRAIN_FEEDBACK_INSUFFICIENT",
-            f"At least {required} labeled calls with all model inputs are required.",
-        )
-    dataset = register_frame(
+    policy = RetrainingDataPolicy.model_validate(policy_for(model).get("retraining_data") or {})
+    return materialize(
         db,
-        workspace_id=model.workspace_id,
-        name=f"{model.name[:150]} · reviewed feedback",
-        frame=pl.DataFrame(records),
-        source="generated",
-        produced_by="ml_feedback",
-        parent_ids=[model.dataset_id] if model.dataset_id else [],
-        lineage={
-            "kind": "feedback",
-            "model": {"model_id": model.id, "version": model.version},
-            "labeled": len(records),
-            "prediction_ids": ids,
-        },
+        model=model,
+        rows=rows,
+        policy=policy,
+        features=_training_options(model)["features"],
+        created_by=policy_for(model).get("configured_by"),
     )
-    return dataset, ids
 
 
 def _forecast_evidence(model, measured):
@@ -487,13 +461,26 @@ def monitor_cycle(db, *, model_id, run_id):
         measured = _forecast_evidence(model, forecast.report)
     else:
         rows = _recent(db, model)
-        window_hash = digest([(row.id, row.label, row.labeled_at) for row in rows])
+        from app.services.ml_feedback import iter_labeled_samples
+
+        window_hash = digest(
+            [
+                (
+                    row.id,
+                    [
+                        (v["sample_id"], v["label"], v["labeled_at"])
+                        for v in iter_labeled_samples(row)
+                    ],
+                )
+                for row in rows
+            ]
+        )
         measured = {
             key: value
             for key, value in report(db, model=model).items()
             if key in {"badge", "window", "data_drift", "score_drift", "concept_drift"}
         }
-    snapshot_id = operational_job_id(SNAPSHOT_KIND, model.id, window_hash)
+    snapshot_id = operational_job_id(SNAPSHOT_KIND, model.id, digest([window_hash, run.id]))
     snapshot = db.get(WorkspaceJob, snapshot_id)
     if snapshot is None:
         snapshot = WorkspaceJob(
@@ -516,6 +503,9 @@ def monitor_cycle(db, *, model_id, run_id):
         )
         db.add(snapshot)
         db.flush()
+        from app.services.ml_alerts import monitor_transition
+
+        monitor_transition(db, model=model, badge=measured["badge"], source_id=snapshot.id)
     result = {
         "proposed": False,
         "proposal_id": "",
@@ -558,8 +548,9 @@ def monitor_cycle(db, *, model_id, run_id):
                         "actuals_binding": binding_for(model),
                     }
                 else:
-                    dataset, ids = _feedback_dataset(db, model, rows)
+                    dataset, ids, data_evidence, partition = _feedback_dataset(db, model, rows)
                     labeled_rows = len(ids)
+                    sources = {"retraining_data": data_evidence, "retraining_partition": partition}
                 options = _training_options(model)
                 validate_training(dataset, db=db, **options)
                 binding = {
@@ -656,6 +647,16 @@ def proposal_for(db, proposal_id, *, workspace_id, run_id):
         refuse(
             "ML_RETRAIN_PROPOSAL_CHANGED", "The training configuration changed after the proposal."
         )
+    if job.input_ref.get("retraining_data"):
+        from app.services.ml_retraining_data import verify_sources
+
+        evidence = job.input_ref["retraining_data"]
+        current = RetrainingDataPolicy.model_validate(
+            policy.get("retraining_data") or {}
+        ).model_dump()
+        if current != evidence["policy"]:
+            refuse("ML_RETRAIN_PROPOSAL_CHANGED", "The reviewed retraining data policy changed.")
+        verify_sources(db, model, evidence)
     if model.family == "forecasting":
         _verify_forecast_sources(db, model, job.input_ref)
     dataset = db.get(TabularDataset, job.input_ref["dataset_id"], populate_existing=True)
@@ -718,16 +719,34 @@ def approved_proposal(db, *, proposal_id, decision_id, run):
     return job, model, dataset, decision
 
 
+def _audit_retraining_decision(db, decision, source, state):
+    from app.services.ml_permissions import audit
+
+    rationale = decision.rationale or {}
+    if (rationale.get("ml_retraining_audit") or {}).get("state") == state:
+        return
+    audit(db, action="retraining_" + state, workspace_id=decision.workspace_id,
+          actor=decision.human_confirmed_by or decision.approved_by or "system",
+          model=source, after={"decision_id": decision.id,
+                              "proposal_id": (rationale.get("model_retraining") or {}).get("proposal_id")})
+    decision.rationale = {**rationale, "ml_retraining_audit": {"state": state}}
+
+
 def settle_gate(db, decision):
     binding = (decision.rationale or {}).get("model_retraining") or {}
     if decision.status == "rejected":
         job = db.get(WorkspaceJob, binding.get("proposal_id"))
-        if job and job.kind == PROPOSAL_KIND and job.result.get("decision_id") == decision.id:
+        if job and job.workspace_id == decision.workspace_id and job.kind == PROPOSAL_KIND and job.result.get("decision_id") == decision.id:
+            source = db.get(MLModel, job.input_ref.get("model_id"))
+            if source is None or source.workspace_id != decision.workspace_id:
+                refuse("ML_RETRAIN_PROPOSAL_INVALID", "The reviewed source model is unavailable.")
+            _audit_retraining_decision(db, decision, source, "rejected")
             job.status, job.stage = "cancelled", "rejected"
             db.flush()
         refuse("ML_RETRAIN_REJECTED", "Retraining was rejected.")
     run = db.get(Run, decision.target_id)
-    approved_proposal(db, proposal_id=binding.get("proposal_id"), decision_id=decision.id, run=run)
+    _, source, _, _ = approved_proposal(db, proposal_id=binding.get("proposal_id"), decision_id=decision.id, run=run)
+    _audit_retraining_decision(db, decision, source, "approved")
     return {"proposal_id": binding["proposal_id"]}
 
 
@@ -754,7 +773,11 @@ def stage_retraining(db, *, proposal_id, decision_id, run_id):
         node_id="retrain",
     )
     model.name = source.name
-    model.params_json = {**model.params_json, "retraining_proposal": job.id}
+    model.params_json = {
+        **model.params_json,
+        "retraining_proposal": job.id,
+        "retraining_partition": job.input_ref.get("retraining_partition"),
+    }
     job.result = {**job.result, "model_id": model.id}
     job.status, job.stage = "running", "training_pending"
     db.commit()  # Pending model and proposal link are one recoverable intent.
@@ -1046,7 +1069,7 @@ def monitoring_view(db, model):
         .filter_by(workspace_id=model.workspace_id, system_id=policy.get("system_id"))
         .filter(WorkspaceJob.kind.in_([SNAPSHOT_KIND, PROPOSAL_KIND]))
         .order_by(WorkspaceJob.created_at.desc())
-        .limit(40)
+        .limit(HISTORY_LIMIT + 20)
         .all()
         if policy.get("system_id")
         else []
@@ -1061,6 +1084,9 @@ def monitoring_view(db, model):
                     "created_at": job.created_at.isoformat(),
                     "badge": measured.get("badge"),
                     "window": measured.get("window"),
+                    "data_drift": measured.get("data_drift"),
+                    "score_drift": measured.get("score_drift"),
+                    "concept_drift": measured.get("concept_drift"),
                     "reason": (job.result.get("last_result") or {}).get("reason"),
                 }
             )
@@ -1086,12 +1112,13 @@ def monitoring_view(db, model):
                     "training": binding["training"],
                     "evidence": binding.get("evidence"),
                     "forecast_sources": binding.get("forecast_sources"),
+                    "retraining_data": binding.get("retraining_data"),
                 }
             )
     return {
         "supported": supported(model),
         "family": model.family or "tabular",
         "policy": {"enabled": False, "propose_retraining": False, "interval_minutes": 60, **policy},
-        "history": history[:20],
+        "history": history[:HISTORY_LIMIT],
         "proposals": proposals[:20],
     }

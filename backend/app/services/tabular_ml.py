@@ -1409,6 +1409,8 @@ def submit_training(
     )
     from app.services.execution.ml_lifecycle import register as register_execution
     register_execution(db, model)
+    from app.services.ml_permissions import audit
+    audit(db, action="training_requested", workspace_id=workspace_id, actor=created_by, model=model, after={"dataset_id": model.dataset_id, "run_id": run_id})
     db.commit()
     dispatch_training(db, model)
     db.expire_all()
@@ -1988,6 +1990,7 @@ def _write_manifest(
         "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
         "evaluation_path": str(scratch / "report" / "evaluation.json.gz"),
         "dataset": {"id": model.dataset_id, "version": dataset.version if dataset else None},
+        "retraining_partition": params.get("retraining_partition"),
         "diagnostics": {
             "enabled": bool(
                 settings.ml_skore_checks_enabled

@@ -68,6 +68,8 @@ def test_observed_quality_is_separate_and_deduplicates_calls(db_session, observe
     assert result.report["status"] == "alert" and result.report["window"]["duplicates"] == 30
     assert {row["prediction_id"] for row in result.report["anomalies"]} == {first.id}
     assert len(result.report["by_horizon"]) == 30 and result.report["by_series"][0]["series"] == "value"
+    from app.services.tabular_monitoring import badges_for
+    assert badges_for(db_session, [observed.model])[observed.model.id] == "alert"
     assert observed.model.metrics_json["mae"] == 999
     assert service.snapshot(db_session, model=observed.model, now=NOW).fingerprint == result.fingerprint
 

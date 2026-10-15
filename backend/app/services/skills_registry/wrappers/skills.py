@@ -2893,6 +2893,8 @@ async def _ml_train_sklearn_v1(
 
     def _submit() -> str:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            actor = require_context(db, "train", str(workspace_id), ctx)
             from app.services.ml_methodology import validate_training_method
 
             method_flow = None
@@ -2926,6 +2928,7 @@ async def _ml_train_sklearn_v1(
                 cross_validation=train.get("cross_validation"),
                 spec=train.get("spec"),
                 name=train.get("model_name"),
+                created_by=actor.id,
                 run_id=ctx.get("run_id"),
                 node_id=str(train.get("node_id") or "") or None,
             )
@@ -3025,6 +3028,14 @@ def _resolve_model(db, spec: dict[str, Any], workspace_id: str):
     raise ValueError("ML_MODEL_NOT_FOUND: pick the model this node predicts with")
 
 
+def _record_ml_inference_rows(ctx, count):
+    """Only call with a completed runner result or an output dataset's metadata."""
+    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+        from app.services.ml_inference_cost import record_skill_inference
+
+        record_skill_inference(ctx, row_count=count)
+
+
 async def _ml_predict_v1(
     payload: dict[str, Any], ctx: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -3053,6 +3064,8 @@ async def _ml_predict_v1(
 
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            require_context(db, "predict", str(workspace_id), ctx)
             model = _resolve_model(db, spec, workspace_id)
             answer = predict_rows(
                 db,
@@ -3062,6 +3075,9 @@ async def _ml_predict_v1(
                 caller="flow",
                 explain=bool(spec.get("explain")),
             )
+            predictions = answer.get("predictions")
+            if isinstance(predictions, list):
+                _record_ml_inference_rows(ctx, len(predictions))
             # A one-row call is flattened so a downstream node (or an agent
             # reading a tool result) does not have to index into a list to find
             # the only answer there was.
@@ -3105,9 +3121,11 @@ async def _ml_batch_score_v1(
 
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            require_context(db, "score", str(workspace_id), ctx)
             model = _resolve_model(db, spec, workspace_id)
             dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
-            return score_dataset(
+            result = score_dataset(
                 db,
                 model=model,
                 dataset=dataset,
@@ -3116,6 +3134,8 @@ async def _ml_batch_score_v1(
                 run_id=ctx.get("run_id"),
                 node_id=str(spec.get("node_id") or "") or None,
             )
+            _record_ml_inference_rows(ctx, result.get("scored_rows"))
+            return result
 
     from app.core.config import settings as app_settings
     from app.services.dataops.rollout import enabled as dataops_enabled
@@ -3131,6 +3151,8 @@ async def _ml_batch_score_v1(
 
         def submit():
             with SessionLocal() as db:
+                from app.services.ml_permissions import require_context
+                require_context(db, "score", str(workspace_id), ctx)
                 model = _resolve_model(db, spec, workspace_id)
                 row = submit_score(
                     db,
@@ -3153,6 +3175,7 @@ async def _ml_batch_score_v1(
         )
         if status != "succeeded":
             raise ValueError(error or f"ML_SCORE_{status}")
+        _record_ml_inference_rows(ctx, output.get("scored_rows"))
         return output
 
     try:
@@ -3214,6 +3237,8 @@ async def _ml_forecast_v1(
 
     def _submit() -> str:
         with SessionLocal() as db:
+            from app.services.ml_permissions import require_context
+            require_context(db, "predict", str(workspace_id), ctx)
             model = _resolve_model(db, spec, str(workspace_id))
             takes_future = any(
                 isinstance(field, dict) and field.get("role") == "future"
@@ -3247,12 +3272,12 @@ async def _ml_forecast_v1(
 
     deadline = time_mod.monotonic() + float(app_settings.ml_forecast_batch_timeout_s)
 
-    def _read() -> tuple[str, str | None, dict[str, Any], dict[str, Any]]:
+    def _read() -> tuple[str, str | None, dict[str, Any], dict[str, Any], int | None]:
         with SessionLocal() as db:
             row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
             if row is None:
                 raise RuntimeError("ml_forecast_dataset_missing")
-            return row.status, row.error, dataset_reference(row), dict(row.lineage_json or {})
+            return row.status, row.error, dataset_reference(row), dict(row.lineage_json or {}), row.row_count
 
     def _expire() -> None:
         with SessionLocal() as db:
@@ -3265,7 +3290,7 @@ async def _ml_forecast_v1(
                 )
 
     while True:
-        status, error, reference, lineage = await asyncio.to_thread(_read)
+        status, error, reference, lineage, row_count = await asyncio.to_thread(_read)
         if status in ("ready", "failed", "deleted"):
             break
         if time_mod.monotonic() > deadline:
@@ -3275,6 +3300,7 @@ async def _ml_forecast_v1(
 
     if status != "ready":
         raise RuntimeError(f"ml_forecast_{status}: {(error or '').strip()}"[:480])
+    _record_ml_inference_rows(ctx, row_count)
     return {
         **reference,
         "model": lineage.get("model") or {},

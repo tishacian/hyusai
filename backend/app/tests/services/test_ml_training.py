@@ -27,8 +27,10 @@ from uuid import uuid4
 import pytest
 
 from app.core.config import settings
+from app.models.run import Run
 from app.models.tabular import MLModel, TabularDataset
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services import tabular_ml
 from app.services.recipe_executions import SupervisedRun
 from app.services.tabular_datasets import TabularError
@@ -70,6 +72,29 @@ def workspace(db_session) -> Workspace:
     db_session.add(ws)
     db_session.commit()
     return ws
+
+
+@pytest.fixture()
+def authorized_flow_context(db_session, workspace, monkeypatch):
+    """A real Flow initiator: the M1 guard resolves identity from its Run."""
+    monkeypatch.setattr(settings, "ml_rbac_enforced", True)
+    user = User(
+        id=str(uuid4()), username="ml-flow-" + uuid4().hex,
+        role="user", is_active=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(WorkspaceMember(
+        workspace_id=workspace.id, user_id=user.id,
+        role="member", role_template="workspace_contributor",
+    ))
+    run = Run(
+        workspace_id=workspace.id, initiated_by_user_id=user.id, status="running",
+    )
+    db_session.add(run)
+    db_session.commit()
+    # No caller-supplied user_id: only the persisted initiator grants authority.
+    return {"workspace_id": workspace.id, "run_id": run.id}
 
 
 @pytest.fixture()
@@ -1496,7 +1521,7 @@ async def test_an_unwired_training_node_says_what_to_connect(workspace, enabled)
 
 @pytest.mark.asyncio
 async def test_the_wrapper_trains_and_returns_a_model_reference(
-    db_session, workspace, dataset, enabled, monkeypatch, store
+    db_session, workspace, dataset, enabled, monkeypatch, store, authorized_flow_context
 ):
     from app.services.skills_registry.wrappers import _ml_train_sklearn_v1
 
@@ -1512,7 +1537,7 @@ async def test_the_wrapper_trains_and_returns_a_model_reference(
                 "node_id": "train.1",
             },
         },
-        {"workspace_id": workspace.id, "run_id": "run-42"},
+        authorized_flow_context,
     )
 
     # By reference, never by value: a model is megabytes, and the predict node
@@ -1524,12 +1549,12 @@ async def test_the_wrapper_trains_and_returns_a_model_reference(
     assert "signature" not in result
 
     row = db_session.query(MLModel).filter_by(id=result["model_id"]).one()
-    assert row.run_id == "run-42" and row.node_id == "train.1"
+    assert row.run_id == authorized_flow_context["run_id"] and row.node_id == "train.1"
 
 
 @pytest.mark.asyncio
 async def test_a_failed_fit_fails_the_node_so_nothing_flows_downstream(
-    db_session, workspace, dataset, enabled, monkeypatch, store
+    db_session, workspace, dataset, enabled, monkeypatch, store, authorized_flow_context
 ):
     from app.services.skills_registry.wrappers import _ml_train_sklearn_v1
 
@@ -1541,13 +1566,13 @@ async def test_a_failed_fit_fails_the_node_so_nothing_flows_downstream(
                 "input": {"dataset_id": dataset.id},
                 "_train": {"target": "churn"},
             },
-            {"workspace_id": workspace.id},
+            authorized_flow_context,
         )
 
 
 @pytest.mark.asyncio
 async def test_a_pin_on_the_node_wins_over_the_dataset_on_the_wire(
-    db_session, workspace, dataset, enabled, monkeypatch, store
+    db_session, workspace, dataset, enabled, monkeypatch, store, authorized_flow_context
 ):
     from app.services.skills_registry.wrappers import _ml_train_sklearn_v1
     from app.services.tabular_datasets import register_frame
@@ -1570,7 +1595,7 @@ async def test_a_pin_on_the_node_wins_over_the_dataset_on_the_wire(
                 "sources": [{"dataset_id": other.id}],
             },
         },
-        {"workspace_id": workspace.id},
+        authorized_flow_context,
     )
 
     # A pin is the author saying "this one"; an upstream envelope is a default.
@@ -1580,7 +1605,7 @@ async def test_a_pin_on_the_node_wins_over_the_dataset_on_the_wire(
 
 @pytest.mark.asyncio
 async def test_a_pin_by_lineage_is_honoured_the_way_the_builder_writes_it(
-    db_session, workspace, dataset, enabled, monkeypatch, store
+    db_session, workspace, dataset, enabled, monkeypatch, store, authorized_flow_context
 ):
     """A slug pin follows the lineage, and `dataset_slug` is how it is spelled.
 
@@ -1610,7 +1635,7 @@ async def test_a_pin_by_lineage_is_honoured_the_way_the_builder_writes_it(
                 "sources": [{"dataset_slug": pinned.slug}],
             },
         },
-        {"workspace_id": workspace.id},
+        authorized_flow_context,
     )
 
     row = db_session.query(MLModel).filter_by(id=result["model_id"]).one()
