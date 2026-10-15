@@ -1,0 +1,58 @@
+{
+  "collected_at": "2026-10-15T10:57:44.234951+00:00",
+  "base_commit": "0b63fcec0be57a87b7578142a15c2b797dbe98cc",
+  "branch": "codex/execution-observability",
+  "upstream": "origin/demo/agentic",
+  "tested_uncommitted_tree": true,
+  "source_manifest": "source-sha256.json",
+  "source_files_unchanged_during_final_run": 108,
+  "backend": {
+    "command": "PATH=/workspace/.tools/linux-amd64:$PATH ../.venv/bin/python -m pytest app/tests -n 4 -q --disable-warnings --maxfail=8 --junitxml=/workspace/execution-backend-tests-final.xml",
+    "cwd": "backend",
+    "exit_code": 0,
+    "passed": 9596,
+    "skipped": 152,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 141269,
+    "elapsed_seconds": 925.72,
+    "junit_counts": {
+      "tests": 9748,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 152
+    },
+    "junit_sha256": "b44be8904f2876167fdc2225e565657d12f8bc65e49a3acbac30f53aaac7bc1f",
+    "junit_bytes": 1546449,
+    "log": "backend-full.log"
+  },
+  "frontend": "frontend-validation.json",
+  "targeted_native": "../native-c/validation.json",
+  "control_and_transport": "../control-and-scaffold/validation.json",
+  "historical_framework_mechanics": "../manifest.json",
+  "static_checks": {
+    "compliance": {
+      "exit_code": 0,
+      "report": "compliance.json",
+      "scope": "16/22 claims static verified; runner attestations separate"
+    },
+    "ruff_new_python_files": 53,
+    "ruff_new_exit_code": 0,
+    "ruff_modified_python_files": 26,
+    "ruff_modified_existing_diagnostics_before": 194,
+    "ruff_modified_diagnostics_after": 193,
+    "ruff_added_diagnostics": 0,
+    "optional_runtime_import_without_sdks": {
+      "exit_code": 0,
+      "log": "optional-runtime-import.log"
+    },
+    "git_diff_check": 0
+  },
+  "limits": [
+    "152 tests are skipped by their explicit environment/platform requirements in the full suite; selected PostgreSQL, RabbitMQ and Temporal cases were separately executed with opt-in local infrastructure.",
+    "Full suite uses the application test environment, not the production VM.",
+    "Native C providers are doubles. SDK compositions use SQLite application storage and an actual disposable Temporal server; PostgreSQL races and RabbitMQ transport are separate component tests.",
+    "No same-corpus baseline/A/B/C performance comparison, VM image measurement, live provider certification or production deployment is claimed.",
+    "Full original JUnit XML and full frontend unit log remain workspace artifacts; this bundle preserves their SHA256 and the success logs/summaries."
+  ]
+}

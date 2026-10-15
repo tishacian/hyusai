@@ -1,0 +1,14 @@
+✔ no original, no page promised; no located passage, no invented context (0.161454ms)
+✔ an unreachable server keeps the answer’s passage, flagged unverified, without a page (0.16913ms)
+✔ deleted or withdrawn sources are unavailable; other failures are not (0.177536ms)
+✔ moving between sources stops at both ends (0.270064ms)
+✔ the page marks the whole passage in find segments, never a common fragment (0.535873ms)
+✔ AuthStore advances an opaque epoch and resets principal caches atomically (4.054631ms)
+ℹ tests 2238
+ℹ suites 2
+ℹ pass 2238
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 38174.027798

@@ -3122,6 +3122,8 @@ async def _ml_batch_score_v1(
 
     with SessionLocal() as rollout_db:
         stream_enabled = dataops_enabled(rollout_db, workspace_id, "ml_score_streaming_enabled")
+    if ctx.get("_native_submission_only") is True and not stream_enabled:
+        raise ValueError("NATIVE_ML_SCORE_STREAMING_REQUIRED")
     if stream_enabled:
         import time
 
@@ -3143,6 +3145,9 @@ async def _ml_batch_score_v1(
                 return row.id
 
         identifier = await asyncio.to_thread(submit)
+        if ctx.get("_native_submission_only") is True:
+            from app.services.execution.runtimes.deferred import DeferredNativeExecution
+            return DeferredNativeExecution("recipe_execution", identifier)
         status, output, error, _ = await _await_managed_execution(
             identifier, deadline=time.monotonic() + app_settings.dataops_t0_max_timeout_s + 30
         )
@@ -7360,6 +7365,9 @@ async def _data_prep_v1(payload, ctx=None):
             return row.id
 
     identifier = await asyncio.to_thread(submit)
+    if ctx.get("_native_submission_only") is True:
+        from app.services.execution.runtimes.deferred import DeferredNativeExecution
+        return DeferredNativeExecution("recipe_execution", identifier)
     status, output, error, _ = await _await_managed_execution(
         identifier, deadline=time.monotonic() + settings.dataops_t0_max_timeout_s + 30
     )

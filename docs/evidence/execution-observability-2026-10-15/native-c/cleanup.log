@@ -1,0 +1,9 @@
+{
+  "standalone_temporal_address": "127.0.0.1:17233",
+  "pid": 217027,
+  "shared_postgres_retained": true,
+  "test_servers_owned_and_removed_by_fixtures": true,
+  "action": "verified_exact_process_command_then_SIGTERM",
+  "standalone_temporal_stopped": true,
+  "checked_at": "2026-10-15T10:44:17.971028+00:00"
+}

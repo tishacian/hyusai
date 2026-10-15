@@ -1,4 +1,11 @@
 {{- if .Values.worker.enabled }}
+{{- if has "control" (splitList "," (replace " " "" .Values.worker.queues)) }}
+{{- fail "worker.queues must exclude control; use executionControl.enabled" }}
+{{- end }}
+{{- $orchestrationQueue := default "orchestration" (index .Values.config "CELERY_ORCHESTRATION_QUEUE") }}
+{{- if has $orchestrationQueue (regexSplit "[,[:space:]]+" .Values.worker.queues -1) }}
+{{- fail "worker.queues must exclude orchestration; use the dedicated Temporal starter" }}
+{{- end }}
 {{- if has "dataops" (splitList "," (replace " " "" .Values.worker.queues)) }}
 {{- fail "worker.queues must exclude dataops; use dataopsWorker.enabled" }}
 {{- end }}

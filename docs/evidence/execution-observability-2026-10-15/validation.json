@@ -1,0 +1,45 @@
+{
+  "scope": "Transportable local qualification evidence, not production approval",
+  "test_postgres": {
+    "files": [
+      "backend/app/tests/services/test_activity_observability_postgres.py",
+      "backend/app/tests/services/test_execution_control_postgres.py",
+      "backend/app/tests/services/test_execution_control_review_postgres.py"
+    ],
+    "passed": 11,
+    "skipped": 0,
+    "elapsed_seconds": 28.96,
+    "log": "postgres-combined.log",
+    "command": "ACTIVITY_POSTGRES_URL=\"$LOCAL_ACTIVITY_POSTGRES_URL\" PYTHONPATH=. /workspace/hyusai/.venv/bin/pytest app/tests/services/test_activity_observability_postgres.py app/tests/services/test_execution_control_postgres.py app/tests/services/test_execution_control_review_postgres.py -q --disable-warnings --maxfail=1",
+    "cwd": "backend",
+    "server": "Disposable test_obs_postgres, PostgreSQL 17.11 at 127.0.0.1:15433; each case creates and drops an isolated schema"
+  },
+  "compliance": {
+    "command": "/workspace/hyusai/.venv/bin/python scripts/agentium_compliance.py --check --report-json docs/evidence/execution-observability-2026-10-15/compliance-report.json",
+    "exit_code": 0,
+    "static_verified": 16,
+    "claims_total": 22,
+    "runner_attestation": "not supplied",
+    "deployment_attestation": "not supplied",
+    "log": "compliance.log",
+    "report": "compliance-report.json"
+  },
+  "tabular_migrations": {
+    "status": "passed",
+    "log": "tabular-migration-postgres.log",
+    "client": "Actual psql 17.11 inside disposable local PostgreSQL container, invoked through psql-wrapper.py; Alembic runs from existing host venv",
+    "command": "PATH=/workspace/execution-runtime-qualification-2026-10-15/tools:/workspace/hyusai/.venv/bin:$PATH PGHOST=127.0.0.1 PGPORT=15433 PGUSER=obs_test PGPASSWORD=\"$LOCAL_POSTGRES_PASSWORD\" PYTHONPATH=. /workspace/hyusai/.venv/bin/pytest app/tests/infra/test_tabular_migration.py -q --disable-warnings --maxfail=1",
+    "cwd": "backend",
+    "passed": 27,
+    "skipped": 0,
+    "elapsed_seconds": 351.89,
+    "head": "134_execution_control",
+    "stamp_only": [
+      "121_provider_run_costs",
+      "133_activity_observability"
+    ],
+    "source": "backend/app/tests/infra/test_tabular_migration.py",
+    "source_sha256": "599c47463eb1f963ed3bc46b2164f074f73991ea287760559614193b3345e65c"
+  },
+  "redaction": "Commands retain runtime paths and replace ephemeral local fixture passwords with environment placeholders. No production credentials copied."
+}

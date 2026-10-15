@@ -1130,6 +1130,11 @@ async def _walk(
     ]
 
     while ready:
+        from app.services.execution.rollout import enabled_for
+        if run.execution_policy is not None or enabled_for(db, run.workspace_id, "execution_control_enabled"):
+            from app.services.execution.control import cancellation_requested
+            if cancellation_requested(run.id):
+                raise asyncio.CancelledError("execution_cancelled")
         # Fan out independent tasks in parallel; hitl / subflow are
         # inherently sequential so we isolate them to preserve ordering
         # guarantees.

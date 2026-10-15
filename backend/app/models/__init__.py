@@ -1,6 +1,7 @@
 """SQLAlchemy models for the application"""
 
 from app.models.action_plan import WorkspaceActionItem
+from app.models.activity import Activity, ActivityCommand, ActivityEvent, ActivityWorkspaceCursor
 from app.models.assistant_request import AssistantRequest
 from app.models.audit import AuditLog
 from app.models.calendar import WorkspaceCalendarEvent
@@ -27,6 +28,7 @@ from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import FEEDBACK_LABELS, EvaluationFeedback
 from app.models.evaluation_preset import EvaluationPreset
+from app.models.execution_control import ExecutionCapacity, ExecutionDispatch, ExecutionReservation
 from app.models.experience import (
     Experience,
     ExperienceDeployment,
@@ -123,6 +125,8 @@ from app.models.workspace_visual import (
 )
 
 __all__ = [
+    "ExecutionCapacity", "ExecutionReservation", "ExecutionDispatch",
+    "Activity", "ActivityCommand", "ActivityEvent", "ActivityWorkspaceCursor",
     "ConnectorWrite",
     "ConnectorOAuthState",
     "ComputeRun",
@@ -275,3 +279,8 @@ from app.models.service_contract import (
     ServiceWindow,
 )
 from app.models.value_contract import ValueContract
+
+# All app/worker model bootstraps install the same transactional source observer.
+from app.services.activity_observability.observer import install_observers
+
+install_observers()

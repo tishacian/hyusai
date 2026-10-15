@@ -1,0 +1,238 @@
+{
+  "collected_at": "2026-10-15T10:01:31.884517+00:00",
+  "repository": "/workspace/hyusai-observability",
+  "base_commit": "0b63fcec0be57a87b7578142a15c2b797dbe98cc",
+  "working_tree_uncommitted": true,
+  "scope": "optional runtime mechanics qualification and observability foundation; not production approval",
+  "source_sha256": {
+    "backend/Dockerfile.orchestration-qualification": "be531412521fe82e6c0c79397b6393330cd4c413f81d5659a9b09b602479309f",
+    "backend/app/api/v1/endpoints/activities.py": "4f4ebcb502af829dacb4bc794809db9104d98e133b91f876c2e7c6c269e8aab5",
+    "backend/app/services/activity_observability/__init__.py": "e4ede3bc5496af743376fcc39cd0c7e3fb28e979fc3bb94c156bba09ac1f6e98",
+    "backend/app/services/activity_observability/commands.py": "63131345c4233a5fe02947fb1288b90aa5fc9b20d175643f4541b56410b29608",
+    "backend/app/services/activity_observability/observer.py": "0c3b07511a0f7b9b22bae2334739402673422461fee2a4a57d6d6bd0cfa2f824",
+    "backend/app/services/activity_observability/projection.py": "b153e8fd2aafef041fae25c04c212c4c480389f9bfdaa96e328bae925026a27a",
+    "backend/app/services/activity_observability/queries.py": "ffead19510b5fb0be9a09bdefee548a6ef92aa343bba289d28047d5677641610",
+    "backend/app/services/execution/runtimes/__init__.py": "dba0ee4e03558909f3d5c08a69664c697e67d675c2a738429570be09a24d2888",
+    "backend/app/services/execution/runtimes/compositions.py": "6bf40bacfa8f30c5d291897476d63199eb24d5d71d5cc85719cd355943842bf8",
+    "backend/app/services/execution/runtimes/contracts.py": "3a24b23f94a82a6b2308c343d92ed27f95b2a8bff458c61446e655da8feebc78",
+    "backend/app/services/execution/runtimes/langgraph_pg.py": "d09959b5f09f81078d77f2ba137ee44747c9317075473731d3a1adc19dd33457",
+    "backend/app/services/execution/runtimes/references.py": "bf5c92e44fe7c55e323f7fed029c9748df8991de130b23648c736ff72ed4b6f6",
+    "backend/app/services/execution/runtimes/temporal_graph.py": "4f2fb316dd3b0bf29db5b31bbad284f29edb1c09317a704d3573c4079a57d3a8",
+    "backend/app/tests/services/test_activity_observability.py": "8932fd59d7de3b9fb4d39eb843a17b9e8ae8ef3ae39de25e205243c3c5b9d012",
+    "backend/app/tests/services/test_activity_observability_postgres.py": "27e7dd028c8793dcf1e86facb8a0e4e899d1b1d2328914032a8112dcdca70c4c",
+    "backend/app/tests/services/test_runtime_native_references.py": "b80765d7ed368f6007016073064da3bd285bd585728e743bc1a413277f02e856",
+    "backend/requirements_orchestration.txt": "b89c27ea7b1159381c562239100259393c661779806de2330578754ac186a5b0",
+    "backend/scripts/qualify_execution_runtimes.py": "fe73351db8c24fd39517cd07d03af9bb83f897f0b740a68029e63e96ad3b73a2"
+  },
+  "artifacts": {
+    "compliance-report.json": {
+      "path": "compliance-report.json",
+      "sha256": "c9b59ddd0fd3225566b0c5405b3ec15984b23f64437cfa3c0298c12acd1ff62c"
+    },
+    "compliance.log": {
+      "path": "compliance.log",
+      "sha256": "8b9f0352050cb74dd52847480f4586a9c60f9371ad890b08fc04d9edcdc7f3cc"
+    },
+    "dependencies-lock.json": {
+      "path": "dependencies-lock.json",
+      "sha256": "261c9785761cd75cfcd38048310d3261a93aae9876e89ca0f50fa608ec5c31fa"
+    },
+    "foundation-tests.log": {
+      "path": "foundation-tests.log",
+      "sha256": "7e08188750b9aad6808c161e7fe6ac406479d0bb9037880cb7ac1a43fc2a8191"
+    },
+    "image-build.log": {
+      "path": "image-build.log",
+      "sha256": "398fd83a5572c982831e0720bca84f1f17a0c704e1b60f76913961e2d383cecf"
+    },
+    "image-metadata.json": {
+      "path": "image-metadata.json",
+      "sha256": "df32443b8011529aa06cbf57bd910e9f1a6ed52a56f169dd9f9b50f93274f195"
+    },
+    "langgraph-temporal-readme.md": {
+      "path": "langgraph-temporal-readme.md",
+      "sha256": "a29700305784d19e7e0de408e87149ebe6d909587ce0eb85c16e0215808fecc5"
+    },
+    "mechanics-final.json": {
+      "path": "mechanics-final.json",
+      "sha256": "105cde1efab972f6dbc2176bddbe3ff450e8af5008ded57c940aaed1bd8b60e4"
+    },
+    "mechanics-final.log": {
+      "path": "mechanics-final.log",
+      "sha256": "a12eb566021e696ed152930dd86625885171288ce4a57e952f259ed192b3b355"
+    },
+    "mechanics-image.json": {
+      "path": "mechanics-image.json",
+      "sha256": "d1f493145f743897a380db9ebb397dbc89e23634812378dd8a136b20b78885c6"
+    },
+    "mechanics-image.log": {
+      "path": "mechanics-image.log",
+      "sha256": "16f2bc8a747be0dddae4e207a192b27f9722b674a8121cfdfa563b92c4974740"
+    },
+    "native-reference-tests.log": {
+      "path": "native-reference-tests.log",
+      "sha256": "742d18a423ac576b66437f406789a6409f493a63281f71d8c8d82ff40214dbeb"
+    },
+    "postgres-combined.log": {
+      "path": "postgres-combined.log",
+      "sha256": "a9548fca97fbf05e462fce2f8e8078f6e6e608e467f14bbe86afa5a9a4d18086"
+    },
+    "psql-wrapper.py": {
+      "path": "psql-wrapper.py",
+      "sha256": "6c02a0047a6d2b97d47d78cc0c2419fe43c03f81cdcbff1b3d4445ff84280e3a"
+    },
+    "report.md": {
+      "path": "report.md",
+      "sha256": "37f6ffc50f88c7788abf5d23c1e7f17756d564eb10f1d4de01281b5d5e55f283"
+    },
+    "superseded-images-cleanup.log": {
+      "path": "superseded-images-cleanup.log",
+      "sha256": "ad4ce6bf8be65e5a29951479e014d894fcb79a52e83f02dde11c989db06b8967"
+    },
+    "tabular-migration-postgres.log": {
+      "path": "tabular-migration-postgres.log",
+      "sha256": "b83298bbd63e39a3641c4c8017d446652e92f7ba46741125cb1c326b8cade71f"
+    },
+    "temporal-cleanup.log": {
+      "path": "temporal-cleanup.log",
+      "sha256": "325949170ba857535ba61dd5439c99666d1c368667b35fb5bdbc9e08b8818b40"
+    },
+    "temporal-server.log": {
+      "path": "temporal-server.log",
+      "sha256": "89f4aa4ba4bdd9d6bb7abf6e6a683e989f657ab0bb80c454da8ece6de6652f23"
+    },
+    "temporal-version.log": {
+      "path": "temporal-version.log",
+      "sha256": "6251da9d8174d2c0c9211ea0aaad4d5afc5ad93c9824d0ee0222a1653ee6fcde"
+    },
+    "validation.json": {
+      "path": "validation.json",
+      "sha256": "699376e3ce470450f1aced489c2e19ac04ecc81c820b0a190e7f764a63255629"
+    },
+    "control-and-scaffold/SHA256SUMS": {
+      "path": "control-and-scaffold/SHA256SUMS",
+      "sha256": "e35ec940e9360bc56d3c7b022239b063f79c88333a6474f3a558ea8f3cf74856"
+    },
+    "control-and-scaffold/control-final-targeted.log": {
+      "path": "control-and-scaffold/control-final-targeted.log",
+      "sha256": "a1abd7bcda64f1a1501058073a2e9e5602cf33d445363de3de4a84c01fcc99ad"
+    },
+    "control-and-scaffold/migration134-final-roundtrip.log": {
+      "path": "control-and-scaffold/migration134-final-roundtrip.log",
+      "sha256": "e7185116c9851d7c61d08dbe7f040565f1351e1b82ac22d2832a20c839d3731f"
+    },
+    "control-and-scaffold/outbox-rabbitmq.log": {
+      "path": "control-and-scaffold/outbox-rabbitmq.log",
+      "sha256": "935e0458aef7329419cdd00ab0bcf5befa6cce4832dd21b3801c13b438298bb2"
+    },
+    "control-and-scaffold/rabbitmq-metadata.json": {
+      "path": "control-and-scaffold/rabbitmq-metadata.json",
+      "sha256": "46b031a28955975748b9dc7603d774f3203154cf2f0635e1d5fd76ba596da34a"
+    },
+    "control-and-scaffold/report.md": {
+      "path": "control-and-scaffold/report.md",
+      "sha256": "2c9a91a0dfae0abbc6bc1a4b45bca6324e96fc7ac227e95a4ad0605b605e1e0d"
+    },
+    "control-and-scaffold/validation.json": {
+      "path": "control-and-scaffold/validation.json",
+      "sha256": "df38b53a3f56ea8fc75d6a3ba858ac6b4387e407c8321d98287d98a0a2f22c42"
+    }
+  },
+  "foundation_tests": {
+    "passed": 42,
+    "log": "foundation-tests.log",
+    "sha256": "7e08188750b9aad6808c161e7fe6ac406479d0bb9037880cb7ac1a43fc2a8191",
+    "elapsed_seconds": 17.49,
+    "real_postgres_cases": 5,
+    "command": "ACTIVITY_POSTGRES_URL=\"$LOCAL_ACTIVITY_POSTGRES_URL\" PYTHONPATH=. /workspace/hyusai/.venv/bin/pytest app/tests/services/test_activity_observability.py app/tests/services/test_activity_observability_postgres.py app/tests/services/test_migration_133_activity_observability.py app/tests/api/test_observability_workspace.py app/tests/services/test_runtime_native_references.py -q --disable-warnings --maxfail=1 > /workspace/activity-foundation-tests-final.log 2>&1",
+    "cwd": "/workspace/hyusai-observability/backend"
+  },
+  "commands": {
+    "host": "PYTHONPATH=/workspace/hyusai-observability/backend /workspace/execution-runtime-qualification-2026-10-15/venv/bin/python backend/scripts/qualify_execution_runtimes.py --postgres \"$LOCAL_POSTGRES_URL\" --temporal 127.0.0.1:17233 --restart-temporal-container test_obs_temporal --output /workspace/execution-runtime-qualification-2026-10-15/mechanics-final.json > /workspace/execution-runtime-qualification-2026-10-15/mechanics-final.log 2>&1",
+    "build": "DOCKER_BUILDKIT=0 docker build --build-arg BASE_IMAGE=agentium-orchestration-qualification-base:local -f /workspace/execution-runtime-qualification-2026-10-15/build-context/Dockerfile.orchestration-qualification -t agentium-orchestration-qualification:local /workspace/execution-runtime-qualification-2026-10-15/build-context > /workspace/execution-runtime-qualification-2026-10-15/image-build.log 2>&1",
+    "image": "docker run --rm --name test_obs_qualification_image --user 1000:1000 --cap-drop=ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,size=64m,mode=1777 --network host --memory 512m --cpus 1 --mount type=bind,src=/workspace/execution-runtime-qualification-2026-10-15,dst=/evidence agentium-orchestration-qualification:local --postgres \"$LOCAL_POSTGRES_URL\" --temporal 127.0.0.1:17233 --output /evidence/mechanics-image.json > /workspace/execution-runtime-qualification-2026-10-15/mechanics-image.log 2>&1"
+  },
+  "connection_context": {
+    "postgres_host": "127.0.0.1",
+    "postgres_port": 15433,
+    "database": "test_observability",
+    "credentials": "ephemeral local development only; supplied externally, omitted from this manifest"
+  },
+  "qualification": {
+    "mechanics-final.json": {
+      "passed": true,
+      "case_count": 11,
+      "langgraph_postgres_cases": 5,
+      "temporal_langgraph_cases": 6,
+      "elapsed_seconds": 20.183078243004275,
+      "process_peak_rss_bytes": 123629568
+    },
+    "mechanics-image.json": {
+      "passed": true,
+      "case_count": 11,
+      "langgraph_postgres_cases": 5,
+      "temporal_langgraph_cases": 6,
+      "elapsed_seconds": 34.361613118002424,
+      "process_peak_rss_bytes": 133091328
+    }
+  },
+  "production_gates": {
+    "O5": "NO_GO_NATIVE_SUBMISSION_ADAPTER_UNQUALIFIED",
+    "langgraph_autonomous": "NO_GO_DURABLE_DISPATCH_AND_RECOVERY_INTEGRATION_UNQUALIFIED",
+    "temporal_production": "NO_GO_PUBLIC_PREVIEW_AND_INCOMPLETE_NATIVE_FAULT_CORPUS"
+  },
+  "comparison": {
+    "baseline_native_same_corpus": "NOT_PERFORMED",
+    "historical_138_native_tests": "Earlier parent validation only; not a same-corpus comparative run"
+  },
+  "limits": [
+    "deterministic fixture port, not production Skill submission",
+    "no provider calls, DataOps volume or native DeliveryReceipt publication",
+    "not the complete native failure, capacity, IAM or cost corpus",
+    "fixture timings and process RSS are not a production SLA"
+  ],
+  "source_sha256_before_parent_formatting": {
+    "backend/Dockerfile.orchestration-qualification": "be531412521fe82e6c0c79397b6393330cd4c413f81d5659a9b09b602479309f",
+    "backend/app/api/v1/endpoints/activities.py": "4f4ebcb502af829dacb4bc794809db9104d98e133b91f876c2e7c6c269e8aab5",
+    "backend/app/services/activity_observability/__init__.py": "e4ede3bc5496af743376fcc39cd0c7e3fb28e979fc3bb94c156bba09ac1f6e98",
+    "backend/app/services/activity_observability/commands.py": "63131345c4233a5fe02947fb1288b90aa5fc9b20d175643f4541b56410b29608",
+    "backend/app/services/activity_observability/observer.py": "0c3b07511a0f7b9b22bae2334739402673422461fee2a4a57d6d6bd0cfa2f824",
+    "backend/app/services/activity_observability/projection.py": "b153e8fd2aafef041fae25c04c212c4c480389f9bfdaa96e328bae925026a27a",
+    "backend/app/services/activity_observability/queries.py": "ffead19510b5fb0be9a09bdefee548a6ef92aa343bba289d28047d5677641610",
+    "backend/app/services/execution/runtimes/__init__.py": "dba0ee4e03558909f3d5c08a69664c697e67d675c2a738429570be09a24d2888",
+    "backend/app/services/execution/runtimes/compositions.py": "6bf40bacfa8f30c5d291897476d63199eb24d5d71d5cc85719cd355943842bf8",
+    "backend/app/services/execution/runtimes/contracts.py": "3a24b23f94a82a6b2308c343d92ed27f95b2a8bff458c61446e655da8feebc78",
+    "backend/app/services/execution/runtimes/langgraph_pg.py": "d09959b5f09f81078d77f2ba137ee44747c9317075473731d3a1adc19dd33457",
+    "backend/app/services/execution/runtimes/references.py": "bf5c92e44fe7c55e323f7fed029c9748df8991de130b23648c736ff72ed4b6f6",
+    "backend/app/services/execution/runtimes/temporal_graph.py": "4f2fb316dd3b0bf29db5b31bbad284f29edb1c09317a704d3573c4079a57d3a8",
+    "backend/app/tests/services/test_activity_observability.py": "8932fd59d7de3b9fb4d39eb843a17b9e8ae8ef3ae39de25e205243c3c5b9d012",
+    "backend/app/tests/services/test_activity_observability_postgres.py": "27e7dd028c8793dcf1e86facb8a0e4e899d1b1d2328914032a8112dcdca70c4c",
+    "backend/app/tests/services/test_runtime_native_references.py": "b80765d7ed368f6007016073064da3bd285bd585728e743bc1a413277f02e856",
+    "backend/requirements_orchestration.txt": "b89c27ea7b1159381c562239100259393c661779806de2330578754ac186a5b0",
+    "backend/scripts/qualify_execution_runtimes.py": "fe73351db8c24fd39517cd07d03af9bb83f897f0b740a68029e63e96ad3b73a2"
+  },
+  "source_revision_note": "Foundation tests and host qualification precede parent ruff formatting only; image was rebuilt and all 11 mechanics cases rerun after that formatting. Full backend qualification is running separately under parent ownership.",
+  "cleanup": {
+    "own_temporal_container_removed": true,
+    "qualification_container_auto_removed": true,
+    "superseded_own_images_removed": true,
+    "shared_postgres_untouched": true,
+    "current_qualification_image_retained": true
+  },
+  "bundle_origin_manifest_sha256": "f8cf66980aaa78c1c6788ab917e65e12ab2afe1ee8c14a08f3d113eb1ba24361",
+  "bundle_note": "Portable text evidence only. Artifact paths are relative to this directory. Credentials, binaries, wheelhouse and server states are excluded. dependencies-lock.json is a whitelist projection of the original pip report; original report SHA is preserved.",
+  "security_review": {
+    "scope": "selected text artifacts, dependency metadata whitelist and local fixture logs",
+    "private_key_or_credential_token_found": false,
+    "credential_bearing_download_url_found": false,
+    "notes": [
+      "No production credentials observed.",
+      "PostgreSQL connection passwords omitted from command records.",
+      "Intentional qualification failures contain only deterministic fixture data.",
+      "Package descriptions containing credential examples were excluded in favor of whitelist dependency metadata."
+    ]
+  },
+  "supplementary_validation": "validation.json",
+  "runtime_candidate_scope": "Historical A/B mechanics only, before native candidate C integration; A/B verdicts must not be read as a current C verdict.",
+  "supplementary_control_scaffold_validation": "control-and-scaffold/validation.json"
+}

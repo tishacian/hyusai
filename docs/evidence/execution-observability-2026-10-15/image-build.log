@@ -1,0 +1,37 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            BuildKit is currently disabled; enable it by removing the DOCKER_BUILDKIT=0
+            environment-variable.
+
+Sending build context to Docker daemon   34.1MB
+Step 1/11 : ARG BASE_IMAGE=python:3.12-slim
+Step 2/11 : FROM ${BASE_IMAGE}
+ ---> c8e887bbf3b6
+Step 3/11 : WORKDIR /opt/agentium
+ ---> Using cache
+ ---> 8f2df33b7420
+Step 4/11 : ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/agentium
+ ---> Using cache
+ ---> bf61df50f331
+Step 5/11 : COPY requirements_orchestration.txt /tmp/requirements_orchestration.txt
+ ---> Using cache
+ ---> 0195eb5a43cc
+Step 6/11 : COPY orchestration-wheelhouse /tmp/orchestration-wheelhouse
+ ---> Using cache
+ ---> a42d34c2eb4c
+Step 7/11 : RUN python -m pip install --no-cache-dir --no-index --find-links=/tmp/orchestration-wheelhouse -r /tmp/requirements_orchestration.txt && rm -rf /tmp/orchestration-wheelhouse
+ ---> Using cache
+ ---> 484294b2273a
+Step 8/11 : COPY --chown=1000:1000 app/services/execution/runtimes /opt/agentium/app/services/execution/runtimes
+ ---> 2d6ad493b983
+Step 9/11 : COPY --chown=1000:1000 scripts/qualify_execution_runtimes.py /opt/agentium/scripts/qualify_execution_runtimes.py
+ ---> 3b2d670aa662
+Step 10/11 : USER 1000:1000
+ ---> Running in 4f066d98818d
+ ---> Removed intermediate container 4f066d98818d
+ ---> c5827f784a69
+Step 11/11 : ENTRYPOINT ["python", "scripts/qualify_execution_runtimes.py"]
+ ---> Running in 820332309d06
+ ---> Removed intermediate container 820332309d06
+ ---> 49cbd9eafb2e
+Successfully built 49cbd9eafb2e
+Successfully tagged agentium-orchestration-qualification:local
