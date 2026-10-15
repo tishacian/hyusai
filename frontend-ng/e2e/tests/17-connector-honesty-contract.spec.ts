@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -81,6 +82,10 @@ async function prepare(page: Page, options: {
       values: { host: 'postgres.example.test', database: 'demo', username: 'operator' },
       secrets_set: { password: options.configured === true },
     }] });
+    // The catalogue is served while the connection framework stays off here.
+    if (path === '/connector-catalog' && method === 'GET') return json({
+      ...JSON.parse(readFileSync('e2e/fixtures/connector-catalog.json', 'utf8')), framework_enabled: false,
+    });
     if (path === '/hana/config') return json({
       host: 'hana.example.test', port: 443, user: 'OPERATOR', password_set: true,
     });
@@ -185,9 +190,17 @@ for (const configured of [false, true]) {
     const unexpected = await prepare(page, { configured });
     await page.goto('/connectors');
     const card = page.locator('article').filter({ has: page.getByRole('heading', { name: 'PostgreSQL', exact: true }) });
-    await expect(card).toContainText('Explore tables, preview live data and import versioned datasets for DataOps.');
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText('Partitioned and incremental reads on a consistent snapshot');
     await expect(card).not.toContainText('Data queries and imports are not available yet.');
     await expect(card.locator('.ck-pill')).toHaveClass(configured ? /ck-tone-ok/ : /ck-tone-info/);
+    await expect(card.locator('.ck-pill')).toHaveText(configured ? 'configured' : 'Not certified');
+    // Framework off: the dedicated PostgreSQL page stays the way in and no card offers Connect.
+    await expect(page.getByTestId('catalog-disabled-banner')).toBeVisible();
+    await expect(card.getByRole('link', { name: 'Explore PostgreSQL', exact: true })).toBeVisible();
+    await expect(page.locator('[data-testid^="catalog-connect-"]')).toHaveCount(0);
+    await expect(page.locator('article').filter({ has: page.getByRole('heading', { name: 'Snowflake', exact: true }) })
+      .getByRole('button', { name: 'Not enabled here', exact: true })).toBeDisabled();
     expect(unexpected).toEqual([]);
   });
 }

@@ -15,6 +15,7 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.connection import ConnectionCreate, ConnectionUpdate
 from app.services.compute_runs import ComputeRunError
 from app.services.connectors import connections as service
+from app.services.connectors.catalog import official_tool_servers, profile_certification
 from app.services.connectors.profiles import ProfileError, list_profiles
 from app.services.huggingface.access import can_import_dataset, is_workspace_admin
 from app.services.secrets import SecretRegistryError
@@ -72,13 +73,10 @@ def tool_catalog(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    import yaml
-
-    from app.services.connectors.profiles import PROFILE_DIRECTORY
-
     _access(db, workspace, user)
-    catalog = yaml.safe_load((PROFILE_DIRECTORY.parent / "mcp_catalog.yaml").read_text())
-    return {"servers": [entry | {"certification": "third_party"} for entry in catalog["servers"]]}
+    return {
+        "servers": [entry | {"certification": "third_party"} for entry in official_tool_servers()]
+    }
 
 
 @router.get("/profiles")
@@ -93,7 +91,7 @@ def profiles(
             p.model_dump(mode="json")
             | {
                 "digest": p.digest,
-                "certification": "third_party" if p.family in {"mcp", "openapi"} else "unverified",
+                "certification": profile_certification(p),
                 "driver_status": "runner_unchecked",
             }
             for p in list_profiles()
