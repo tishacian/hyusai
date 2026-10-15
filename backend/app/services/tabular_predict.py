@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import math
 import secrets
 import shutil
@@ -50,11 +51,13 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
@@ -170,7 +173,7 @@ class LoadedModel:
     load_ms: float
 
 
-_cache: "OrderedDict[str, LoadedModel]" = OrderedDict()
+_cache: OrderedDict[str, LoadedModel] = OrderedDict()
 # One lock for the whole cache rather than per entry: entries are cheap to
 # describe and expensive to build, and two requests racing for the same cold
 # model should load it once.
@@ -908,12 +911,16 @@ def predict_rows(
     caller: str = "session",
     explain: bool = False,
     interval_level: float | None = None,
+    store: bool = True,
+    key_id: str | None = None,
 ) -> dict[str, Any]:
     """Answer an inline batch, and say which version answered."""
 
     served = serving_version(db, model, version=version)
     _interval_band(served, interval_level)
     coerced = coerce_rows(served, rows)
+    from app.services.ml_governance import admit
+    admit(db, model, rows=len(coerced), key_id=key_id)
     if served.family in {"tabular_deep", "tabular_foundation"} and settings.ml_runtime != "ml-deep":
         from app.services.ml.deep_serving import request_rows
 
@@ -933,6 +940,7 @@ def predict_rows(
         rows=coerced,
         answers=answers,
         duration_ms=elapsed_ms,
+        store=store,
     )
     logger.info(
         "tabular_predict: answered",
@@ -944,7 +952,7 @@ def predict_rows(
     )
     return {
         "served": _served_block(served),
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
         "task": served.task,
         "target": served.target,
         "classes": classes,
@@ -1003,6 +1011,7 @@ def journal_call(
     answers: Sequence[dict[str, Any]],
     duration_ms: float,
     dataset_id: str | None = None,
+    store: bool = True,
 ) -> str:
     """Persist one serving call and return the id the API quotes.
 
@@ -1012,6 +1021,8 @@ def journal_call(
     measured later.
     """
 
+    from app.services.ml_governance import inputs_allowed
+    persist_inputs = inputs_allowed(db, served.workspace_id, store)
     row = MLPrediction(
         workspace_id=served.workspace_id,
         model_id=requested.id,
@@ -1020,11 +1031,12 @@ def journal_call(
         slug=str(served.slug),
         caller=str(caller or "session"),
         row_count=len(answers),
-        payload_json=list(rows[:_JOURNAL_ROW_CAP]),
+        payload_json=list(rows[:_JOURNAL_ROW_CAP]) if persist_inputs else [],
+        input_storage_allowed=persist_inputs,
         output_json=list(answers[:_JOURNAL_ROW_CAP]),
         scores_json=_score_summary(answers, task=served.task),
         duration_ms=duration_ms,
-        dataset_id=dataset_id,
+        dataset_id=dataset_id if persist_inputs else None,
     )
     db.add(row)
     db.flush()
@@ -1033,8 +1045,9 @@ def journal_call(
     try:
         from app.services.ml_shadow import stage
 
-        with db.begin_nested():
-            stage(db, row=row, served=served)
+        if persist_inputs:
+            with db.begin_nested():
+                stage(db, row=row, served=served)
     except Exception:  # shadow availability must never fail a served answer
         logger.warning("tabular_predict: shadow intention skipped", prediction_id=row.id)
         row.scores_json = {
@@ -1048,8 +1061,9 @@ def journal_call(
 def record_usage(db: DBSession, model: MLModel, *, rows: int) -> None:
     """Count predictions, not requests: what makes a model visibly in use."""
 
-    model.predict_count = int(model.predict_count or 0) + max(1, int(rows))
-    model.last_predict_at = datetime.utcnow()
+    db.execute(update(MLModel).where(MLModel.id == model.id).values(
+        predict_count=MLModel.predict_count + max(1, int(rows)), last_predict_at=datetime.utcnow()
+    ))
     db.commit()
 
 
@@ -1323,6 +1337,12 @@ def mint_api_key(
     model: MLModel,
     name: Any = None,
     created_by: str | None = None,
+    expires_at: datetime | None = None,
+    pinned_version: int | None = None,
+    allowed_cidrs: list[str] | None = None,
+    rotate_key_id: str | None = None,
+    overlap_hours: int = 0,
+    audit_ip: str | None = None,
 ) -> tuple[MLModelApiKey, str]:
     """Create a key for this model's lineage and return it once, in the clear.
 
@@ -1338,16 +1358,41 @@ def mint_api_key(
             status_code=409,
             details={"status": model.status},
         )
+    from app.services.ml_governance import require_exposure_capacity
+    require_exposure_capacity(db, model)
+    now = datetime.utcnow()
+    expiry = expires_at or now + timedelta(days=settings.ml_api_key_default_ttl_days)
+    if expiry.tzinfo:
+        expiry = expiry.astimezone(UTC).replace(tzinfo=None)
+    if expiry <= now or expiry > now + timedelta(days=settings.ml_api_key_default_ttl_days):
+        raise TabularError(code="ML_KEY_EXPIRY_INVALID", message="Choose a future expiry within the platform key lifetime.")
+    try:
+        networks = [str(ipaddress.ip_network(item, strict=False)) for item in (allowed_cidrs or [])]
+    except ValueError as exc:
+        raise TabularError(code="ML_KEY_NETWORK_INVALID", message="The key network allowlist is invalid.") from exc
+    if len(networks) > 32 or not 0 <= overlap_hours <= settings.ml_api_key_max_overlap_hours:
+        raise TabularError(code="ML_KEY_ROTATION_INVALID", message="The key rotation or network limit is invalid.")
+    if pinned_version is not None:
+        serving_version(db, model, version=pinned_version)
+    previous = None
+    if rotate_key_id:
+        previous = db.query(MLModelApiKey).filter_by(id=rotate_key_id, model_id=model.id, revoked_at=None).first()
+        if previous is None or (previous.expires_at and previous.expires_at <= now) or (previous.revoke_after and previous.revoke_after <= now):
+            raise TabularError(code="ML_KEY_NOT_FOUND", message="The rotation key does not belong to this model.", status_code=404)
     live = (
         db.query(MLModelApiKey)
+        .join(MLModel, MLModel.id == MLModelApiKey.model_id)
         .filter(
-            MLModelApiKey.model_id == model.id,
+            MLModel.workspace_id == model.workspace_id,
+            MLModel.slug == model.slug,
             MLModelApiKey.revoked_at.is_(None),
+            or_(MLModelApiKey.expires_at.is_(None), MLModelApiKey.expires_at > now),
+            or_(MLModelApiKey.revoke_after.is_(None), MLModelApiKey.revoke_after > now),
         )
         .count()
     )
     ceiling = int(settings.ml_predict_max_keys)
-    if live >= ceiling:
+    if live - int(previous is not None) >= ceiling:
         raise TabularError(
             code="ML_KEY_LIMIT",
             message=f"This model already has {ceiling} active keys. Revoke one first.",
@@ -1362,8 +1407,19 @@ def mint_api_key(
         key_prefix=secret[:_KEY_LOOKUP_CHARS],
         key_sha256=_hash_secret(secret),
         created_by=created_by,
+        expires_at=expiry,
+        pinned_version=pinned_version,
+        allowed_cidrs=networks,
+        scope="predict",
     )
+    if previous is not None:
+        previous.revoke_after = now + timedelta(hours=overlap_hours)
     db.add(row)
+    db.flush()
+    from app.services.ml_permissions import audit
+    audit(db, action="key_created", workspace_id=model.workspace_id, actor=created_by,
+          model=model, ip=audit_ip, after={"key_id": row.id, "rotated_key_id": rotate_key_id,
+          "expires_at": expiry.isoformat(), "pinned_version": pinned_version, "allowed_cidrs": networks})
     db.commit()
     db.refresh(row)
     return row, secret
@@ -1410,6 +1466,12 @@ def serialize_api_key(row: MLModelApiKey, *, secret: str | None = None) -> dict[
         "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None,
         "use_count": int(row.use_count or 0),
         "created_at": row.created_at.isoformat() if row.created_at else None,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        "expired": bool((row.expires_at and row.expires_at <= datetime.utcnow()) or (row.revoke_after and row.revoke_after <= datetime.utcnow())),
+        "revoke_after": row.revoke_after.isoformat() if row.revoke_after else None,
+        "pinned_version": row.pinned_version,
+        "allowed_cidrs": row.allowed_cidrs or [],
+        "scope": row.scope or "predict",
     }
     if secret is not None:
         # Shown exactly once, at mint time. Never re-derivable from the row.
@@ -1417,7 +1479,7 @@ def serialize_api_key(row: MLModelApiKey, *, secret: str | None = None) -> dict[
     return payload
 
 
-def authenticate_key(db: DBSession, presented: Any) -> tuple[MLModelApiKey, MLModel]:
+def authenticate_key(db: DBSession, presented: Any, *, client_ip: str | None = None) -> tuple[MLModelApiKey, MLModel]:
     """Resolve a presented secret to its key row and the model it addresses."""
 
     secret = str(presented or "").strip()
@@ -1443,6 +1505,20 @@ def authenticate_key(db: DBSession, presented: Any) -> tuple[MLModelApiKey, MLMo
             message="That key was revoked.",
             status_code=401,
         )
+    now = datetime.utcnow()
+    expiry = row.expires_at or row.created_at + timedelta(days=settings.ml_api_key_default_ttl_days)
+    if expiry <= now or (row.revoke_after and row.revoke_after <= now):
+        raise TabularError(code="ML_API_KEY_EXPIRED", message="This model key has expired.", status_code=401)
+    if row.scope not in (None, "predict"):
+        raise TabularError(code="ML_KEY_SCOPE_INVALID", message="This key cannot invoke a model.", status_code=403)
+    if row.allowed_cidrs:
+        try:
+            address = ipaddress.ip_address(client_ip or "")
+            accepted = any(address in ipaddress.ip_network(network) for network in row.allowed_cidrs)
+        except ValueError:
+            accepted = False
+        if not accepted:
+            raise TabularError(code="ML_KEY_NETWORK_DENIED", message="This caller network is not allowed by the model key.", status_code=403)
     model = db.query(MLModel).filter(MLModel.id == row.model_id).first()
     if model is None:
         raise TabularError(
@@ -1450,8 +1526,11 @@ def authenticate_key(db: DBSession, presented: Any) -> tuple[MLModelApiKey, MLMo
             message="The model this key addresses no longer exists.",
             status_code=404,
         )
-    row.last_used_at = datetime.utcnow()
-    row.use_count = int(row.use_count or 0) + 1
+    from app.services.ml_governance import policy
+    policy(db, model.workspace_id)
+    db.execute(update(MLModelApiKey).where(MLModelApiKey.id == row.id).values(
+        last_used_at=now, use_count=MLModelApiKey.use_count + 1
+    ))
     db.commit()
     return row, model
 
@@ -1570,7 +1649,9 @@ def publish_as_skill(
     the Skill answers without republishing it.
     """
 
+    from app.services.ml_governance import require_exposure_capacity
     from app.services.skills_registry.executors import validate_executor_binding
+    require_exposure_capacity(db, model)
 
     if model.status != "ready":
         raise TabularError(

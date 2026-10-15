@@ -1409,6 +1409,8 @@ def submit_training(
     )
     from app.services.execution.ml_lifecycle import register as register_execution
     register_execution(db, model)
+    from app.services.ml_permissions import audit
+    audit(db, action="training_requested", workspace_id=workspace_id, actor=created_by, model=model, after={"dataset_id": model.dataset_id, "run_id": run_id})
     db.commit()
     dispatch_training(db, model)
     db.expire_all()

@@ -25,7 +25,7 @@ from app.core.config import settings
 from app.models.skill import Skill
 from app.models.tabular import MLModel
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services import tabular_predict
 from app.services.tabular_ml import upload_model_dir
 from app.tests.ml_artifacts import CHURN_FEATURES, CHURN_ROWS, fit_churn_artifact
@@ -91,13 +91,15 @@ def app_and_client(db_session, tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def session_client(app_and_client, workspace, user) -> TestClient:
+def session_client(app_and_client, workspace, user, db_session) -> TestClient:
     """A client whose caller is a workspace session, as the Playground's is.
 
     ``predict_caller`` is overridden alongside the two session dependencies,
     because it resolves them itself in order to be able to fall back to a key.
     """
 
+    db_session.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="admin", role_template="workspace_admin"))
+    db_session.commit()
     app, client = app_and_client
     app.dependency_overrides[ml_models_api.get_current_workspace] = lambda: workspace
     app.dependency_overrides[ml_models_api.get_current_user] = lambda: user

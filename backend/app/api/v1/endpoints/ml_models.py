@@ -27,9 +27,10 @@ UI does.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, Any, Optional, Union
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import (
@@ -49,7 +50,7 @@ from app.db.base import get_db
 from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import ml_comparison
+from app.services import ml_comparison, ml_permissions
 from app.services.ml.forecast_monitoring import ActualsBinding
 from app.services.ml_methodology import ExperimentPlanRequest, MethodResponse, ProblemFrameRequest
 from app.services.ml_retraining import MonitoringPolicy
@@ -69,7 +70,6 @@ from app.services.tabular_ml import (
     request_cancel,
     runner_up,
     serialize_model,
-    set_champion,
     submit_training,
     validate_training,
 )
@@ -98,7 +98,16 @@ router = APIRouter()
 
 
 def _raise_tabular(exc: TabularError) -> None:
-    raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    headers = {"Retry-After": str((exc.details or {}).get("retry_after", 60))} if exc.status_code == 429 else None
+    raise HTTPException(status_code=exc.status_code, detail=exc.payload(), headers=headers) from exc
+
+
+def _serving_for(db, model, workspace, user):
+    result = serving_block(db, model)
+    result["permissions"] = ml_permissions.capabilities(db, workspace, user)
+    if not result["permissions"]["keys"]:
+        result["keys"] = []
+    return result
 
 
 def _lineage(db: DBSession, *, workspace: Workspace, model: MLModel) -> dict[str, Any]:
@@ -190,6 +199,7 @@ async def list_models(
     models = query.order_by(MLModel.created_at.desc()).limit(limit).all()
     badges = badges_for(db, models)
     return {
+        "permissions": ml_permissions.capabilities(db, workspace, user),
         "models": [serialize_model(row, monitor_status=badges.get(row.id)) for row in models],
         "catalog": catalog_payload(db, workspace_id=workspace.id),
     }
@@ -391,6 +401,7 @@ async def train_model(
             },
         )
     try:
+        ml_permissions.require(db, "train", workspace, user)
         model = submit_training(
             db,
             workspace_id=workspace.id,
@@ -437,7 +448,7 @@ async def get_model_detail(
         "provenance": pipeline_provenance(db, model=model),
         **_lineage(db, workspace=workspace, model=model),
         "catalog": catalog_payload(db, workspace_id=workspace.id),
-        "serving": serving_block(db, model),
+        "serving": _serving_for(db, model, workspace, user),
     }
 
 
@@ -493,7 +504,9 @@ async def cancel_model_training(
     """Flip the cooperative stop flag; the worker kills the fit's process group."""
 
     try:
+        ml_permissions.require(db, "cancel", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="cancel_requested", workspace_id=workspace.id, actor=user.id, model=model)
     except TabularError as exc:
         _raise_tabular(exc)
     model = request_cancel(db, model)
@@ -510,11 +523,14 @@ async def promote_model(
     """Point the lineage's serving alias at this version."""
 
     try:
+        ml_permissions.require(db, "promote", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        model = set_champion(db, model)
+        from app.services.ml_promotion import request as request_promotion
+        model, decision = request_promotion(db, model=model, workspace=workspace, user=user)
     except TabularError as exc:
         _raise_tabular(exc)
     return {
+        "decision": decision,
         "model": serialize_model(model, include_detail=True),
         **_lineage(db, workspace=workspace, model=model),
     }
@@ -528,7 +544,9 @@ async def remove_model(
     db: DBSession = Depends(get_db),
 ):
     try:
+        ml_permissions.require(db, "delete", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="delete", workspace_id=workspace.id, actor=user.id, model=model)
     except TabularError as exc:
         _raise_tabular(exc)
     return {"deleted": delete_model(db, model)}
@@ -550,6 +568,7 @@ class PredictBody(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+    store: bool = True
 
     inputs: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
     dataframe_records: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
@@ -579,6 +598,8 @@ class PredictCaller:
     # Set for a key: the one lineage it may call. A version within that lineage
     # is fair game, because following a promotion is what the key is for.
     lineage: Optional[str] = None
+    key_id: str | None = None
+    pinned_version: int | None = None
 
     def authorize(self, model: MLModel) -> None:
         if self.kind != "api_key" or self.lineage is None:
@@ -592,6 +613,7 @@ class PredictCaller:
 
 
 def predict_caller(
+    request: Request,
     x_api_key: Optional[str] = Header(default=None, alias=API_KEY_HEADER),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     x_workspace_slug: Optional[str] = Header(default=None, alias="X-Workspace-Slug"),
@@ -608,15 +630,20 @@ def predict_caller(
 
     if x_api_key:
         try:
-            _, model = authenticate_key(db, x_api_key)
+            key, model = authenticate_key(db, x_api_key, client_ip=request.client.host if request.client else None)
         except TabularError as exc:
             _raise_tabular(exc)
         return PredictCaller(
-            workspace_id=model.workspace_id, kind="api_key", lineage=str(model.slug)
+            workspace_id=model.workspace_id, kind="api_key", lineage=str(model.slug),
+            key_id=key.id, pinned_version=key.pinned_version
         )
 
     user = get_current_user(credentials=credentials, db=db)
     workspace = get_current_workspace(user=user, x_workspace_slug=x_workspace_slug, db=db)
+    try:
+        ml_permissions.require(db, "predict", workspace, user)
+    except TabularError as exc:
+        _raise_tabular(exc)
     return PredictCaller(
         workspace_id=workspace.id, kind="session", user_id=getattr(user, "id", None)
     )
@@ -639,13 +666,16 @@ async def predict(
     try:
         model = get_model(db, model_id=model_id, workspace_id=caller.workspace_id)
         caller.authorize(model)
+        if caller.pinned_version is not None and body.version not in (None, caller.pinned_version):
+            raise TabularError(code="ML_KEY_VERSION_DENIED", message="This key is pinned to another model version.", status_code=403)
         answer = await run_in_threadpool(
             predict_rows,
             db,
             model,
             body.records(),
-            version=body.version,
+            version=caller.pinned_version or body.version,
             caller=caller.kind,
+            key_id=caller.key_id, store=body.store,
             explain=body.explain,
             interval_level=body.interval_level,
         )
@@ -673,6 +703,7 @@ class ForecastBody(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+    store: bool = True
 
     inputs: list[dict[str, Any]] = Field(default_factory=list, max_length=500_000)
     params: ForecastParams = Field(default_factory=ForecastParams)
@@ -698,6 +729,8 @@ async def forecast(
     try:
         model = get_model(db, model_id=model_id, workspace_id=caller.workspace_id)
         caller.authorize(model)
+        if caller.pinned_version is not None and body.version not in (None, caller.pinned_version):
+            raise TabularError(code="ML_KEY_VERSION_DENIED", message="This key is pinned to another model version.", status_code=403)
         answer = await run_in_threadpool(
             request_forecast,
             db,
@@ -705,8 +738,9 @@ async def forecast(
             horizon=body.params.horizon,
             level=body.params.interval_level,
             inputs=body.inputs,
-            version=body.version,
+            version=caller.pinned_version or body.version,
             caller=caller.kind,
+            key_id=caller.key_id, store=body.store,
             explain=body.params.explain,
         )
     except TabularError as exc:
@@ -745,7 +779,9 @@ async def associate_forecast_actuals(
     from app.services.ml.forecast_monitoring import associate
 
     try:
+        ml_permissions.require(db, "policy", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="actuals_changed", workspace_id=workspace.id, actor=user.id, model=model)
         await run_in_threadpool(
             associate, db, model=model, workspace=workspace, user=user, body=body
         )
@@ -769,7 +805,9 @@ async def configure_monitoring(
     from app.services.ml_retraining import configure
 
     try:
+        ml_permissions.require(db, "policy", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="monitoring_changed", workspace_id=workspace.id, actor=user.id, model=model)
         await run_in_threadpool(
             configure, db, model=model, workspace=workspace, user=user, body=body
         )
@@ -814,7 +852,9 @@ async def configure_shadow(
     from app.services.mlops_jobs import can_configure_mlops
 
     try:
+        ml_permissions.require(db, "shadow", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="shadow_changed", workspace_id=workspace.id, actor=user.id, model=model)
         if not can_configure_mlops(db, workspace=workspace, user=user):
             raise TabularError(
                 code="ML_SHADOW_FORBIDDEN",
@@ -840,7 +880,9 @@ async def post_feedback(
     """Attach the ground truth to the prediction_id /predict handed back."""
 
     try:
+        ml_permissions.require(db, "feedback", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="feedback", workspace_id=workspace.id, actor=user.id, model=model)
         row = attach_feedback(
             db,
             model=model,
@@ -866,7 +908,9 @@ async def post_feedback_dataset(
     """Materialize labeled journal rows as a dataset the studio can retrain on."""
 
     try:
+        ml_permissions.require(db, "feedback", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="feedback_dataset", workspace_id=workspace.id, actor=user.id, model=model)
         dataset = materialize_labeled(db, model=model, created_by=getattr(user, "id", None))
     except TabularError as exc:
         _raise_tabular(exc)
@@ -877,6 +921,11 @@ class KeyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Optional[str] = Field(default=None, max_length=200)
+    expires_at: datetime | None = None
+    pinned_version: int | None = Field(default=None, ge=1)
+    allowed_cidrs: list[str] = Field(default_factory=list, max_length=32)
+    rotate_key_id: str | None = Field(default=None, max_length=36)
+    overlap_hours: int = Field(default=0, ge=0, le=168)
 
 
 @router.get("/{model_id}/keys")
@@ -887,15 +936,17 @@ async def list_keys(
     db: DBSession = Depends(get_db),
 ):
     try:
+        ml_permissions.require(db, "keys", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"serving": serving_block(db, model)}
+    return {"serving": _serving_for(db, model, workspace, user)}
 
 
 @router.post("/{model_id}/keys")
 async def create_key(
     model_id: str,
+    request: Request,
     body: KeyBody,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -904,32 +955,39 @@ async def create_key(
     """Mint a key for this lineage. The secret is in this response and nowhere else."""
 
     try:
+        ml_permissions.require(db, "keys", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
         row, secret = mint_api_key(
-            db, model=model, name=body.name, created_by=getattr(user, "id", None)
+            db, model=model, name=body.name, created_by=getattr(user, "id", None),
+            expires_at=body.expires_at, pinned_version=body.pinned_version, allowed_cidrs=body.allowed_cidrs,
+            rotate_key_id=body.rotate_key_id, overlap_hours=body.overlap_hours,
+            audit_ip=request.client.host if request.client else None,
         )
     except TabularError as exc:
         _raise_tabular(exc)
     return {
         "key": serialize_api_key(row, secret=secret),
-        "serving": serving_block(db, model),
+        "serving": _serving_for(db, model, workspace, user),
     }
 
 
 @router.delete("/{model_id}/keys/{key_id}")
 async def revoke_key(
     model_id: str,
+    request: Request,
     key_id: str,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     try:
+        ml_permissions.require(db, "keys", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="key_revoked", workspace_id=workspace.id, actor=user.id, model=model, ip=request.client.host if request.client else None, after={"key_id": key_id})
         revoke_api_key(db, model=model, key_id=key_id)
     except TabularError as exc:
         _raise_tabular(exc)
-    return {"serving": serving_block(db, model)}
+    return {"serving": _serving_for(db, model, workspace, user)}
 
 
 @router.post("/{model_id}/publish")
@@ -942,7 +1000,9 @@ async def publish(
     """Expose the lineage as a workspace Skill, typed from the model's contract."""
 
     try:
+        ml_permissions.require(db, "publish", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="published", workspace_id=workspace.id, actor=user.id, model=model)
         skill = publish_as_skill(db, model=model, created_by=getattr(user, "id", None))
     except TabularError as exc:
         _raise_tabular(exc)
@@ -950,7 +1010,7 @@ async def publish(
     return {
         "skill": skill,
         "model": serialize_model(model, include_detail=True),
-        "serving": serving_block(db, model),
+        "serving": _serving_for(db, model, workspace, user),
     }
 
 
@@ -962,7 +1022,9 @@ async def unpublish(
     db: DBSession = Depends(get_db),
 ):
     try:
+        ml_permissions.require(db, "publish", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        ml_permissions.audit(db, action="unpublished", workspace_id=workspace.id, actor=user.id, model=model)
         withdrawn = unpublish_skill(db, model=model)
     except TabularError as exc:
         _raise_tabular(exc)
@@ -970,5 +1032,5 @@ async def unpublish(
     return {
         "withdrawn": withdrawn,
         "model": serialize_model(model, include_detail=True),
-        "serving": serving_block(db, model),
+        "serving": _serving_for(db, model, workspace, user),
     }

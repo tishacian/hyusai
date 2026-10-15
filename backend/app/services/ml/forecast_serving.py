@@ -506,6 +506,8 @@ def request_forecast(
     version: Any = None,
     caller: str = "session",
     explain: bool = False,
+    store: bool = True,
+    key_id: str | None = None,
 ) -> dict[str, Any]:
     """Answer ``POST /forecast``: the version that serves, through its worker."""
 
@@ -539,6 +541,16 @@ def request_forecast(
             status_code=409,
             details={"family": family.key, "reason": reason},
         )
+    from app.services.ml_governance import admit
+    forecast_meta = (served.metrics_json or {}).get("forecast") or {}
+    try:
+        steps = int(horizon if horizon is not None else forecast_meta.get("horizon") or (served.spec_json or {}).get("horizon") or 1)
+        if isinstance(horizon, bool) or (horizon is not None and float(horizon) != steps) or steps < 1:
+            raise ValueError("invalid horizon")
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise TabularError(code="ML_FORECAST_PARAMS_INVALID", message="horizon must be a positive whole number.", status_code=422) from exc
+    estimate = max(len(rows), steps * max(1, int(forecast_meta.get("series_count") or 1)))
+    admit(db, model, rows=estimate, key_id=key_id)
     started = time.monotonic()
     if settings.worker_eager_mode:
         result = answer_for(served.id, horizon=horizon, level=level, inputs=rows, explain=explain)
@@ -585,6 +597,7 @@ def request_forecast(
         or [{"horizon": result.get("horizon"), "interval_level": result.get("interval_level")}],
         answers=_journal_forecast(forecast, result.get("interval_level")),
         duration_ms=duration_ms,
+        store=store,
     )
     record_usage(db, served, rows=len(forecast))
     return {
