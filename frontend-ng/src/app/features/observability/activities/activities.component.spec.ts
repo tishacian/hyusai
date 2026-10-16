@@ -37,7 +37,7 @@ function setup(overrides: Record<string, unknown> = {}, query: Record<string, st
   return { component, params, navigations, counts: () => ({ listCalls, platformCalls }), reset: () => reset?.() };
 }
 
-test('feature off preserves legacy operations and never loads activities', async () => {
+test('feature off does not load activities; operations is an independent facet', async () => {
   const { component, counts } = setup({ features: async () => ({ ...features, enabled: false }) });
   await component.ngOnInit(); assert.equal(component.features()?.enabled, false); assert.equal(counts().listCalls, 0); component.ngOnDestroy();
 });
@@ -94,4 +94,12 @@ test('the newest command is selected from the server descending ledger', async (
     { id: 'new', status: 'requested' }, { id: 'old', status: 'failed' },
   ] }) }, { activityId: detail.id });
   await component.ngOnInit(); assert.equal(component.command()?.id, 'new'); assert.equal(component.canCancel(), false); component.ngOnDestroy();
+});
+
+test('fixed period anchors use identical inclusive lower and exclusive upper bounds',async()=>{
+ let requested:Record<string,unknown>={}; const {component}=setup({list:async(filters:Record<string,unknown>)=>{requested=filters;return page;}},{since:'24h',as_of:'2026-10-16T12:00:00Z'});
+ await component.ngOnInit();assert.equal(requested['since'],'2026-10-15T12:00:00.000Z');assert.equal(requested['until'],'2026-10-16T12:00:00.000Z');component.ngOnDestroy();
+});
+for(const [status,expected] of [[404,'disabled'],[403,'forbidden'],[500,'load_error']] as const)test(`discovery ${status} remains explicit and never opens a stream`,async()=>{
+ let streams=0;const {component,counts}=setup({features:async()=>{throw new ActivityApiError(status,'ERROR');},follow:async()=>{streams++;}});await component.ngOnInit();assert.equal(component.error(),expected);assert.equal(counts().listCalls,0);assert.equal(streams,0);component.ngOnDestroy();
 });

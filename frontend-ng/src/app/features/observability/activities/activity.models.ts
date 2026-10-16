@@ -1,11 +1,12 @@
 export type ActivityScope = 'workspace' | 'system' | 'platform';
-export interface ActivityFeatures { enabled: boolean; scopes: ActivityScope[]; kinds: string[]; statuses: string[]; }
+export interface ActivityFeatures { enabled: boolean; execution_view_enabled?: boolean; activity_series_enabled?: boolean; scopes: ActivityScope[]; kinds: string[]; statuses: string[]; }
 export interface ActivityLink { rel: string; href: string; }
 export interface ActivityMeasurements {
   duration_ms: number | null;
   provider_cost_usd: number | null;
   cost_known: boolean;
-  cost_basis?: 'infrastructure_allocation' | 'provider_tariff' | null;
+  cost_basis?: 'infrastructure_allocation' | 'provider_tariff' | 'provider_measured' | 'catalogue_calculated' | 'unknown' | null;
+  cost_amount?: number | null; currency?: string | null; infrastructure_cost_usd?: number | null;
   cpu_seconds?: number | null;
   allocated_core_hours?: number | null;
   core_hours?: number | null;
@@ -49,7 +50,7 @@ export interface ActivityPage {
   snapshot_cursor: string;
 }
 export interface ActivityEventPage { items: ActivityEvent[]; next_cursor: string; has_more: boolean; }
-export interface ActivityFilters { system_id?: string; kind?: string; status?: string; since?: string; limit?: number; offset?: number; }
+export interface ActivityFilters { system_id?: string; kind?: string; status?: string; since?: string; until?: string; run_id?: string; limit?: number; offset?: number; }
 export interface PlatformOverview {
   generated_at: string;
   resources?: { active: number; reserved_cpu: number; reserved_memory_mb: number; unreconciled: number;

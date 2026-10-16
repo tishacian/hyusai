@@ -3,18 +3,19 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, firstValueFrom } from 'rxjs';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
-import { navigationObjectUrl } from '@app/core/navigation.catalog';
+import { navigationObjectUrl, navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
-import { WorkspaceMonitorComponent } from '../workspace-monitor.component';
+import { observabilityAnchor, periodCutoffMs } from '../observability-facets';
+import { ActivitySeriesComponent } from './activity-series.component';
 import { ActivityApiError, ActivityApiService } from './activity-api.service';
 import { activityLink, commandIsPending, mergeActivityEvents, type ActivityCommand, type ActivityDetail, type ActivityEvent, type ActivityFeatures, type ActivityPage, type ActivityScope, type PlatformOverview } from './activity.models';
 import type { SseFrame, StreamState } from './activity-stream';
 
 @Component({
   selector: 'app-activities', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, WorkspaceMonitorComponent],
+  imports: [FormsModule, RouterLink, ActivitySeriesComponent],
   templateUrl: './activities.component.html', styleUrl: './activities.component.css',
 })
 export class ActivitiesComponent implements OnInit, OnDestroy {
@@ -51,7 +52,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
   readonly stale = computed(() => this.streamState() !== 'live');
   readonly canCancel = computed(() => !!this.detail()?.capabilities.cancel && !this.stale() && !this.submitting() && !this.commandUncertain() && !(this.command() && commandIsPending(this.command()!)));
   readonly statusCounts = computed(() => Object.entries(this.page()?.aggregates.by_status ?? {}));
-  systemId = ''; kind = ''; status = ''; since = '7d';
+  systemId = ''; kind = ''; status = ''; since = '7d'; asOf = new Date().toISOString();
   private routeSubscription?: Subscription;
   private unregister?: () => void;
   private unregisterAuth?: () => void;
@@ -76,6 +77,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
       this.scope.set(requestedScope === 'platform' ? 'platform' : this.systemId || requestedScope === 'system' ? 'system' : 'workspace');
       this.kind = params.get('kind') || ''; this.status = params.get('status') || '';
       this.since = ['24h', '7d', '30d'].includes(params.get('since') || '') ? params.get('since')! : '7d';
+      this.asOf = observabilityAnchor(params.get('as_of'), this.asOf);
       this.offset.set(Math.max(0, Number(params.get('offset')) || 0));
       this.selectedId.set(params.get('activityId') || '');
       if (this.features()?.enabled) void this.reload(true);
@@ -94,7 +96,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
     } catch (error) {
       if (this.aborted(error)) return;
       this.features.set(null);
-      if (!(error instanceof ActivityApiError && error.status === 404)) this.error.set('load_error');
+      this.error.set(error instanceof ActivityApiError && error.status === 404 ? 'disabled' : error instanceof ActivityApiError && [401,403].includes(error.status) ? 'forbidden' : 'load_error');
     } finally { if (!this.destroyed) this.discovering.set(false); }
   }
 
@@ -107,6 +109,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
     } catch { /* An existing System deep link remains usable if discovery is unavailable. */ }
   }
 
+  refreshAnchor(): void { this.navigate({ as_of: new Date().toISOString(), offset: null }); }
   applyFilters(): void { this.navigate({ scope: this.scope(), systemId: this.systemId || null, kind: this.kind || null, status: this.status || null, since: this.since, offset: null, activityId: null }); }
   setScope(scope: ActivityScope): void {
     if (!this.features()?.scopes.includes(scope)) return;
@@ -142,7 +145,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
         this.platform.set(null);
         const days = this.since === '24h' ? 1 : this.since === '30d' ? 30 : 7;
         const data = await this.api.list({ system_id: this.systemId || undefined, kind: this.kind || undefined, status: this.status || undefined,
-          since: new Date(Date.now() - days * 86400000).toISOString(), limit: 25, offset: this.offset() }, this.request.signal);
+          since: new Date(periodCutoffMs(this.since, Date.parse(this.asOf))).toISOString(), until: this.asOf, limit: 25, offset: this.offset() }, this.request.signal);
         if (generation !== this.generation) return;
         this.page.set(data); this.lastSeen.set(new Date().toISOString());
         if (!this.stream) this.connect(data.snapshot_cursor);
@@ -262,9 +265,12 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
   }
   ngOnDestroy(): void { this.destroyed = true; this.reset(); this.routeSubscription?.unsubscribe(); this.unregister?.(); this.unregisterAuth?.(); }
   systemListed(id: string): boolean { return this.systems().some(system => system.id === id); }
-  readonly safeLink = activityLink;
+  safeLink(link: Parameters<typeof activityLink>[0]) { const href = activityLink(link); return href ? this.router.parseUrl(href) : null; }
   readonly objectHref = navigationObjectUrl;
+  readonly observabilityUrl = navigationSurfaceUrl('observability');
+  cost(value: NonNullable<ReturnType<typeof this.detail>>['measurements']): string { if (!value.cost_known) return this.t('unknown'); if (value.cost_amount != null && value.currency) return this.number(value.cost_amount, ' ' + value.currency); return this.number(value.infrastructure_cost_usd ?? value.provider_cost_usd, ' USD'); }
   label(group: string, value: string): string {
+    if (group === 'cost_basis' && ['provider_measured','catalogue_calculated','unknown'].includes(value)) return this.i18n.t('observability.flow.cost_basis.' + value);
     const key = `observability.activities.${group}.${value}`;
     const label = this.i18n.t(key);
     return label === key ? value : label;

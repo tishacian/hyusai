@@ -19,7 +19,10 @@ La décision du 16 octobre est détaillée dans le
 [plan Opérations, Activités et suivi du Flow](agentium-operations-activities-flow-plan.md) :
 Opérations et Activités restent deux onglets distincts ; les graphiques et
 interactions de Qualité font partie de la recette de non-régression. Ce
-complément planifie R1 à R5 sans les déclarer livrés.
+complément définit R1 à R5. Son
+[rapport d'implémentation et de qualification](agentium-operations-activities-flow-implementation.md)
+décrit la branche de travail et les vérifications de release encore ouvertes,
+sans modifier les critères du plan.
 La supervision du System porte sur la promesse (fraîcheur, complétude,
 acceptation, réception), celle du workspace sur les travaux et arbitrages,
 celle de la plateforme sur les capacités, files, baux et politiques. Toutes

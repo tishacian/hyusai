@@ -1,6 +1,7 @@
 /** Observability facets live in `?facet=` (replaceUrl). Not separate routes. */
 export const OBSERVABILITY_FACETS = [
   'operations',
+  'activities',
   'quality',
   'performance',
   'traces',
@@ -26,7 +27,7 @@ export function observabilitySystemId(
 }
 
 export function periodCutoffMs(since: string, now = Date.now()): number {
-  const days = since === '30d' ? 30 : 7;
+  const days = since === '24h' ? 1 : since === '30d' ? 30 : 7;
   return now - days * 24 * 60 * 60 * 1000;
 }
 
@@ -37,5 +38,20 @@ export function runStartedWithinPeriod(
 ): boolean {
   if (!startedAt) return false;
   const t = Date.parse(startedAt);
-  return Number.isFinite(t) && t >= periodCutoffMs(since, now);
+  return Number.isFinite(t) && t >= periodCutoffMs(since, now) && t < now;
+}
+
+/** Explicit quality/performance/traces win; historical activity links remain valid. */
+export function resolveObservabilityFacet(params: { get(name: string): string | null }): ObservabilityFacet {
+  const facet = normalizeObservabilityFacet(params.get('facet'));
+  if (['quality', 'performance', 'traces'].includes(facet)) return facet;
+  if (params.get('activityId') || (!params.get('facet') && params.get('scope'))) return 'activities';
+  return facet;
+}
+export function observabilityPeriod(value: string | null): '24h' | '7d' | '30d' {
+  return value === '24h' || value === '30d' ? value : '7d';
+}
+export function observabilityAnchor(value: string | null, fallback = new Date().toISOString()): string {
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
 }
