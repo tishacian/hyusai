@@ -78,6 +78,33 @@ def aggregate_compat(
             is not AuthorizationMode.COMPAT
         ):
             return None
+    # Service-window membership and receipt asset grants are not translated.
+    # Refuse the entire fast path whenever these kinds can enter the requested
+    # population. The native reader applies current grants, including historical
+    # receipts whose evidence has since been requalified. Never aggregate first.
+    if kind is None or kind in {"service_window", "delivery_receipt"}:
+        protected = db.execute(
+            text("""
+            SELECT 1 FROM activities a WHERE a.workspace_id = :workspace
+              AND a.kind IN ('service_window', 'delivery_receipt')
+              AND (:kind IS NULL OR a.kind = :kind)
+              AND (:status IS NULL OR a.status = :status)
+              AND (:system_id IS NULL OR a.system_id = :system_id)
+              AND (:time_basis = 'finished' OR (a.created_at >= :start AND a.created_at < :until))
+            LIMIT 1
+            """),
+            dict(
+                workspace=workspace.id,
+                kind=kind,
+                status=status,
+                system_id=system_id or None,
+                time_basis=time_basis,
+                start=start,
+                until=until,
+            ),
+        ).first()
+        if protected:
+            return None
     # BRD has catalogue/document authorization beyond ordinary job ownership.
     # Keep that native check. If the exceptional population is large, the
     # whole request falls back; this bound never truncates aggregate totals.
@@ -122,8 +149,8 @@ def aggregate_compat(
         workbench=list(WORKBENCH_EXECUTION_SURFACES),
         terminal=list(TERMINAL),
         allowed_brd=allowed_brd,
-        start_prefix=start.strftime("%Y-%m-%dT%H:%M:%S"),
-        until_prefix=(until + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+        start_prefix=(start - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+        until_prefix=(until + timedelta(days=1, seconds=1)).strftime("%Y-%m-%dT%H:%M:%S"),
     )
     # PostgreSQL accepts values Python rejects (24:00, leap seconds) and rounds
     # >6 fractional digits. Normalize a bounded distinct historical population
@@ -141,8 +168,10 @@ def aggregate_compat(
               AND (:status IS NULL OR a.status = :status)
               AND (:system_id IS NULL OR a.system_id = :system_id)
               AND a.status = ANY(:terminal)
-              AND substr(a.snapshot ->> 'finished_at', 1, 19) >= :start_prefix
-              AND substr(a.snapshot ->> 'finished_at', 1, 19) < :until_prefix
+              AND ((substr(a.snapshot ->> 'finished_at', 1, 19) >= :start_prefix
+                AND substr(a.snapshot ->> 'finished_at', 1, 19) < :until_prefix)
+                OR (a.created_at >= :start AND a.created_at < :until)
+                OR a.snapshot ->> 'finished_at' NOT LIKE '____-__-__T__:__:__%')
               AND json_typeof(a.snapshot -> 'finished_at') = 'string'
               AND NOT (a.snapshot ->> 'finished_at' ~ :canonical_timestamp)
             LIMIT 129
@@ -166,7 +195,7 @@ def aggregate_compat(
     db.execute(text("SET LOCAL TIME ZONE 'UTC'"))
     statement = text("""
     WITH authorized AS MATERIALIZED (
-      SELECT a.kind, a.status, a.origin,
+      SELECT a.kind, a.status, a.origin, a.created_at,
         CASE WHEN :time_basis = 'created' THEN a.created_at
           WHEN json_typeof(a.snapshot -> 'finished_at') IS DISTINCT FROM 'string' THEN NULL
           WHEN a.snapshot ->> 'finished_at' ~ :canonical_timestamp
@@ -178,28 +207,19 @@ def aggregate_compat(
           AND pg_input_is_valid(a.snapshot -> 'measurements' ->> 'duration_ms', 'double precision')
           THEN (a.snapshot -> 'measurements' ->> 'duration_ms')::double precision
         END AS raw_duration,
-        CASE WHEN :metric = 'cost' AND a.kind = 'compute_run' THEN c.cost_usd
-          WHEN :metric = 'cost' AND a.kind = 'skill_invocation' AND i.cost_measured IS TRUE
-            AND i.metrics -> 'cost_evidence' ->> 'state' IN ('measured', 'calculated')
-            AND length(i.metrics -> 'cost_evidence' ->> 'currency') = 3
-            AND i.metrics -> 'cost_evidence' ->> 'currency' ~ '^[A-Za-z]{3}$'
-          THEN CASE WHEN i.metrics -> 'cost_evidence' ->> 'state' = 'measured'
-                    AND upper(i.metrics -> 'cost_evidence' ->> 'currency') = 'USD'
-               THEN i.provider_cost_usd ELSE i.cost END
-        END AS raw_amount,
-        CASE WHEN a.kind = 'compute_run' THEN 'USD'
-             ELSE upper(i.metrics -> 'cost_evidence' ->> 'currency') END AS currency,
-        CASE WHEN a.kind = 'compute_run' THEN 'infrastructure_allocation'
-             WHEN i.metrics -> 'cost_evidence' ->> 'state' = 'measured' THEN 'provider_measured'
-             WHEN i.metrics -> 'cost_evidence' ->> 'state' = 'calculated' THEN 'catalogue_calculated'
-        END AS basis
+        CASE WHEN :metric = 'cost' THEN c.cost_usd END AS compute_cost,
+        CASE WHEN :metric = 'cost' THEN i.cost END AS invocation_cost,
+        CASE WHEN :metric = 'cost' THEN i.provider_cost_usd END AS provider_cost,
+        CASE WHEN :metric = 'cost' THEN i.cost_measured END AS cost_measured,
+        CASE WHEN :metric = 'cost' THEN i.metrics -> 'cost_evidence' ->> 'state' END AS evidence_state,
+        CASE WHEN :metric = 'cost' THEN i.metrics -> 'cost_evidence' ->> 'currency' END AS evidence_currency
       FROM activities a
       LEFT JOIN runs r ON r.id = a.run_id AND r.workspace_id = a.workspace_id
       LEFT JOIN systems s ON s.id = a.system_id AND s.workspace_id = a.workspace_id
-      LEFT JOIN skill_invocations i ON a.kind = 'skill_invocation' AND i.id = a.native_id
-      LEFT JOIN compute_runs c ON a.kind = 'compute_run' AND c.id = a.native_id AND c.workspace_id = a.workspace_id
-      LEFT JOIN workspace_jobs j ON a.kind = 'workspace_job' AND j.id = a.native_id AND j.workspace_id = a.workspace_id
-      LEFT JOIN sessions session ON session.id = j.session_id AND session.workspace_id = a.workspace_id
+      LEFT JOIN skill_invocations i ON (:kind IS NULL OR :kind = 'skill_invocation') AND a.kind = 'skill_invocation' AND i.id = a.native_id
+      LEFT JOIN compute_runs c ON (:kind IS NULL OR :kind = 'compute_run') AND a.kind = 'compute_run' AND c.id = a.native_id AND c.workspace_id = a.workspace_id
+      LEFT JOIN workspace_jobs j ON (:kind IS NULL OR :kind = 'workspace_job') AND a.kind = 'workspace_job' AND j.id = a.native_id AND j.workspace_id = a.workspace_id
+      LEFT JOIN sessions session ON (:kind IS NULL OR :kind = 'workspace_job') AND session.id = j.session_id AND session.workspace_id = a.workspace_id
       WHERE a.workspace_id = :workspace
         AND (:kind IS NULL OR a.kind = :kind)
         AND (:status IS NULL OR a.status = :status)
@@ -208,7 +228,8 @@ def aggregate_compat(
           ELSE a.status = ANY(:terminal) AND (
             (substr(a.snapshot ->> 'finished_at', 1, 19) >= :start_prefix
              AND substr(a.snapshot ->> 'finished_at', 1, 19) < :until_prefix)
-            OR (a.snapshot ->> 'finished_at' IS NULL AND a.created_at >= :start AND a.created_at < :until)) END
+            OR (a.created_at >= :start AND a.created_at < :until)
+            OR a.snapshot ->> 'finished_at' NOT LIKE '____-__-__T__:__:__%') END
         AND CASE WHEN nullif(a.run_id, '') IS NOT NULL THEN r.id IS NOT NULL AND (
           :admin OR r.initiated_by_user_id = :user_id OR (
             NOT (lower(btrim(coalesce(r.execution_surface, ''), :whitespace)) = ANY(:workbench)
@@ -222,12 +243,24 @@ def aggregate_compat(
           THEN j.id = ANY(:allowed_brd)
           ELSE :admin OR j.created_by_user_id = :user_id
             OR (session.user_id = :user_id AND session.status <> 'deleted') END))
+    ), normalized AS (
+      SELECT *,
+        CASE WHEN kind = 'compute_run' THEN compute_cost
+          WHEN cost_measured IS TRUE AND evidence_state IN ('measured', 'calculated')
+            AND length(evidence_currency) = 3 AND evidence_currency ~ '^[A-Za-z]{3}$'
+          THEN CASE WHEN evidence_state = 'measured' AND upper(evidence_currency) = 'USD'
+            THEN provider_cost ELSE invocation_cost END END AS raw_amount,
+        CASE WHEN kind = 'compute_run' THEN 'USD' ELSE upper(evidence_currency) END AS currency,
+        CASE WHEN kind = 'compute_run' THEN 'infrastructure_allocation'
+          WHEN evidence_state = 'measured' THEN 'provider_measured'
+          WHEN evidence_state = 'calculated' THEN 'catalogue_calculated' END AS basis
+      FROM authorized WHERE occurred >= :start AND occurred < :until
     ), measured AS MATERIALIZED (
       SELECT date_trunc(:bucket, occurred) AS bucket, kind, status, origin,
         CASE WHEN raw_duration >= 0 AND raw_duration < 'Infinity'::double precision THEN raw_duration END AS duration,
         CASE WHEN raw_amount >= 0 AND raw_amount < 'Infinity'::double precision THEN raw_amount END AS amount,
         currency, basis
-      FROM authorized WHERE occurred >= :start AND occurred < :until
+      FROM normalized
     )
     SELECT 'counts' AS section, bucket, jsonb_build_object(
       'kind', kind, 'status', status, 'total', count(*),
@@ -252,6 +285,7 @@ def aggregate_compat(
     UNION ALL
     SELECT 'missing', NULL, jsonb_build_object('total', count(*))
     FROM authorized WHERE :time_basis = 'finished' AND occurred IS NULL
+      AND created_at >= :start AND created_at < :until
     """)
     rows = db.execute(statement, params).all()
     width = timedelta(days=1) if bucket == "day" else timedelta(hours=1)
