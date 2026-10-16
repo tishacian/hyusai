@@ -423,6 +423,7 @@ def main():
                 coverage_exclusions=[
                     "HTTP transport",
                     "SSE clients",
+                    "service windows and asset-protected delivery receipts (native fallback)",
                     "large native payloads",
                     "enforcement attestations and strict-mode throughput",
                 ],

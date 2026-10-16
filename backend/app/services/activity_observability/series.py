@@ -186,18 +186,22 @@ def activity_series(
     if time_basis == "created":
         query = query.filter(Activity.created_at >= start, Activity.created_at < until)
     else:
-        # Projected dates are canonical UTC strings. Select independently of
-        # creation; a computation started before this window may finish in it.
+        # Select independently of creation. A valid historical offset can move
+        # a finish across a UTC day boundary; Python accepts offsets <24h. The
+        # widened prefix is conservative, and unusual ISO forms reach the same
+        # native parser. Exact UTC bounds are applied only after authorization.
         ended = Activity.snapshot["finished_at"].as_string()
         query = query.filter(
             Activity.status.in_(TERMINAL),
             or_(
                 and_(
-                    func.substr(ended, 1, 19) >= start.strftime("%Y-%m-%dT%H:%M:%S"),
                     func.substr(ended, 1, 19)
-                    < (until + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    >= (start - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    func.substr(ended, 1, 19)
+                    < (until + timedelta(days=1, seconds=1)).strftime("%Y-%m-%dT%H:%M:%S"),
                 ),
-                and_(ended.is_(None), Activity.created_at >= start, Activity.created_at < until),
+                and_(Activity.created_at >= start, Activity.created_at < until),
+                ~ended.like("____-__-__T__:__:__%"),
             ),
         )
     read_context = queries.VisibilityReadContext(db, workspace, user)
@@ -236,7 +240,7 @@ def activity_series(
                     else _date(row.snapshot.get("finished_at"))
                 )
                 if occurred is None:
-                    missing_finished += 1
+                    missing_finished += start <= row.created_at < until
                     continue
                 if not start <= occurred < until:
                     continue

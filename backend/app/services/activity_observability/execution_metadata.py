@@ -180,31 +180,59 @@ def invocation_cost(*, cost, provider_cost_usd, cost_measured, metrics):
     }
 
 
-def receipt_metadata_visible(db, workspace, user, receipt_id):
-    """Apply native grants/current qualification without downloading proof bytes.
-
-    The linked receipt API still verifies manifests and objects when opened.
-    This metadata projection never turns that link into a grant or a URL.
-    """
-    from app.models.service_contract import AssetVersion, DeliveryReceipt
-    from app.services import governed_assets as assets
+def service_metadata_member(db, workspace, user):
+    """Service metadata requires explicit membership, even for platform admins."""
+    from app.services.governed_assets import GovernanceError
     from app.services.service_promises import require_member
 
     try:
         require_member(db, workspace.id, user.id)
-    except assets.GovernanceError:
+        return True
+    except GovernanceError:
         return False
+
+
+def _readable_receipt_metadata(db, workspace, user, receipt_id):
+    """Native recursive grants without consuming manifests or object bytes."""
+    from app.models.service_contract import AssetVersion, DeliveryReceipt
+    from app.services import governed_assets as assets
+
+    if not service_metadata_member(db, workspace, user):
+        return None
     receipt = db.query(DeliveryReceipt).filter_by(id=receipt_id, workspace_id=workspace.id).first()
     if receipt is None:
-        return False
+        return None
     asset = db.query(AssetVersion).filter_by(id=receipt.asset_id, workspace_id=workspace.id).first()
     if asset is None:
-        return False
+        return None
     authorize = assets.native_authorizer(db, workspace, user)
     try:
-        if authorize("asset", asset) is not True:
-            return False
-        assets._native_refs(db, workspace.id, asset.manifest_json, authorize)
+        assets.resolve_asset_ref(
+            db,
+            workspace.id,
+            assets.asset_ref(asset),
+            authorize=authorize,
+            _metadata_only=True,
+        )
+        return receipt, asset
+    except assets.GovernanceError:
+        return None
+
+
+def receipt_history_visible(db, workspace, user, receipt_id):
+    """Keep authorized historical receipts when consumption needs requalification."""
+    return _readable_receipt_metadata(db, workspace, user, receipt_id) is not None
+
+
+def receipt_metadata_visible(db, workspace, user, receipt_id):
+    """Flow evidence requires recursive native grants and current qualification."""
+    from app.services import governed_assets as assets
+
+    readable = _readable_receipt_metadata(db, workspace, user, receipt_id)
+    if readable is None:
+        return False
+    receipt, asset = readable
+    try:
         current = assets.validate_qualification(
             assets.current_qualification(db, workspace.id, asset.id), asset
         )

@@ -59,7 +59,7 @@ def _workspace(db, workspace_id):
     return workspace
 
 
-def _native_refs(db, workspace_id, manifest, authorize=None, *, pin=False):
+def _native_refs(db, workspace_id, manifest, authorize=None, *, pin=False, _metadata_only=False):
     from app.models.knowledge_collection import KnowledgeCollection
     from app.models.tabular import MLModel, TabularDataset
 
@@ -80,6 +80,16 @@ def _native_refs(db, workspace_id, manifest, authorize=None, *, pin=False):
             .filter(model.id == ref["id"], model.workspace_id == workspace_id)
             .first()
         )
+        if _metadata_only:
+            # Historical metadata survives native removal/version changes, but
+            # every still-existing object retains the same native grant.
+            if (
+                row is not None
+                and authorize is not None
+                and authorize(ref["kind"], row) is not True
+            ):
+                raise GovernanceError("ASSET_NATIVE_ACCESS_DENIED", 403)
+            continue
         if row is None or getattr(row, "status", None) != "ready":
             raise GovernanceError("ASSET_NATIVE_REF_UNAVAILABLE", 404)
         if ref.get("version") is not None and ref["version"] != getattr(row, "version", None):
@@ -244,8 +254,21 @@ def register_asset(
 
 
 def resolve_asset_ref(
-    db, workspace_id: str, ref, *, authorize=None, _seen=None, verify_objects=True
+    db,
+    workspace_id: str,
+    ref,
+    *,
+    authorize=None,
+    _seen=None,
+    verify_objects=True,
+    _metadata_only=False,
 ) -> AssetVersion:
+    """Resolve the native asset graph; metadata reads never grant consumption.
+
+    The internal metadata mode preserves historical facts after unavailable
+    bytes or native versions, while applying the same grants to every existing
+    asset/native reference/parent. Default callers still verify all evidence.
+    """
     try:
         ref = AssetRef.model_validate(ref).model_dump()
     except ValueError:
@@ -254,19 +277,23 @@ def resolve_asset_ref(
         raise GovernanceError("ASSET_SCOPE_DENIED", 403)
     row = db.query(AssetVersion).filter_by(id=ref["asset_id"], workspace_id=workspace_id).first()
     if row is None:
+        if _metadata_only:
+            return None
         raise GovernanceError("ASSET_NOT_FOUND", 404)
     if asset_ref(row) != ref or content_digest(_envelope(row)) != row.digest:
         raise GovernanceError("ASSET_REF_CHANGED")
-    try:
-        saved = get_object_store().read_bytes(row.manifest_key)
-    except OSError:
-        raise GovernanceError("ASSET_MANIFEST_MISSING", 404) from None
-    if saved != canonical_bytes(_envelope(row)):
-        raise GovernanceError("ASSET_MANIFEST_CHANGED")
-    _native_refs(db, workspace_id, row.manifest_json, authorize)
+    if not _metadata_only:
+        try:
+            saved = get_object_store().read_bytes(row.manifest_key)
+        except OSError:
+            raise GovernanceError("ASSET_MANIFEST_MISSING", 404) from None
+        if saved != canonical_bytes(_envelope(row)):
+            raise GovernanceError("ASSET_MANIFEST_CHANGED")
+    _native_refs(db, workspace_id, row.manifest_json, authorize, _metadata_only=_metadata_only)
     if authorize is not None and authorize("asset", row) is not True:
         raise GovernanceError("ASSET_NATIVE_ACCESS_DENIED", 403)
-    _objects(workspace_id, row.manifest_json, verify=verify_objects)
+    if not _metadata_only:
+        _objects(workspace_id, row.manifest_json, verify=verify_objects)
     if authorize is not None:
         seen = set() if _seen is None else _seen
         if row.id in seen or len(seen) > 256:
@@ -280,6 +307,7 @@ def resolve_asset_ref(
                 authorize=authorize,
                 _seen=seen,
                 verify_objects=verify_objects,
+                _metadata_only=_metadata_only,
             )
         seen.remove(row.id)
     return row

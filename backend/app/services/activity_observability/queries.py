@@ -317,6 +317,28 @@ def filter_visible(db, rows, workspace, user, *, read_context=None):
         if job_ids
         else {}
     )
+    from app.models.service_contract import ServiceWindow
+
+    from .execution_metadata import receipt_history_visible, service_metadata_member
+
+    service_rows = [row for row in candidates if row.kind in {"service_window", "delivery_receipt"}]
+    allowed_windows, allowed_receipts = set(), set()
+    if service_rows and service_metadata_member(db, workspace, user):
+        window_ids = [row.native_id for row in service_rows if row.kind == "service_window"]
+        if window_ids:
+            allowed_windows = {
+                identifier
+                for (identifier,) in db.query(ServiceWindow.id).filter(
+                    ServiceWindow.workspace_id == workspace.id,
+                    ServiceWindow.id.in_(window_ids),
+                )
+            }
+        allowed_receipts = {
+            row.native_id
+            for row in service_rows
+            if row.kind == "delivery_receipt"
+            and receipt_history_visible(db, workspace, user, row.native_id)
+        }
     return [
         row
         for row in candidates
@@ -337,6 +359,8 @@ def filter_visible(db, rows, workspace, user, *, read_context=None):
                 **({"workspace_admin": admin} if read_context else {}),
             )
         )
+        and (row.kind != "service_window" or row.native_id in allowed_windows)
+        and (row.kind != "delivery_receipt" or row.native_id in allowed_receipts)
     ]
 
 
