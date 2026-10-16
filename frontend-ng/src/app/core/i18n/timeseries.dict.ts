@@ -1,6 +1,7 @@
 export const TIMESERIES_FR = {
   "experience.timeseries.loading": "Chargement de la série…",
-  "experience.timeseries.error": "La série ne peut pas être chargée. Vérifiez la source et vos droits.",
+  "experience.timeseries.error": "Les données du résultat ne peuvent pas être chargées. Réessayez ; si le problème persiste, contactez le responsable de l’application.",
+  "experience.timeseries.execution_unavailable": "Le graphique attend le résultat de l’action. Consultez son état pour connaître le problème.",
   "experience.timeseries.empty": "Aucune série disponible. Lancez l’action liée pour charger ses résultats.",
   "experience.timeseries.series": "Série",
   "experience.timeseries.actual": "Observé",
@@ -32,7 +33,8 @@ export const TIMESERIES_FR = {
 };
 export const TIMESERIES_EN = {
   "experience.timeseries.loading": "Loading series…",
-  "experience.timeseries.error": "The series could not be loaded. Check its source and your access.",
+  "experience.timeseries.error": "The result data could not be loaded. Try again; if the problem persists, contact the application owner.",
+  "experience.timeseries.execution_unavailable": "The chart is waiting for the action result. Check its status for details of the problem.",
   "experience.timeseries.empty": "No series available. Run the linked action to load its results.",
   "experience.timeseries.series": "Series",
   "experience.timeseries.actual": "Observed",

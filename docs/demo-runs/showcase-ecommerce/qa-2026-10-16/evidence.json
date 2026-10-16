@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-16",
+  "deployed_revision": "f4329db35d428e5f646028c783d7ee335de76e3b",
+  "method": "Local frontend and verified HTTPS upstream API; mobile queue uses isolated mocked API fixtures.",
+  "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+  "publication": {
+    "version": 4,
+    "id": "0c18cb17-ee28-4cbc-acd8-aafb6bcce150",
+    "flow_sha256": "fad0507f94c836d392a5822c81aed47e482329b5f240398661c72c12b7944556",
+    "nodes": 24,
+    "edges": 25
+  },
+  "postgresql": {
+    "claims_http": 503,
+    "claims_code": "POSTGRESQL_READ_UNAVAILABLE",
+    "catalog_http": 503,
+    "catalog_code": "PG_UNAVAILABLE",
+    "saved_connection_test": "unreachable",
+    "cause_confirmed": false
+  },
+  "forecast_trial": {
+    "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+    "status": "failed",
+    "node_id": "forecast.predict",
+    "code": "ML_ARTIFACT_LEGACY_UNSUPPORTED",
+    "financial_action": false
+  },
+  "activity_records": [
+    {
+      "kind": "skill_invocation",
+      "status": "failed",
+      "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8"
+    },
+    {
+      "kind": "run",
+      "status": "failed",
+      "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8"
+    }
+  ],
+  "impact": {
+    "window": "2026-10-10/2026-10-16",
+    "attempts": 1,
+    "completed": 0,
+    "failed_or_cancelled": 1,
+    "human_work_measured": false
+  },
+  "mocked_mobile": {
+    "threeCases": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "queue": {
+        "top": 828.3125,
+        "height": 601.4375,
+        "width": 358,
+        "text": "À traiter3LM-104349,90 €Client fictif BColis perduPriorité haute · 82 %RC-1043 · 29/09LM-1"
+      },
+      "dossier": {
+        "top": 1453.75,
+        "height": 776.75,
+        "width": 358,
+        "text": "LM-1042DossierMontant payé420,00 €Code postal de commande75011Statut transporteurLivréComm"
+      },
+      "decision": {
+        "top": 2254.5,
+        "height": 359.328125,
+        "width": 358,
+        "text": "Votre décisionProfil de traitement > 72 h35 %Priorité intermédiaire · Score de la fileLanc"
+      },
+      "action": {
+        "top": 2470.515625,
+        "height": 40,
+        "width": 312,
+        "text": "Lancer l’enquête"
+      }
+    },
+    "twentyThreeCases": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": false,
+      "queue": {
+        "top": 828.3125,
+        "height": 3495.1875,
+        "width": 358,
+        "text": "À traiter23LM-104349,90 €Client fictif BColis perduPriorité haute · 82 %RC-1043 · 29/09LM-"
+      },
+      "dossier": {
+        "top": 4347.5,
+        "height": 776.75,
+        "width": 358,
+        "text": "LM-1042DossierMontant payé420,00 €Code postal de commande75011Statut transporteurLivréComm"
+      },
+      "decision": {
+        "top": 5148.25,
+        "height": 359.328125,
+        "width": 358,
+        "text": "Votre décisionProfil de traitement > 72 h35 %Priorité intermédiaire · Score de la fileLanc"
+      },
+      "action": {
+        "top": 5364.265625,
+        "height": 40,
+        "width": 312,
+        "text": "Lancer l’enquête"
+      }
+    },
+    "completedCase": {
+      "receiptVisible": true,
+      "investigateVisible": true,
+      "investigateEnabled": true
+    }
+  }
+}

@@ -7,6 +7,7 @@
  */
 
 import type { Run } from '@app/core/canonical-api.service';
+import { navigationObjectUrl } from '@app/core/navigation.catalog';
 import { formatReceiptAmount, formatReceiptDuration, readSystemLabel, workReceipt } from './pr-to-po-receipt';
 import { FACTORY_EXPERIENCE_SLUG } from './pr-to-po-runtime';
 import { proposalFromRun, studioNodesFromRun } from './pr-to-po-studio';
@@ -134,7 +135,10 @@ function byAge(a: string | null, b: string | null, direction: 1 | -1): number {
  * The prioritised list: decisions, oldest first; then reviews, oldest first;
  * then new results, newest first. Each links where it is treated.
  */
-export function homeQueue(home: WorkHome | null | undefined): QueueItem[] {
+export function homeQueue(
+  home: WorkHome | null | undefined,
+  canOpenResult: (url: string) => boolean = () => true,
+): QueueItem[] {
   if (!home) return [];
   const decisions = [...(home.decisions?.items ?? [])]
     .sort((a, b) => byAge(a.started_at ?? null, b.started_at ?? null, 1))
@@ -166,16 +170,23 @@ export function homeQueue(home: WorkHome | null | undefined): QueueItem[] {
   const results = [...(home.results?.items ?? [])]
     .sort((a, b) => byAge(a.completed_at ?? null, b.completed_at ?? null, -1))
     .map((item): QueueItem => {
-      const url = sourceHref(item.source);
+      const runId = text(item.run_id);
+      // A completed item is a particular receipt, not an invitation to start
+      // its app again. The Work hosts do not consume a run_id query parameter;
+      // use the registered Run route so older results cannot open the latest.
+      const url = runId ? navigationObjectUrl('run', runId, {
+        lens: 'operate',
+        systemId: text(item.source?.system_id) || null,
+      }) : null;
       return {
         kind: 'result',
         id: `result:${item.run_id}`,
-        runId: item.run_id,
+        runId: runId || null,
         title: null,
         source: item.source ?? null,
         at: item.completed_at ?? null,
         receipt: item.receipt ?? null,
-        target: url ? { kind: 'work', url } : null,
+        target: url && canOpenResult(url) ? { kind: 'work', url } : null,
       };
     });
   return [...decisions, ...reviews, ...results];

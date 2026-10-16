@@ -39,6 +39,7 @@ import {
 import { WorkApiService } from './work-api.service';
 import { WorkBarComponent } from './work-bar.component';
 import { WorkAppHeaderComponent } from './work-app-header.component';
+import { hostedWorkPage, workReleasePageHref, type HostedWorkPage } from './work-release-pages-nav';
 import { WorkDecisionContextComponent } from './work-decision-context.component';
 import { workDecisionAvailable, workDecisionKey } from './work-decision';
 import { returnToFromParams } from './work-return';
@@ -106,6 +107,7 @@ const POLL_MS = 8000;
             @for (page of document().pages; track page.id) {
               <a
                 [routerLink]="pageHref(page.id)"
+                queryParamsHandling="preserve"
                 [attr.aria-current]="activePage() === page.id ? 'page' : null"
               >
                 {{ pageTitle(page.title) }}
@@ -114,6 +116,7 @@ const POLL_MS = 8000;
             @if (showValidations()) {
               <a
                 [routerLink]="pageHref(validationsPage)"
+                queryParamsHandling="preserve"
                 [attr.aria-current]="activePage() === validationsPage ? 'page' : null"
               >
                 {{ i18n.t('experience.work.validations') }}
@@ -285,6 +288,7 @@ export class WorkShellComponent {
   readonly cockpitReturnLabel = signal<string | null>(null);
   readonly renderer = signal<CertifiedExperienceRenderer | null>(null);
   readonly rawDocument = signal<unknown>({ pages: [] });
+  readonly hostedPage = signal<HostedWorkPage | null>(null);
   readonly document = computed<ExperienceDocument>(() => {
     const renderer = this.renderer();
     return renderer
@@ -397,13 +401,13 @@ export class WorkShellComponent {
     const requested = this.activePage() ?? this.requestedPage();
     const pageId = requested === VALIDATIONS ? null : requested;
     const returnTo = this.slug()
-      ? workPageHref(this.slug(), requested)
+      ? requested ? this.pageHref(requested) : workPageHref(this.slug())
       : null;
     return this.router.parseUrl(studioHref(this.experienceId(), pageId, returnTo, this.releaseId(), this.releaseNumber()));
   }
 
   pageHref(pageId: string): string {
-    return workPageHref(this.slug(), pageId);
+    return workReleasePageHref(this.slug(), pageId, this.hostedPage());
   }
 
   pageTitle(title: ExperienceDocument['pages'][number]['title']): string {
@@ -505,7 +509,9 @@ export class WorkShellComponent {
       this.state.set('unavailable');
       return;
     }
-    const href = liveHref(body.release.theme) ?? liveHref(body.experience.theme);
+    // An explicitly empty published theme must not resurrect an old app host.
+    const releaseTheme = body.release.theme ?? body.experience.theme;
+    const href = liveHref(releaseTheme);
     if (href && !isInternalWorkHref(href, body.experience.slug)) {
       void this.router.navigateByUrl(href);
       return;
@@ -520,8 +526,9 @@ export class WorkShellComponent {
     const needsQueue = documentNeedsValidations(document.pages, body.experience.pattern);
     this.renderer.set(renderer);
     this.rawDocument.set(body.release.pages);
-    this.theme.set(workTheme(body.release.theme ?? body.experience.theme));
-    this.appearance.set(brandAppearance((body.release.theme ?? body.experience.theme)?.['appearance']));
+    this.hostedPage.set(hostedWorkPage(body.release.pages, body.experience.slug, releaseTheme));
+    this.theme.set(workTheme(releaseTheme));
+    this.appearance.set(brandAppearance(releaseTheme?.['appearance']));
     this.locales.set(locales);
     this.showValidations.set(needsQueue);
     this.state.set('ready');
@@ -533,10 +540,12 @@ export class WorkShellComponent {
     const requested = this.requestedPage();
     const pages = this.document().pages;
     const first = pages[0]?.id;
+    const hosted = this.hostedPage();
     if (!first) return;
     const active =
       requested === VALIDATIONS && this.showValidations()
         ? VALIDATIONS
+        : hosted?.routeSegment === requested ? hosted.pageId
         : pages.some((page) => page.id === requested)
           ? requested!
           : first;
@@ -548,8 +557,13 @@ export class WorkShellComponent {
         : page ? this.pageTitle(page.title) : '',
     );
     queueMicrotask(() => this.focusRouteTarget());
-    if (replaceInvalid && requested !== active) {
-      void this.router.navigateByUrl(workPageHref(this.slug(), active), { replaceUrl: true });
+    const destination = this.pageHref(active);
+    if (replaceInvalid && destination !== workPageHref(this.slug(), requested)) {
+      const target = this.router.parseUrl(destination);
+      const current = this.router.parseUrl(this.router.url);
+      target.queryParams = current.queryParams;
+      target.fragment = current.fragment;
+      void this.router.navigateByUrl(target, { replaceUrl: true });
     }
   }
 
@@ -615,6 +629,7 @@ export class WorkShellComponent {
     this.emblem.set('A');
     this.renderer.set(null);
     this.rawDocument.set({ pages: [] });
+    this.hostedPage.set(null);
     this.activePage.set(null);
     this.locales.set([]);
     this.theme.set({ mode: 'light', accent: '', onAccent: '' });

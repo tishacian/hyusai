@@ -105,11 +105,43 @@
   text-decoration: none;
 }
 
+.xp-rt-link-action {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.xp-rt-link-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .xp-rt-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.xp-rt-failure-reference {
+  font-size: 12px;
+  color: var(--ck-fg-2);
+}
+
+.xp-rt-failure-reference summary {
+  cursor: pointer;
+  padding-block: 4px;
+}
+
+.xp-rt-failure-reference .xp-rt-row {
+  margin-top: 6px;
+}
+
+.xp-rt-failure-reference code {
+  overflow-wrap: anywhere;
+  user-select: all;
 }
 
 .xp-rt-field {
