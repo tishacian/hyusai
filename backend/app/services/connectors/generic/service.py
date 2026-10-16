@@ -273,6 +273,7 @@ def set_config(
                 "HF_TOKEN_ENDPOINT_CHANGED",
                 "Replace the token or clear the connection before changing its Hub endpoint.",
             )
+
         def encrypt(key: str, text: str) -> Any:
             return store_token(db, text, actor=actor, workspace_id=workspace.id)
 
@@ -404,7 +405,10 @@ def _test_postgresql(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _
         ConnectorNetworkError,
         postgresql_connection_options,
     )
+    from app.services.connectors.postgresql_diagnostics import diagnose
 
+    conn = None
+    stage = "connect"
     try:
         conn = psycopg2.connect(
             **postgresql_connection_options(host, _port(values.get("port"), 5432)),
@@ -413,18 +417,31 @@ def _test_postgresql(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _
             password=password,
             connect_timeout=int(TEST_TIMEOUT_S),
         )
+        stage = "query"
+        with conn.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout = '8s'")
+            cursor.execute("SELECT 1")
     except ConnectorNetworkError as exc:
         return "error", exc.code
-    except psycopg2.OperationalError as exc:
-        message = str(exc).lower()
-        if "authentication failed" in message or "pg_hba.conf" in message:
-            return "auth_failed", None
-        return "unreachable", None
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT 1")
+    except Exception as exc:
+        diagnostic = diagnose(exc, stage=stage)
+        if diagnostic.code == "PG_AUTH_FAILED":
+            status = "auth_failed"
+        elif diagnostic.code in {
+            "PG_UNAVAILABLE",
+            "PG_CONNECTION_REFUSED",
+            "PG_CONNECTION_TIMEOUT",
+        }:
+            status = "unreachable"
+        else:
+            status = "error"
+        return status, diagnostic.code
     finally:
-        conn.close()
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
     return "connected", None
 
 
@@ -481,7 +498,9 @@ def test_connection(connector_id: str, config: Mapping[str, Any]) -> dict[str, A
     else:
         try:
             with network_scope(config):
-                status, detail = tester(_mapping(config.get("values")), _mapping(config.get("secrets")))
+                status, detail = tester(
+                    _mapping(config.get("values")), _mapping(config.get("secrets"))
+                )
         except Exception as exc:  # noqa: BLE001 — a driver message can quote the request
             logger.warning("Connector test %s failed: %s", connector_id, type(exc).__name__)
             status, detail = "error", type(exc).__name__

@@ -534,3 +534,13 @@ test('imported forecasting artifacts round-trip only for families that advertise
   assert.equal(forecastSpec(draft, undefined, [])['artifact_id'], undefined);
   assert.equal(forecastDraftForFields(draft, [{ key: 'horizon', kind: 'int', required: true }]).artifactId, undefined);
 });
+
+
+test('a forecast on a challenger pins that version in the request and copied snippet', () => {
+  const body = {...forecastRequest({version: 2, horizon: 2, level: 0.8, covariates: {planned: 4}, stamps: ['2026-10-17', '2026-10-18']}), store: false};
+  assert.equal(body.version, 2);
+  const curl = forecastCurlSnippet({origin: 'https://example.test', endpoint: '/forecast', header: 'X-API-Key', body});
+  const copied = JSON.parse(curl.match(/-d '(.+)'/)![1]);
+  assert.deepEqual(copied, body);
+  assert.equal(forecastRequest({version: null, horizon: 2, level: 0.8, covariates: {}}).version, undefined);
+});

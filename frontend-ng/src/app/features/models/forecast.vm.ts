@@ -516,6 +516,7 @@ export interface ForecastAnswer {
 }
 
 export interface ForecastRequestBody {
+  version?: number;
   store?: boolean;
   params: { horizon: number; interval_level: number; explain?: boolean };
   inputs: Record<string, unknown>[];
@@ -566,6 +567,8 @@ export function futureStamps(
  * covariate's planned value, or just the series to forecast, or nothing.
  */
 export function forecastRequest(options: {
+  /** Pin the version whose input contract the Playground displays. */
+  version?: number | null;
   horizon: number;
   level: number;
   series?: string | null;
@@ -574,6 +577,8 @@ export function forecastRequest(options: {
   /** Ask what lifted or lowered each step (a few milliseconds more). */
   explain?: boolean;
 }): ForecastRequestBody {
+  const pinned = typeof options.version === 'number' && Number.isInteger(options.version) && options.version > 0
+    ? { version: options.version } : {};
   const names = Object.keys(options.covariates);
   const params = {
     horizon: Math.round(options.horizon),
@@ -582,6 +587,7 @@ export function forecastRequest(options: {
   };
   if (names.length && options.stamps?.length) {
     return {
+      ...pinned,
       params,
       inputs: options.stamps.map((timestamp) => ({
         ...(options.series ? { series: options.series } : {}),
@@ -590,7 +596,7 @@ export function forecastRequest(options: {
       })),
     };
   }
-  return { params, inputs: options.series ? [{ series: options.series }] : [] };
+  return { ...pinned, params, inputs: options.series ? [{ series: options.series }] : [] };
 }
 
 /** The same call for a terminal: MLflow's invocation shape, with a model key. */
@@ -609,7 +615,7 @@ export function forecastCurlSnippet(options: {
     `curl -X POST ${options.origin}${options.endpoint} \\`,
     `  -H '${options.header}: ${key}' \\`,
     `  -H 'Content-Type: application/json' \\`,
-    `  -d '${JSON.stringify({ params: options.body.params, inputs })}'`,
+    `  -d '${JSON.stringify({ ...options.body, inputs })}'`,
   ].join('\n');
 }
 

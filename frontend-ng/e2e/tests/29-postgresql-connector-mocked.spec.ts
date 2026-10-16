@@ -13,10 +13,11 @@ const columns = [
 const fingerprint = 'a'.repeat(64);
 const description = { schema: 'showcase_ecommerce', table: 'claims', fingerprint, columns };
 
-async function setup(page: Page, theme = 'light', locale = 'fr', options: { admin?: boolean; importError?: string; retry?: boolean; schemaChanged?: boolean; secondWorkspace?: boolean; queryFailedOnce?: boolean } = {}) {
+async function setup(page: Page, theme = 'light', locale = 'fr', options: { admin?: boolean; importError?: string; retry?: boolean; schemaChanged?: boolean; secondWorkspace?: boolean; queryFailedOnce?: boolean; testErrorOnce?: string } = {}) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   let importCount = 0;
   let previewCount = 0;
+  let testCount = 0;
   const second = { ...workspace, id: 'qa-postgresql-other', slug: 'qa-postgresql-other', name: 'Other QA' };
   const workspaces = options.secondWorkspace ? [workspace, second] : [workspace];
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.fulfill({ status: 204, body: '' }));
@@ -36,7 +37,9 @@ async function setup(page: Page, theme = 'light', locale = 'fr', options: { admi
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() });
     if (path === '/connectors') return json(route, { can_configure: options.admin !== false, connectors: [request.headers()['x-workspace-slug'] === second.slug ? { ...config, values: { ...config.values, database: 'other-workspace-database' } } : config] });
     if (path === '/connectors/postgresql' && request.method() === 'PUT') return json(route, { ...config, values: writes.at(-1)!.body['values'] });
-    if (path === '/connectors/postgresql/test') return json(route, { status: 'connected', checked_at: '2026-10-02T12:00:00Z' });
+    if (path === '/connectors/postgresql/test') return json(route, options.testErrorOnce && ++testCount === 1
+      ? { status: 'unreachable', detail: options.testErrorOnce, checked_at: '2026-10-16T12:00:00Z' }
+      : { status: 'connected', checked_at: '2026-10-16T12:00:00Z' });
     if (path === '/connectors/postgresql/catalog') return json(route, { tables: [{ schema: 'showcase_ecommerce', name: 'claims', kind: 'table' }, { schema: 'showcase_ecommerce', name: 'orders', kind: 'table' }, { schema: 'finance', name: 'ledger', kind: 'partitioned' }], checked_at: '2026-10-02T12:00:00Z', limits: { import_rows: 10000 }, datasets_enabled: true });
     if (path === '/connectors/postgresql/table') return json(route, description);
     if (path === '/connectors/postgresql/preview') {
@@ -129,11 +132,37 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
   test('a retry after an unavailable response reuses the import request identity', async ({ page }) => {
     const writes = await setup(page, 'light', 'fr', { importError: 'PG_UNAVAILABLE', retry: true }); await page.goto('/connectors/postgresql'); await preview(page);
     await page.getByRole('button', { name: 'Créer le dataset', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('indisponible');
+    await expect(page.getByRole('alert')).toContainText('Agentium n’a pas pu accéder à PostgreSQL');
     await page.getByRole('button', { name: 'Créer le dataset', exact: true }).click();
     await expect(page.getByTestId('pg-import-success')).toBeVisible();
     const imports = writes.filter(w => w.path.endsWith('/import'));
     expect(imports).toHaveLength(2); expect(imports[0].body['request_id']).toBe(imports[1].body['request_id']);
+  });
+
+  test('a failed connection test explains the next action and clears after successful retry on mobile', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page, 'dark', 'fr', { testErrorOnce: 'PG_TLS_TRUST_REQUIRED' });
+    await page.goto('/connectors/postgresql');
+    await page.getByRole('button', { name: 'Tester la connexion', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('Un administrateur doit configurer ce certificat côté Agentium');
+    await expect(page.getByTestId('pg-connection-state')).toContainText('Connexion non vérifiée');
+    expect((await new AxeBuilder({ page }).include('.pg-page').analyze()).violations).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole('alert').screenshot({ path: testInfo.outputPath('postgresql-tls-diagnostic-mobile.png'), animations: 'disabled' });
+    await page.getByRole('button', { name: 'Réessayer', exact: true }).click();
+    await expect(page.getByTestId('pg-connection-state')).toContainText('Connexion vérifiée');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('a denied explorer destination points to access policy rather than an offline database', async ({ page }) => {
+    await setup(page, 'light', 'en');
+    await page.route('**/api/v1/connectors/postgresql/catalog', route => route.fulfill({
+      status: 403, contentType: 'application/json', body: JSON.stringify({ detail: { code: 'CONNECTOR_DESTINATION_DENIED' } }),
+    }));
+    await page.goto('/connectors/postgresql');
+    await page.getByRole('button', { name: 'Explore tables', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('Ask the administrator to check the allowed destinations');
+    await expect(page.getByRole('alert')).not.toContainText('could not reach');
   });
 
   test('a changed source requires renewed discovery and blocks importing', async ({ page }) => {

@@ -9,14 +9,13 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
-import { pgFailure, pgTableKey, type PgCatalog as Catalog, type PgDescription as Description, type PgFailure, type PgPreview as Preview, type PgTable } from './postgresql.types';
+import { pgFailure, pgTestFailure, pgTableKey, type PgCatalog as Catalog, type PgDescription as Description, type PgFailure, type PgPreview as Preview, type PgTable, type PgTestResult as TestResult } from './postgresql.types';
 import { PgTablePickerComponent } from './pg-table-picker.component';
 import { DatasetDto } from '@app/features/data/data.service';
 
 interface Config {
   id: string; values: Record<string, string>; secrets_set: Record<string, boolean>; configured: boolean;
 }
-interface TestResult { status: string; checked_at: string; }
 /** The card an error belongs to, so it shows next to the action that failed. */
 type Step = 'page' | 'connection' | 'explorer' | 'dataset';
 interface Failure extends PgFailure { step: Step; retry: (() => void) | null; }
@@ -185,7 +184,11 @@ export class PostgresqlConnectorComponent {
     this.testing.set(true); this.failure.set(null); this.testResult.set(null);
     try {
       const result = await firstValueFrom(this.http.post<TestResult>(`${this.base}/test`, {}));
-      if (epoch === this.epoch) this.testResult.set(result);
+      if (epoch === this.epoch) {
+        this.testResult.set(result);
+        const diagnostic = pgTestFailure(result);
+        if (diagnostic) this.failure.set({ ...diagnostic, step: 'connection', retry: () => void this.test() });
+      }
     } catch (e) { if (epoch === this.epoch) this.fail(e, 'connection', () => void this.test()); }
     finally { if (epoch === this.epoch) this.testing.set(false); }
   }

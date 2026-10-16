@@ -37,6 +37,7 @@ KEY_PACKAGES = (
     "skops",
     "mlflow",
     "joblib",
+    "cloudpickle",
     "pyarrow",
     "skforecast",
     "torch",
@@ -93,7 +94,7 @@ def beat(
     row.queues = sorted(set(queues))
     row.image_revision = (identity["image_revision"] or "")[:80] or None
     row.fingerprint = identity["fingerprint"]
-    row.packages_json = dict(identity["packages"])
+    row.packages_json = {**identity["packages"], "agentium_python": identity["python"]}
     if settings.ml_runtime == "ml-deep":
         from app.services.ml.local_models import artifact_model_descriptors, local_model_descriptors
 
@@ -148,6 +149,55 @@ def serving_availability(
         missing = family.missing_modules()
         return (False, "runtime_missing") if missing else (True, None)
     return _heard_on(family.runtime, family.serve_queue(), db, now)
+
+
+def require_artifact_runtime(family: Family, artifact: dict, db: Any = None) -> None:
+    """Check metadata against every current consumer, never the API's deep stack.
+
+    Celery can choose any worker on the serving queue. A mixed or incomplete
+    fleet cannot be advertised as callable, even when one consumer is compatible.
+    Old heartbeats become qualified on their next beat; no artifact is rewritten.
+    """
+    from app.resources.ml_artifact_contract import runtime_versions
+    from app.services.ml.artifacts import validate_model_runtime
+    from app.services.tabular_datasets import TabularError
+
+    versions = runtime_versions(family.key, artifact.get("serialization"))
+    if family.serving == "in_process" or settings.worker_eager_mode:
+        validate_model_runtime(artifact, versions)
+        return
+    from app.models.tabular import MLRuntimeHeartbeat
+
+    cutoff = datetime.utcnow() - timedelta(seconds=float(settings.ml_runtime_heartbeat_ttl_s))
+    rows = (
+        []
+        if db is None
+        else db.query(MLRuntimeHeartbeat)
+        .filter(
+            MLRuntimeHeartbeat.runtime == family.runtime,
+            MLRuntimeHeartbeat.seen_at >= cutoff,
+        )
+        .all()
+    )
+    consumers = [row for row in rows if family.serve_queue() in (row.queues or [])]
+    if not consumers:
+        raise TabularError(
+            code="ML_FAMILY_UNAVAILABLE",
+            message="No model worker is listening right now.",
+            status_code=409,
+        )
+    for row in consumers:
+        packages = row.packages_json or {}
+        python = packages.get("agentium_python")
+        if not isinstance(python, str) or not python:
+            raise TabularError(
+                code="ML_ARTIFACT_RUNTIME_UNVERIFIED",
+                message="The model worker has not reported its reader runtime. Wait for its next heartbeat or update the worker.",
+                status_code=409,
+            )
+        current = {name: packages.get(name, "missing") for name in versions if name != "python"}
+        current["python"] = ".".join(python.split(".")[:2])
+        validate_model_runtime(artifact, current)
 
 
 def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[bool, str | None]:
