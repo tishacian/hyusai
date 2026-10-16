@@ -16,6 +16,13 @@ interface Benchmark { state: string; hourly_eur: string; planned_pairs: number; 
   selector: 'app-claims-benchmark', standalone: true, imports: [FormsModule, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`:host{display:block;margin:24px 32px}.benchmark{padding:20px;border:1px solid var(--ck-stroke-2);border-radius:8px;background:var(--ck-bg-panel);color:var(--ck-fg-1)}summary{cursor:pointer;font-weight:600}p,li,label{font-size:13px;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:20px 0}.metrics span{display:block;font-size:12px;color:var(--ck-fg-2)}.metrics strong{display:block;font-size:22px;margin-top:8px}.controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:16px 0}label{display:flex;flex-direction:column;gap:6px}input,select,textarea,button{font:inherit;color:inherit;border:1px solid var(--ck-stroke-2);border-radius:4px;padding:10px;background:var(--ck-bg-inset)}button{cursor:pointer;min-height:40px}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}button:disabled{opacity:.5}table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:start;padding:10px;border-bottom:1px solid var(--ck-stroke-2)}.table-wrap{overflow:auto}.proofs{display:flex;flex-wrap:wrap;gap:12px}.proofs label{flex-direction:row;align-items:center}.quiet{color:var(--ck-fg-2)}.error{color:var(--ck-signal-danger)}@media(max-width:760px){:host{margin:16px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}`],
   template: `
+    @if (loading()) { <p role="status">{{ i18n.t('experience.claims.mode_pending') }}</p> }
+    @if (loadProblem()) {
+      <div class="benchmark benchmark-load-error" role="alert">
+        <p>{{ i18n.t('experience.claims.benchmark.load_error') }}</p>
+        <button [disabled]="loading() || busy()" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button>
+      </div>
+    }
     @if (data(); as benchmark) {
       <details class="benchmark" [open]="readOnly()" data-testid="claims-benchmark">
         <summary>{{ i18n.t('experience.claims.benchmark.title') }} · {{ benchmark.completed_quality_pairs }}/{{ benchmark.planned_pairs }}</summary>
@@ -71,20 +78,35 @@ export class ClaimsBenchmarkComponent {
   readonly caseSelected = output<string>(); readonly manualActive = output<boolean>();
   readonly modeReady = output<boolean>();
   readonly data = signal<Benchmark | null>(null); readonly active = signal<Trial | null>(null); readonly busy = signal(false); readonly problem = signal(false);
+  readonly loading = signal(false); readonly loadProblem = signal(false);
   readonly unreviewed = computed(() => this.data()?.trials.filter(t => t.state === 'finished' && !t.review && t.operator_id !== this.auth.userId()) ?? []);
   readonly corrections = computed(() => this.data()?.trials.filter(t => t.operator_id === this.auth.userId() && t.state === 'finished' && t.review?.passed === false) ?? []);
   readonly actionOptions = Object.keys(CLAIM_ACTION_LABELS);
   pairId = 'P01'; condition: 'manual' | 'assisted' = 'manual'; action = ''; amount = ''; note = ''; references: string[] = []; reviewId = ''; reviewNote = '';
   private generation = 0;
   constructor() { effect(() => { this.workspace.current()?.id; this.auth.authEpoch(); this.active.set(null); this.modeReady.emit(false); this.manualActive.emit(false); void this.load(); }); this.destroy.onDestroy(() => this.generation++); }
-  async load(): Promise<void> { const g = ++this.generation; this.data.set(null); this.modeReady.emit(false); try { const data = await firstValueFrom(this.api.get<Benchmark>('/ecommerce-claims/benchmark')); if (g === this.generation) { this.data.set(data); const trial = data.trials.find(t => t.operator_id === this.auth.userId() && ['active', 'paused'].includes(t.state)); this.active.set(trial ?? null); this.manualActive.emit(trial?.condition === 'manual'); if (trial && !this.readOnly()) this.caseSelected.emit(trial.claim_id); this.modeReady.emit(true); } } catch { /* Keep machine aids hidden until the session condition is known. */ } }
+  async load(): Promise<void> {
+    const g = ++this.generation; this.data.set(null); this.modeReady.emit(false); this.loading.set(true); this.loadProblem.set(false); this.problem.set(false); this.busy.set(false);
+    try {
+      const data = await firstValueFrom(this.api.get<Benchmark>('/ecommerce-claims/benchmark'));
+      if (g !== this.generation) return;
+      this.data.set(data);
+      const trial = data.trials.find(t => t.operator_id === this.auth.userId() && ['active', 'paused'].includes(t.state));
+      this.active.set(trial ?? null); this.manualActive.emit(trial?.condition === 'manual');
+      if (trial && !this.readOnly()) this.caseSelected.emit(trial.claim_id);
+      this.modeReady.emit(true);
+    } catch {
+      // No fallback to assisted mode when the session condition is unknown.
+      if (g === this.generation) this.loadProblem.set(true);
+    } finally { if (g === this.generation) this.loading.set(false); }
+  }
   private async mutate(path: string, body: unknown): Promise<void> {
-    const g = this.generation; this.busy.set(true); this.problem.set(false);
+    const g = this.generation; this.busy.set(true); this.problem.set(false); this.modeReady.emit(false);
     try { const trial = await firstValueFrom(this.api.post<Trial>(path, body)); if (g !== this.generation) return;
       const active = ['active', 'paused'].includes(trial.state) ? trial : null; this.active.set(active); this.manualActive.emit(active?.condition === 'manual');
       if (active) this.caseSelected.emit(active.claim_id);
-      const data = await firstValueFrom(this.api.get<Benchmark>('/ecommerce-claims/benchmark')); if (g === this.generation) { this.data.set(data); const current = data.trials.find(t => t.operator_id === this.auth.userId() && ['active', 'paused'].includes(t.state)); this.active.set(current ?? null); this.manualActive.emit(current?.condition === 'manual'); }
-    } catch { if (g === this.generation) this.problem.set(true); } finally { if (g === this.generation) this.busy.set(false); }
+      const data = await firstValueFrom(this.api.get<Benchmark>('/ecommerce-claims/benchmark')); if (g === this.generation) { this.data.set(data); const current = data.trials.find(t => t.operator_id === this.auth.userId() && ['active', 'paused'].includes(t.state)); this.active.set(current ?? null); this.manualActive.emit(current?.condition === 'manual'); this.modeReady.emit(true); }
+    } catch { if (g === this.generation) { this.problem.set(true); this.data.set(null); this.loadProblem.set(true); } } finally { if (g === this.generation) this.busy.set(false); }
   }
   start(): void { this.action = ''; this.amount = ''; this.note = ''; this.references = []; void this.mutate('/ecommerce-claims/benchmark/sessions', { pair_id: this.pairId, condition: this.condition }); }
   event(action: 'pause' | 'resume' | 'finish'): void { const trial = this.active(); if (!trial) return; void this.mutate(`/ecommerce-claims/benchmark/sessions/${trial.id}/events`, { action, expected_sequence: trial.events.length, ...(action === 'finish' ? { result: { action: this.action, amount: this.amount.replace(',', '.'), references: this.references, note: this.note } } : {}) }); }

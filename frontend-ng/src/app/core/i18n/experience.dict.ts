@@ -1,5 +1,6 @@
 import { PREDICTION_FR, PREDICTION_EN } from './prediction.dict';
 import { TIMESERIES_FR, TIMESERIES_EN } from './timeseries.dict';
+import { WORK_RECORDS_FR, WORK_RECORDS_EN } from './work-records.dict';
 /**
  * Experience / Cockpit create hub — business applications, the /create
  * intent page, and the inventory stub.
@@ -13,6 +14,7 @@ import { TIMESERIES_FR, TIMESERIES_EN } from './timeseries.dict';
 import { CLAIMS_FR, CLAIMS_EN } from './claims.dict';
 
 export const EXPERIENCE_FR = {
+  ...WORK_RECORDS_FR,
   ...TIMESERIES_FR,
   ...CLAIMS_FR,
   ...PREDICTION_FR,
@@ -1391,6 +1393,7 @@ export const EXPERIENCE_FR = {
 } as const satisfies Record<string, string>;
 
 export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
+  ...WORK_RECORDS_EN,
   ...TIMESERIES_EN,
   ...CLAIMS_EN,
   ...PREDICTION_EN,

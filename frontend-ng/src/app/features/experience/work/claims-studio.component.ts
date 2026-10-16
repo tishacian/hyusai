@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -9,19 +10,21 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { WorkActionReceiptComponent, type WorkActionReceipt } from '@app/shared/work-records/work-action-receipt.component';
 import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
+import { WorkRecordQueueComponent, type WorkRecordItem } from '@app/shared/work-records/work-record-queue.component';
 import { workSourceRef } from '@app/shared/work-sources/work-source';
 import { WorkBarComponent } from './work-bar.component';
 import { WorkAppHeaderComponent } from './work-app-header.component';
 import { WorkReleasePagesNavComponent } from './work-release-pages-nav.component';
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
 import { WorkApiService } from './work-api.service';
-import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunProjection, type ClaimRow, type ClaimSnapshot } from './claim-run';
+import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
+  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -37,7 +40,6 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
         @if (loading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
         @if (error()) { <div class="claims-error" role="alert"><p>{{ i18n.t('experience.claims.unavailable') }}</p><button class="xp-work-btn" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button></div> }
         @if (!loading() && !error()) {
-          @if (!benchmarkReady()) { <p class="claims-mode-pending" role="status">{{ i18n.t('experience.claims.mode_pending') }} <button class="xp-work-btn claims-compact" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button></p> }
           @if (machineAidsAllowed()) {
             <section class="claims-triage" aria-labelledby="claims-triage-title">
               <div class="claims-section-title"><h2 id="claims-triage-title">{{ i18n.t(triage()?.composition ? 'experience.claims.triage.composed_title' : 'experience.claims.triage.title') }}</h2>
@@ -65,16 +67,9 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
             </section>
           }
           <aside class="claims-queue" [attr.aria-label]="i18n.t('experience.claims.queue')">
-            <div class="claims-section-title"><h2>{{ i18n.t('experience.claims.queue') }}</h2><span>{{ rows().length }}</span></div>
-            @for (row of orderedRows(); track row.claim_id) {
-              <button class="claims-case" [class.is-selected]="selected() === row.claim_id" [attr.aria-pressed]="selected() === row.claim_id"
-                [disabled]="busy() || manualMode()" (click)="select(row.claim_id)">
-                <span class="claims-case-top"><strong>{{ row.order_id }}</strong><b>{{ money(row.paid_amount, row.currency) }}</b></span>
-                <span>{{ row.display_name }}</span><span class="claims-case-reason">{{ i18n.t(reasonLabel(row.reason)) }}</span>
-                @if (machineAidsAllowed() && priorityFor(row.claim_id); as advice) { <span class="claims-priority" [attr.data-priority]="advice.priority">{{ priorityLabel(advice.priority) }} · {{ percent(advice.risk) }}</span> }
-                <span class="claims-case-foot">{{ row.claim_id }} · {{ row.opened_at | date:'dd/MM' }}</span>
-              </button>
-            } @empty { <p>{{ i18n.t('experience.claims.empty') }}</p> }
+            <app-work-record-queue [title]="i18n.t('experience.claims.queue')" [items]="queueItems()"
+              [selected]="selected()" [disabled]="busy() || manualMode()" [emptyText]="i18n.t('experience.claims.empty')"
+              (selectedChange)="select($event)" />
             <p class="claims-quiet">{{ i18n.t('experience.claims.synthetic') }}</p>
           </aside>
           @if (!detail() && !detailLoading() && actionError()) { <div class="claims-error" role="alert"><p>{{ i18n.t('experience.claims.unavailable') }}</p><button class="xp-work-btn" (click)="select(selected()!)">{{ i18n.t('experience.claims.retry') }}</button></div> }
@@ -117,22 +112,30 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                 </div> }
               </div> }
               @if (projection().proposal; as proposal) {
+                @if (!proposal.receipt_id) {
                 <div class="claims-recommendation" [class.is-warning]="proposal.action !== 'refund'"><span class="claims-eyebrow">{{ i18n.t('experience.claims.proposal') }}</span><h3>{{ i18n.t(actionLabel(proposal.action)) }}</h3><p>{{ i18n.t(reasonLabel(proposal.reason)) }}</p>
                   @if (proposal.action === 'refund') { <strong class="claims-amount">{{ money(proposal.amount, proposal.currency) }}</strong> }
                   @if (proposal.missing_references.length) { <p>{{ i18n.t('experience.claims.missing') }}</p> }
                 </div>
-                @if (proposal.receipt_id) { <div class="claims-receipt" role="status"><h3>{{ i18n.t('experience.claims.receipt') }}</h3><p>{{ i18n.t('experience.claims.simulated') }}</p><code>{{ proposal.receipt_id }}</code></div> }
-              } @else { <p class="claims-quiet">{{ i18n.t('experience.claims.start_hint') }}</p> }
+                }
+              } @else if (!recordedActions().length) { <p class="claims-quiet">{{ i18n.t('experience.claims.start_hint') }}</p> }
+              @if (recordedActions()[0]; as receipt) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }
               @if (machineAidsAllowed() && run()?.status === 'hitl_pending') {
                 <div class="claims-approval"><p>{{ i18n.t('experience.claims.approval_hint') }}</p>
                   <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy()" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>
                   <button class="xp-work-btn" [disabled]="busy()" (click)="decide('reject')">{{ i18n.t('experience.claims.reject') }}</button>
                 </div>
               } @else if (run()?.status === 'running' || run()?.status === 'pending') { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
-              @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
+              @else if (recordedActions().length) {
+                <details class="claims-reexamine">
+                  <summary>{{ i18n.t('experience.claims.reexamine') }}</summary>
+                  <p class="claims-quiet">{{ i18n.t('experience.claims.reexamine_hint') }}</p>
+                  <button class="xp-work-btn" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate(true)">{{ i18n.t('experience.claims.reinvestigate') }}</button>
+                </details>
+              } @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
               @if (actionError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.action_error') }}</p> }
               <p class="claims-quiet">{{ i18n.t('experience.claims.action_notice') }}</p>
-              @if (dossier.receipts.length) { <h3>{{ i18n.t('experience.claims.history') }}</h3>@for (receipt of dossier.receipts; track receipt.receipt_id) { <p class="claims-history">{{ i18n.t(actionLabel(receipt.action)) }}<br><small>{{ i18n.t('experience.claims.simulated') }}</small></p> } }
+              @if (recordedActions().length > 1) { <details class="claims-reexamine"><summary>{{ i18n.t('experience.claims.history') }}</summary>@for (receipt of recordedActions().slice(1); track receipt.receipt_id) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }</details> }
             </aside>
           } @else if (detailLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
         }
@@ -146,6 +149,8 @@ export class ClaimsStudioComponent {
   private readonly work = inject(WorkApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroy = inject(DestroyRef);
   readonly releasePages = signal<unknown>(null);
   readonly rows = signal<ClaimRow[]>([]); readonly selected = signal<string | null>(null);
@@ -159,10 +164,23 @@ export class ClaimsStudioComponent {
   private readonly clock = signal(Date.now());
   readonly triage = computed(() => freshTriage(this.triageData(), this.clock()));
   readonly orderedRows = computed(() => queueByPriority(this.rows(), this.triage(), !this.machineAidsAllowed()));
+  readonly queueItems = computed<WorkRecordItem[]>(() => this.orderedRows().map(row => {
+    const priority = this.machineAidsAllowed() ? this.priorityFor(row.claim_id) : null;
+    const knownState = ['to_investigate', 'waiting_information', 'awaiting_decision', 'resolved'].includes(row.state);
+    const opened = Date.parse(row.opened_at);
+    return {
+      id: row.claim_id, title: row.order_id, subtitle: row.display_name,
+      value: this.money(row.paid_amount, row.currency), description: this.i18n.t(this.reasonLabel(row.reason)),
+      meta: row.claim_id + (Number.isFinite(opened) ? ' · ' + new Intl.DateTimeFormat(this.i18n.locale(), { day: '2-digit', month: '2-digit' }).format(opened) : ''),
+      status: { value: row.state, label: knownState ? this.i18n.t('experience.claims.state.' + row.state) : this.i18n.t('experience.claims.unknown') },
+      ...(priority ? { badge: { label: `${this.priorityLabel(priority.priority)} · ${this.percent(priority.risk)}`, ...(priority.priority === 'high' ? { tone: 'warning' as const } : {}) } } : {}),
+    };
+  }));
   readonly advice = computed(() => selectedAdvice(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly caseData = computed(() => caseDatasets(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly busy = signal(false); readonly actionError = signal(false); readonly sourceDocumentId = signal<string | null>(null);
   readonly projection = computed(() => claimRunProjection(this.machineAidsAllowed() ? this.run() : null));
+  readonly recordedActions = computed(() => this.machineAidsAllowed() ? recordedClaimActions(this.detail(), this.projection().proposal) : []);
   readonly sources = computed(() => {
     const cited = this.projection().proposal?.citations ?? [];
     const originals: Record<string, unknown>[] = this.detail()?.sources ?? [];
@@ -180,6 +198,16 @@ export class ClaimsStudioComponent {
   private poll?: Subscription; private priorityPoll?: Subscription; private detailRequest?: Subscription; private generation = 0;
   constructor() {
     effect(() => { this.workspace.current()?.id; void this.load(); });
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroy)).subscribe(params => {
+      const id = params.get('record');
+      if (this.loading() || !id || id === this.selected()) return;
+      // A manual trial or an in-flight action owns its selection until settled.
+      if (this.busy() || this.manualMode()) {
+        if (this.selected()) void this.writeRecordUrl(this.selected()!, true);
+        return;
+      }
+      if (this.rows().some(row => row.claim_id === id)) this.select(id, false);
+    });
     timer(0, 60000).pipe(takeUntilDestroyed(this.destroy)).subscribe(() => this.clock.set(Date.now()));
     this.destroy.onDestroy(() => { this.generation++; this.poll?.unsubscribe(); this.priorityPoll?.unsubscribe(); this.detailRequest?.unsubscribe(); });
   }
@@ -199,7 +227,9 @@ export class ClaimsStudioComponent {
       const response = await firstValueFrom(this.api.get<{ data: { queue: ClaimRow[] } }>('/ecommerce-claims'));
       if (generation !== this.generation) return;
       this.rows.set(response.data.queue); this.loading.set(false);
-      if (response.data.queue[0]) this.select(response.data.queue[0].claim_id);
+      const requested = this.route.snapshot.queryParamMap.get('record');
+      const initial = response.data.queue.find(row => row.claim_id === requested) ?? response.data.queue[0];
+      if (initial) { this.select(initial.claim_id, false); void this.writeRecordUrl(initial.claim_id, true); }
       void this.loadTriage(generation);
     } catch { if (generation === this.generation) { this.error.set(true); this.loading.set(false); } }
   }
@@ -239,10 +269,14 @@ export class ClaimsStudioComponent {
       });
     } catch { if (generation === this.generation) { this.triageBusy.set(false); this.triageError.set(true); } }
   }
-  select(id: string): void {
+  select(id: string, updateUrl = true): void {
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
     this.selected.set(id); this.sourceDocumentId.set(null); this.actionError.set(false); this.detailLoading.set(true);
+    if (updateUrl) void this.writeRecordUrl(id);
     this.refreshDetail(id);
+  }
+  private writeRecordUrl(id: string, replaceUrl = false): Promise<boolean> {
+    return this.router.navigate([], { relativeTo: this.route, queryParams: { record: id }, queryParamsHandling: 'merge', replaceUrl });
   }
   private refreshDetail(id: string): void {
     this.detailRequest = this.api.get<ClaimSnapshot>(`/ecommerce-claims/${encodeURIComponent(id)}`).pipe(takeUntilDestroyed(this.destroy)).subscribe({
@@ -250,8 +284,10 @@ export class ClaimsStudioComponent {
       error: () => { this.detailLoading.set(false); this.actionError.set(true); },
     });
   }
-  async investigate(): Promise<void> {
-    const id = this.selected(); if (!id || this.busy() || !this.machineAidsAllowed()) return;
+  async investigate(reexamine = false): Promise<void> {
+    const id = this.selected();
+    if (!id || this.busy() || !this.machineAidsAllowed() || this.recordedActions().length && !reexamine
+      || ['running', 'pending', 'hitl_pending'].includes(this.run()?.status ?? '')) return;
     const generation = this.generation;
     this.busy.set(true); this.actionError.set(false);
     try {
@@ -269,6 +305,7 @@ export class ClaimsStudioComponent {
     this.poll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(runId)), takeUntilDestroyed(this.destroy)).subscribe({
       next: run => { if (g !== this.generation || this.selected() !== claimId) return;
         if (!run) { this.actionError.set(true); this.poll?.unsubscribe(); return; }
+        this.clock.set(Date.now());
         this.run.set(run);
         if (['completed', 'failed', 'cancelled'].includes(run.status)) { this.poll?.unsubscribe(); this.refreshDetail(claimId); }
         if (run.status === 'failed') this.actionError.set(true);
@@ -285,6 +322,13 @@ export class ClaimsStudioComponent {
   money(value: string | null | undefined, currency: string): string {
     if (value == null || !value.trim() || !/^[A-Z]{3}$/.test(currency) || !Number.isFinite(Number(value))) return this.i18n.t('experience.claims.unknown');
     return new Intl.NumberFormat(this.i18n.locale(), { style: 'currency', currency }).format(Number(value));
+  }
+  receiptView(receipt: ClaimProposal): WorkActionReceipt {
+    return { reference: receipt.receipt_id!, label: this.i18n.t('experience.claims.recorded.' + receipt.action),
+      ...(receipt.action === 'refund' ? { value: this.money(receipt.amount, receipt.currency) } : {}),
+      notice: this.i18n.t('experience.claims.simulated'),
+      ...(receipt.executed_at && Number.isFinite(Date.parse(receipt.executed_at)) ? { recordedAt: receipt.executed_at } : {}),
+    };
   }
   refundState(value: string): string { return this.i18n.t(['executed', 'failed', 'prepared', 'approved'].includes(value) ? 'experience.claims.refund.' + value : 'experience.claims.unknown'); }
   shipping(value?: string): string { return this.i18n.t(value === 'in_transit' ? 'experience.claims.shipping.in_transit' : value === 'lost' ? 'experience.claims.shipping.lost' : value === 'delivered' ? 'experience.claims.shipping.delivered' : 'experience.claims.unknown'); }

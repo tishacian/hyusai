@@ -7,6 +7,7 @@ production uses.
 
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -67,10 +68,23 @@ def workspace(db_session) -> Workspace:
         settings={},
     )
     db_session.add(row)
-    actor = User(id=str(uuid4()), username="predict-" + uuid4().hex, email=uuid4().hex + "@example.invalid", role="user", is_active=True)
+    actor = User(
+        id=str(uuid4()),
+        username="predict-" + uuid4().hex,
+        email=uuid4().hex + "@example.invalid",
+        role="user",
+        is_active=True,
+    )
     db_session.add(actor)
     db_session.flush()
-    db_session.add(WorkspaceMember(workspace_id=row.id, user_id=actor.id, role="member", role_template="workspace_contributor"))
+    db_session.add(
+        WorkspaceMember(
+            workspace_id=row.id,
+            user_id=actor.id,
+            role="member",
+            role_template="workspace_contributor",
+        )
+    )
     db_session.add(Run(id=row.id, workspace_id=row.id, initiated_by_user_id=actor.id))
     db_session.commit()
     return row
@@ -1111,7 +1125,9 @@ def test_the_published_skill_answers_a_record_through_the_registry_executor(db_s
     row = db_session.query(Skill).filter(Skill.slug == published["slug"]).one()
     call = bind_executor(row.executor)
 
-    answer = asyncio.run(call(_row(), {"workspace_id": model.workspace_id, "run_id": model.workspace_id}))
+    answer = asyncio.run(
+        call(_row(), {"workspace_id": model.workspace_id, "run_id": model.workspace_id})
+    )
 
     # One record in, one flattened answer out: an agent reading a tool result
     # should not have to index into a list of one.
@@ -1344,6 +1360,132 @@ def test_the_serving_block_of_an_untrained_version_is_not_callable(
     assert block["callable"] is False and block["is_serving"] is False
 
 
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ("legacy", "ML_ARTIFACT_LEGACY_UNSUPPORTED"),
+        ("runtime", "ML_ARTIFACT_RUNTIME_MISMATCH"),
+        ("profile", "ML_ARTIFACT_UNVERIFIED"),
+        ("trusted_types", "ML_ARTIFACT_UNTRUSTED_TYPES"),
+    ],
+)
+def test_serving_readiness_refuses_unqualified_metadata_without_loading(
+    db_session, model, monkeypatch, change, code
+):
+    from app.services.ml import artifacts
+
+    metadata = copy.deepcopy(model.metrics_json)
+    artifact = metadata["artifact"]
+    if change == "legacy":
+        artifact.pop("contract_version")
+    elif change == "runtime":
+        artifact["runtime"]["scikit-learn"] = "0.0.0"
+    elif change == "profile":
+        artifact["trust_profile"] = "unqualified"
+    else:
+        artifact["trusted_types"].append("numpy.load")
+    model.metrics_json = metadata
+    monkeypatch.setattr(
+        artifacts, "verify_bundle", lambda *a, **kw: pytest.fail("GET must not read model files")
+    )
+    monkeypatch.setattr(
+        tabular_predict,
+        "_load_mlflow_model",
+        lambda *a, **kw: pytest.fail("GET must not load weights"),
+    )
+
+    block = tabular_predict.serving_block(db_session, model)
+
+    assert block["callable"] is False
+    assert block["is_serving"] is True  # Selection is retained, not silently promoted away.
+    assert block["readiness"]["training_ready"] is True
+    assert block["readiness"]["state"] == "blocked"
+    assert block["readiness"]["check"] == "metadata"
+    assert block["refusal"]["code"] == code
+    assert "reader" not in block["refusal"] and "producer" not in block["refusal"]
+
+
+def test_serving_disabled_by_data_flag_cannot_still_claim_callable(db_session, model, monkeypatch):
+    monkeypatch.setattr(settings, "tabular_data_enabled", False)
+    block = tabular_predict.serving_block(db_session, model)
+    assert block["enabled"] is False and block["callable"] is False
+    assert block["readiness"]["state"] == "disabled"
+
+
+@pytest.mark.parametrize(
+    "worker_state,code",
+    [
+        ("matching", None),
+        ("old_heartbeat", "ML_ARTIFACT_RUNTIME_UNVERIFIED"),
+        ("mixed", "ML_ARTIFACT_RUNTIME_MISMATCH"),
+        ("stale_mismatch", None),
+        ("training_only", "ML_FAMILY_UNAVAILABLE"),
+    ],
+)
+def test_remote_readiness_checks_all_live_serving_workers_not_api_packages(
+    db_session, model, monkeypatch, worker_state, code
+):
+    from app.models.tabular import MLRuntimeHeartbeat
+    from app.resources.ml_artifact_contract import runtime_versions
+    from app.services.ml import artifacts
+    from app.services.ml.families import get_family
+
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    model.family = "forecasting_deep"
+    model.task = "forecasting"
+    family = get_family(model.family)
+    versions = {name: "worker-version" for name in runtime_versions(model.family, "json")}
+    versions["python"] = "3.12"
+    metadata = copy.deepcopy(model.metrics_json)
+    metadata["artifact"].update(
+        family=model.family,
+        serialization="json",
+        trust_profile="foundation-json-v1",
+        runtime=versions,
+    )
+    model.metrics_json = metadata
+    packages = {name: version for name, version in versions.items() if name != "python"}
+    if worker_state != "old_heartbeat":
+        packages["agentium_python"] = "3.12.14"
+    prefix = "readiness-" + uuid4().hex
+    now = datetime.utcnow()
+    good = MLRuntimeHeartbeat(
+        runtime=family.runtime,
+        hostname=prefix,
+        seen_at=now,
+        queues=[family.train_queue() if worker_state == "training_only" else family.serve_queue()],
+        packages_json=packages,
+    )
+    db_session.add(good)
+    if worker_state in {"mixed", "stale_mismatch"}:
+        db_session.add(
+            MLRuntimeHeartbeat(
+                runtime=family.runtime,
+                hostname=prefix + "-other",
+                seen_at=now if worker_state == "mixed" else now - timedelta(days=1),
+                queues=[family.serve_queue()],
+                packages_json={**packages, "numpy": "different"},
+            )
+        )
+    db_session.flush()
+    monkeypatch.setattr(
+        artifacts, "verify_bundle", lambda *a, **kw: pytest.fail("GET must not read model files")
+    )
+    try:
+        block = tabular_predict.serving_block(db_session, model)
+        assert block["callable"] is (code is None)
+        if code:
+            assert block["refusal"]["code"] == code
+        else:
+            assert block["readiness"]["state"] == "ready"
+            assert "refusal" not in block
+    finally:
+        db_session.query(MLRuntimeHeartbeat).filter(
+            MLRuntimeHeartbeat.hostname.startswith(prefix)
+        ).delete(synchronize_session=False)
+        db_session.flush()
+
+
 @pytest.mark.parametrize("slug", ["ml_predict_v1", "ml_batch_score_v1"])
 def test_both_serving_skills_are_registered_bound_and_claimed(slug):
     from app.services.skills_registry.seed import (
@@ -1397,9 +1539,15 @@ def test_an_explained_row_says_what_its_own_values_did_to_the_score(db_session, 
 def test_real_explanation_is_returned_but_input_value_is_not_stored(db_session, model):
     sentinel = 918273.625
     answer = tabular_predict.predict_rows(
-        db_session, model, [_row(arpu=sentinel)], explain=True, store=False,
+        db_session,
+        model,
+        [_row(arpu=sentinel)],
+        explain=True,
+        store=False,
     )
-    contribution = next(item for item in answer["predictions"][0]["contributions"] if item["field"] == "arpu")
+    contribution = next(
+        item for item in answer["predictions"][0]["contributions"] if item["field"] == "arpu"
+    )
     assert contribution["value"] == sentinel
     row = db_session.get(MLPrediction, answer["prediction_id"])
     assert row.payload_json == [] and row.input_storage_allowed is False
@@ -1636,3 +1784,32 @@ def test_batch_prediction_metadata_proves_generated_columns_despite_input_collis
             "score_column": output["score_column"],
         },
     )
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "pending"])
+def test_readiness_preserves_training_status_without_claiming_activity(db_session, model, status):
+    model.status = status
+    block = tabular_predict.serving_block(db_session, model)
+    assert block["readiness"]["training_status"] == status
+    assert block["readiness"]["state"] == "not_ready"
+    assert block["readiness"]["training_ready"] is False
+    assert block["readiness"]["scope"] == "version"
+    assert block["readiness"]["model_id"] == model.id
+    assert block["readiness"]["version"] == model.version
+    assert block["callable"] is False
+
+
+@pytest.mark.parametrize("limit_mb,expected", [(32, False), (1024, True)])
+def test_readiness_uses_same_configured_byte_budget_as_reader(
+    db_session, model, monkeypatch, limit_mb, expected
+):
+    metadata = copy.deepcopy(model.metrics_json)
+    sizes = metadata["artifact"]["file_sizes"]
+    sizes["MLmodel"] = 600 * 1024 * 1024
+    metadata["artifact"]["total_bytes"] = sum(sizes.values())
+    model.metrics_json = metadata
+    monkeypatch.setattr(settings, "ml_train_artifact_limit_mb", limit_mb)
+    block = tabular_predict.serving_block(db_session, model)
+    assert block["callable"] is expected
+    if not expected:
+        assert block["refusal"]["code"] == "ML_ARTIFACT_LIMIT"

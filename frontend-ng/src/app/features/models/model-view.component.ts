@@ -111,6 +111,8 @@ import {
   previousVersion,
   primaryScore,
   splitError,
+  servingStatusKey,
+  servingErrorKey,
   trainChecklist,
   trainingErrorKey,
   type ComparisonDto,
@@ -173,7 +175,7 @@ const CHART_ASPECT = 300 / 190;
         [subtitle]="subtitle(row)"
         [kpis]="kpis()"
       >
-        <div status class="flex items-center gap-1.5">
+        <div status class="flex flex-wrap items-center gap-1.5">
           <!-- Which version this page is. Every other version of the lineage
                shares this page's title, so without it the reader has to open the
                Versions tab to learn whether they are looking at the one that
@@ -201,8 +203,15 @@ const CHART_ASPECT = 300 / 190;
             [class.ck-badge--warn]="row.status === 'failed'"
             [class.ck-badge--live]="isActive(row)"
           >
-            {{ i18n.t('models.status.' + row.status) }}
+            {{ i18n.t(row.status === 'ready' ? 'models.readiness.trained' : 'models.status.' + row.status) }}
           </span>
+          @if (row.status === 'ready') {
+            <span class="ck-badge ck-mono" data-testid="serving-readiness"
+              [class.ck-badge--warn]="serving() && !serving()?.callable"
+              [title]="i18n.t('models.readiness.metadata_hint')">
+              {{ i18n.t(readinessKey()) }}
+            </span>
+          }
         </div>
         <div actions class="flex items-center gap-1.5 flex-wrap">
           @if (row.status === 'ready' && !row.is_champion && serving()?.permissions?.['promote']) {
@@ -210,7 +219,8 @@ const CHART_ASPECT = 300 / 190;
               type="button"
               class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
               data-testid="promote-serving"
-              [title]="i18n.t('models.detail.promote_hint')"
+              [disabled]="!!serving()?.refusal"
+              [title]="readinessRefusal() ?? i18n.t('models.detail.promote_hint')"
               (click)="promote()"
             >
               <app-icon name="crown" [size]="14" />
@@ -245,6 +255,17 @@ const CHART_ASPECT = 300 / 190;
           </button>
         </div>
       </ck-object-header>
+
+      @if (readinessRefusal(); as refusal) {
+        <div class="ck-readiness-note mb-4" role="status" data-testid="serving-readiness-refusal">
+          <p class="font-medium">{{ i18n.t('models.readiness.blocked') }}</p>
+          <p class="ck-hint mt-1">{{ refusal }}</p>
+          @if (serving()?.readiness?.action === 'retrain') {
+            <p class="ck-hint mt-1">{{ i18n.t(serving()?.permissions?.['train']
+              ? 'models.readiness.retrain_hint' : 'models.readiness.owner_hint') }}</p>
+          }
+        </div>
+      }
 
       @if (pipeline().length) {
         <nav
@@ -1585,6 +1606,19 @@ const CHART_ASPECT = 300 / 190;
         font-variant-numeric: tabular-nums;
         color: var(--ck-fg-1, #e6e9ef);
       }
+      .ck-readiness-note {
+        padding: 12px 14px;
+        border-inline-start: 2px solid var(--ck-signal-warn);
+        background: var(--ck-bg-panel);
+        color: var(--ck-fg-1);
+      }
+      .ck-readiness-note .ck-hint {
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .ck-readiness-note > .font-medium {
+        font-size: 14px;
+      }
       .ck-field {
         display: flex;
         flex-direction: column;
@@ -1641,6 +1675,13 @@ export class ModelViewComponent implements OnInit {
    * is still showing — a secret this platform cannot show twice.
    */
   protected readonly serving = signal<ServingBlock | null>(null);
+  protected readonly readinessKey = computed(() => servingStatusKey(this.serving()));
+  protected readonly readinessRefusal = computed(() => {
+    const refusal = this.serving()?.refusal;
+    if (!refusal) return null;
+    const key = servingErrorKey(refusal.code);
+    return key ? this.i18n.t(key) : this.i18n.t('models.readiness.blocked_hint');
+  });
   /**
    * skore's joint table, once asked for.
    *
@@ -2413,7 +2454,7 @@ export class ModelViewComponent implements OnInit {
 
   protected async promote(): Promise<void> {
     const row = this.model();
-    if (!row || !this.serving()?.permissions?.['promote']) return;
+    if (!row || !this.serving()?.permissions?.['promote'] || this.serving()?.refusal) return;
     const scope = this.workspace.captureRequestScope();
     const current = () => this.model()?.id === row.id && this.workspace.isRequestScopeCurrent(scope);
     try {
