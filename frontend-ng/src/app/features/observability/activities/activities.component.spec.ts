@@ -10,7 +10,8 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { ActivitiesComponent } from './activities.component';
 import { ActivityApiError, ActivityApiService } from './activity-api.service';
-import type { ActivityDetail, ActivityFeatures, ActivityPage } from './activity.models';
+import type { StreamOptions } from './activity-stream';
+import type { ActivityDetail, ActivityEvent, ActivityFeatures, ActivityPage } from './activity.models';
 
 const features: ActivityFeatures = { enabled: true, scopes: ['workspace', 'system'], kinds: ['compute_run'], statuses: ['running', 'cancelled'] };
 const detail: ActivityDetail = { id: 'compute:1', native_id: '1', kind: 'compute_run', workspace_id: 'a', system_id: 's1', run_id: null, parent_activity_id: null,
@@ -102,4 +103,28 @@ test('fixed period anchors use identical inclusive lower and exclusive upper bou
 });
 for(const [status,expected] of [[404,'disabled'],[403,'forbidden'],[500,'load_error']] as const)test(`discovery ${status} remains explicit and never opens a stream`,async()=>{
  let streams=0;const {component,counts}=setup({features:async()=>{throw new ActivityApiError(status,'ERROR');},follow:async()=>{streams++;}});await component.ngOnInit();assert.equal(component.error(),expected);assert.equal(counts().listCalls,0);assert.equal(streams,0);component.ngOnDestroy();
+});
+
+test('resync replaces the stream with a fresh snapshot cursor and deduplicates its replay', async () => {
+  const streams: StreamOptions[] = []; let reads = 0;
+  const event = { id: 'event-42', activity_id: detail.id, sequence: 42 } as ActivityEvent;
+  const { component } = setup({
+    list: async () => ({ ...page, snapshot_cursor: `snapshot-${++reads}` }),
+    detail: async () => ({ ...detail, events: [event] }),
+    follow: async (options: StreamOptions) => { streams.push(options); options.state('live'); },
+  }, { activityId: detail.id });
+  try {
+    await component.ngOnInit();
+    assert.equal(streams[0].cursor, 'snapshot-1');
+    streams[0].resync();
+    assert.equal(streams[0].signal.aborted, true);
+    assert.equal(component.detail(), null);
+    assert.equal(component.canCancel(), false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(streams.length, 2);
+    assert.equal(streams[1].cursor, 'snapshot-2');
+    streams[1].frame({ event: 'activity.updated', id: 'resume-42', data: JSON.stringify(event) });
+    assert.equal(component.events().length, 1);
+    assert.equal(component.events()[0].id, event.id);
+  } finally { component.ngOnDestroy(); }
 });

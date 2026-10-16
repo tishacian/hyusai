@@ -258,6 +258,32 @@ def _invocations(db, run, workspace, user):
         allowed = readable_skill_invocations_for_runs(
             db, invocations=batch, runs=[run], user=user, workspace=workspace
         )
+        # DeferredNativeExecution currently supports only recipes. A generic
+        # waiting status alone is not evidence of an external dependency.
+        references = {}
+        for row in allowed:
+            trace = row.trace if isinstance(row.trace, dict) else {}
+            reference = trace.get("native_reference")
+            if (
+                row.status == "waiting"
+                and isinstance(reference, dict)
+                and reference.get("kind") == "recipe_execution"
+                and token(reference.get("id"))
+            ):
+                references[row.id] = reference["id"]
+        deferred_nodes = (
+            dict(
+                db.query(RecipeExecution.id, RecipeExecution.node_id)
+                .filter(
+                    RecipeExecution.workspace_id == workspace.id,
+                    RecipeExecution.run_id == run.id,
+                    RecipeExecution.id.in_(set(references.values())),
+                )
+                .all()
+            )
+            if references
+            else {}
+        )
         for row in allowed:
             corr = correlation(row.trace)
             item = _native(
@@ -267,6 +293,8 @@ def _invocations(db, run, workspace, user):
                 duration="latency_ms",
             )
             item.update({key: corr[key] for key in ("attempt_index", "iteration", "attempt_kind")})
+            if corr["node_id"] and deferred_nodes.get(references.get(row.id)) == corr["node_id"]:
+                item["waiting_reason"] = "external"
             item["coverage"] = "exact" if corr["node_id"] and corr["passage_id"] else "partial"
             item["measurements"] = invocation_cost(
                 cost=row.cost,
