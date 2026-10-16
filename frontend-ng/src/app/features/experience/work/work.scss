@@ -36,6 +36,7 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .xp-work-app-identity {
@@ -43,6 +44,16 @@
   align-items: flex-start;
   gap: 12px;
   min-width: 0;
+}
+
+.xp-work-app-identity > .xp-work-app-icon {
+  flex: 0 0 36px;
+}
+
+.xp-work-app-header .xp-work-brand p,
+.xp-work-app-header .xp-work-brand h1 {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .xp-work-app-header-actions {

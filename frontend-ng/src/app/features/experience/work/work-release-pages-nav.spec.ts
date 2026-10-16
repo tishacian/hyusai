@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { workReleasePageLinks } from './work-release-pages-nav';
+import { hostedWorkPage, workReleasePageLinks } from './work-release-pages-nav';
 
 const document = {
   pages: [
@@ -46,4 +46,43 @@ test('navigation omits missing or duplicate addresses and keeps authored text in
   assert.equal(links[0]?.title, 'First');
   assert.deepEqual(workReleasePageLinks(pages, '..', 'en', null), []);
   assert.equal(workReleasePageLinks(pages, 'support', 'en', null, { pageId: 'first', routeSegment: '..' })[0]?.href, '/work/support/first');
+});
+
+test('a published same-app live entry keeps the same destination from every page', () => {
+  const theme = { live_href: '/work/support/desk' };
+  assert.deepEqual(hostedWorkPage(document, 'support', theme), { pageId: 'requests', routeSegment: 'desk' });
+  const standard = workReleasePageLinks(document, 'support', 'fr', 'capacity', null, theme);
+  const hosted = workReleasePageLinks(document, 'support', 'fr', 'requests', {
+    pageId: 'requests', routeSegment: 'desk',
+  }, theme);
+  assert.deepEqual(standard.map(page => page.href), hosted.map(page => page.href));
+  assert.deepEqual(standard.map(page => page.href), ['/work/support/desk', '/work/support/capacity', '/work/support/learning']);
+  assert.equal(standard[1]?.active, true);
+});
+
+test('host inference preserves real page launches and rejects out-of-app or ambiguous paths', () => {
+  for (const href of [
+    '/work/support/capacity', '/work/support/validations', '/work/support', '/work/support/', '/work/another/desk',
+    '/work/support/desk/nested', '/work/support/desk?mode=admin', '/work/support/desk#detail',
+    '/work/support/desk;mode=admin', '/work/support/..', '/work/support/%2e%2e',
+    '/work/support/%2Foutside', '/work/support/%5Coutside', '/work/support/%252e%252e',
+    '/work/support/%', '/work/support/%0A', '/work/support/%00', '//evil.example/desk', 'https://evil.example/desk',
+    '/standalone-support',
+  ]) {
+    assert.equal(hostedWorkPage(document, 'support', { live_href: href }), null, href);
+    assert.equal(workReleasePageLinks(document, 'support', 'en', 'capacity', null, { live_href: href })[0]?.href, '/work/support/requests', href);
+  }
+  assert.equal(hostedWorkPage({ pages: [] }, 'support', { live_href: '/work/support/desk' }), null);
+});
+
+test('an explicit host is authoritative only for a declared page and cannot collide with another page', () => {
+  const theme = { live_href: '/work/support/desk' };
+  assert.deepEqual(hostedWorkPage(document, 'support', theme, { pageId: 'learning', routeSegment: 'academy' }), {
+    pageId: 'learning', routeSegment: 'academy',
+  });
+  assert.equal(hostedWorkPage(document, 'support', theme, { pageId: 'missing', routeSegment: 'academy' }), null);
+  assert.equal(hostedWorkPage(document, 'support', theme, { pageId: 'requests', routeSegment: 'capacity' }), null);
+  assert.deepEqual(hostedWorkPage(document, 'support area', { live_href: '/work/support%20area/desk' }), {
+    pageId: 'requests', routeSegment: 'desk',
+  });
 });

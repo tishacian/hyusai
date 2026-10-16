@@ -13,7 +13,7 @@ import { workReleasePageLinks, type HostedWorkPage } from './work-release-pages-
     @if (links().length > 1) {
       <nav class="xp-work-nav" [attr.aria-label]="i18n.t('experience.work.pages')">
         @for (page of links(); track page.id) {
-          <a [routerLink]="page.href" [attr.aria-current]="page.active ? 'page' : null">{{ page.title }}</a>
+          <a [routerLink]="page.href" queryParamsHandling="preserve" [attr.aria-current]="page.active ? 'page' : null">{{ page.title }}</a>
         }
       </nav>
     }
@@ -25,7 +25,8 @@ export class WorkReleasePagesNavComponent {
   readonly slug = input.required<string>();
   readonly activePage = input<string | null>(null);
   readonly hostedPage = input<HostedWorkPage | null>(null);
+  readonly theme = input<Record<string, unknown> | null>(null);
   readonly links = computed(() => workReleasePageLinks(
-    this.document(), this.slug(), this.i18n.locale(), this.activePage(), this.hostedPage(),
+    this.document(), this.slug(), this.i18n.locale(), this.activePage(), this.hostedPage(), this.theme(),
   ));
 }

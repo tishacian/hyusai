@@ -220,6 +220,8 @@ const storeSpecs = [
   'src/app/features/chat/assistant-object-context.service.spec.ts',
   'src/app/features/experience/runtime/renderer-registry.spec.ts',
   'src/app/features/experience/runtime/chart-block.spec.ts',
+  'src/app/features/experience/runtime/runtime-status.spec.ts',
+  'src/app/features/experience/runtime/navigation-blocks.spec.ts',
   'src/app/features/experience/work/work-shell.component.spec.ts',
   'src/app/features/experience/work/work-release-pages-nav.component.spec.ts',
   'src/app/features/data/dataset-label-review.component.spec.ts',
