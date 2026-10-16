@@ -80,9 +80,28 @@ flux ; les commandes restent sur le protocole d'Activités existant.
   Un vrai zéro étayé est conservé. Aucune conversion monétaire implicite.
 - PostgreSQL utilise une transaction de lecture `REPEATABLE READ` pour une
   réponse cohérente. Les droits s'appliquent avant les comptes, quantiles et
-  coûts. Les séries lisent par lots de 2 000 ; le contexte de droits est borné
+  coûts. Sur PostgreSQL 16+, les modes de lecture IAM `compat` peuvent utiliser
+  une traduction SQL des droits, testée contre le lecteur natif, puis des
+  agrégats avec `percentile_disc`. La cible Compose/Helm reste PostgreSQL 17.
+- Les modes IAM `shadow`/`enforce`, les workspaces gérés par la migration 059,
+  une filiation d'invocation incohérente ou un PostgreSQL antérieur à 16 gardent
+  le lecteur natif. La présence de fenêtres de service ou de reçus dans la
+  population à lire impose aussi ce repli : leurs droits ne sont pas traduits
+  en SQL. Les autorisations particulières BRD et les dates historiques
+  non canoniques sont vérifiées nativement avant l'agrégat ; au-delà de 256 jobs
+  BRD ou 128 dates distinctes, **toute** la lecture revient au chemin natif.
+  Ces limites choisissent le chemin et ne tronquent jamais ses résultats.
+- Le lecteur natif travaille par lots de 2 000 ; le contexte de droits est borné
   et lié à cette seule transaction. Aucun cache n'est partagé entre utilisateurs.
   Les autres lectures et le SSE revérifient leurs droits natifs sans ce cache.
+
+Les fenêtres de service exigent l'appartenance explicite au workspace, même
+pour un administrateur de plateforme. Les reçus appliquent les autorisations
+natives de l'actif et de ses parents récursivement. La lecture de métadonnées
+ne télécharge aucun objet et ne crée pas un droit de consommation. Les listes
+gardent les reçus historiques autorisés après invalidation ; le lien de preuve
+du Flow exige en plus une qualification courante. Les mêmes restrictions
+précèdent les comptes et le rejeu d'événements.
 
 Le tableau accessible reste disponible quand le graphique différé n'est pas
 chargé. Les graphiques utilisent Chart.js existant. Aucune dépendance de
@@ -95,6 +114,23 @@ Les preuves et leurs empreintes sont rassemblées dans
 Le bilan final y distingue tests SQLite, PostgreSQL, navigateur avec API
 déterministe, construction Angular et banc de charge. Les scénarios simulés
 ne prouvent ni le fonctionnement d'un fournisseur vivant ni celui de la VM.
+
+Les recettes locales conservent les huit combinaisons Qualité (FR/EN,
+clair/sombre, Activités ouvert/fermé), le graphe historique à 390 px et les deux
+compositions déterministes. Le correctif de reconnexion reconnaît explicitement
+`resync_required` et attend le nouveau snapshot avant de reprendre son curseur.
+Une attente native reste une attente ; le motif externe exige une recette
+liée au même workspace, Run et nœud.
+
+**La qualification de charge R2 reste ouverte.** Sur le candidat `0e745155`,
+100 000 activités et dix lecteurs concurrents donnent un p95 de **5,479 s**
+pour l'activité et **9,468 s** pour les coûts, au-dessus des **2 s** visées.
+Les comptes autorisés sont exacts ; le surcroît RSS backend combiné est
+d'environ 6 Mio et aucune attente `Lock` de l'écrivain n'est observée.
+Ce banc exclut HTTP, les gros payloads, le débit IAM strict/shadow et les
+fenêtres/reçus protégés. Le [bilan complet](evidence/operations-activities-flow-2026-10-16/report.md)
+conserve les mesures intermédiaires, les limites et les résultats des tests.
+Il ne ferme ni la performance de R2 ni la recette de release R5.
 
 ## Recette de release à déléguer
 

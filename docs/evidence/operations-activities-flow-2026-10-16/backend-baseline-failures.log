@@ -1,0 +1,180 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_______________ test_connector_migrations_extend_the_single_head _______________
+
+    def test_connector_migrations_extend_the_single_head():
+        root = Path(__file__).resolve().parents[3]
+        config = Config(str(root / "alembic.ini"))
+        config.set_main_option("script_location", str(root / "alembic"))
+        script = ScriptDirectory.from_config(config)
+        head = "134_execution_control"
+>       assert script.get_heads() == [head]
+E       AssertionError: assert ['137_mlops_operations'] == ['134_execution_control']
+E         
+E         At index 0 diff: '137_mlops_operations' != '134_execution_control'
+E         Use -v to get more diff
+
+app/tests/services/test_public_bench.py:117: AssertionError
+______ test_withdrawn_regression_cannot_run_publish_or_be_promoted[False] ______
+
+db_session = <sqlalchemy.orm.session.Session object at 0x7fd57d8a6c30>
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-34/test_withdrawn_regression_cann0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd57d8a6ff0>
+kv_cache = False
+
+    @pytest.mark.parametrize("kv_cache", [False, True])
+    def test_withdrawn_regression_cannot_run_publish_or_be_promoted(
+        db_session, tmp_path, monkeypatch, kv_cache
+    ):
+        from collections import OrderedDict
+        from uuid import uuid4
+    
+        from app.models.tabular import MLModel
+        from app.services import tabular_ml, tabular_predict
+        from app.services.ml import deep_serving, runtime
+        from app.services.tabular_datasets import TabularError
+    
+        model = MLModel(
+            id=str(uuid4()),
+            workspace_id=str(uuid4()),
+            name="Withdrawn pilot",
+            slug="withdrawn-pilot",
+            version=1,
+            task="regression",
+            family="tabular_foundation",
+            algo="tabicl_v2",
+            target="y",
+            features=["x"],
+            spec_json={"kv_cache": kv_cache},
+            params_json={},
+            status="ready",
+            model_uri="existing-export",
+            metrics_json={"artifact": {"trust_profile": "tabicl-json-safetensors-v2"}},
+        )
+        monkeypatch.setattr(settings, "ml_predict_enabled", True)
+        monkeypatch.setattr(settings, "ml_runtime", "ml-deep")
+        monkeypatch.setattr(tabular_predict, "champion_for", lambda *a, **k: model)
+        monkeypatch.setattr(tabular_predict, "contract_fields", lambda _: [])
+        monkeypatch.setattr(tabular_predict, "published_skill", lambda *a: None)
+        monkeypatch.setattr(tabular_predict, "list_api_keys", lambda *a, **k: [])
+        monkeypatch.setattr(runtime, "serving_availability", lambda *a: (True, None))
+        monkeypatch.setattr(
+            tabular_predict, "_load_mlflow_model", lambda _: pytest.fail("No deserialization allowed")
+        )
+        cached_dir = tmp_path / "cache"
+        cached_dir.mkdir()
+        entry = tabular_predict.LoadedModel(
+            model.id, tabular_predict._fingerprint(model), object(), [], cached_dir, 0, 0
+        )
+        monkeypatch.setattr(tabular_predict, "_cache", OrderedDict({model.id: entry}))
+        # The service policy precedes warm-cache reuse and does not confuse the v2
+        # format/CPU contract with numerical qualification of a regression model.
+        with pytest.raises(TabularError) as refused:
+            tabular_predict.load_pipeline_traced(model)
+        assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+        assert model.id not in tabular_predict._cache and not cached_dir.exists()
+    
+        for call in (
+            lambda: deep_serving.request_rows(db_session, model, [{"x": 1}]),
+            lambda: tabular_ml._write_manifest(tmp_path, model, tmp_path / "unread.parquet"),
+            lambda: tabular_ml.set_champion(db_session, model),
+            lambda: tabular_predict.publish_as_skill(db_session, model=model),
+        ):
+            with pytest.raises(TabularError) as refused:
+                call()
+>           assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+E           AssertionError: assert 'ML_WORKSPACE_UNAVAILABLE' == 'ML_TABICL_PR...E_UNQUALIFIED'
+E             
+E             - ML_TABICL_PROFILE_UNQUALIFIED
+E             + ML_WORKSPACE_UNAVAILABLE
+
+app/tests/services/test_tabicl_pilot.py:374: AssertionError
+______ test_withdrawn_regression_cannot_run_publish_or_be_promoted[True] _______
+
+db_session = <sqlalchemy.orm.session.Session object at 0x7fd57cd9f920>
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-34/test_withdrawn_regression_cann1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd57cd9d550>
+kv_cache = True
+
+    @pytest.mark.parametrize("kv_cache", [False, True])
+    def test_withdrawn_regression_cannot_run_publish_or_be_promoted(
+        db_session, tmp_path, monkeypatch, kv_cache
+    ):
+        from collections import OrderedDict
+        from uuid import uuid4
+    
+        from app.models.tabular import MLModel
+        from app.services import tabular_ml, tabular_predict
+        from app.services.ml import deep_serving, runtime
+        from app.services.tabular_datasets import TabularError
+    
+        model = MLModel(
+            id=str(uuid4()),
+            workspace_id=str(uuid4()),
+            name="Withdrawn pilot",
+            slug="withdrawn-pilot",
+            version=1,
+            task="regression",
+            family="tabular_foundation",
+            algo="tabicl_v2",
+            target="y",
+            features=["x"],
+            spec_json={"kv_cache": kv_cache},
+            params_json={},
+            status="ready",
+            model_uri="existing-export",
+            metrics_json={"artifact": {"trust_profile": "tabicl-json-safetensors-v2"}},
+        )
+        monkeypatch.setattr(settings, "ml_predict_enabled", True)
+        monkeypatch.setattr(settings, "ml_runtime", "ml-deep")
+        monkeypatch.setattr(tabular_predict, "champion_for", lambda *a, **k: model)
+        monkeypatch.setattr(tabular_predict, "contract_fields", lambda _: [])
+        monkeypatch.setattr(tabular_predict, "published_skill", lambda *a: None)
+        monkeypatch.setattr(tabular_predict, "list_api_keys", lambda *a, **k: [])
+        monkeypatch.setattr(runtime, "serving_availability", lambda *a: (True, None))
+        monkeypatch.setattr(
+            tabular_predict, "_load_mlflow_model", lambda _: pytest.fail("No deserialization allowed")
+        )
+        cached_dir = tmp_path / "cache"
+        cached_dir.mkdir()
+        entry = tabular_predict.LoadedModel(
+            model.id, tabular_predict._fingerprint(model), object(), [], cached_dir, 0, 0
+        )
+        monkeypatch.setattr(tabular_predict, "_cache", OrderedDict({model.id: entry}))
+        # The service policy precedes warm-cache reuse and does not confuse the v2
+        # format/CPU contract with numerical qualification of a regression model.
+        with pytest.raises(TabularError) as refused:
+            tabular_predict.load_pipeline_traced(model)
+        assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+        assert model.id not in tabular_predict._cache and not cached_dir.exists()
+    
+        for call in (
+            lambda: deep_serving.request_rows(db_session, model, [{"x": 1}]),
+            lambda: tabular_ml._write_manifest(tmp_path, model, tmp_path / "unread.parquet"),
+            lambda: tabular_ml.set_champion(db_session, model),
+            lambda: tabular_predict.publish_as_skill(db_session, model=model),
+        ):
+            with pytest.raises(TabularError) as refused:
+                call()
+>           assert refused.value.code == "ML_TABICL_PROFILE_UNQUALIFIED"
+E           AssertionError: assert 'ML_WORKSPACE_UNAVAILABLE' == 'ML_TABICL_PR...E_UNQUALIFIED'
+E             
+E             - ML_TABICL_PROFILE_UNQUALIFIED
+E             + ML_WORKSPACE_UNAVAILABLE
+
+app/tests/services/test_tabicl_pilot.py:374: AssertionError
+=============================== warnings summary ===============================
+../../hyusai/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  <venv>/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/services/test_public_bench.py::test_connector_migrations_extend_the_single_head
+  <venv>/lib/python3.12/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED app/tests/services/test_public_bench.py::test_connector_migrations_extend_the_single_head
+FAILED app/tests/services/test_tabicl_pilot.py::test_withdrawn_regression_cannot_run_publish_or_be_promoted[False]
+FAILED app/tests/services/test_tabicl_pilot.py::test_withdrawn_regression_cannot_run_publish_or_be_promoted[True]
+3 failed, 2 warnings in 5.90s
