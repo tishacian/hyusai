@@ -427,7 +427,7 @@ def main():
                     "enforcement attestations and strict-mode throughput",
                 ],
                 expected_by_reader=expected,
-                authorization="Native private-chat and compute/job ownership; authorization_v2 compat evaluates candidate IAM without overriding legacy rights",
+                authorization="Native private-chat and compute/job ownership; authorization_v2 COMPAT uses the tested SQL translation, while SHADOW/ENFORCE and unsupported cases retain native authorization",
                 distribution="10% Runs, 80% SkillInvocations, 5% ComputeRuns, 5% WorkspaceJobs",
             ),
             host=dict(
@@ -466,6 +466,7 @@ def main():
                     ).hexdigest()
                     for name in (
                         "app/services/activity_observability/series.py",
+                        "app/services/activity_observability/series_sql.py",
                         "app/services/activity_observability/queries.py",
                         "app/services/activity_observability/execution_metadata.py",
                         "app/api/v1/endpoints/workspace_jobs.py",
