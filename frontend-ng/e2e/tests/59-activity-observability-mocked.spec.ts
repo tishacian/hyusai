@@ -61,7 +61,7 @@ test.describe('Activity observability — isolated browser fixture', () => {
   for (const [locale, width] of [['fr', 1440], ['en', 390]] as const) {
     test(`${locale}/${width}: exact totals, scoped filters, native evidence and cancellation request`, async ({ page }, info) => {
       const { commands, listQueries } = await fixture(page, locale); const en = locale === 'en';
-      await page.setViewportSize({ width, height: 1000 }); await page.goto('/observability?systemId=system-1&since=30d');
+      await page.setViewportSize({ width, height: 1000 }); await page.goto('/observability?facet=activities&systemId=system-1&since=30d');
       const monitor = page.getByTestId('activity-monitor'); await expect(monitor).toBeVisible();
       await expect(monitor.getByText('317', { exact: true }).first()).toBeVisible();
       expect(listQueries.at(-1)?.get('system_id')).toBe('system-1');

@@ -1098,6 +1098,8 @@ async def _execute_task_node(
         db, workspace_id=run.workspace_id, skill_id=execution_evidence.skill_id,
         skill_slug=execution_evidence.skill_slug,
     )
+    from app.services.run_engine.execution_correlation import current_passage
+
     invocation = SkillInvocation(
         id=native_invocation_id or str(uuid4()),
         run_id=run.id,
@@ -1111,6 +1113,7 @@ async def _execute_task_node(
         metrics={"cost_evidence": cost_evidence.evidence},
         input_ref=skill_input,
         trace={
+            **current_passage(run.id, node_id),
             **({"native_binding": native_binding} if native_binding else {}),
             **({"node_id": node_id} if node_id else {}),
             **(

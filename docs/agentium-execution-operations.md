@@ -8,9 +8,11 @@ Les résultats locaux historiques sont consignés dans le
 
 Le [plan Opérations, Activités et suivi du Flow](agentium-operations-activities-flow-plan.md)
 ajoute une recette de conservation des écrans et de continuité des jobs. Ses
-lots sont planifiés, pas livrés par cette mise à jour documentaire. Leur future
-recette devra notamment vérifier Opérations et Activités séparément, ainsi que
-le nuage de points, la matrice des preuves et leurs liens dans Qualité.
+lots ont une [implémentation et une recette locale séparées](agentium-operations-activities-flow-implementation.md).
+La recette cible doit vérifier Opérations et Activités séparément, ainsi que le
+nuage de points, la matrice des preuves et leurs liens dans Qualité. Les options
+`EXECUTION_VIEW_ENABLED` et `ACTIVITY_SERIES_ENABLED`, fermées par défaut,
+contrôlent les nouvelles lectures sans arrêter le journal existant.
 
 ## État déclaré au 15 octobre 2026
 

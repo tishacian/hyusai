@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  OBSERVABILITY_FACETS,
+  OBSERVABILITY_FACETS, resolveObservabilityFacet, observabilityAnchor, periodCutoffMs,
   isObservabilityFacet,
   normalizeObservabilityFacet,
   observabilitySystemId,
@@ -9,9 +9,10 @@ import {
 } from './observability-facets';
 import { OBSERVABILITY_FR } from '../../core/i18n/observability.dict';
 
-test('observability exposes four facets including traces', () => {
+test('observability exposes five facets including traces', () => {
   assert.deepEqual([...OBSERVABILITY_FACETS], [
     'operations',
+    'activities',
     'quality',
     'performance',
     'traces',
@@ -53,4 +54,17 @@ test('period filter keeps only runs started inside the window', () => {
     true,
   );
   assert.equal(runStartedWithinPeriod(undefined, '7d', now), false);
+});
+
+test('legacy links normalize without replacing an explicit quality/traces selection', () => {
+ const facet=(query:Record<string,string>)=>resolveObservabilityFacet({get:key=>query[key]??null});
+ assert.equal(facet({activityId:'a'}),'activities'); assert.equal(facet({facet:'operations',activityId:'a'}),'activities');
+ assert.equal(facet({scope:'platform'}),'activities'); assert.equal(facet({facet:'operations',scope:'platform'}),'operations');
+ for(const explicit of ['quality','performance','traces'])assert.equal(facet({facet:explicit,activityId:'a'}),explicit);
+});
+test('24h period uses a fixed upper bound across facets and excludes future work', () => {
+ const now=Date.parse('2026-10-16T12:00:00Z'); assert.equal(periodCutoffMs('24h',now),now-86400000);
+ assert.equal(observabilityAnchor('2026-10-16T12:00:00Z'),'2026-10-16T12:00:00.000Z');
+ assert.equal(runStartedWithinPeriod('2026-10-15T12:00:00Z','24h',now),true);
+ assert.equal(runStartedWithinPeriod('2026-10-16T12:00:00Z','24h',now),false);
 });

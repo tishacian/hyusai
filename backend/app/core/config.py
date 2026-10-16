@@ -118,6 +118,9 @@ class Settings(BaseSettings):
     # O0–O7: additive execution control and observability. Roll out independently;
     # an existing attempt retains the controller recorded at admission.
     activity_observability_enabled: bool = False
+    # Independent read surfaces: closing them never stops the durable journal.
+    activity_series_enabled: bool = False
+    execution_view_enabled: bool = False
     execution_control_enabled: bool = False
     execution_durable_dispatch_enabled: bool = False
     execution_temporal_enabled: bool = False

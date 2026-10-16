@@ -17,7 +17,9 @@ Complément planifié le 16 octobre : le
 [plan Opérations, Activités et suivi du Flow](agentium-operations-activities-flow-plan.md)
 traite la conservation du moniteur Opérations, l'onglet Activités séparé, la
 non-régression de Qualité, le suivi des jobs sur le Flow et les séries de mesures.
-Ce travail reste à réaliser ; il ne modifie pas les résultats historiques O0–O7.
+L'implémentation locale et ses limites sont désormais consignées dans le
+[bilan R1–R5](agentium-operations-activities-flow-implementation.md) ; elles ne
+modifient pas les résultats historiques O0–O7 ni l'état déclaré de production.
 
 ## Production déclarée le 15 octobre 2026
 

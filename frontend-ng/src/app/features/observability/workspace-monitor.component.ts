@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   CanonicalApiService,
   type ActivityTimelineItem,
@@ -18,14 +18,23 @@ import {
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
-type WindowKey = '24h' | '7d';
+import { FormsModule } from '@angular/forms';
+import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { Subscription } from 'rxjs';
+import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { AuthStore } from '@app/store/auth.store';
+import { observabilityAnchor, observabilityPeriod, observabilitySystemId } from './observability-facets';
+import { ActivityApiService } from './activities/activity-api.service';
+import { ActivitySeriesComponent } from './activities/activity-series.component';
+type WindowKey = '24h' | '7d' | '30d';
 
 @Component({
   selector: 'app-workspace-monitor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    RouterLink, ActivitySeriesComponent, FormsModule,
     PageFrameComponent,
     StatReadoutComponent,
     TagComponent,
@@ -35,9 +44,9 @@ type WindowKey = '24h' | '7d';
   ],
   template: `
     <ck-page-frame
-      eyebrow="Measure · Observability"
-      title="Workspace monitor"
-      description="Live workspace operations: systems, runs, jobs, quality signals and operator alerts."
+      [eyebrow]="t('context')"
+      [title]="t('title')"
+      [description]="t('description')"
     >
       <div actions class="inline-flex items-center gap-2">
         <div class="inline-flex items-center rounded border border-white/10 bg-white/[0.03] p-0.5">
@@ -56,14 +65,18 @@ type WindowKey = '24h' | '7d';
         <button
           type="button"
           class="ck-mono inline-flex h-7 items-center gap-1.5 rounded border border-white/10 bg-white/[0.03] px-3 text-[10px] uppercase tracking-[0.12em] text-gray-200 hover:bg-white/[0.07]"
-          (click)="refresh(true)"
+          (click)="refreshAnchor()"
           [disabled]="loading()"
         >
           <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="loading()" />
-          Refresh
+          {{ t('refresh') }}
         </button>
       </div>
 
+      <label class="block my-3">{{ i18n.t('observability.charts.system') }} <select [ngModel]="systemId()" (ngModelChange)="setSystem($event)"><option value="">{{ i18n.t('observability.charts.all_systems') }}</option>@for(system of systems();track system.id){<option [value]="system.id">{{ system.name }}</option>}</select></label>
+      @if (seriesEnabled()) { <app-activity-series [systemId]="systemId()" kind="run" [since]="window()" [asOf]="asOf()" [compact]="true" /> }
+      @if (error()) { <p role="alert" data-testid="operations-error">{{ t('load_error') }}</p> }
+      @if (overview(); as data) { <p class="coverage-note" data-testid="operations-coverage">{{ t('sample') }} · {{ t('clock') }} · {{ data.as_of || asOf() }}</p> }
       @if (loading() && !overview()) {
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
           @for (_ of [0, 1, 2, 3]; track $index) {
@@ -73,20 +86,20 @@ type WindowKey = '24h' | '7d';
       } @else if (!overview()) {
         <app-empty-state
           icon="activity"
-          title="No workspace telemetry"
-          description="Run the chat or launch a system to populate workspace observability."
+          [title]="t('empty')"
+          [description]="t('empty_hint')"
         />
       } @else {
         @if (alerts().length) {
           <section class="mb-4 rounded-md border border-amber-400/20 bg-amber-400/5 p-3">
             <div class="mb-2 flex items-center gap-2">
               <ck-glyph name="warn" [size]="13" />
-              <span class="ck-mono text-[10px] uppercase tracking-[0.16em] text-amber-200">Operator alerts</span>
+              <span class="ck-mono text-[10px] uppercase tracking-[0.16em] text-amber-200">{{ t('alerts') }}</span>
               <span class="ck-mono ml-auto text-[10px] text-gray-500">{{ alerts().length }}</span>
             </div>
             <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
               @for (alert of alerts().slice(0, 4); track alert.id) {
-                <a [routerLink]="alert.route" class="rounded border border-white/5 bg-black/20 px-3 py-2 text-sm text-gray-200 hover:border-cyan-400/40">
+                <a [routerLink]="nativeRoute(alert.route)" class="rounded border border-white/5 bg-black/20 px-3 py-2 text-sm text-gray-200 hover:border-cyan-400/40">
                   <div class="flex items-center gap-2">
                     <span class="h-1.5 w-1.5 rounded" [style.background]="toneColor(alert.tone)"></span>
                     <span class="truncate">{{ alert.label }}</span>
@@ -98,21 +111,21 @@ type WindowKey = '24h' | '7d';
           </section>
         }
 
-        <section class="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-6">
-          <ck-stat-readout variant="tile" label="Runs" [value]="summary().runs_total" icon="activity" tone="cool" />
-          <ck-stat-readout variant="tile" label="Completed" [value]="summary().runs_completed" icon="check" tone="pos" />
-          <ck-stat-readout variant="tile" label="Running" [value]="summary().runs_running" icon="play" tone="warn" />
-          <ck-stat-readout variant="tile" label="Failed" [value]="summary().runs_failed" icon="warn" tone="neg" />
-          <ck-stat-readout variant="tile" label="P95 latency" [value]="duration(summary().p95_latency_ms)" icon="telemetry" tone="cool" />
-          <ck-stat-readout variant="tile" label="Eval breaches" [value]="overview()!.evaluations.breaches" icon="shield" tone="warn" />
+        <section class="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-6" data-testid="operations-tiles">
+          <ck-stat-readout variant="tile" [label]="t('runs')" [value]="summary().runs_total" icon="activity" tone="cool" />
+          <ck-stat-readout variant="tile" [label]="t('completed')" [value]="summary().runs_completed" icon="check" tone="pos" />
+          <ck-stat-readout variant="tile" [label]="t('running')" [value]="summary().runs_running" icon="play" tone="warn" />
+          <ck-stat-readout variant="tile" [label]="t('failed')" [value]="summary().runs_failed" icon="alert-triangle" tone="neg" />
+          <ck-stat-readout variant="tile" [label]="t('latency')" [value]="duration(summary().p95_latency_ms)" icon="activity" tone="cool" />
+          <ck-stat-readout variant="tile" [label]="t('breaches')" [value]="overview()!.evaluations.breaches" icon="shield" tone="warn" />
         </section>
 
         <section class="mb-5 rounded-md border border-emerald-400/15 bg-emerald-400/[0.035]">
           <header class="flex items-center gap-2 border-b border-emerald-400/10 px-4 py-3">
             <ck-glyph name="flow" [size]="14" />
-            <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-emerald-200">Retrieval decisions</h2>
+            <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-emerald-200">{{ t('decisions') }}</h2>
             <span class="ck-mono ml-auto text-[10px] text-emerald-300/70">
-              {{ overview()!.retrieval_decisions?.total || 0 }} traced · {{ overview()!.retrieval_decisions?.missing || 0 }} missing
+              {{ t('traced', {count: overview()!.retrieval_decisions?.total || 0, missing: overview()!.retrieval_decisions?.missing || 0}) }}
             </span>
           </header>
           <div class="grid grid-cols-1 gap-3 p-4 xl:grid-cols-12">
@@ -121,7 +134,7 @@ type WindowKey = '24h' | '7d';
                 <div class="grid gap-2 md:grid-cols-2">
                   @for (route of retrievalRoutes().slice(0, 6); track route.route) {
                     <div class="rounded border border-white/5 bg-black/20 px-3 py-2">
-                      <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-gray-500">Route</div>
+                      <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-gray-500">{{ t('route') }}</div>
                       <div class="mt-1 flex items-center gap-2">
                         <span class="truncate text-sm font-medium text-white">{{ routeLabel(route.route) }}</span>
                         <span class="ck-mono ml-auto text-xs text-emerald-300">{{ route.count }}</span>
@@ -130,14 +143,14 @@ type WindowKey = '24h' | '7d';
                   }
                 </div>
               } @else {
-                <app-empty-state size="sm" icon="git-branch" title="No decision trace yet" description="Run the chat to capture retrieval routing decisions." />
+                <app-empty-state size="sm" icon="git-branch" [title]="t('decisions_empty')" [description]="t('decisions_hint')" />
               }
             </div>
             <div class="xl:col-span-5 grid grid-cols-2 gap-2">
-              <ck-stat-readout variant="tile" label="Sparse fallbacks" [value]="summary().sparse_fallbacks || 0" icon="warn" tone="warn" />
-              <ck-stat-readout variant="tile" label="Sparse timeouts" [value]="summary().sparse_timeouts || 0" icon="timer" tone="warn" />
-              <ck-stat-readout variant="tile" label="Cross issues" [value]="summary().cross_encoder_issues || 0" icon="shield" tone="neg" />
-              <ck-stat-readout variant="tile" label="Deep launched" [value]="summary().deep_launched || 0" icon="rocket" tone="cool" />
+              <ck-stat-readout variant="tile" [label]="t('sparse_fallbacks')" [value]="summary().sparse_fallbacks || 0" icon="alert-triangle" tone="warn" />
+              <ck-stat-readout variant="tile" [label]="t('sparse_timeouts')" [value]="summary().sparse_timeouts || 0" icon="clock" tone="warn" />
+              <ck-stat-readout variant="tile" [label]="t('cross_issues')" [value]="summary().cross_encoder_issues || 0" icon="shield" tone="neg" />
+              <ck-stat-readout variant="tile" [label]="t('deep_launched')" [value]="summary().deep_launched || 0" icon="rocket" tone="cool" />
             </div>
           </div>
         </section>
@@ -146,11 +159,11 @@ type WindowKey = '24h' | '7d';
           <section class="rounded-md border border-white/10 bg-white/[0.03] xl:col-span-7">
             <header class="flex items-center gap-2 border-b border-white/5 px-4 py-3">
               <ck-glyph name="flow" [size]="14" />
-              <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-gray-200">Systems</h2>
+              <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-gray-200">{{ t('systems') }}</h2>
               <span class="ck-mono ml-auto text-[10px] text-gray-500">{{ systems().length }}</span>
             </header>
             @if (!systems().length) {
-              <app-empty-state size="sm" icon="box" title="No systems" description="No active system is attached to this workspace." />
+              <app-empty-state size="sm" icon="box" [title]="t('systems_empty')" [description]="t('systems_hint')" />
             } @else {
               <div class="divide-y divide-white/5">
                 @for (system of systems(); track system.id) {
@@ -176,15 +189,15 @@ type WindowKey = '24h' | '7d';
           <section class="rounded-md border border-white/10 bg-white/[0.03] xl:col-span-5">
             <header class="flex items-center gap-2 border-b border-white/5 px-4 py-3">
               <ck-glyph name="ledger" [size]="14" />
-              <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-gray-200">Jobs</h2>
+              <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-gray-200">{{ t('work_items') }}</h2>
               <span class="ck-mono ml-auto text-[10px] text-gray-500">{{ jobs().length }}</span>
             </header>
             @if (!jobs().length) {
-              <app-empty-state size="sm" icon="briefcase" title="No recent jobs" description="Deep Search, SFTP and indexing jobs will appear here." />
+              <app-empty-state size="sm" icon="briefcase" [title]="t('work_items_empty')" [description]="t('work_items_hint')" />
             } @else {
               <div class="divide-y divide-white/5">
                 @for (job of jobs().slice(0, 8); track job.id) {
-                  <a [routerLink]="job.route || '/observability'" class="block px-4 py-3 hover:bg-white/[0.035]">
+                  <a [routerLink]="nativeRoute(job.route || observabilityUrl)" class="block px-4 py-3 hover:bg-white/[0.035]">
                     <div class="flex items-center gap-2">
                       <span class="h-1.5 w-1.5 rounded" [style.background]="toneColor(statusTone(job.status))"></span>
                       <span class="truncate text-sm font-medium text-white">{{ job.title || job.kind }}</span>
@@ -204,18 +217,18 @@ type WindowKey = '24h' | '7d';
         <section class="mt-5 rounded-md border border-white/10 bg-white/[0.03]">
           <header class="flex items-center gap-2 border-b border-white/5 px-4 py-3">
             <ck-glyph name="pulse" [size]="14" />
-            <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-gray-200">Activity timeline</h2>
+            <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-gray-200">{{ t('timeline') }}</h2>
             <span class="ck-mono ml-auto text-[10px] text-gray-500">
-              updated {{ relative(overview()!.generated_at) }}
+              {{ t('updated') }} {{ relative(overview()!.generated_at) }}
             </span>
           </header>
           @if (!timeline().length) {
-            <app-empty-state size="sm" icon="clock" title="No recent activity" description="Runs, jobs and evaluations will stream into this timeline." />
+            <app-empty-state size="sm" icon="clock" [title]="t('timeline_empty')" [description]="t('timeline_hint')" />
           } @else {
             <ol class="divide-y divide-white/5">
               @for (item of timeline().slice(0, 12); track item.id) {
                 <li>
-                  <a [routerLink]="item.route" class="grid grid-cols-12 gap-3 px-4 py-2.5 text-sm hover:bg-white/[0.035]">
+                  <a [routerLink]="nativeRoute(item.route)" class="grid grid-cols-12 gap-3 px-4 py-2.5 text-sm hover:bg-white/[0.035]">
                     <div class="col-span-1 flex items-center">
                       <span class="h-2 w-2 rounded" [style.background]="toneColor(item.tone)"></span>
                     </div>
@@ -229,15 +242,32 @@ type WindowKey = '24h' | '7d';
           }
         </section>
       }
+      <a [routerLink]="observabilityUrl" [queryParams]="{facet:'activities',systemId:systemId() || null,since:window(),as_of:asOf(),kind:'run'}">{{ i18n.t('observability.tabs.activities') }}</a>
     </ck-page-frame>
   `,
 })
 export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
+  readonly observabilityUrl = navigationSurfaceUrl('observability');
+  readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly auth = inject(AuthStore);
+  private readonly activityApi = inject(ActivityApiService);
+  private routeSub?: Subscription;
+  private request?: Subscription;
+  private resetters: Array<() => void> = [];
+  private destroyed = false;
+  readonly systemId = signal('');
+  readonly asOf = signal(new Date().toISOString());
+  readonly error = signal(false);
+  readonly seriesEnabled = signal(false);
+  t(key: string, params?: Record<string, string | number>): string { return this.i18n.t('observability.operations.' + key, params); }
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-  readonly windows: WindowKey[] = ['24h', '7d'];
-  readonly window = signal<WindowKey>('24h');
+  readonly windows: WindowKey[] = ['24h', '7d', '30d'];
+  readonly window = signal<WindowKey>('7d');
   readonly overview = signal<WorkspaceOverview | null>(null);
   readonly loading = signal(false);
 
@@ -269,34 +299,28 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
   readonly retrievalRoutes = computed(() => this.overview()?.retrieval_decisions?.routes ?? []);
 
   ngOnInit(): void {
-    this.refresh(true);
+    this.routeSub = this.route.queryParamMap.subscribe(params => {
+      this.window.set(observabilityPeriod(params.get('since'))); this.systemId.set(observabilitySystemId(params));
+      this.asOf.set(observabilityAnchor(params.get('as_of'), this.asOf())); this.refresh(true);
+    });
+    this.resetters.push(this.workspace.registerContextReset(() => { this.clear(); queueMicrotask(() => { if (!this.destroyed) { this.refresh(true); void this.discover(); } }); }));
+    this.resetters.push(this.auth.registerContextReset(() => this.clear()));
+    void this.discover();
   }
-
-  ngOnDestroy(): void {
-    if (this.pollTimer) clearTimeout(this.pollTimer);
-  }
-
-  setWindow(window: WindowKey): void {
-    this.window.set(window);
-    this.refresh(true);
-  }
-
+  private async discover(): Promise<void> { try { const f = await this.activityApi.features(); if (!this.destroyed) this.seriesEnabled.set(!!f.enabled && !!f.activity_series_enabled); } catch { this.seriesEnabled.set(false); } }
+  private clear(): void { this.request?.unsubscribe(); if (this.pollTimer) clearTimeout(this.pollTimer); this.overview.set(null); this.seriesEnabled.set(false); }
+  ngOnDestroy(): void { this.destroyed = true; this.clear(); this.routeSub?.unsubscribe(); this.resetters.forEach(reset => reset()); }
+  nativeRoute(url: string) { const tree = this.router.parseUrl(url); if (tree.root.children['primary']?.segments.map(part => part.path).join('/') === 'observability') tree.queryParams = { since: this.window(), as_of: this.asOf(), systemId: this.systemId() || undefined, ...tree.queryParams }; return tree; }
+  setSystem(systemId: string): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { systemId: systemId || null }, queryParamsHandling: 'merge' }); }
+  setWindow(window: WindowKey): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { since: window }, queryParamsHandling: 'merge' }); }
+  refreshAnchor(): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { as_of: new Date().toISOString() }, queryParamsHandling: 'merge' }); }
   refresh(manual = false): void {
-    if (manual) {
-      if (this.pollTimer) clearTimeout(this.pollTimer);
-      this.pollTimer = null;
-    }
-    this.loading.set(true);
-    this.canonical.workspaceOverview(this.window()).subscribe({
-      next: (overview) => {
-        this.overview.set(overview);
-        this.loading.set(false);
-        this.scheduleNextPoll();
-      },
-      error: () => {
-        this.loading.set(false);
-        this.scheduleNextPoll();
-      },
+    if (this.destroyed) return;
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    this.request?.unsubscribe(); this.loading.set(true); this.error.set(false);
+    this.request = this.canonical.workspaceOverview(this.window(), { as_of: this.asOf(), ...(this.systemId() ? { system_id: this.systemId() } : {}) }).subscribe({
+      next: overview => { this.overview.set(overview); this.loading.set(false); this.scheduleNextPoll(); },
+      error: error => { this.error.set(true); this.loading.set(false); if ([401,403,404].includes(error?.status)) this.overview.set(null); else this.scheduleNextPoll(); },
     });
   }
 
@@ -317,7 +341,7 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     const delta = Date.now() - date.getTime();
-    if (delta < 60_000) return 'now';
+    if (delta < 60_000) return this.t('now');
     if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
     if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
     return `${Math.floor(delta / 86_400_000)}d`;
