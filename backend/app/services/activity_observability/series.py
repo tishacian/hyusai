@@ -201,36 +201,64 @@ def activity_series(
             ),
         )
     read_context = queries.VisibilityReadContext(db, workspace, user)
-    last = None
-    missing_finished = 0
-    while True:
-        page_query = query.filter(Activity.id > last) if last else query
-        batch = page_query.order_by(Activity.id).limit(2000).all()
-        if not batch:
-            break
-        visible = queries.filter_visible(db, batch, workspace, user, read_context=read_context)
-        sources = _cost_sources(db, visible) if metric == "cost" else {}
-        for row in visible:
-            occurred = (
-                row.created_at
-                if time_basis == "created"
-                else _date(row.snapshot.get("finished_at"))
-            )
-            if occurred is None:
-                missing_finished += 1
-                continue
-            if not start <= occurred < until:
-                continue
-            slot = occurred.replace(minute=0, second=0, microsecond=0)
-            if bucket == "day":
-                slot = slot.replace(hour=0)
-            expense = sources.get((row.kind, row.native_id))
-            _add(cells[slot], row, expense, metric)
-            _add(totals, row, expense, metric)
-        last = batch[-1].id
-        # ORM identity maps otherwise retain large native JSON across batches.
-        for row in batch:
-            db.expunge(row)
+    from .series_sql import aggregate_compat
+
+    accelerated = aggregate_compat(
+        db,
+        workspace,
+        user,
+        read_context=read_context,
+        start=start,
+        until=until,
+        metric=metric,
+        kind=kind,
+        status=status,
+        system_id=system_id,
+        bucket=bucket,
+        time_basis=time_basis,
+    )
+    if accelerated is not None:
+        public_totals, public_buckets, missing_finished = accelerated
+    else:
+        last = None
+        missing_finished = 0
+        while True:
+            page_query = query.filter(Activity.id > last) if last else query
+            batch = page_query.order_by(Activity.id).limit(2000).all()
+            if not batch:
+                break
+            visible = queries.filter_visible(db, batch, workspace, user, read_context=read_context)
+            sources = _cost_sources(db, visible) if metric == "cost" else {}
+            for row in visible:
+                occurred = (
+                    row.created_at
+                    if time_basis == "created"
+                    else _date(row.snapshot.get("finished_at"))
+                )
+                if occurred is None:
+                    missing_finished += 1
+                    continue
+                if not start <= occurred < until:
+                    continue
+                slot = occurred.replace(minute=0, second=0, microsecond=0)
+                if bucket == "day":
+                    slot = slot.replace(hour=0)
+                expense = sources.get((row.kind, row.native_id))
+                _add(cells[slot], row, expense, metric)
+                _add(totals, row, expense, metric)
+            last = batch[-1].id
+            # ORM identity maps otherwise retain large native JSON across batches.
+            for row in batch:
+                db.expunge(row)
+        public_totals = _public(totals)
+        public_buckets = [
+            {
+                "from": iso(max(slot, start)),
+                "until": iso(min(slot + width, until)),
+                **_public(summary),
+            }
+            for slot, summary in cells.items()
+        ]
     return {
         "schema_version": 1,
         "from": iso(start),
@@ -247,15 +275,8 @@ def activity_series(
         "bucket": bucket,
         "timezone": "UTC",
         "quantile_method": "nearest_rank_exact",
-        "totals": _public(totals),
-        "buckets": [
-            {
-                "from": iso(max(slot, start)),
-                "until": iso(min(slot + width, until)),
-                **_public(summary),
-            }
-            for slot, summary in cells.items()
-        ],
+        "totals": public_totals,
+        "buckets": public_buckets,
         "coverage": {
             "missing_finished_at": missing_finished,
             "missing_finished_population": "terminal_activities_created_in_window",
