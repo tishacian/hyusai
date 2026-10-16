@@ -160,7 +160,13 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
     void this.api.follow({ cursor, signal: stream.signal,
       frame: frame => { if (!stream.signal.aborted) this.onFrame(frame); },
       state: state => { if (!stream.signal.aborted) { this.streamState.set(state); if (state === 'revoked') this.revoke(); } },
-      resync: () => { if (!stream.signal.aborted) { this.events.set([]); this.scheduleRefresh(); } },
+      resync: () => {
+        if (stream.signal.aborted) return;
+        this.streamState.set('reconnecting');
+        clearTimeout(this.refreshTimer); this.refreshTimer = undefined;
+        // Reconnect only after the authoritative read returns its new snapshot cursor.
+        void this.reload(true);
+      },
       pulse: () => { if (!stream.signal.aborted) this.lastSeen.set(new Date().toISOString()); },
     });
   }

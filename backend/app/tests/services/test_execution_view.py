@@ -105,6 +105,52 @@ def test_retries_loops_and_page_independent_totals(context):
     assert second["items"][0]["measurements"]["cost_known"] is True
 
 
+def test_deferred_invocation_wait_requires_native_dependency_evidence(context):
+    from app.models.recipe import RecipeExecution
+
+    db, workspace, user = context
+    run = seed(context, flow_snapshot={"nodes": [{"id": "n", "kind": "task"}]})
+    cases = {
+        "generic-wait": None,
+        "deferred-wait": {"kind": "recipe_execution", "id": "deferred-recipe"},
+        "missing-wait": {"kind": "recipe_execution", "id": "absent-recipe"},
+        "foreign-wait": {"kind": "recipe_execution", "id": "foreign-recipe"},
+        "other-node-wait": {"kind": "recipe_execution", "id": "other-node-recipe"},
+    }
+    for identifier, reference in cases.items():
+        db.add(
+            SkillInvocation(
+                id=identifier,
+                run_id=run.id,
+                status="waiting",
+                trace={"node_id": "n", "native_reference": reference},
+            )
+        )
+    for identifier, native_run, node_id in (
+        ("deferred-recipe", run.id, "n"),
+        ("foreign-recipe", "another-run", "n"),
+        ("other-node-recipe", run.id, "other"),
+    ):
+        db.add(
+            RecipeExecution(
+                id=identifier,
+                workspace_id=workspace.id,
+                run_id=native_run,
+                node_id=node_id,
+                status="running",
+            )
+        )
+    db.commit()
+    items = {item["native_id"]: item for item in view(context, run)["items"]}
+    for identifier in cases:
+        assert items[identifier]["status"] == items[identifier]["native_status"] == "waiting"
+        assert items[identifier]["waiting_reason"] == (
+            "external" if identifier == "deferred-wait" else None
+        )
+    projected = queries.list_activities(db, workspace, user, kind="skill_invocation")
+    assert {item["status"] for item in projected["items"]} == {"waiting"}
+
+
 def test_checkpoint_transition_atomic_dedup_and_metadata_only(context):
     db, workspace, user = context
     run = seed(context, flow_snapshot={"nodes": [{"id": "gate", "kind": "hitl"}]})

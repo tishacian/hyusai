@@ -39,6 +39,7 @@ STATUS_MAP = {
     "running": "running",
     "training": "running",
     "committing": "running",
+    "waiting": "waiting",
     "waiting_subflows": "waiting",
     "hitl_pending": "waiting",
     "debug_pending": "waiting",
