@@ -1,0 +1,17 @@
+
+> agentium@0.1.0 test:unit
+> node scripts/run-unit.mjs
+
+✔ the server picks the journey: Showcase keeps NorthForge, a client workspace walks its sources (1.167134ms)
+✔ deleted or withdrawn sources are unavailable; other failures are not (0.159798ms)
+✔ moving between sources stops at both ends (0.407592ms)
+✔ the page marks the whole passage in find segments, never a common fragment (0.664263ms)
+✔ AuthStore advances an opaque epoch and resets principal caches atomically (6.549826ms)
+ℹ tests 2302
+ℹ suites 2
+ℹ pass 2302
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 82850.840771

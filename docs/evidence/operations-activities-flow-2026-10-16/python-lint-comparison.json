@@ -1,0 +1,100 @@
+{
+  "backend/app/api/v1/endpoints/activities.py": {
+    "baseline": {},
+    "current": {}
+  },
+  "backend/app/api/v1/endpoints/evaluation.py": {
+    "baseline": {
+      "I001": 1,
+      "UP035": 2,
+      "F401": 3,
+      "UP045": 28,
+      "UP006": 5
+    },
+    "current": {
+      "UP035": 2,
+      "F401": 3,
+      "UP045": 28,
+      "UP006": 5
+    }
+  },
+  "backend/app/api/v1/endpoints/observability.py": {
+    "baseline": {
+      "UP045": 9
+    },
+    "current": {
+      "UP045": 9
+    }
+  },
+  "backend/app/api/v1/endpoints/runs.py": {
+    "baseline": {
+      "I001": 2,
+      "UP035": 3,
+      "UP045": 39,
+      "UP017": 1,
+      "UP006": 16
+    },
+    "current": {
+      "I001": 2,
+      "UP035": 3,
+      "UP045": 37,
+      "UP017": 1,
+      "UP006": 15
+    }
+  },
+  "backend/app/api/v1/endpoints/workspace_jobs.py": {
+    "baseline": {
+      "I001": 1,
+      "UP045": 9
+    },
+    "current": {
+      "UP045": 9
+    }
+  },
+  "backend/app/core/config.py": {
+    "baseline": {
+      "UP045": 35
+    },
+    "current": {
+      "UP045": 35
+    }
+  },
+  "backend/app/services/activity_observability/projection.py": {
+    "baseline": {},
+    "current": {}
+  },
+  "backend/app/services/activity_observability/queries.py": {
+    "baseline": {},
+    "current": {}
+  },
+  "backend/app/services/run_access.py": {
+    "baseline": {
+      "UP045": 6
+    },
+    "current": {}
+  },
+  "backend/app/services/run_engine/dag.py": {
+    "baseline": {},
+    "current": {}
+  },
+  "backend/app/services/run_engine/engine.py": {
+    "baseline": {
+      "UP045": 38
+    },
+    "current": {
+      "UP045": 38
+    }
+  },
+  "backend/app/tests/api/test_observability_workspace.py": {
+    "baseline": {},
+    "current": {}
+  },
+  "backend/app/tests/services/test_public_bench.py": {
+    "baseline": {},
+    "current": {}
+  },
+  "backend/app/tests/services/test_tabicl_pilot.py": {
+    "baseline": {},
+    "current": {}
+  }
+}
