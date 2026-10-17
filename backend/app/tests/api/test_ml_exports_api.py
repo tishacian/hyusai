@@ -55,7 +55,7 @@ def case(db_session, monkeypatch):
     app.dependency_overrides[api.get_db] = lambda: db_session
     paths = []
 
-    def build(row, folder):
+    def build(row, folder, attested=()):
         paths.append(folder)
         target = folder / "fixture.zip"
         with zipfile.ZipFile(target, "w") as archive:
@@ -65,6 +65,7 @@ def case(db_session, monkeypatch):
             "archive_sha256": "a" * 64,
             "archive_bytes": target.stat().st_size,
             "model_version": row.version,
+            "attestations": sorted(item["id"] for item in attested),
         }
 
     monkeypatch.setattr(api, "build_export", build)
