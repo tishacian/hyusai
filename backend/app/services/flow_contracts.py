@@ -918,11 +918,22 @@ def compile_execution_contract(
                         path=f"nodes/{node_id}/config/{key}",
                     )
             if raw_skill_slug == "evaluate_v2":
-                from app.schemas.typed_evaluation import compile_typed_output_schema
+                from app.schemas.typed_evaluation import (
+                    RunEvidenceSnapshot,
+                    compile_typed_output_schema,
+                )
 
                 params = config.get("params") or {}
                 typed = config.get("typed_evaluation") or params.get("typed_evaluation") or {}
                 try:
+                    if "run_evidence" in typed:
+                        RunEvidenceSnapshot.model_validate(typed["run_evidence"])
+                        if typed.get("batch_mode", "single") != "single" or any(
+                            key in typed for key in ("evidence", "asset_ref", "subject_ref")
+                        ):
+                            raise ValueError(
+                                "Run evidence requires a single subject without inline evidence."
+                            )
                     public_output_schema = validate_schema_definition(
                         compile_typed_output_schema(typed.get("questions") or []),
                         field=f"nodes.{node_id}.typed_output_schema",

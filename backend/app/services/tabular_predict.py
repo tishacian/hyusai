@@ -2060,22 +2060,18 @@ def public_predict_path(model: MLModel) -> str:
     return f"{settings.api_v1_prefix}/ml-models/{model.id}/predict"
 
 
-def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
-    """Everything the Playground and the key panel need in one read."""
+def serving_readiness(db: DBSession, model: MLModel) -> dict[str, Any]:
+    """Bounded metadata preflight shared by serving and operational controls.
 
-    champion = champion_for(db, workspace_id=model.workspace_id, slug=model.slug)
+    No model bytes are fetched or loaded. Runtime inference remains responsible
+    for checking the saved bytes against this producer contract.
+    """
     family = get_family(getattr(model, "family", None))
     remote = family.serving != "in_process"
     try:
         fields = contract_fields(model)
     except TabularError:
         fields = []
-    if remote and model.task == "forecasting":
-        from app.services.ml.forecast_serving import public_forecast_path
-
-        endpoint = public_forecast_path(model)
-    else:
-        endpoint = public_predict_path(model)
     from app.services.huggingface.adapters import require_model_foundation
     from app.services.ml.artifacts import validate_model_metadata
     from app.services.ml.families.tabular_foundation import require_qualified_model
@@ -2159,6 +2155,27 @@ def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
             "action": action,
         },
         **({"refusal": refusal} if refusal else {}),
+    }
+
+
+def serving_block(db: DBSession, model: MLModel) -> dict[str, Any]:
+    """Everything the Playground and the key panel need in one read."""
+
+    champion = champion_for(db, workspace_id=model.workspace_id, slug=model.slug)
+    family = get_family(getattr(model, "family", None))
+    remote = family.serving != "in_process"
+    try:
+        fields = contract_fields(model)
+    except TabularError:
+        fields = []
+    if remote and model.task == "forecasting":
+        from app.services.ml.forecast_serving import public_forecast_path
+
+        endpoint = public_forecast_path(model)
+    else:
+        endpoint = public_predict_path(model)
+    return {
+        **serving_readiness(db, model),
         "serving_version": int(champion.version) if champion is not None else None,
         "serving_model_id": champion.id if champion is not None else None,
         "is_serving": bool(champion is not None and champion.id == model.id),

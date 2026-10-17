@@ -85,6 +85,51 @@ class JudgeEvidence(StrictModel):
     asset_ref: dict[str, Any] | None = None
 
 
+class RunEvidenceSource(StrictModel):
+    """A published selector, never a caller-supplied excerpt or invocation id."""
+
+    id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$")
+    skill_slug: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,159}$")
+    node_id: str | None = Field(default=None, min_length=1, max_length=160)
+    paths: list[str] = Field(min_length=1, max_length=32)
+    required: Literal[True] = True
+
+    @field_validator("paths")
+    @classmethod
+    def explicit_json_pointers(cls, paths):
+        import re
+
+        if len(set(paths)) != len(paths) or any(
+            not path.startswith("/")
+            or len(path) > 500
+            or path == "/"
+            or re.search(r"~(?![01])", path)
+            for path in paths
+        ):
+            raise ValueError("Select distinct, non-root JSON pointers into output fields.")
+        return paths
+
+
+class RunEvidenceNativeRef(StrictModel):
+    kind: Literal["dataset", "model", "document_set"]
+    id: str = Field(min_length=1, max_length=36)
+
+
+class RunEvidenceSnapshot(StrictModel):
+    sources: list[RunEvidenceSource] = Field(min_length=1, max_length=16)
+    native_refs: list[RunEvidenceNativeRef] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def unique_sources(self):
+        if len({source.id for source in self.sources}) != len(self.sources):
+            raise ValueError("Evidence source identifiers must be distinct.")
+        if not any(source.required for source in self.sources):
+            raise ValueError("At least one evidence source must be required.")
+        if len({(ref.kind, ref.id) for ref in self.native_refs}) != len(self.native_refs):
+            raise ValueError("Native references must be distinct.")
+        return self
+
+
 class JudgeBudget(StrictModel):
     max_calls: int = Field(ge=1, le=10000)
     max_tokens: int = Field(ge=1, le=100_000_000)
