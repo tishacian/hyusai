@@ -5,7 +5,7 @@ test.use({serviceWorkers:'block',video:'off',ignoreHTTPSErrors:false});
 test.beforeEach(async({},info)=>{test.skip(process.env['E2E_OPERATIONS_FIXTURE']!=='1'||!['127.0.0.1','localhost'].includes(new URL(String(info.project.use.baseURL)).hostname),'Local deterministic fixture only.');});
 for(const locale of ['fr','en'])for(const theme of ['dark','light'])for(const enabled of [true,false])test(`${locale}/${theme}/activities=${enabled}: operations, quality points, matrix, radar, history and exact evidence`,async({page},info)=>{
  const {requests}=await mockOperations(page,{locale,theme,enabled});await page.setViewportSize({width:locale==='en'?390:1440,height:1000});
- await page.goto(`/observability?facet=operations&since=24h&as_of=${encodeURIComponent(executionDate)}`);await expect(page.locator('app-workspace-monitor')).toBeVisible();await expect(page.getByTestId('operations-tiles')).toBeVisible();await expect(page.getByTestId('operations-coverage')).toBeVisible();
+ await page.goto(`/observability?facet=operations&since=24h&as_of=${encodeURIComponent(executionDate)}`);await expect(page.locator('app-workspace-monitor')).toBeVisible();await expect(page.getByTestId('operations-tiles')).toBeVisible();await expect(page.getByTestId('operations-tiles')).toHaveAttribute('data-source','sample');await expect(page.getByTestId('operations-coverage')).toBeVisible();
  const tabs=page.getByTestId('observability-facets');await expect(tabs.getByRole('button')).toHaveCount(enabled?5:4);await expect(page.locator('app-workspace-monitor')).toContainText('Index documents');await expect(page.locator('app-workspace-monitor')).toContainText('Review overdue');await expect(page.locator('app-workspace-monitor')).toContainText('Run A started');
  await tabs.getByRole('button',{name:locale==='fr'?'Qualité':'Quality',exact:true}).click();const chart=page.locator('app-quality-evidence-charts');await expect(chart).toBeVisible();
  const point=chart.locator('[role=button][aria-label="run-A: 72"]');await point.focus();await point.press('Enter');const evidence=chart.locator('.selection a');await expect(evidence).toHaveAttribute('href',/\/runs\/run-A(?:\?|$)/);expect(new URL(page.url()).searchParams.get('evaluationId')).toBe('eval-old');
@@ -47,4 +47,15 @@ test('series keep unknown duration and partial cost coverage, without parent cos
 
 test('Flow read capability without activity journal stays a manual snapshot and opens no SSE',async({page})=>{
  const fixture=await mockOperations(page,{enabled:false,execution:true});await page.goto('/runs/run-A?view=flow');await expect(page.getByTestId('execution-graph')).toBeVisible();expect(await page.evaluate(()=>(window as any).__operationStreams.length)).toBe(0);expect(fixture.requests.some(r=>r.path.endsWith('/execution-view'))).toBe(true);
+});
+
+test('Operations tiles read the exhaustive Run series and open the matching Activities filter',async({page})=>{
+ const fixture=await mockOperations(page,{series:true});await page.goto(`/observability?facet=operations&since=24h&as_of=${encodeURIComponent(executionDate)}`);
+ const tiles=page.getByTestId('operations-tiles');await expect(tiles).toHaveAttribute('data-source','series');
+ await expect(page.getByTestId('operations-tile-runs')).toContainText('2');await expect(page.getByTestId('operations-tile-completed')).toContainText('1');await expect(page.getByTestId('operations-tile-failed')).toContainText('1');
+ await expect(page.getByTestId('operations-tile-latency')).toContainText('—');await expect(page.getByTestId('operations-tiles-coverage')).toContainText('0/0');
+ const request=fixture.requests.filter(r=>r.path==='/observability/activities/series'&&r.query.get('kind')==='run'&&r.query.get('time_basis')==='created').at(-1)!;expect(request.query.get('metric')).toBe('activity');expect(request.query.get('until')).toBe(executionDate);
+ const before=fixture.requests.filter(r=>r.path==='/observability/activities/series').length;await page.waitForTimeout(6000);expect(fixture.requests.filter(r=>r.path==='/observability/activities/series').length).toBe(before);
+ await page.getByTestId('operations-tile-failed').click();await expect(page.getByTestId('activity-monitor')).toBeVisible();const query=new URL(page.url()).searchParams;expect(query.get('facet')).toBe('activities');expect(query.get('kind')).toBe('run');expect(query.get('status')).toBe('failed');expect(query.get('as_of')).toBe(executionDate);expect(query.get('since')).toBe('24h');
+ expect((await new AxeBuilder({page}).include('[data-testid="observability-facets"]').analyze()).violations).toEqual([]);
 });
