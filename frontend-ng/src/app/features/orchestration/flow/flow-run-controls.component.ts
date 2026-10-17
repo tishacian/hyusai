@@ -20,8 +20,11 @@ import {
   input,
   inject,
   output,
-  untracked,
+  untracked, signal, DestroyRef,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { navigationRunFlowUrl } from '@app/core/navigation.catalog';
+import { ActivityApiService } from '../../observability/activities/activity-api.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
@@ -33,10 +36,11 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
   selector: 'app-flow-run-controls',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, RouterLink],
   styleUrl: './flow-run-controls.component.scss',
   template: `
     <div class="ck-run" role="group" [attr.aria-label]="i18n.t('flow.run.aria')">
+      @if (executionEnabled() && run.currentRun(); as current) { <a class="ck-run__btn" [routerLink]="executionUrl(current.id)">{{ i18n.t('observability.flow.open') }}</a> }
       @if (!compact()) {
       <span
         class="ck-run__runtime"
@@ -261,6 +265,10 @@ export class FlowRunControlsComponent {
   private readonly store = inject(FlowStore);
   private readonly toastr = inject(ToastrService);
   readonly compact = input(false);
+  readonly executionEnabled = signal(false);
+  readonly executionUrl = navigationRunFlowUrl;
+  private readonly activities = inject(ActivityApiService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Asks the shell to open the Versions drawer (gated on a saved System). */
   readonly openVersions = output<void>();
@@ -281,6 +289,7 @@ export class FlowRunControlsComponent {
   private lastPrefill = '';
 
   constructor() {
+    void this.activities.features().then(features => { if (!this.destroyRef.destroyed) this.executionEnabled.set(!!features.execution_view_enabled); }).catch(() => undefined);
     effect(() => {
       if (!this.run.inputEditorOpen()) return;
       const prefill = ingressPrefillText(this.store.snapshot(), this.selectedIngressId());

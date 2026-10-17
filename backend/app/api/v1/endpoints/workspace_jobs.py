@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.roles import is_admin_template
 from app.db.base import SessionLocal, get_db
-from app.models.user import Session as ChatSession, User
+from app.models.user import Session as ChatSession
+from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.workspace_jobs import (
@@ -23,7 +24,6 @@ from app.services.workspace_jobs import (
     serialize_job,
     transition_job,
 )
-
 
 router = APIRouter()
 
@@ -54,7 +54,14 @@ def _user_session_ids(db: DBSession, user: User, workspace: Workspace) -> list[s
     ]
 
 
-def _can_access_job(db: DBSession, job: WorkspaceJob, user: User, workspace: Workspace) -> bool:
+def _can_access_job(
+    db: DBSession,
+    job: WorkspaceJob,
+    user: User,
+    workspace: Workspace,
+    *,
+    workspace_admin: bool | None = None,
+) -> bool:
     if job.kind == "brd_generation":
         from app.models.brd_document import BrdDocument
         from app.services.skills_registry.brd_generation import authorized_catalog
@@ -68,7 +75,12 @@ def _can_access_job(db: DBSession, job: WorkspaceJob, user: User, workspace: Wor
         except HTTPException:
             return False
         return True
-    if _is_workspace_admin(db, user, workspace):
+    admin = (
+        workspace_admin
+        if workspace_admin is not None
+        else _is_workspace_admin(db, user, workspace)
+    )
+    if admin:
         return True
     if job.created_by_user_id == user.id:
         return True

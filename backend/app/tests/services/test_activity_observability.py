@@ -290,13 +290,19 @@ def test_native_cancel_adapters_record_request_without_claiming_running_job_stop
     assert db.query(Activity).one().status == "running"
 
 
-def test_window_attempts_link_native_runs_not_receipts_or_other_children(context):
+def test_window_attempts_link_native_runs_not_receipts_or_other_children(context, monkeypatch, tmp_path):
+    from app.services import governed_assets as assets
+
     db, workspace, user = context
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
     run = seed_run(db, workspace)
+    asset = assets.register_asset(db, workspace.id, "reference", "attempt-result", {}, run_id=run.id)
     now = datetime.utcnow()
     db.add(ServiceWindow(id="window-attempt", workspace_id=workspace.id, contract_id="contract", system_id="system", logical_key="daily", period_start=now, period_end=now+timedelta(days=1), deadline_at=now+timedelta(days=1)))
     db.add(ServiceAttempt(id="actual-attempt", workspace_id=workspace.id, window_id="window-attempt", run_id=run.id, fence=1, lease_token="MUST_NOT_LEAK"))
-    db.add(DeliveryReceipt(id="actual-receipt", workspace_id=workspace.id, window_id="window-attempt", asset_id="asset", asset_digest="a"*64, qualification_id="qual", qualification_digest="b"*64, destination="opaque", decision_id="decision", binding_digest="c"*64))
+    db.add(DeliveryReceipt(id="actual-receipt", workspace_id=workspace.id, window_id="window-attempt", asset_id=asset.id, asset_digest=asset.digest, qualification_id="qual", qualification_digest="b"*64, destination="opaque", decision_id="decision", binding_digest="c"*64))
     db.commit()
     # A real System is normally required by the native service foreign key.
     # Read via its system-authorized metadata boundary in this isolated fixture.

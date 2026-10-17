@@ -1,14 +1,19 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
-import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router, convertToParamMap } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { FormsModule } from '@angular/forms';
+import { WorkspaceMonitorComponent } from './workspace-monitor.component';
+import { ActivityApiService, ActivityApiError } from './activities/activity-api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { AuthStore } from '@app/store/auth.store';
 import { ActivitiesComponent } from './activities/activities.component';
 import { QualityDashboardComponent } from './quality-dashboard.component';
 import { PerformanceDashboardComponent } from './performance-dashboard.component';
 import { TracesFacetComponent } from './traces-facet.component';
 import {
-  normalizeObservabilityFacet,
+  resolveObservabilityFacet, observabilityPeriod, observabilityAnchor,
   type ObservabilityFacet,
 } from './observability-facets';
 
@@ -28,7 +33,7 @@ interface Tab {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    GlyphComponent,
+    GlyphComponent, FormsModule, WorkspaceMonitorComponent,
     ActivitiesComponent,
     QualityDashboardComponent,
     PerformanceDashboardComponent,
@@ -36,7 +41,7 @@ interface Tab {
   ],
   template: `
     <div
-      [style.padding]="'0 32px'"
+      [style.padding]="'0 clamp(12px, 3vw, 32px)'"
       [style.maxWidth.px]="1480"
       [style.margin]="'0 auto'"
       [style.paddingTop.px]="18"
@@ -45,7 +50,7 @@ interface Tab {
         role="navigation"
         [attr.aria-label]="i18n.t('nav.observability')"
         data-testid="observability-facets"
-        [style.display]="'inline-flex'"
+        [style.display]="'inline-flex'" [style.flexWrap]="'wrap'"
         [style.alignItems]="'center'"
         [style.gap.px]="2"
         [style.background]="'var(--ck-bg-panel)'"
@@ -53,7 +58,7 @@ interface Tab {
         [style.borderRadius.px]="4"
         [style.padding.px]="2"
       >
-        @for (t of tabs; track t.facet) {
+        @for (t of tabs(); track t.facet) {
           <button
             type="button"
             (click)="selectFacet(t.facet)"
@@ -81,6 +86,17 @@ interface Tab {
       </div>
     </div>
 
+    @if (facet() === 'operations' || facet() === 'activities' || facet() === 'quality') {
+      <div class="observation-window" data-testid="observation-window">
+        <label>{{ i18n.t('observability.charts.period') }}
+          <select [ngModel]="period()" (ngModelChange)="setPeriod($event)">
+            @for (period of ['24h','7d','30d']; track period) { <option [value]="period">{{ period }}</option> }
+          </select>
+        </label>
+        <span>{{ i18n.t('observability.window.as_of') }} <time>{{ anchor() }}</time></span>
+        <button type="button" (click)="refreshAnchor()">{{ i18n.t('common.refresh') }}</button>
+      </div>
+    } @else { <p class="observation-window">{{ i18n.t('observability.window.not_applied') }}</p> }
     @switch (facet()) {
       @case ('quality') {
         <app-quality-dashboard />
@@ -91,11 +107,11 @@ interface Tab {
       @case ('traces') {
         <app-traces-facet />
       }
-      @default {
-        <app-activities />
-      }
+      @case ('activities') { <app-activities /> }
+      @default { <app-workspace-monitor /> }
     }
   `,
+  styles: `.observation-window{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:16px clamp(12px,3vw,32px);font-size:12px;color:var(--ck-fg-2)}.observation-window select,.observation-window button{background:var(--ck-bg-panel);color:var(--ck-fg-1);border:1px solid var(--ck-stroke-2);padding:6px;border-radius:4px}.observation-window time{overflow-wrap:anywhere}`,
 })
 export class ObservabilityShellComponent implements OnDestroy {
   readonly i18n = inject(I18nService);
@@ -106,32 +122,59 @@ export class ObservabilityShellComponent implements OnDestroy {
 
   readonly facet = computed(() => {
     const tree = this.router.parseUrl(this.url() || '/');
-    return normalizeObservabilityFacet(tree.queryParams['facet'] ?? null);
+    return resolveObservabilityFacet(convertToParamMap(tree.queryParams));
   });
 
-  readonly tabs: Tab[] = [
+  private readonly api = inject(ActivityApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly auth = inject(AuthStore);
+  private readonly resetters: Array<() => void> = [];
+  private destroyed = false;
+  private generation = 0;
+  readonly activitiesEnabled = signal(false);
+  private readonly initialAnchor = new Date().toISOString();
+  readonly anchor = computed(() => observabilityAnchor(this.router.parseUrl(this.url()).queryParams['as_of'] ?? null, this.initialAnchor));
+  readonly period = computed(() => observabilityPeriod(this.router.parseUrl(this.url()).queryParams['since'] ?? null));
+  readonly tabs = computed(() => ([
     { label: 'observability.tabs.operations', glyph: 'telemetry', facet: 'operations' },
+    ...(this.activitiesEnabled() ? [{ label: 'observability.tabs.activities', glyph: 'ledger' as CkGlyphName, facet: 'activities' as ObservabilityFacet }] : []),
     { label: 'observability.charts.page_title', glyph: 'pulse', facet: 'quality' },
     { label: 'observability.tabs.performance', glyph: 'telemetry', facet: 'performance' },
     { label: 'observability.tabs.traces', glyph: 'ledger', facet: 'traces' },
-  ];
+  ] as Tab[]));
 
   constructor() {
     this.urlSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
-      .subscribe((e) => this.url.set(e.urlAfterRedirects));
+      .subscribe((e) => { this.url.set(e.urlAfterRedirects); this.normalizeUrl(); });
+    this.resetters.push(this.workspace.registerContextReset(() => { this.activitiesEnabled.set(false); queueMicrotask(() => void this.discover()); }));
+    this.resetters.push(this.auth.registerContextReset(() => { this.generation++; this.activitiesEnabled.set(false); }));
+    void this.discover();
+    queueMicrotask(() => this.normalizeUrl());
   }
 
   ngOnDestroy(): void {
-    this.urlSub.unsubscribe();
+    this.destroyed = true; this.generation++; this.urlSub.unsubscribe(); this.resetters.forEach(reset => reset());
   }
 
   selectFacet(facet: ObservabilityFacet): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { facet },
+      queryParams: { facet, activityId: facet === 'activities' ? this.router.parseUrl(this.url()).queryParams['activityId'] || null : null, as_of: this.anchor(), since: this.period() },
       queryParamsHandling: 'merge',
-      replaceUrl: true,
     });
   }
+  private async discover(): Promise<void> {
+    const generation = ++this.generation;
+    try { const features = await this.api.features(); if (!this.destroyed && generation === this.generation) this.activitiesEnabled.set(features.enabled); }
+    catch { if (generation === this.generation) this.activitiesEnabled.set(false); }
+  }
+  private normalizeUrl(): void {
+    if (this.destroyed) return;
+    const q = this.router.parseUrl(this.url()).queryParams;
+    if (q['facet'] === this.facet() && q['since'] === this.period() && q['as_of'] === this.anchor() && !q['system_id']) return;
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { facet: this.facet(), since: this.period(), as_of: this.anchor(), systemId: q['systemId'] || q['system_id'] || null, system_id: null }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+  setPeriod(since: string): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { since: observabilityPeriod(since), offset: null }, queryParamsHandling: 'merge' }); }
+  refreshAnchor(): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { as_of: new Date().toISOString(), offset: null }, queryParamsHandling: 'merge' }); }
 }

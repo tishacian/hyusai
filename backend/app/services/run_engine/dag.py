@@ -1000,6 +1000,7 @@ async def resume_run_dag(
             {
                 "kind": "hitl_resume",
                 "node_id": hitl_node_id,
+                "passage_id": pause_cp.get("passage_id"),
                 "decision_status": dec.status if dec else None,
                 **(
                     {
@@ -1011,6 +1012,10 @@ async def resume_run_dag(
                 ),
             },
         )
+
+        if hitl_node_id and not (is_subflow_pause or is_agent_loop_pause or is_membrane_egress):
+            _append_checkpoint(db, run, {"kind": "node_end", "node_id": hitl_node_id,
+                                        "passage_id": pause_cp.get("passage_id"), "status": "completed"})
 
         return await _walk(
             db,
@@ -1850,7 +1855,13 @@ def _emit_hitl_pause(
     if terminal is not None:
         return terminal
     state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
+    from uuid import uuid4
+
+    from app.services.run_engine.execution_correlation import persisted_passage
+
     checkpoint = {
+        "transition_id": str(uuid4()),
+        "passage_id": persisted_passage(run, outcome.get("node_id")),
         "kind": "hitl_pause",
         "t": datetime.utcnow().isoformat(),
         "node_id": outcome.get("node_id"),
@@ -1917,7 +1928,13 @@ def _emit_subflow_pause(
     if terminal is not None:
         return terminal
     state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
+    from uuid import uuid4
+
+    from app.services.run_engine.execution_correlation import persisted_passage
+
     checkpoint = {
+        "transition_id": str(uuid4()),
+        "passage_id": persisted_passage(run, outcome.get("node_id")),
         "kind": "subflow_wait",
         "t": datetime.utcnow().isoformat(),
         "node_id": outcome.get("node_id"),
@@ -2350,6 +2367,23 @@ def _apply_predict_node_config(node: DagNode, node_input: dict[str, Any]) -> Non
 # Per-node dispatcher
 # ---------------------------------------------------------------------------
 async def _execute_node(
+    db: DBSession, run: Run, node: DagNode, graph: DagGraph, state: WalkerState, *, control,
+) -> dict[str, Any]:
+    """Bind one logical node entry across its checkpoints and native attempts."""
+    from uuid import uuid4
+
+    from app.services.run_engine.execution_correlation import passage_context, resumable_passage
+
+    token = passage_context.set({
+        "run_id": run.id, "node_id": node.id, "passage_id": resumable_passage(run, node.id) or str(uuid4()),
+    })
+    try:
+        return await _execute_node_body(db, run, node, graph, state, control=control)
+    finally:
+        passage_context.reset(token)
+
+
+async def _execute_node_body(
     db: DBSession,
     run: Run,
     node: DagNode,
@@ -2737,6 +2771,11 @@ async def _execute_node(
             invocations_before,
             node_input=node_input if isinstance(node_input, dict) else None,
         )
+        import sys
+
+        interrupted = sys.exc_info()[1]
+        if interrupted is not None:
+            summary["status"] = "cancelled" if isinstance(interrupted, asyncio.CancelledError) else "failed"
         _append_checkpoint(
             db,
             run,
@@ -4850,6 +4889,8 @@ def _summarise_node_execution(
     summary: dict[str, Any] = {}
     if not isinstance(result, dict):
         return summary
+    if result:
+        summary["status"] = "failed" if result.get("terminal_error") else "unknown" if result.get("membrane_blocked") else "completed"
     badge = _node_data_badge(node_input, result)
     if badge is not None:
         summary["data"] = badge
@@ -4885,7 +4926,13 @@ def _summarise_node_execution(
 
 
 def _append_checkpoint(db: DBSession, run: Run, entry: dict[str, Any]) -> None:
+    from uuid import uuid4
+
+    from app.services.run_engine.execution_correlation import current_passage
+
     cps = list(run.checkpoints or [])
+    entry = {**current_passage(run.id, entry.get("node_id")), **entry}
+    entry.setdefault("transition_id", str(uuid4()))
     entry.setdefault("t", datetime.utcnow().isoformat())
     entry = redact_secrets(entry)
     cps.append(entry)

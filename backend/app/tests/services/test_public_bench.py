@@ -113,9 +113,12 @@ def test_connector_migrations_extend_the_single_head():
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "alembic"))
     script = ScriptDirectory.from_config(config)
-    head = "134_execution_control"
+    head = "137_mlops_operations"
     assert script.get_heads() == [head]
     assert len(head) <= 32
-    assert script.get_revision(head).down_revision == "133_activity_observability"
+    assert script.get_revision(head).down_revision == "136_mlops_correctness"
+    assert script.get_revision("136_mlops_correctness").down_revision == "135_mlops_governance"
+    assert script.get_revision("135_mlops_governance").down_revision == "134_execution_control"
+    assert script.get_revision("134_execution_control").down_revision == "133_activity_observability"
     assert script.get_revision("133_activity_observability").down_revision == "132_connector_sync"
     assert script.get_revision("126_service_contracts").down_revision == "125_retrieval_bench_runs"

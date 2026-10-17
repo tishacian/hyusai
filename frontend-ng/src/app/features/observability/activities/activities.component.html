@@ -2,13 +2,14 @@
   <section class="activities" data-testid="activity-monitor" [attr.aria-label]="t('title')">
     <header class="page-heading">
       <div><p class="eyebrow">{{ i18n.t('nav.observability') }}</p><h1>{{ t('title') }}</h1><p>{{ t('description') }}</p></div>
-      <button type="button" (click)="reload()" [disabled]="loading()">{{ t('refresh') }}</button>
+      <button type="button" (click)="refreshAnchor()" [disabled]="loading()">{{ t('refresh') }}</button>
     </header>
     <nav class="scopes" [attr.aria-label]="t('scope')">
       @for (item of features()!.scopes; track item) {
         <button type="button" [attr.aria-pressed]="scope() === item" (click)="setScope(item)">{{ label('scope', item) }}</button>
       }
     </nav>
+    @if (scope() !== 'platform' && features()?.activity_series_enabled) { <app-activity-series [systemId]="systemId" [kind]="kind" [status]="status" [since]="since" [asOf]="asOf" /> }
     @if (scope() !== 'platform') {
       <form class="filters" (ngSubmit)="applyFilters()">
         @if (scope() === 'system') { <label>{{ t('system') }}<select name="systemId" [(ngModel)]="systemId" required><option value="">{{ t('select_system') }}</option>@for (system of systems(); track system.id) {<option [value]="system.id">{{ system.name }}</option>}@if (systemId && !systemListed(systemId)) {<option [value]="systemId">{{ systemId }}</option>}</select></label> }
@@ -49,7 +50,7 @@
               @for (item of data.items; track item.id) {
                 <tr [class.selected]="selectedId() === item.id">
                   <th><button type="button" class="activity-select" (click)="select(item.id)" [attr.aria-expanded]="selectedId() === item.id"><span>{{ label('kind', item.kind) }}</span><small class="mono">{{ item.native_id }}</small></button></th>
-                  <td><span class="badge" [class.failed]="item.status === 'failed'">{{ label('status', item.status) }}</span></td><td>{{ date(item.started_at || item.created_at) }}</td><td>{{ number(item.measurements.duration_ms, ' ms') }}</td><td>{{ item.measurements.cost_known ? number(item.measurements.provider_cost_usd, ' USD') : t('unknown') }}</td>
+                  <td><span class="badge" [class.failed]="item.status === 'failed'">{{ label('status', item.status) }}</span></td><td>{{ date(item.started_at || item.created_at) }}</td><td>{{ number(item.measurements.duration_ms, ' ms') }}</td><td>{{ cost(item.measurements) }}</td>
                 </tr>
               }
             </tbody></table></div>
@@ -63,8 +64,9 @@
             @if (detail(); as item) {
               <h3>{{ label('kind', item.kind) }}</h3><p class="mono break">{{ item.native_id }}</p><span class="badge">{{ label('status', item.status) }}</span>
               <dl class="facts"><dt>{{ t('native_status') }}</dt><dd>{{ item.native_status }}</dd><dt>{{ t('version') }}</dt><dd>{{ item.version }}</dd><dt>{{ t('system') }}</dt><dd>@if (item.system_id) {<a [routerLink]="objectHref('system', item.system_id)">{{ item.system_id }}</a>} @else {—}</dd><dt>{{ t('run') }}</dt><dd>@if (item.run_id) {<a [routerLink]="objectHref('run', item.run_id)">{{ item.run_id }}</a>} @else {—}</dd><dt>{{ t('parent') }}</dt><dd>@if(item.parent_activity_id) {<button class="link" type="button" (click)="select(item.parent_activity_id)">{{ item.parent_activity_id }}</button>} @else {—}</dd><dt>{{ t('started') }}</dt><dd>{{ date(item.started_at) }}</dd><dt>{{ t('finished') }}</dt><dd>{{ date(item.finished_at) }}</dd></dl>
+              @if (item.run_id && features()?.execution_view_enabled) { <a [routerLink]="objectHref('run', item.run_id)" [queryParams]="{ view: 'flow', activityId: item.id }">{{ i18n.t('observability.flow.open') }}</a> }
               <h3>{{ t('resources') }}</h3>
-              <dl class="facts"><dt>{{ t('duration') }}</dt><dd>{{ number(item.measurements.duration_ms, ' ms') }}</dd><dt>{{ t('cpu') }}</dt><dd>{{ number(item.measurements.cpu_seconds, ' s') }}</dd><dt>{{ t('allocated') }}</dt><dd>{{ number(item.measurements.core_hours, ' h') }}</dd><dt>{{ t('reserved') }}</dt><dd>{{ number(item.measurements.reserved_core_hours, ' h') }}</dd><dt>{{ t('cores') }}</dt><dd>{{ number(item.measurements.cpu_cores) }}</dd><dt>{{ t('memory_requested') }}</dt><dd>{{ number(item.measurements.memory_mb, ' MiB') }}</dd><dt>{{ t('memory') }}</dt><dd>{{ number(item.measurements.peak_memory_bytes, ' B') }}</dd><dt>{{ t('spill') }}</dt><dd>{{ number(item.measurements.spill_bytes, ' B') }}</dd><dt>{{ t('input_rows') }}</dt><dd>{{ number(item.measurements.input_rows) }}</dd><dt>{{ t('output_rows') }}</dt><dd>{{ number(item.measurements.output_rows) }}</dd><dt>{{ t('cost_basis') }}</dt><dd>{{ item.measurements.cost_basis ? label('cost_basis', item.measurements.cost_basis) : t('unknown') }}</dd><dt>{{ t('cost') }}</dt><dd>{{ item.measurements.cost_known ? number(item.measurements.provider_cost_usd, ' USD') : t('unknown') }}</dd></dl>
+              <dl class="facts"><dt>{{ t('duration') }}</dt><dd>{{ number(item.measurements.duration_ms, ' ms') }}</dd><dt>{{ t('cpu') }}</dt><dd>{{ number(item.measurements.cpu_seconds, ' s') }}</dd><dt>{{ t('allocated') }}</dt><dd>{{ number(item.measurements.core_hours, ' h') }}</dd><dt>{{ t('reserved') }}</dt><dd>{{ number(item.measurements.reserved_core_hours, ' h') }}</dd><dt>{{ t('cores') }}</dt><dd>{{ number(item.measurements.cpu_cores) }}</dd><dt>{{ t('memory_requested') }}</dt><dd>{{ number(item.measurements.memory_mb, ' MiB') }}</dd><dt>{{ t('memory') }}</dt><dd>{{ number(item.measurements.peak_memory_bytes, ' B') }}</dd><dt>{{ t('spill') }}</dt><dd>{{ number(item.measurements.spill_bytes, ' B') }}</dd><dt>{{ t('input_rows') }}</dt><dd>{{ number(item.measurements.input_rows) }}</dd><dt>{{ t('output_rows') }}</dt><dd>{{ number(item.measurements.output_rows) }}</dd><dt>{{ t('cost_basis') }}</dt><dd>{{ item.measurements.cost_basis ? label('cost_basis', item.measurements.cost_basis) : t('unknown') }}</dd><dt>{{ t('cost') }}</dt><dd>{{ cost(item.measurements) }}</dd></dl>
               <p class="notice">{{ t('coverage') }}: {{ t('events') }} {{ coverage(item.coverage?.['events']) }} · {{ t('resources') }} {{ coverage(item.coverage?.['resources']) }} · {{ t('cost') }} {{ coverage(item.coverage?.['cost']) }}. {{ t('cost_hint') }}</p>
               <h3>{{ t('evidence') }}</h3><ul class="evidence">@for (link of item.links.concat(item.evidence || []); track $index) {@if (safeLink(link); as href) {<li><a [routerLink]="href">{{ label('link', link.rel) }}</a></li>}}</ul>
               @if (item.attempts.length) {<h3>{{ t('attempts') }}</h3><ol class="attempts">@for (attempt of item.attempts; track attempt.id) {<li><button type="button" class="link" (click)="select(attempt.id)">{{ label('kind', attempt.kind) }} · {{ label('status', attempt.status) }}</button><small>{{ date(attempt.started_at || attempt.created_at) }}</small></li>}</ol>}
@@ -87,5 +89,5 @@
   </section>
 } @else {
   @if (error()) {<p class="activities notice error" role="alert">{{ t(error()) }}</p>}
-  @if (discovering()) {<p class="activities" role="status">{{ t('loading') }}</p>} @else {<app-workspace-monitor />}
+  @if (discovering()) {<p class="activities" role="status">{{ t('loading') }}</p>} @else { <section class="activities" data-testid="activities-unavailable"><p>{{ t(error() || 'disabled') }}</p><a [routerLink]="observabilityUrl" [queryParams]="{ facet: 'operations', since: since, as_of: asOf, systemId: systemId || null }">{{ i18n.t('observability.tabs.operations') }}</a></section> }
 }

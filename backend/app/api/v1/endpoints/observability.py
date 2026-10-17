@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services.evaluation_preset_service import DEFAULT_EVAL_CONFIG
+from app.services.observation_window import observation_anchor
 from app.services.run_access import readable_runs
 from app.services.system_access import readable_systems
 
@@ -26,15 +27,18 @@ router = APIRouter()
 
 @router.get("/workspace-overview")
 async def workspace_overview(
-    window: str = Query("24h"),
+    window: str = Query("7d", pattern="^(24h|7d|30d)$"),
+    system_id: str | None = None,
+    as_of: datetime | None = None,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
-    since = _parse_window(window)
+    anchor = observation_anchor(as_of)
+    since = _parse_window(window, anchor)
     systems = (
         db.query(System)
-        .filter(System.workspace_id == workspace.id)
+        .filter(System.workspace_id == workspace.id, *([System.id == system_id] if system_id else []))
         .order_by(System.status.desc(), System.updated_at.desc())
         .all()
     )
@@ -50,7 +54,9 @@ async def workspace_overview(
             db.query(Run)
             .filter(
                 Run.workspace_id == workspace.id,
-                or_(Run.started_at >= since, Run.completed_at >= since),
+                or_(and_(Run.started_at >= since, Run.started_at < anchor),
+                    and_(Run.completed_at >= since, Run.completed_at < anchor)),
+                *([Run.system_id == system_id] if system_id else []),
             )
             .order_by(Run.started_at.desc())
             .limit(200)
@@ -63,7 +69,9 @@ async def workspace_overview(
         db.query(WorkspaceJob)
         .filter(
             WorkspaceJob.workspace_id == workspace.id,
-            or_(WorkspaceJob.updated_at >= since, WorkspaceJob.created_at >= since),
+            or_(and_(WorkspaceJob.updated_at >= since, WorkspaceJob.updated_at < anchor),
+                and_(WorkspaceJob.created_at >= since, WorkspaceJob.created_at < anchor)),
+            *([WorkspaceJob.system_id == system_id] if system_id else []),
         )
         .order_by(WorkspaceJob.updated_at.desc(), WorkspaceJob.created_at.desc())
         .limit(100)
@@ -71,24 +79,35 @@ async def workspace_overview(
     )
     evaluations = (
         db.query(EvaluationScore)
-        .filter(EvaluationScore.workspace_id == workspace.id, EvaluationScore.created_at >= since)
+        .filter(EvaluationScore.workspace_id == workspace.id, EvaluationScore.created_at >= since, EvaluationScore.created_at < anchor,
+            *([EvaluationScore.run_id.in_(db.query(Run.id).filter(Run.workspace_id == workspace.id, Run.system_id == system_id))] if system_id else []))
         .order_by(EvaluationScore.created_at.desc())
         .limit(100)
         .all()
     )
 
+    from app.services.evaluation.lifecycle import visible_evaluation_query
+
+    readable_evaluations = {row.id for row in visible_evaluation_query(
+        db, db.query(EvaluationScore).filter(EvaluationScore.id.in_([row.id for row in evaluations])),
+        user, workspace,
+    ).all()}
     visible_system_ids = {system.id for system in systems}
     visible_run_ids = {run.id for run in runs}
+    from app.api.v1.endpoints.workspace_jobs import _can_access_job
+
     jobs = [
         job
         for job in jobs
-        if (not job.run_id or job.run_id in visible_run_ids)
+        if _can_access_job(db, job, user, workspace)
+        and (not job.run_id or job.run_id in visible_run_ids)
         and (not job.system_id or job.system_id in visible_system_ids)
     ]
     evaluations = [
         row
         for row in evaluations
-        if (not row.run_id or row.run_id in visible_run_ids)
+        if row.id in readable_evaluations
+        and (not row.run_id or row.run_id in visible_run_ids)
         and (not row.agent_id or row.agent_id in visible_system_ids)
     ]
 
@@ -98,7 +117,16 @@ async def workspace_overview(
     alerts = _alerts(runs, jobs, evaluations)
     return {
         "window": window,
-        "since": since.isoformat(),
+        "since": since.isoformat() + "Z",
+        "as_of": anchor.isoformat() + "Z",
+        "until": anchor.isoformat() + "Z",
+        "system_id": system_id,
+        "coverage": {
+            "mode": "bounded_sample",
+            "runs": {"limit": 200, "returned": len(runs), "total": None},
+            "jobs": {"limit": 100, "returned": len(jobs), "total": None},
+            "evaluations": {"limit": 100, "returned": len(evaluations), "total": None},
+        },
         "generated_at": datetime.utcnow().isoformat(),
         "workspace": {
             "id": workspace.id,
@@ -139,9 +167,9 @@ async def workspace_overview(
     }
 
 
-def _parse_window(raw: str) -> datetime:
+def _parse_window(raw: str, anchor: datetime | None = None) -> datetime:
     value = (raw or "24h").strip().lower()
-    now = datetime.utcnow()
+    now = anchor or datetime.utcnow()
     try:
         if value.endswith("h"):
             return now - timedelta(hours=max(1, min(24 * 14, int(value[:-1]))))

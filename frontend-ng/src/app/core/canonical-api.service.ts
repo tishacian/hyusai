@@ -343,6 +343,7 @@ export interface RunAssertionResult {
 }
 
 export interface Run {
+  flow_version_id?: string | null;
   test_result?: { brd_proposal_id?: string | null; brd_proposal_sha256?: string | null; suite_id?: string; suite_revision?: number; case_id: string; batch_id: string; method?: string; verdict: string; assertions: RunAssertionResult[] } | null;
   id: string;
   system_id: string;
@@ -461,6 +462,8 @@ export interface ActivityTimelineItem {
 }
 
 export interface WorkspaceOverview {
+  as_of?: string; until?: string;
+  coverage?: { mode: string; runs: { limit: number; returned: number; total: number | null }; jobs: { limit: number; returned: number; total: number | null }; evaluations: { limit: number; returned: number; total: number | null } };
   window: string;
   since: string;
   generated_at: string;
@@ -2667,10 +2670,8 @@ export class CanonicalApiService {
       .pipe(map((r) => r.execution));
   }
 
-  workspaceOverview(window = '24h'): Observable<WorkspaceOverview | null> {
-    return this.api
-      .get<WorkspaceOverview>('/observability/workspace-overview', { window })
-      .pipe(catchError(() => of(null)));
+  workspaceOverview(window = '7d', scope: {system_id?: string; as_of?: string} = {}): Observable<WorkspaceOverview | null> {
+    return this.api.get<WorkspaceOverview>('/observability/workspace-overview', { window, ...scope });
   }
 
   /**
@@ -2989,6 +2990,7 @@ export class CanonicalApiService {
       component?: string;
       system_id?: string;
       since?: string;
+      as_of?: string;
       limit?: number;
     } = {},
   ): Observable<EvaluationReviewQueueResponse | null> {
@@ -2997,6 +2999,7 @@ export class CanonicalApiService {
     if (params.component) q['component'] = params.component;
     if (params.system_id) q['system_id'] = params.system_id;
     if (params.since) q['since'] = params.since;
+    if (params.as_of) q['as_of'] = params.as_of;
     if (params.limit != null) q['limit'] = String(params.limit);
     return this.api
       .get<EvaluationReviewQueueResponse>('/evaluation/review-queue', q)
@@ -3031,10 +3034,11 @@ export class CanonicalApiService {
   }
 
   getEvaluationTrend(
-    params: { system_id?: string; since?: string; group_by?: 'day' | 'capability' | 'system' } = {},
+    params: { system_id?: string; as_of?: string; since?: string; group_by?: 'day' | 'capability' | 'system' } = {},
   ): Observable<EvaluationTrendResponse | null> {
     const q: Record<string, string> = {};
     if (params.since) q['since'] = params.since;
+    if (params.as_of) q['as_of'] = params.as_of;
     if (params.system_id) q['system_id'] = params.system_id;
     if (params.group_by) q['group_by'] = params.group_by;
     return this.api
@@ -3043,10 +3047,11 @@ export class CanonicalApiService {
   }
 
   getEvaluationComponentHealth(
-    params: { since?: string; system_id?: string } = {},
+    params: { since?: string; system_id?: string; as_of?: string } = {},
   ): Observable<EvaluationComponentHealthResponse | null> {
     const q: Record<string, string> = {};
     if (params.since) q['since'] = params.since;
+    if (params.as_of) q['as_of'] = params.as_of;
     if (params.system_id) q['system_id'] = params.system_id;
     return this.api
       .get<EvaluationComponentHealthResponse>('/evaluation/component-health', q)

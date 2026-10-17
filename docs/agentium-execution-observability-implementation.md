@@ -13,6 +13,14 @@ Références : [plan O0–O7](agentium-execution-observability-plan.md),
 Ce rapport distingue du code testé localement, une qualification de mécanisme,
 une activation de production déclarée et une recette VM effectivement attestée.
 
+Complément planifié le 16 octobre : le
+[plan Opérations, Activités et suivi du Flow](agentium-operations-activities-flow-plan.md)
+traite la conservation du moniteur Opérations, l'onglet Activités séparé, la
+non-régression de Qualité, le suivi des jobs sur le Flow et les séries de mesures.
+L'implémentation locale et ses limites sont désormais consignées dans le
+[bilan R1–R5](agentium-operations-activities-flow-implementation.md) ; elles ne
+modifient pas les résultats historiques O0–O7 ni l'état déclaré de production.
+
 ## Production déclarée le 15 octobre 2026
 
 L'opérateur rapporte `4a404d61` en production, avec journal, supervision,
