@@ -41,3 +41,7 @@ test('a late response after workspace switch is discarded', async () => {
   const api = setup(async () => Response.json({ items: ['private-data'] }), () => false);
   await assert.rejects(api.list({}), (error: unknown) => error instanceof Error && error.name === 'AbortError');
 });
+
+test('shell and view share capability discovery; one caller abort does not cancel another reader', async () => {
+ let calls=0;let resolve!: (value:Response)=>void;const api=setup(async()=>{calls++;return new Promise<Response>(done=>{resolve=done;});});const stop=new AbortController();const shell=api.features(stop.signal);const view=api.features();stop.abort();resolve(Response.json({enabled:true,scopes:['workspace'],kinds:[],statuses:[]}));await assert.rejects(shell,{name:'AbortError'});assert.equal((await view).enabled,true);assert.equal((await api.features()).enabled,true);assert.equal(calls,1);
+});

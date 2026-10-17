@@ -15,8 +15,8 @@ Three concerns share this router:
      ``POST /decisions/{id}/status`` endpoint for accept/reject
      actions (no new mutation endpoint here — we reuse Decisions).
 """
-from datetime import datetime, timedelta
 from collections import Counter
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,7 +32,6 @@ from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.run import Run, SkillInvocation
-from app.services.evaluation.lifecycle import require_readable_run, visible_evaluation_query, enqueue_run_evaluation
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
@@ -43,6 +42,11 @@ from app.services.evaluation.canonical_answer_service import (
 )
 from app.services.evaluation.feedback_service import serialize_feedback
 from app.services.evaluation.judge import DIMENSION_LABELS, get_judge_service
+from app.services.evaluation.lifecycle import (
+    enqueue_run_evaluation,
+    require_readable_run,
+    visible_evaluation_query,
+)
 from app.services.evaluation.rag_components import (
     QUESTION_TYPE_LABELS,
     RAG_COMPONENT_LABELS,
@@ -55,6 +59,7 @@ from app.services.evaluation_preset_service import (
     DEFAULT_EVAL_CONFIG,
     get_evaluation_preset_service,
 )
+from app.services.observation_window import observation_anchor
 
 router = APIRouter()
 
@@ -168,9 +173,10 @@ async def evaluation_history(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
     system_id: Optional[str] = None,
+    as_of: datetime | None = None,
 ):
     """Return authorized evaluation records in the common System/time scope."""
-    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, agent_id=agent_id)
+    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, agent_id=agent_id, as_of=as_of)
     q = visible_evaluation_query(db, q, user, workspace)
     rows = q.order_by(EvaluationScore.created_at.desc()).limit(max(1, min(limit, 200))).all()
 
@@ -235,9 +241,10 @@ async def latest_evaluation(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
     system_id: Optional[str] = None,
+    as_of: datetime | None = None,
     since: Optional[str] = "7d",
 ):
-    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, agent_id=agent_id).order_by(EvaluationScore.created_at.desc())
+    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, agent_id=agent_id, as_of=as_of).order_by(EvaluationScore.created_at.desc())
     q = visible_evaluation_query(db, q, user, workspace)
     rows = q.all()
     totals = _evaluation_scope_totals(rows)
@@ -433,6 +440,7 @@ async def review_queue(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
     system_id: Optional[str] = None,
+    as_of: datetime | None = None,
     since: Optional[str] = None,
 ):
     """List ``review_required`` decisions + their linked run context.
@@ -453,8 +461,10 @@ async def review_queue(
         q = q.filter(Decision.status == status)
     if system_id:
         q = q.filter(Decision.target_id.in_(db.query(Run.id).filter(Run.workspace_id == workspace.id, Run.system_id == system_id)))
+    anchor = observation_anchor(as_of)
     if since:
-        q = q.filter(Decision.created_at >= datetime.utcnow() - _scope_delta(since))
+        q = q.filter(Decision.created_at >= anchor - _scope_delta(since))
+    q = q.filter(Decision.created_at < anchor)
     decisions = q.all()
 
     run_ids = [d.target_id for d in decisions if d.target_id]
@@ -509,6 +519,7 @@ async def eval_trend(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
     system_id: Optional[str] = None,
+    as_of: datetime | None = None,
 ):
     """Aggregated scores for the observability dashboard.
 
@@ -519,7 +530,7 @@ async def eval_trend(
     - ``group_by=capability|system`` — per-entity means + breach
       counts over the window.
     """
-    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since)
+    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, as_of=as_of)
     q = visible_evaluation_query(db, q, user, workspace)
     rows = q.order_by(EvaluationScore.created_at.asc()).all()
     runs = {r.id: r for r in db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_([row.run_id for row in rows])).all()}
@@ -565,6 +576,7 @@ async def eval_component_health(
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
     system_id: Optional[str] = None,
+    as_of: datetime | None = None,
 ):
     """Aggregate breached evaluations by RAG component.
 
@@ -572,7 +584,7 @@ async def eval_component_health(
     native to Agentium's persisted ``evaluation_scores`` so the dashboard
     works without importing Giskard in the API process.
     """
-    query = _evaluation_scope_query(db, workspace, system_id=system_id, since=since)
+    query = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, as_of=as_of)
     rows = visible_evaluation_query(db, query, user, workspace).order_by(EvaluationScore.created_at.desc()).all()
     scope_totals = _evaluation_scope_totals(rows)
     service = get_evaluation_preset_service()
@@ -713,10 +725,12 @@ def _scope_delta(since):
     return delta
 
 
-def _evaluation_scope_query(db, workspace, *, system_id=None, since=None, agent_id=None):
+def _evaluation_scope_query(db, workspace, *, system_id=None, since=None, agent_id=None, as_of=None):
     delta = _scope_delta(since)
+    anchor = observation_anchor(as_of)
     query = db.query(EvaluationScore).filter(EvaluationScore.workspace_id == workspace.id,
-        EvaluationScore.created_at >= datetime.utcnow() - delta)
+        EvaluationScore.created_at >= anchor - delta,
+        EvaluationScore.created_at < anchor)
     if system_id:
         query = query.filter(EvaluationScore.run_id.in_(db.query(Run.id).filter(Run.workspace_id == workspace.id, Run.system_id == system_id)))
     if agent_id:

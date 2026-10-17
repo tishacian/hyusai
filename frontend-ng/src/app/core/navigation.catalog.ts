@@ -1760,3 +1760,8 @@ export function navigationScopeUrl(
     skillRef: ancestry.skillRef,
   });
 }
+
+/** Read-only historical execution view; never routes through the draft Flow builder. */
+export function navigationRunFlowUrl(runId: string, selection: { nodeId?: string; activityId?: string; attemptId?: string } = {}): string {
+  return appendExtraQuery(navigationObjectUrl('run', runId), { view: 'flow', ...selection });
+}

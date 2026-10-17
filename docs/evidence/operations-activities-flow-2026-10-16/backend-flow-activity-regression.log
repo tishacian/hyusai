@@ -1,0 +1,154 @@
+.........................................................                [100%]
+=============================== warnings summary ===============================
+../../omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  <venv>/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/services/test_execution_view.py: 146 warnings
+app/tests/services/test_activity_observability.py: 325 warnings
+app/tests/services/test_activity_series_authorization.py: 110 warnings
+  <venv>/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_execution_view.py: 136 warnings
+app/tests/services/test_activity_observability.py: 249 warnings
+app/tests/services/test_activity_series_authorization.py: 55 warnings
+  <repo>/backend/app/services/activity_observability/projection.py:289: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_execution_view.py::test_compute_owner_and_outcome_unknown
+  <repo>/backend/app/tests/services/test_execution_view.py:284: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deadline_at=datetime.utcnow() + timedelta(hours=1),
+
+app/tests/services/test_execution_view.py: 44 warnings
+  <repo>/backend/app/services/run_engine/dag.py:4936: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    entry.setdefault("t", datetime.utcnow().isoformat())
+
+app/tests/services/test_execution_view.py: 17 warnings
+  <repo>/backend/app/services/run_engine/dag.py:2405: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_execution_view.py: 17 warnings
+  <repo>/backend/app/services/run_engine/dag.py:2784: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+  <repo>/backend/app/services/run_engine/engine.py:1110: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+  <repo>/backend/app/services/run_engine/engine.py:1342: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    invocation.completed_at = datetime.utcnow()
+
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+  <repo>/backend/app/services/run_engine/engine.py:1502: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    run.completed_at = datetime.utcnow()
+
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+  <repo>/backend/app/services/workspace_jobs.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+  <repo>/backend/app/services/workspace_jobs.py:117: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_real_dag_retry_produces_one_passage_and_distinct_native_attempts
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+app/tests/services/test_execution_view.py::test_data_judge_delivery_composite_keeps_native_receipt_and_stream_lineage
+  <repo>/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/services/test_execution_view.py::test_resource_measurements_do_not_expose_policy_or_lease
+  <repo>/backend/app/tests/services/test_execution_view.py:527: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deadline_at=datetime.utcnow() + timedelta(hours=1),
+
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+  <repo>/backend/app/services/run_engine/gate_ttl.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    base = now or datetime.utcnow()
+
+app/tests/services/test_execution_view.py::test_hitl_resume_recovers_passage_with_empty_process_context
+  <repo>/backend/app/services/run_engine/dag.py:1866: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/services/test_execution_view.py::test_agent_data_ml_agent_composite_native_jobs_are_visible
+  <repo>/backend/app/tests/services/test_execution_view.py:696: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_activity_observability.py::test_eight_native_sources_and_compute_heartbeat
+  <repo>/backend/app/tests/services/test_activity_observability.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_activity_observability.py::test_commands_are_idempotent_versioned_and_atomically_applied
+app/tests/services/test_activity_observability.py::test_commands_are_idempotent_versioned_and_atomically_applied
+app/tests/services/test_activity_observability.py::test_native_cancel_adapters_record_request_without_claiming_running_job_stopped[run]
+app/tests/services/test_activity_observability.py::test_native_cancel_adapters_record_request_without_claiming_running_job_stopped[ml_training]
+app/tests/services/test_activity_observability.py::test_native_cancel_adapters_record_request_without_claiming_running_job_stopped[compute_run]
+app/tests/services/test_activity_observability.py::test_native_cancel_adapters_record_request_without_claiming_running_job_stopped[recipe_execution]
+  <repo>/backend/app/services/activity_observability/commands.py:184: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    command.completed_at = datetime.utcnow()
+
+app/tests/services/test_activity_observability.py::test_feature_discovery_and_platform_gate
+  <repo>/backend/app/api/v1/endpoints/activities.py:314: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "generated_at": queries.iso(datetime.utcnow()),
+
+app/tests/services/test_activity_observability.py::test_commands_recheck_revoked_membership_at_execution
+app/tests/services/test_activity_observability.py::test_run_and_native_child_controls_keep_system_operator_authority[run]
+app/tests/services/test_activity_observability.py::test_run_and_native_child_controls_keep_system_operator_authority[recipe_execution]
+app/tests/services/test_activity_observability.py::test_run_and_native_child_controls_keep_system_operator_authority[compute_run]
+app/tests/services/test_activity_observability.py::test_run_and_native_child_controls_keep_system_operator_authority[ml_training]
+app/tests/services/test_activity_observability.py::test_dispatch_revalidates_system_authority_after_native_lock
+  <repo>/backend/app/services/activity_observability/commands.py:212: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    command.completed_at = datetime.utcnow()
+
+app/tests/services/test_activity_observability.py::test_native_connector_ownership_and_private_jobs_are_not_broadened
+  <repo>/backend/app/tests/services/test_activity_observability.py:253: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    kind="connector_read", operation="read", deadline_at=datetime.utcnow()+timedelta(minutes=1), cpu_cores=1, memory_mb=128, reserved_core_hours=0.1))
+
+app/tests/services/test_activity_observability.py::test_native_cancel_adapters_record_request_without_claiming_running_job_stopped[compute_run]
+  <repo>/backend/app/tests/services/test_activity_observability.py:270: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    native = ComputeRun(id="native-cancel", workspace_id=workspace.id, kind="connector_read", operation="read", status="running", deadline_at=datetime.utcnow()+timedelta(minutes=1), cpu_cores=1, memory_mb=128, reserved_core_hours=0.1)
+
+app/tests/services/test_activity_observability.py::test_window_attempts_link_native_runs_not_receipts_or_other_children
+  <repo>/backend/app/tests/services/test_activity_observability.py:302: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_activity_observability.py::test_run_and_native_child_controls_keep_system_operator_authority[compute_run]
+  <repo>/backend/app/tests/services/test_activity_observability.py:347: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    native = ComputeRun(id="controlled-child", workspace_id=workspace.id, run_id=run.id, kind="connector_read", operation="read", status="running", deadline_at=datetime.utcnow()+timedelta(minutes=1), cpu_cores=1, memory_mb=128, reserved_core_hours=0.1)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+57 passed, 1165 warnings in 11.09s

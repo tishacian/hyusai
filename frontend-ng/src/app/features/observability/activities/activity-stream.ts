@@ -95,7 +95,10 @@ export async function followActivityStream(options: StreamOptions): Promise<void
         if (permissionError || ['permission_revoked', 'access.revoked', 'revoked'].includes(frame.event)) {
           revoked = true; options.state('revoked'); request.abort(); return;
         }
-        if (['reset', 'resync'].includes(frame.event)) { cursor = ''; options.resync(); return; }
+        if (['reset', 'resync', 'resync_required'].includes(frame.event)) {
+          // Discard this connection's remaining frames: they cannot repair a missing journal range.
+          cursor = ''; options.resync(); throw new Error('SSE_RESYNC_REQUIRED');
+        }
         // Commit the cursor only after the consumer accepted a valid frame.
         options.frame(frame);
         if (frame.id !== undefined) cursor = frame.id;

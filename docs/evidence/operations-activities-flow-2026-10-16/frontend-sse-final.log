@@ -1,0 +1,35 @@
+
+> agentium@0.1.0 test:unit
+> node scripts/run-unit.mjs
+
+✔ feature off does not load activities; operations is an independent facet (6.138855ms)
+✔ platform query parameter cannot grant platform scope to a workspace owner (1.284974ms)
+✔ pagination retains exact server total and merges links with System and period context (1.549205ms)
+✔ an interrupted command reuses its exact idempotency key and version; applied never claims termination (5.632419ms)
+✔ version conflict reloads evidence and requires a new deliberate confirmation (1.003371ms)
+✔ stale streams disable mutation and permission revocation purges cached data (0.770416ms)
+✔ losing access to the selected native Run clears its detail on revalidation (0.602024ms)
+✔ the newest command is selected from the server descending ledger (0.719222ms)
+✔ fixed period anchors use identical inclusive lower and exclusive upper bounds (1.008807ms)
+✔ discovery 404 remains explicit and never opens a stream (0.843129ms)
+✔ discovery 403 remains explicit and never opens a stream (0.549573ms)
+✔ discovery 500 remains explicit and never opens a stream (0.283196ms)
+✔ resync replaces the stream with a fresh snapshot cursor and deduplicates its replay (7.373191ms)
+✔ SSE parses split CRLF, multiline UTF-8 data, heartbeats and complete frames only (2.747735ms)
+✔ reconnect carries only accepted cursor with Last-Event-ID and exponential backoff (51.268459ms)
+✔ cursor expiry requests a snapshot; a 403 then terminates without reconnecting (1.110488ms)
+✔ revocation inside an established stream is terminal (1.048705ms)
+✔ server error revocation is terminal and a stalled connection is aborted before retry (9.149466ms)
+✔ invalid consumer frame never advances the resume cursor (2.605926ms)
+✔ bounded timeline deduplicates replay and native evidence cannot navigate outside the application (0.803495ms)
+✔ reset discards the cursor and the remainder of its frame batch before reconnecting (1.604204ms)
+✔ resync discards the cursor and the remainder of its frame batch before reconnecting (0.976402ms)
+✔ resync_required discards the cursor and the remainder of its frame batch before reconnecting (1.041375ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 771.25047

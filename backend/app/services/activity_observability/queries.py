@@ -2,7 +2,8 @@
 
 import base64
 import json
-from collections import Counter
+from collections import Counter, OrderedDict
+from types import SimpleNamespace
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -14,7 +15,7 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.workspace import WorkspaceMember
 from app.services.huggingface.access import is_platform_admin, is_workspace_admin
-from app.services.run_access import readable_runs
+from app.services.run_access import RunReadContext, readable_runs
 from app.services.system_access import readable_systems
 
 from .projection import KINDS, STATUSES, TERMINAL, iso
@@ -89,29 +90,148 @@ def highwater(db, workspace_id):
     )
 
 
-def filter_visible(db, rows, workspace, user):
+class VisibilityReadContext:
+    """Bounded native decisions within exactly one identity/read transaction.
+
+    Used only by the exhaustive series reader. Other API calls keep fresh
+    native checks. PostgreSQL callers must use REPEATABLE READ: no cached
+    decision may outlive its permission snapshot, commit, or rollback.
+    """
+
+    def __init__(self, db, workspace, user):
+        if (
+            db.get_bind().dialect.name == "postgresql"
+            and db.connection().get_isolation_level() != "REPEATABLE READ"
+        ):
+            raise ValueError("Visibility read context requires REPEATABLE READ")
+        self.iam = RunReadContext.load(db, workspace, user)
+        self.admin = is_workspace_admin(db, user, workspace)
+        self.db, self.transaction = db, db.get_transaction()
+        self.runs, self.systems = OrderedDict(), OrderedDict()
+
+    def require_scope(self, db, workspace, user):
+        self.iam.require_scope(workspace, user)
+        if (
+            db is not self.db
+            or db.get_transaction() is not self.transaction
+            or not self.transaction.is_active
+        ):
+            raise ValueError("Visibility read context expired with its transaction")
+
+    @staticmethod
+    def remember(cache, key, value, limit=16384):
+        cache[key] = value
+        cache.move_to_end(key)
+        if len(cache) > limit:
+            cache.popitem(last=False)
+
+
+def filter_visible(db, rows, workspace, user, *, read_context=None):
     """Current native read boundaries apply to every child and historical event."""
     if not rows:
         return []
+    if read_context:
+        read_context.require_scope(db, workspace, user)
     run_ids = {row.run_id for row in rows if row.run_id}
-    runs = (
-        db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_(run_ids)).all()
-        if run_ids
-        else []
+    current_runs = (
+        {
+            identifier: read_context.runs[identifier]
+            for identifier in run_ids
+            if identifier in read_context.runs
+        }
+        if read_context
+        else {}
     )
-    allowed_runs = {row.id for row in readable_runs(db, runs=runs, user=user, workspace=workspace)}
+    missing_run_ids = run_ids - current_runs.keys() if read_context else run_ids
+    run_query = db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_(missing_run_ids))
+    if read_context:
+        from sqlalchemy.orm import load_only
+
+        from app.services.chat_execution_policy import migration_059_system_id
+
+        # The native legacy reader needs checkpoints/output only in the
+        # migration-managed workspace. Flow graphs and prompts never enter the
+        # series' identity map or cache.
+        fields = [
+            Run.id,
+            Run.workspace_id,
+            Run.system_id,
+            Run.capability_id,
+            Run.initiated_by_user_id,
+            Run.trigger,
+            Run.execution_surface,
+            Run.status,
+        ]
+        if migration_059_system_id(workspace) is not None:
+            fields.extend([Run.checkpoints, Run.output_ref])
+        run_query = run_query.options(load_only(*fields))
+    loaded_runs = run_query.all() if missing_run_ids else []
+    allowed_runs = (
+        {
+            row.id
+            for row in readable_runs(
+                db,
+                runs=loaded_runs,
+                user=user,
+                workspace=workspace,
+                **({"read_context": read_context.iam} if read_context else {}),
+            )
+        }
+        if loaded_runs
+        else set()
+    )
+    if read_context:
+        loaded_by_id = {row.id: row for row in loaded_runs}
+        for identifier in missing_run_ids:
+            run = loaded_by_id.get(identifier)
+            # Invocation IAM consumes exactly these native resource attributes;
+            # no bulky checkpoint/flow/prompt is retained between batches.
+            metadata = (
+                SimpleNamespace(
+                    id=run.id,
+                    system_id=run.system_id,
+                    capability_id=run.capability_id,
+                    initiated_by_user_id=run.initiated_by_user_id,
+                )
+                if run
+                else None
+            )
+            current_runs[identifier] = (identifier in allowed_runs, metadata)
+            read_context.remember(read_context.runs, identifier, current_runs[identifier])
+        cached_runs = list(current_runs.values())
+        allowed_runs = {run.id for allowed, run in cached_runs if allowed and run}
+        runs = [run for _, run in cached_runs if run]
+    else:
+        runs = loaded_runs
     system_ids = {row.system_id for row in rows if row.system_id and not row.run_id}
+    current_systems = (
+        {
+            identifier: read_context.systems[identifier]
+            for identifier in system_ids
+            if identifier in read_context.systems
+        }
+        if read_context
+        else {}
+    )
+    missing_system_ids = system_ids - current_systems.keys() if read_context else system_ids
     systems = (
         db.query(System)
-        .filter(System.workspace_id == workspace.id, System.id.in_(system_ids))
+        .filter(System.workspace_id == workspace.id, System.id.in_(missing_system_ids))
         .all()
-        if system_ids
+        if missing_system_ids
         else []
     )
     allowed_systems = {
         row.id for row in readable_systems(db, systems=systems, user=user, workspace=workspace)
     }
-    admin = is_workspace_admin(db, user, workspace)
+    if read_context:
+        for identifier in missing_system_ids:
+            current_systems[identifier] = identifier in allowed_systems
+            read_context.remember(
+                read_context.systems, identifier, current_systems[identifier], 1024
+            )
+        allowed_systems = {identifier for identifier, allowed in current_systems.items() if allowed}
+    admin = read_context.admin if read_context else is_workspace_admin(db, user, workspace)
     candidates = [
         row
         for row in rows
@@ -126,32 +246,104 @@ def filter_visible(db, rows, workspace, user):
     ]
     # Connector ownership and private job/session policy can be narrower than
     # the linked System/Run. The projection must not broaden those native APIs.
+    from sqlalchemy.orm import load_only
+
     from app.api.v1.endpoints.workspace_jobs import _can_access_job
     from app.models.compute_run import ComputeRun
+    from app.models.run import SkillInvocation
     from app.models.workspace_job import WorkspaceJob
+    from app.services.run_access import readable_skill_invocations_for_runs
 
-    computes = {
-        value.id: value
-        for value in db.query(ComputeRun)
-        .filter(
-            ComputeRun.workspace_id == workspace.id,
-            ComputeRun.id.in_([r.native_id for r in candidates if r.kind == "compute_run"]),
+    invocation_ids = [row.native_id for row in candidates if row.kind == "skill_invocation"]
+    invocations = (
+        db.query(SkillInvocation)
+        .options(
+            load_only(
+                SkillInvocation.id,
+                SkillInvocation.run_id,
+                SkillInvocation.skill_id,
+                SkillInvocation.skill_slug,
+            )
         )
+        .filter(SkillInvocation.id.in_(invocation_ids))
         .all()
-    }
-    jobs = {
-        value.id: value
-        for value in db.query(WorkspaceJob)
-        .filter(
-            WorkspaceJob.workspace_id == workspace.id,
-            WorkspaceJob.id.in_([r.native_id for r in candidates if r.kind == "workspace_job"]),
-        )
-        .all()
-    }
+        if invocation_ids
+        else []
+    )
+    allowed_invocations = (
+        {
+            row.id
+            for row in readable_skill_invocations_for_runs(
+                db,
+                invocations=invocations,
+                runs=runs,
+                user=user,
+                workspace=workspace,
+                **({"read_context": read_context.iam} if read_context else {}),
+            )
+        }
+        if invocations
+        else set()
+    )
+    compute_ids = [row.native_id for row in candidates if row.kind == "compute_run"]
+    computes = (
+        {
+            value.id: value
+            for value in db.query(ComputeRun)
+            .options(load_only(ComputeRun.id, ComputeRun.user_id))
+            .filter(ComputeRun.workspace_id == workspace.id, ComputeRun.id.in_(compute_ids))
+            .all()
+        }
+        if compute_ids
+        else {}
+    )
+    job_ids = [row.native_id for row in candidates if row.kind == "workspace_job"]
+    jobs = (
+        {
+            value.id: value
+            for value in db.query(WorkspaceJob)
+            .options(
+                load_only(
+                    WorkspaceJob.id,
+                    WorkspaceJob.kind,
+                    WorkspaceJob.created_by_user_id,
+                    WorkspaceJob.session_id,
+                    WorkspaceJob.input_ref,
+                )
+            )
+            .filter(WorkspaceJob.workspace_id == workspace.id, WorkspaceJob.id.in_(job_ids))
+            .all()
+        }
+        if job_ids
+        else {}
+    )
+    from app.models.service_contract import ServiceWindow
+
+    from .execution_metadata import receipt_history_visible, service_metadata_member
+
+    service_rows = [row for row in candidates if row.kind in {"service_window", "delivery_receipt"}]
+    allowed_windows, allowed_receipts = set(), set()
+    if service_rows and service_metadata_member(db, workspace, user):
+        window_ids = [row.native_id for row in service_rows if row.kind == "service_window"]
+        if window_ids:
+            allowed_windows = {
+                identifier
+                for (identifier,) in db.query(ServiceWindow.id).filter(
+                    ServiceWindow.workspace_id == workspace.id,
+                    ServiceWindow.id.in_(window_ids),
+                )
+            }
+        allowed_receipts = {
+            row.native_id
+            for row in service_rows
+            if row.kind == "delivery_receipt"
+            and receipt_history_visible(db, workspace, user, row.native_id)
+        }
     return [
         row
         for row in candidates
-        if (
+        if (row.kind != "skill_invocation" or row.native_id in allowed_invocations)
+        and (
             row.kind != "compute_run"
             or row.native_id in computes
             and (admin or computes[row.native_id].user_id == user.id)
@@ -159,8 +351,16 @@ def filter_visible(db, rows, workspace, user):
         and (
             row.kind != "workspace_job"
             or row.native_id in jobs
-            and _can_access_job(db, jobs[row.native_id], user, workspace)
+            and _can_access_job(
+                db,
+                jobs[row.native_id],
+                user,
+                workspace,
+                **({"workspace_admin": admin} if read_context else {}),
+            )
         )
+        and (row.kind != "service_window" or row.native_id in allowed_windows)
+        and (row.kind != "delivery_receipt" or row.native_id in allowed_receipts)
     ]
 
 
@@ -277,7 +477,17 @@ def aggregate(rows):
 
 
 def list_activities(
-    db, workspace, user, *, system_id=None, kind=None, status=None, since=None, limit=50, offset=0
+    db,
+    workspace,
+    user,
+    *,
+    system_id=None,
+    kind=None,
+    status=None,
+    since=None,
+    until=None,
+    limit=50,
+    offset=0,
 ):
     if kind is not None and kind not in KINDS or status is not None and status not in STATUSES:
         raise HTTPException(422, detail="ACTIVITY_FILTER_INVALID")
@@ -291,6 +501,8 @@ def list_activities(
         query = query.filter(Activity.status == status)
     if since:
         query = query.filter(Activity.created_at >= since)
+    if until:
+        query = query.filter(Activity.created_at < until)
     # Authorization precedes pagination. Iterate bounded native-read batches;
     # never truncate totals to the first page of the selected time window.
     total, items, by_status, by_kind = 0, [], Counter(), Counter()
@@ -362,13 +574,130 @@ def serialize_event(row):
     }
 
 
-def event_page(db, workspace, user, *, cursor=None, activity_id=None, limit=100):
+def authorized_run(db, run_id, workspace, user):
+    require_membership(db, workspace, user)
+    run = db.query(Run).filter_by(id=run_id, workspace_id=workspace.id).populate_existing().first()
+    if not run or not readable_runs(db, runs=[run], user=user, workspace=workspace):
+        raise HTTPException(404, detail="RUN_NOT_FOUND")
+    return run
+
+
+def run_scope_ids(db, run_id, workspace, user, *, subtree=False):
+    """Resolve the root at every read; recursive SQL includes newly born children.
+
+    UNION (not UNION ALL) terminates even malformed historical lineage cycles.
+    Descendant native authorization still applies separately in filter_visible.
+    """
+    authorized_run(db, run_id, workspace, user)
+    if not subtree:
+        return select(Run.id).where(Run.id == run_id, Run.workspace_id == workspace.id)
+    descendants = (
+        select(Run.id)
+        .where(
+            Run.id == run_id,
+            Run.workspace_id == workspace.id,
+        )
+        .cte("execution_descendants", recursive=True)
+    )
+    descendants = descendants.union(
+        select(Run.id)
+        .join(
+            descendants,
+            Run.parent_run_id == descendants.c.id,
+        )
+        .where(Run.workspace_id == workspace.id)
+    )
+    return select(descendants.c.id)
+
+
+def run_related_activity_ids(db, scope, workspace, user):
+    """Service lineage is explicit and each child Run/receipt keeps its guard."""
+    from app.models.service_contract import AssetVersion, DeliveryReceipt, ServiceAttempt
+
+    from .execution_metadata import receipt_metadata_visible
+
+    allowed = []
+    batch = []
+    for run in (
+        db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_(scope)).yield_per(250)
+    ):
+        batch.append(run)
+        if len(batch) == 250:
+            allowed.extend(
+                row.id for row in readable_runs(db, runs=batch, workspace=workspace, user=user)
+            )
+            batch = []
+    if batch:
+        allowed.extend(
+            row.id for row in readable_runs(db, runs=batch, workspace=workspace, user=user)
+        )
+    result = set()
+    for offset in range(0, len(allowed), 250):
+        identifiers = allowed[offset : offset + 250]
+        windows = select(ServiceAttempt.window_id).where(
+            ServiceAttempt.workspace_id == workspace.id, ServiceAttempt.run_id.in_(identifiers)
+        )
+        result.update(
+            row[0]
+            for row in db.query(Activity.id).filter(
+                Activity.workspace_id == workspace.id,
+                Activity.kind == "service_window",
+                Activity.native_id.in_(windows),
+            )
+        )
+        receipts = (
+            db.query(DeliveryReceipt.id)
+            .join(
+                AssetVersion,
+                and_(
+                    AssetVersion.id == DeliveryReceipt.asset_id,
+                    AssetVersion.workspace_id == DeliveryReceipt.workspace_id,
+                ),
+            )
+            .filter(
+                DeliveryReceipt.workspace_id == workspace.id, AssetVersion.run_id.in_(identifiers)
+            )
+        )
+        for (receipt_id,) in receipts:
+            if not receipt_metadata_visible(db, workspace, user, receipt_id):
+                continue
+            from .projection import activity_id
+
+            result.add(activity_id("delivery_receipt", receipt_id))
+    return result
+
+
+def event_page(
+    db, workspace, user, *, cursor=None, activity_id=None, run_id=None, subtree=False, limit=100
+):
     after = decode_cursor(cursor, workspace.id) if cursor else 0
     upper = highwater(db, workspace.id)
     if after > upper:
         raise HTTPException(409, detail="ACTIVITY_CURSOR_AHEAD")
+    # A retained suffix must never silently masquerade as a complete replay.
+    floor = (
+        db.query(func.min(ActivityEvent.sequence))
+        .filter(
+            ActivityEvent.workspace_id == workspace.id,
+        )
+        .scalar()
+    )
+    if cursor is not None and after < upper and (floor is None or after < floor - 1):
+        raise HTTPException(409, detail="ACTIVITY_CURSOR_EXPIRED")
+    if subtree and not run_id:
+        raise HTTPException(422, detail="ACTIVITY_RUN_FILTER_REQUIRED")
+    scope = run_scope_ids(db, run_id, workspace, user, subtree=subtree) if run_id else None
+    related_ids = (
+        run_related_activity_ids(db, scope, workspace, user) if scope is not None else set()
+    )
     if activity_id:
-        authorized_activity(db, activity_id, workspace, user)
+        row = authorized_activity(db, activity_id, workspace, user)
+        if (
+            scope is not None
+            and row.id not in related_ids
+            and not db.query(Run.id).filter(Run.id == row.run_id, Run.id.in_(scope)).first()
+        ):
+            raise HTTPException(404, detail="ACTIVITY_NOT_FOUND")
     query = db.query(ActivityEvent).filter(
         ActivityEvent.workspace_id == workspace.id,
         ActivityEvent.sequence > after,
@@ -376,6 +705,11 @@ def event_page(db, workspace, user, *, cursor=None, activity_id=None, limit=100)
     )
     if activity_id:
         query = query.filter(ActivityEvent.activity_id == activity_id)
+    if scope is not None:
+        query = query.join(Activity, Activity.id == ActivityEvent.activity_id).filter(
+            Activity.workspace_id == workspace.id,
+            or_(Activity.run_id.in_(scope), Activity.id.in_(related_ids)),
+        )
     scanned = query.order_by(ActivityEvent.sequence).limit(limit).all()
     activities = (
         db.query(Activity)

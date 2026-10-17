@@ -1,0 +1,175 @@
+{
+  "corpus": {
+    "activities": 100000,
+    "authorization": "Native private-chat and compute/job ownership; authorization_v2 compat evaluates candidate IAM without overriding legacy rights",
+    "coverage_exclusions": [
+      "HTTP transport",
+      "SSE clients",
+      "large native payloads",
+      "enforcement attestations and strict-mode throughput"
+    ],
+    "days": 30,
+    "distribution": "10% Runs, 80% SkillInvocations, 5% ComputeRuns, 5% WorkspaceJobs",
+    "expected_by_reader": {
+      "series-reader-a": {
+        "compute_run": 2500,
+        "run": 7500,
+        "skill_invocation": 60000,
+        "workspace_job": 2500
+      },
+      "series-reader-b": {
+        "compute_run": 2500,
+        "run": 10000,
+        "skill_invocation": 80000,
+        "workspace_job": 2500
+      }
+    },
+    "status_distribution": {
+      "succeeded": 100000
+    }
+  },
+  "host": {
+    "affinity_count": 5,
+    "cgroup_cpu_max": "400000 100000",
+    "cgroup_memory_max": "17179869184",
+    "cpu_count": 5,
+    "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "mem_total_kib": "MemTotal:       18440136 kB",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "postgres": "16.2",
+    "python": "3.12.14"
+  },
+  "invocation": {
+    "metric": "activity",
+    "readers": 10
+  },
+  "result": {
+    "errors": [],
+    "memory_method": "Shared-process RSS increase for all simultaneous readers after seed and GC (allocator arenas may be reused); conservative per-request upper bound, sampled every 20ms",
+    "pass_criteria": {
+      "correct_authorized_totals": true,
+      "rss_delta_le_256mib": true,
+      "series_p95_le_2s": false,
+      "writer_not_blocked": true
+    },
+    "readers": [
+      {
+        "authorized_total": 72500,
+        "elapsed_s": 101.48629078600788,
+        "reader": 0,
+        "sql_queries": 110,
+        "user": "series-reader-a"
+      },
+      {
+        "authorized_total": 95000,
+        "elapsed_s": 110.00164244801272,
+        "reader": 1,
+        "sql_queries": 110,
+        "user": "series-reader-b"
+      },
+      {
+        "authorized_total": 72500,
+        "elapsed_s": 105.84111383200798,
+        "reader": 2,
+        "sql_queries": 110,
+        "user": "series-reader-a"
+      },
+      {
+        "authorized_total": 95000,
+        "elapsed_s": 110.59591197500413,
+        "reader": 3,
+        "sql_queries": 110,
+        "user": "series-reader-b"
+      },
+      {
+        "authorized_total": 72500,
+        "elapsed_s": 103.63215109800512,
+        "reader": 4,
+        "sql_queries": 110,
+        "user": "series-reader-a"
+      },
+      {
+        "authorized_total": 95000,
+        "elapsed_s": 111.06056723100482,
+        "reader": 5,
+        "sql_queries": 110,
+        "user": "series-reader-b"
+      },
+      {
+        "authorized_total": 72500,
+        "elapsed_s": 106.29788883699803,
+        "reader": 6,
+        "sql_queries": 110,
+        "user": "series-reader-a"
+      },
+      {
+        "authorized_total": 95000,
+        "elapsed_s": 110.95513013399614,
+        "reader": 7,
+        "sql_queries": 110,
+        "user": "series-reader-b"
+      },
+      {
+        "authorized_total": 72500,
+        "elapsed_s": 106.39394883600471,
+        "reader": 8,
+        "sql_queries": 110,
+        "user": "series-reader-a"
+      },
+      {
+        "authorized_total": 95000,
+        "elapsed_s": 111.37381097700563,
+        "reader": 9,
+        "sql_queries": 110,
+        "user": "series-reader-b"
+      }
+    ],
+    "rss_baseline_mib": 128.0703125,
+    "rss_delta_all_readers_mib": 212.640625,
+    "rss_peak_mib": 340.7109375,
+    "series_p95_s": 111.37381097700563,
+    "sql_examples": {
+      "activities": "SELECT activities.id AS activities_id, activities.workspace_id AS activities_workspace_id, activities.kind AS activities_kind, activities.native_id AS activities_native_id, activities.system_id AS activities_system_id, activities.run_id AS activities_run_id, activities.owner_id AS activities_owner_id, activities.parent_activity_id AS activities_parent_activity_id, activities.status AS activities_status, activities.native_status AS activities_native_status, activities.version AS activities_version, activities.snapshot AS activities_snapshot, activities.snapshot_digest AS activities_snapshot_digest, activities.origin AS activities_origin, activities.created_at AS activities_created_at, activities.updated_at AS activities_updated_at FROM activities WHERE activities.workspace_id = %(workspace_id_1)s AND activities.created_at >= %(created_at_1)s AND activities.created_at < %(created_at_2)s ORDER BY activities.id LIMIT %(param_1)s",
+      "compute_runs": "SELECT compute_runs.id AS compute_runs_id, compute_runs.user_id AS compute_runs_user_id FROM compute_runs WHERE compute_runs.workspace_id = %(workspace_id_1)s AND compute_runs.id IN (%(id_1_1)s, %(id_1_2)s, %(id_1_3)s, %(id_1_4)s, %(id_1_5)s, %(id_1_6)s, %(id_1_7)s, %(id_1_8)s, %(id_1_9)s, %(id_1_10)s, %(id_1_11)s, %(id_1_12)s, %(id_1_13)s, %(id_1_14)s, %(id_1_15)s, %(id_1_16)s, %(id_1_17)s, %(id_1_18)s, %(id_1_19)s, %(id_1_20)s, %(id_1_21)s, %(id_1_22)s, %(id_1_23)s, %(id_1_24)s, %(id_1_25)s, %(id_1_26)s, %(id_1_27)s, %(id_1_28)s, %(id_1_29)s, %(id_1_30)s, %(id_1_31)s, %(id_1_32)s, %(id_1_33)s, %(id_1_34)s, %(id_1_35)s, %(id_1_36)s, %(id_1_37)s, %(id_1_38)s, %(id_1_39)s, %(id_1_40)s, %(id_1_41)s, %(id_1_42)s, %(id_1_43)s, %(id_1_44)s, %(id_1_45)s, %(id_1_46)s, %(id_1_47)s, %(id_1_48)s, %(id_1_49)s, %(id_1_50)s, %(id_1_51)s, %(id_1_52)s, %(id_1_53)s, %(id_1_54)s, %(id_1_55)s, %(id_1_56)s, %(id_1_57)s, %(id_1_58)s, %(id_1_59)s, %(id_1_60)s, %(id_1_61)s, %(id_1_62)s, %(id_1_63)s, %(id_1_64)s, %(id_1_65)s, %(id_1_66)s, %(id_1_67)s, %(id_1_68)s, %(id_1_69)s, %(id_1_70)s, %(id_1_71)s, %(id_1_72)s, %(id_1_73)s, %(id_1_74)s, %(id_1_75)s, %(id_1_76)s, %(id_1_77)s, %(id_1_78)s, %(id_1_79)s, %(id_1_80)s, %(id_1_81)s, %(id_1_82)s, %(id_1_83)s, %(id_1_84)s, %(id_1_85)s, %(id_1_86)s, %(id_1_87)s, %(id_1_88)s, %(id_1_89)s, %(id_1_90)s, %(id_1_91)s, %(id_1_92)s, %(id_1_93)s, %(id_1_94)s, %(id",
+      "runs": "SELECT runs.id AS runs_id, runs.workspace_id AS runs_workspace_id, runs.initiated_by_user_id AS runs_initiated_by_user_id, runs.system_id AS runs_system_id, runs.capability_id AS runs_capability_id, runs.status AS runs_status, runs.execution_surface AS runs_execution_surface, runs.trigger AS runs_trigger FROM runs WHERE runs.workspace_id = %(workspace_id_1)s AND runs.id IN (%(id_1_1)s, %(id_1_2)s, %(id_1_3)s, %(id_1_4)s, %(id_1_5)s, %(id_1_6)s, %(id_1_7)s, %(id_1_8)s, %(id_1_9)s, %(id_1_10)s, %(id_1_11)s, %(id_1_12)s, %(id_1_13)s, %(id_1_14)s, %(id_1_15)s, %(id_1_16)s, %(id_1_17)s, %(id_1_18)s, %(id_1_19)s, %(id_1_20)s, %(id_1_21)s, %(id_1_22)s, %(id_1_23)s, %(id_1_24)s, %(id_1_25)s, %(id_1_26)s, %(id_1_27)s, %(id_1_28)s, %(id_1_29)s, %(id_1_30)s, %(id_1_31)s, %(id_1_32)s, %(id_1_33)s, %(id_1_34)s, %(id_1_35)s, %(id_1_36)s, %(id_1_37)s, %(id_1_38)s, %(id_1_39)s, %(id_1_40)s, %(id_1_41)s, %(id_1_42)s, %(id_1_43)s, %(id_1_44)s, %(id_1_45)s, %(id_1_46)s, %(id_1_47)s, %(id_1_48)s, %(id_1_49)s, %(id_1_50)s, %(id_1_51)s, %(id_1_52)s, %(id_1_53)s, %(id_1_54)s, %(id_1_55)s, %(id_1_56)s, %(id_1_57)s, %(id_1_58)s, %(id_1_59)s, %(id_1_60)s, %(id_1_61)s, %(id_1_62)s, %(id_1_63)s, %(id_1_64)s, %(id_1_65)s, %(id_1_66)s, %(id_1_67)s, %(id_1_68)s, %(id_1_69)s, %(id_1_70)s, %(id_1_71)s, %(id_1_72)s, %(id_1_73)s, %(id_1_74)s, %(id_1_75)s, %(id_1_76)s, %(id_1_77)s, %(id_1_78)s, %(id_1_79)s, %(id_",
+      "skill_invocations": "SELECT skill_invocations.id AS skill_invocations_id, skill_invocations.run_id AS skill_invocations_run_id, skill_invocations.skill_id AS skill_invocations_skill_id, skill_invocations.skill_slug AS skill_invocations_skill_slug FROM skill_invocations WHERE skill_invocations.id IN (%(id_1_1)s, %(id_1_2)s, %(id_1_3)s, %(id_1_4)s, %(id_1_5)s, %(id_1_6)s, %(id_1_7)s, %(id_1_8)s, %(id_1_9)s, %(id_1_10)s, %(id_1_11)s, %(id_1_12)s, %(id_1_13)s, %(id_1_14)s, %(id_1_15)s, %(id_1_16)s, %(id_1_17)s, %(id_1_18)s, %(id_1_19)s, %(id_1_20)s, %(id_1_21)s, %(id_1_22)s, %(id_1_23)s, %(id_1_24)s, %(id_1_25)s, %(id_1_26)s, %(id_1_27)s, %(id_1_28)s, %(id_1_29)s, %(id_1_30)s, %(id_1_31)s, %(id_1_32)s, %(id_1_33)s, %(id_1_34)s, %(id_1_35)s, %(id_1_36)s, %(id_1_37)s, %(id_1_38)s, %(id_1_39)s, %(id_1_40)s, %(id_1_41)s, %(id_1_42)s, %(id_1_43)s, %(id_1_44)s, %(id_1_45)s, %(id_1_46)s, %(id_1_47)s, %(id_1_48)s, %(id_1_49)s, %(id_1_50)s, %(id_1_51)s, %(id_1_52)s, %(id_1_53)s, %(id_1_54)s, %(id_1_55)s, %(id_1_56)s, %(id_1_57)s, %(id_1_58)s, %(id_1_59)s, %(id_1_60)s, %(id_1_61)s, %(id_1_62)s, %(id_1_63)s, %(id_1_64)s, %(id_1_65)s, %(id_1_66)s, %(id_1_67)s, %(id_1_68)s, %(id_1_69)s, %(id_1_70)s, %(id_1_71)s, %(id_1_72)s, %(id_1_73)s, %(id_1_74)s, %(id_1_75)s, %(id_1_76)s, %(id_1_77)s, %(id_1_78)s, %(id_1_79)s, %(id_1_80)s, %(id_1_81)s, %(id_1_82)s, %(id_1_83)s, %(id_1_84)s, %(id_1_85)s, %(id_1_86)s, %(id_1_87)s",
+      "users": "SELECT users.id AS users_id, users.username AS users_username, users.email AS users_email, users.password_hash AS users_password_hash, users.keycloak_sub AS users_keycloak_sub, users.role AS users_role, users.is_active AS users_is_active, users.mfa_enabled AS users_mfa_enabled, users.last_login AS users_last_login, users.created_at AS users_created_at FROM users WHERE users.id = %(pk_1)s",
+      "workspace_iam_configs": "SELECT workspace_iam_configs.workspace_id AS workspace_iam_configs_workspace_id, workspace_iam_configs.version AS workspace_iam_configs_version, workspace_iam_configs.role_flags AS workspace_iam_configs_role_flags, workspace_iam_configs.capability_overrides AS workspace_iam_configs_capability_overrides, workspace_iam_configs.updated_at AS workspace_iam_configs_updated_at, workspace_iam_configs.updated_by_user_id AS workspace_iam_configs_updated_by_user_id FROM workspace_iam_configs WHERE workspace_iam_configs.workspace_id = %(workspace_id_1)s LIMIT %(param_1)s",
+      "workspace_jobs": "SELECT workspace_jobs.id AS workspace_jobs_id, workspace_jobs.session_id AS workspace_jobs_session_id, workspace_jobs.kind AS workspace_jobs_kind, workspace_jobs.input_ref AS workspace_jobs_input_ref, workspace_jobs.created_by_user_id AS workspace_jobs_created_by_user_id FROM workspace_jobs WHERE workspace_jobs.workspace_id = %(workspace_id_1)s AND workspace_jobs.id IN (%(id_1_1)s, %(id_1_2)s, %(id_1_3)s, %(id_1_4)s, %(id_1_5)s, %(id_1_6)s, %(id_1_7)s, %(id_1_8)s, %(id_1_9)s, %(id_1_10)s, %(id_1_11)s, %(id_1_12)s, %(id_1_13)s, %(id_1_14)s, %(id_1_15)s, %(id_1_16)s, %(id_1_17)s, %(id_1_18)s, %(id_1_19)s, %(id_1_20)s, %(id_1_21)s, %(id_1_22)s, %(id_1_23)s, %(id_1_24)s, %(id_1_25)s, %(id_1_26)s, %(id_1_27)s, %(id_1_28)s, %(id_1_29)s, %(id_1_30)s, %(id_1_31)s, %(id_1_32)s, %(id_1_33)s, %(id_1_34)s, %(id_1_35)s, %(id_1_36)s, %(id_1_37)s, %(id_1_38)s, %(id_1_39)s, %(id_1_40)s, %(id_1_41)s, %(id_1_42)s, %(id_1_43)s, %(id_1_44)s, %(id_1_45)s, %(id_1_46)s, %(id_1_47)s, %(id_1_48)s, %(id_1_49)s, %(id_1_50)s, %(id_1_51)s, %(id_1_52)s, %(id_1_53)s, %(id_1_54)s, %(id_1_55)s, %(id_1_56)s, %(id_1_57)s, %(id_1_58)s, %(id_1_59)s, %(id_1_60)s, %(id_1_61)s, %(id_1_62)s, %(id_1_63)s, %(id_1_64)s, %(id_1_65)s, %(id_1_66)s, %(id_1_67)s, %(id_1_68)s, %(id_1_69)s, %(id_1_70)s, %(id_1_71)s, %(id_1_72)s, %(id_1_73)s, %(id_1_74)s, %(id_1_75)s, %(id_1_76)s, %(id_1_77)s, %(id_1_78)s, %(id_1_79)s, %(id_1_80",
+      "workspace_members": "SELECT workspace_members.id AS workspace_members_id FROM workspace_members WHERE workspace_members.workspace_id = %(workspace_id_1)s AND workspace_members.user_id = %(user_id_1)s LIMIT %(param_1)s",
+      "workspaces": "SELECT workspaces.id AS workspaces_id, workspaces.name AS workspaces_name, workspaces.slug AS workspaces_slug, workspaces.created_at AS workspaces_created_at, workspaces.is_active AS workspaces_is_active, workspaces.deleted_at AS workspaces_deleted_at, workspaces.settings AS workspaces_settings, workspaces.mode AS workspaces_mode FROM workspaces WHERE workspaces.id = %(pk_1)s"
+    },
+    "sql_query_counts": {
+      "activities": 510,
+      "compute_runs": 30,
+      "runs": 60,
+      "skill_invocations": 410,
+      "users": 10,
+      "workspace_iam_configs": 10,
+      "workspace_jobs": 30,
+      "workspace_members": 30,
+      "workspaces": 10
+    },
+    "timing_scope": "Service + native authorization + aggregation; excludes HTTP transport and JSON encoding",
+    "writes": {
+      "completed": 99,
+      "errors": [],
+      "max_s": 2.2478749729925767,
+      "p95_s": 2.0528207550087245,
+      "postgres_lock_wait_samples": []
+    }
+  },
+  "schema_version": 1,
+  "source": {
+    "file_sha256": {
+      "app/api/v1/endpoints/workspace_jobs.py": "4d4b1421ba183f97acc8ce81f8152040fbb2e2fed3340a5cb6509eac8a312ac7",
+      "app/services/activity_observability/execution_metadata.py": "2059549ce6109ea1201567f74c634a44beee2bad705254b5a4ca3a1485d61ab8",
+      "app/services/activity_observability/queries.py": "4d740cf1697f41b6709b12aceb36b5d893fd0d4758dd374b47efa4f99483ada4",
+      "app/services/activity_observability/series.py": "f38922bfec24e8e0c0aae4c2a2cb0ea3120e9fe73019ff2ab7d421f531ef67f6",
+      "app/services/run_access.py": "e4ee2abf73b3c71cf00fb71fe5ce5c67922584ab2e861fe4d4a33048d80a4693",
+      "scripts/qualify_activity_series.py": "56bcf42001193ecf2011218fb485b380be9e3418cb964bf85bc8c09925571dcd"
+    },
+    "git_head": "636bb5337aded251dabe10fa0434edc846b87aa5"
+  },
+  "timestamp": "2026-10-16T08:16:00.357159Z"
+}

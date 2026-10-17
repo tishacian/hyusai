@@ -17,5 +17,5 @@ test('SkillInvocation is a dedicated Run child resource before the generic Run r
   assert.notEqual(invocationRoute.loadComponent, runRoute.loadComponent);
   assert.equal(invocationRoute.path?.includes('skills'), false, 'catalog Skill keeps its separate /skills route');
   assert.equal((await invocationRoute.loadComponent!()).name, 'SkillInvocationViewComponent');
-  assert.equal((await runRoute.loadComponent!()).name, 'RunViewComponent');
+  assert.equal((await runRoute.loadComponent!()).name, 'RunPageComponent');
 });

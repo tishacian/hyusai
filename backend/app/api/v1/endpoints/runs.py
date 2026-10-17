@@ -8,6 +8,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 from uuid import uuid4
@@ -665,6 +666,23 @@ async def get_run(
             "last_output": debug_cp.get("last_output") or {},
         }
     return payload
+
+
+@router.get("/{run_id}/execution-view")
+def get_execution_view(
+    run_id: str,
+    node_id: str | None = Query(None, max_length=160),
+    activity_id: str | None = Query(None, max_length=160),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.execution_view import execution_view
+
+    return execution_view(db, workspace, user, run_id, node_id=node_id,
+                          activity_id_filter=activity_id, limit=limit, offset=offset)
 
 
 @router.get("/{run_id}/files")
@@ -1588,9 +1606,35 @@ async def _run_event_stream(
     4. Forward live events until the bus closes, the Run reaches a
        terminal state, or the HTTP client disconnects.
     """
+    def still_authorized():
+        if not user_id:
+            return True  # Internal consumers; the HTTP route always supplies identity.
+        from app.core.auth import decode_token
+        from app.services.activity_observability.queries import require_membership
+
+        try:
+            authorization = getattr(request, "headers", {}).get("authorization")
+            if authorization:
+                scheme, _, bearer = authorization.partition(" ")
+                if scheme.lower() != "bearer":
+                    return False
+                decode_token(bearer)
+            with SessionLocal() as current:
+                member, scope = current.get(User, user_id), current.get(Workspace, workspace_id)
+                require_membership(current, scope, member)
+                row = current.query(Run).filter_by(id=run_id, workspace_id=workspace_id).first()
+                return bool(row and readable_runs(current, runs=[row], user=member, workspace=scope))
+        except HTTPException:
+            return False
+
+    if not await asyncio.to_thread(still_authorized):
+        yield _sse_format("close", {"reason": "access_unavailable"})
+        return
+    last_authorization_check = time.monotonic()
     subscriber = event_bus.subscribe(run_id)
     replayed_ts: set[str] = set()
     persisted_cursor = 0
+    consumer_task: asyncio.Task[dict[str, Any] | None] | None = None
     try:
         db = SessionLocal()
         try:
@@ -1640,10 +1684,16 @@ async def _run_event_stream(
         finally:
             db.close()
 
-        consumer_task: Optional[asyncio.Task[Optional[Dict[str, Any]]]] = None
         while True:
             if await request.is_disconnected():
                 return
+            # Check on a clock, independent of token traffic. The old idle-only
+            # check could retain access indefinitely during continuous output.
+            if time.monotonic() - last_authorization_check >= 1.0:
+                if not await asyncio.to_thread(still_authorized):
+                    yield _sse_format("close", {"reason": "access_unavailable"})
+                    return
+                last_authorization_check = time.monotonic()
             if consumer_task is None:
                 consumer_task = asyncio.create_task(subscriber.next_event())
             done, _ = await asyncio.wait(
@@ -1710,6 +1760,8 @@ async def _run_event_stream(
         if consumer_task is not None:
             consumer_task.cancel()
     finally:
+        if consumer_task is not None:
+            consumer_task.cancel()
         await subscriber.aclose()
         yield _sse_format("close", {"reason": "stream_closed"})
 
