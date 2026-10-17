@@ -19,7 +19,9 @@ def test_133_schema_matches_models_and_reversible_when_empty():
         migration.upgrade()
         for model in (Activity, ActivityCommand, ActivityEvent, ActivityWorkspaceCursor):
             table = model.__table__
-            assert {column["name"] for column in sa.inspect(bind).get_columns(table.name)} == set(table.columns.keys())
+            # Columns added by later revisions (138: typed finish and duration).
+            later = {"activities": {"finished_at", "duration_ms"}}.get(table.name, set())
+            assert {column["name"] for column in sa.inspect(bind).get_columns(table.name)} == set(table.columns.keys()) - later
             expected_unique = {tuple(column.name for column in constraint.columns) for constraint in table.constraints if isinstance(constraint, sa.UniqueConstraint)}
             actual_unique = {tuple(constraint["column_names"]) for constraint in sa.inspect(bind).get_unique_constraints(table.name)}
             assert actual_unique == expected_unique
