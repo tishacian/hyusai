@@ -13,6 +13,12 @@ This applies to the shared workspace, build, operate, govern, resources,
 connectors, settings, knowledge, systems, skills, capabilities, and run
 surfaces.
 
+For proposed page-composition and interaction guidance, see
+[Experience design guidelines](agentium-experience-design-guidelines.md).
+They cover information hierarchy, contextual actions, critical states, forms,
+continuity, charts, and responsive task layouts. They complement this chrome
+contract and do not attest that the recommended layouts are implemented.
+
 ## Cockpit Workbench Rules
 
 - Page titles are white or light gray, never gradient.
