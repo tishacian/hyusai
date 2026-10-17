@@ -1,7 +1,7 @@
 # Suivi des jobs et des runs : ce que faisait papAI, où en est Agentium
 
-> **Date** : 2026-10-15.
-> **Base** : `demo/agentic` (origin = 47e289da).
+> **Date** : 2026-10-15, mise à jour le 2026-10-17 (§12).
+> **Base** : `demo/agentic` (origin = 47e289da pour les §1 à §11, 8679a4f2 pour le §12).
 >
 > **Sources**
 > - Lecture seule de `~/Developer/DATATEGY/papai-latest`, faite le 2026-10-15. Ont été lus le frontend Angular, `core` (Scala), `spark-service`, `papai-ml` et `scheduler-service`.
@@ -24,6 +24,8 @@
 > Le §9 compare avec Agentium et dit ce qu'il faut garder ou éviter.
 >
 > **Pour une reprise.** Le §10 fait l'état des lieux de l'observabilité des runs dans Agentium après le commit 8ee823c4 (supervision des activités). Le §11 découpe le travail restant en lots, avec les fichiers et les critères d'acceptation.
+>
+> **Mise à jour du 2026-10-17.** Les lots du §11 ont été repris et livrés dans `demo/agentic` (fusion cf12f7a0), dans un plan élargi à R1–R5 qui ajoute le suivi des jobs dans le Flow exécuté. Le §12 donne ce qui est livré et ce qui reste ouvert. Les §10 et §11 décrivent l'état du 15 octobre.
 
 ---
 
@@ -67,11 +69,22 @@ La couche client contient beaucoup d'heuristiques, qui compensent les incohéren
 - Un run planifié en échec envoie un e-mail de succès **(inférence)**.
 - On compte huit vocabulaires de statuts.
 
-**Agentium aujourd'hui (§10 et §11).**
+**Agentium au 15 octobre (§10 et §11).**
 - **Aucun graphique n'a été supprimé.** Ceux de l'onglet Qualité et la cascade du détail d'un run sont intacts et alimentés.
 - Si l'on active `ACTIVITY_OBSERVABILITY_ENABLED`, la nouvelle supervision des activités **remplace entièrement** l'onglet « Opérations » d'Observabilité. Le plan disait pourtant que cette vue serait conservée.
 - La nouvelle vue n'a aucun graphique, et aucune vue d'Agentium ne montre de graphiques agrégés de runs : volume, durées, coûts, ressources.
 - La reprise comporte trois lots : R1 garde l'onglet Opérations, R2 crée les graphiques de runs à partir du journal d'activités, R3 corrige la documentation.
+
+**Agentium au 17 octobre (§12).**
+- C'est livré dans `demo/agentic` :
+  - Opérations est conservé, et Activités devient un onglet séparé ;
+  - les graphiques des activités montrent le volume par statut, les durées p50/p95 et les dépenses ;
+  - une vue d'exécution du Flow en lecture seule, construite sur le snapshot du Run, montre les passages, les tentatives, les jobs et une frise.
+- La vue d'exécution reprend les leçons n° 2 et 7 du §9.2.
+- Trois points restent ouverts :
+  - la cible de charge des séries n'est pas atteinte : p95 de 5,5 s et 9,5 s pour 2 s visées ;
+  - la recette de release R5 reste à faire ;
+  - les trois nouvelles lectures sont éteintes par défaut.
 
 ---
 
@@ -590,6 +603,8 @@ Le journal d'activités contient les données nécessaires, mais l'API ne les ex
 
 ## 11. Reprise : lots proposés
 
+> Lots proposés le 15 octobre. Ils ont été repris et livrés le 16 octobre dans un plan élargi à R1–R5 : voir le §12. La numérotation R1, R2 et R3 y est conservée, et R4 et R5 s'ajoutent.
+
 **Règles habituelles :**
 - chaque lot est une PR autonome sur `demo/agentic` ;
 - la fusion se fait sur accord explicite ;
@@ -657,3 +672,74 @@ Le journal d'activités contient les données nécessaires, mais l'API ne les ex
 3. **R2** vient ensuite. Elle n'a de valeur qu'une fois le drapeau allumé et le backfill passé.
 
 Le travail sur le flow reste séparé : état des nœuds par run et frise des nœuds (§9.2, n° 2 et 7). Il s'appuie sur les checkpoints et sur `flow_snapshot` du Run, pas sur ce journal.
+
+---
+
+## 12. Mise à jour du 2026-10-17 : ce qui a été livré
+
+> Vérifié dans le code de `demo/agentic` = 8679a4f2. Le travail a été fusionné par cf12f7a0 (revue `pr14`) le 2026-10-17.
+>
+> Références :
+> - plan : `docs/agentium-operations-activities-flow-plan.md` (1cc5c8f5) ;
+> - rapport d'implémentation et de qualification : `docs/agentium-operations-activities-flow-implementation.md` ;
+> - preuves : `docs/evidence/operations-activities-flow-2026-10-16/` (bilan `report.md`).
+
+### 12.1 Correspondance avec les lots du §11
+
+| Lot | Proposé le 15/10 | Livré | État |
+|---|---|---|---|
+| R1 | garder Opérations, ouvrir un onglet Activités | `OBSERVABILITY_FACETS` contient maintenant `activities`. L'onglet par défaut affiche toujours `<app-workspace-monitor />`. L'onglet Activités n'apparaît que si `/activities/features` renvoie `enabled` (`observability-shell.component.ts:110-111, 140`). Les anciens liens `activityId` et `scope` mènent à Activités. Une ancre de période `as_of` est partagée entre Opérations, Activités et Qualité. | **fait** |
+| R2 | séries et graphiques de runs | `GET /api/v1/observability/activities/series` (`backend/app/services/activity_observability/series.py`, `series_sql.py`) et graphiques Chart.js (`activities/activity-series-charts.component.ts`) : barres de volume par statut ou de dépenses, courbes p50/p95 des durées par type. Un tableau accessible reste affiché tant que le graphique n'est pas chargé. | **fonctionnel, cible de charge non atteinte** (§12.3) |
+| R3 | remettre la documentation d'accord | Le plan d'observabilité d'exécution garde la phrase « vues conservées » et renvoie à la décision du 16 octobre. Le bilan et la procédure d'exploitation sont mis à jour. | **fait** |
+| R4 (ajouté) | — | suivi des jobs dans la version exécutée du Flow (§12.2) | **fait, éteint par défaut** |
+| R5 (ajouté) | — | dossier de recette locale produit ; recette de release confiée à l'opérateur | **ouvert** |
+
+### 12.2 Le suivi des jobs dans le Flow (R4), au regard des leçons de papAI
+
+**Route et API.**
+- L'écran est `/runs/{id}?view=flow`, en lecture seule. Il réutilise le moteur de rendu du Flow (Foblex), sans monter l'éditeur ni sauvegarder le Flow (`frontend-ng/src/app/features/runs/run-execution-graph.component.ts`).
+- L'API est `GET /api/v1/runs/{id}/execution-view` (`backend/app/services/execution_view.py`). Sa réponse porte `schema_version=1`, le Run avec sa version et son empreinte, le graphe, des synthèses filtrées par les droits, une page de travaux, la couverture, `read_version` et `snapshot_cursor`.
+
+**Ce qu'elle montre :**
+- les passages par nœud, chacun avec une identité persistée ;
+- les tentatives, les invocations, les recettes, les calculs et les sous-Runs lisibles ;
+- un panneau des jobs et une frise.
+
+**Ce qu'elle cache.** Seule la topologie publique du graphe est exposée : pas de paramètres, de prompts, d'entrées ou sorties, de secrets ni de checkpoints bruts. Un Run sans snapshot, ou sans corrélation fiable, est marqué incomplet. Une absence de preuve ne veut dire ni « en file » ni « coût nul ».
+
+**Temps réel.** Le flux d'événements accepte un filtre `run_id` avec `subtree=true`. Le curseur est lu avant le snapshot. Un curseur expiré provoque une resynchronisation, et une révocation purge la vue.
+
+**Leçons du §9.2 désormais couvertes :**
+- **n° 1, vocabulaire unique** : les statuts unifiés du journal d'activités (§10.1).
+- **n° 2, état d'un nœud tiré d'un run versionné** : la vue est construite sur le snapshot du Run, et modifier le Flow ensuite ne change pas ce que montre un run passé.
+- **n° 5, un événement pour chaque changement, avec rejeu** : flux rejouable, resynchronisation et révocation.
+- **n° 7, frise du run et relecture du graphe** : panneau des jobs et frise sur le snapshot.
+
+**Hors de ce plan :**
+- la propagation « périmé » vers l'aval par le lignage (n° 7, troisième point) ;
+- la progression mesurée (n° 4).
+
+### 12.3 Ce qui reste ouvert
+
+**1. Charge des séries (R2).**
+- Banc d'essai : 100 000 activités et dix lecteurs concurrents, sur le candidat 0e745155, après l'agrégation SQL de a38ddf0e.
+- Résultat : p95 de **5,479 s** pour l'activité et de **9,468 s** pour les coûts. La cible était **2 s**.
+- Les comptes sont exacts.
+- Le chemin SQL ne sert qu'avec PostgreSQL 16 ou plus et le mode IAM `compat`. Tous les autres cas passent par le lecteur natif, par lots de 2 000.
+- Il faut qualifier sur la configuration cible avant d'ouvrir largement les séries.
+
+**2. Recette de release (R5), confiée à l'opérateur :**
+- figer le candidat et relever `build-info` et les budgets d'images ;
+- parcours Showcase : point ou cellule → Run → preuve → retour, puis rechargement, clavier et écran de 390 px ;
+- deux parcours composites sur le Flow ;
+- séries comparées à la liste avec trois profils ;
+- révocation.
+
+**3. Activation.**
+- Les trois lectures sont éteintes par défaut : `ACTIVITY_OBSERVABILITY_ENABLED`, `ACTIVITY_SERIES_ENABLED` et `EXECUTION_VIEW_ENABLED` (`backend/app/core/config.py:120-123`, `ops/helm/agentium/values.yaml:339-341`).
+- Les séries exigent que le journal soit actif. La vue du Flow fonctionne sans journal, comme un instantané à actualiser à la main.
+- Aucun déploiement n'est déclaré.
+
+**4. Tuiles d'Opérations.** Le plan prévoit qu'« à terme » les indicateurs R2 alimentent les tuiles d'Opérations (plan, ligne 108). Ce n'est pas encore fait.
+
+**5. Contrôle de la charte UI.** Un échec existait déjà avant ces lots : 7 halos pour une limite de 6 dans `styles.scss`. Ces lots ne l'ont pas modifié (rapport, ligne 53).
