@@ -1,0 +1,59 @@
+{
+  "checked_at_utc": "2026-10-17T14:18:08.812855+00:00",
+  "workspace": "agentium-showcase",
+  "account_role": "owner",
+  "authentication_http": 200,
+  "browser_strict_tls": true,
+  "checks": [
+    {
+      "path": "/api/v1/build-info",
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "revision": "8679a4f26efe089024df7680d894f68169f5ff21",
+        "revision_verified": true,
+        "version": "1.0.0-demo"
+      }
+    },
+    {
+      "path": "/api/v1/observability/activities/features",
+      "status": 200,
+      "body": {
+        "enabled": true,
+        "execution_view_enabled": false,
+        "activity_series_enabled": false,
+        "scopes": [
+          "workspace",
+          "system"
+        ],
+        "kinds": [
+          "run",
+          "skill_invocation",
+          "recipe_execution",
+          "compute_run",
+          "ml_training",
+          "workspace_job",
+          "service_window",
+          "delivery_receipt"
+        ],
+        "statuses": [
+          "pending",
+          "running",
+          "waiting",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "timed_out",
+          "lost",
+          "unknown"
+        ]
+      }
+    }
+  ],
+  "configuration_changed": false,
+  "corpus": {
+    "total": 7,
+    "completed": 2,
+    "partial": 5
+  }
+}
