@@ -44,6 +44,12 @@ restent ouvertes, et les activations DataOps/connecteurs sont inchangées.
    existantes n'est relevé par ce chantier.
 4. Vérifier les migrations avant de lancer les nouvelles images, même avec les
    options désactivées : les modèles ORM comprennent les nouvelles colonnes.
+5. La migration 138 ajoute à `activities` deux copies typées du snapshot,
+   `finished_at` et `duration_ms`, plus un index `(workspace_id, finished_at)`.
+   Elle les remplit par lots de 1 000 lignes, sans réécrire le snapshot. Sa durée
+   croît avec le nombre d'activités : la répéter aussi sur la copie jetable et
+   noter ce temps. Elle est requise même si les séries restent fermées, car le
+   modèle ORM lit ces colonnes.
 
 ## Lecture et historique
 
@@ -80,6 +86,33 @@ portent `snapshot_only` et ne fabriquent pas une chronologie passée.
 Les écritures métier ORM/Core produisent les transitions dans leur transaction.
 Une modification SQL brut hors de l'application doit faire l'objet d'une
 réconciliation explicite. Aucune capture CDC PostgreSQL n'est revendiquée.
+
+## Ouverture des séries et de la vue du Flow
+
+La production déclarée (`4a404d61`) a le journal ouvert mais précède R1 : son
+onglet Opérations affiche la supervision à la place du moniteur. Le déploiement
+d'une révision qui contient R1 rend le moniteur à Opérations et place la
+supervision dans l'onglet Activités, sans changer d'option.
+
+Pour ouvrir ensuite les graphiques de runs et la vue du Flow :
+
+1. Déployer la révision candidate avec la migration 138, puis relever
+   `build-info` et les options effectives.
+2. Qualifier les séries sur la configuration cible, PostgreSQL et CPU de la VM,
+   avec une base jetable ou une copie et jamais la base de production :
+   `ACTIVITY_POSTGRES_URL=… python scripts/qualify_activity_series.py --readers 10 --metric activity`,
+   puis `--metric cost`. Conserver les JSON ; la cible est un p95 ≤ 2 s avec des
+   comptes autorisés exacts.
+3. Ouvrir `ACTIVITY_SERIES_ENABLED=true` et `EXECUTION_VIEW_ENABLED=true` sur
+   le backend. Les séries exigent le journal ouvert ; la vue du Flow fonctionne
+   aussi sans lui, en instantané actualisé à la main.
+4. Vérifier : dans Opérations, les tuiles portent la mention « Tuiles exhaustives
+   sous vos droits » et chaque tuile ouvre Activités sur le filtre
+   correspondant ; dans Activités, les graphiques de volume, de durées et de
+   dépenses s'affichent ; `/runs/{id}?view=flow` montre un Run exécuté.
+5. Retour arrière : refermer les deux options suffit. Les colonnes de la
+   migration 138 restent cohérentes, car chaque écriture du journal les dérive
+   du snapshot.
 
 ## Capacité de contrôle séparée
 

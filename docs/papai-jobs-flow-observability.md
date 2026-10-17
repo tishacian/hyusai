@@ -72,6 +72,7 @@ La couche client contient beaucoup d'heuristiques, qui compensent les incohéren
 **Agentium au 15 octobre (§10 et §11).**
 - **Aucun graphique n'a été supprimé.** Ceux de l'onglet Qualité et la cascade du détail d'un run sont intacts et alimentés.
 - Si l'on active `ACTIVITY_OBSERVABILITY_ENABLED`, la nouvelle supervision des activités **remplace entièrement** l'onglet « Opérations » d'Observabilité. Le plan disait pourtant que cette vue serait conservée.
+- **Correction du 17 octobre.** Ce drapeau est allumé en production pour tous les workspaces depuis le 15 octobre, sur 4a404d61, une version antérieure à R1 (`docs/ops/execution-observability-production-2026-10-15.md`). En production, l'onglet Opérations montre donc la supervision à la place du moniteur, jusqu'au déploiement de R1. La première version de cette note disait le contraire.
 - La nouvelle vue n'a aucun graphique, et aucune vue d'Agentium ne montre de graphiques agrégés de runs : volume, durées, coûts, ressources.
 - La reprise comporte trois lots : R1 garde l'onglet Opérations, R2 crée les graphiques de runs à partir du journal d'activités, R3 corrige la documentation.
 
@@ -85,6 +86,7 @@ La couche client contient beaucoup d'heuristiques, qui compensent les incohéren
   - la cible de charge des séries n'est pas atteinte : p95 de 5,5 s et 9,5 s pour 2 s visées ;
   - la recette de release R5 reste à faire ;
   - les trois nouvelles lectures sont éteintes par défaut.
+- Le §13 dit ce qui a été fermé le 17 octobre au soir et ce qui revient à l'opérateur.
 
 ---
 
@@ -534,9 +536,10 @@ Commit `feat(execution): add activity supervision and controlled orchestration`,
 - l'annulation coopérative et la réconciliation ;
 - un candidat Temporal optionnel.
 
-**Les drapeaux sont tous à `false`** : `ACTIVITY_OBSERVABILITY_ENABLED`, `EXECUTION_CONTROL_ENABLED`, `EXECUTION_DURABLE_DISPATCH_ENABLED` et `EXECUTION_TEMPORAL_ENABLED`.
+**Les drapeaux valent `false` par défaut** : `ACTIVITY_OBSERVABILITY_ENABLED`, `EXECUTION_CONTROL_ENABLED`, `EXECUTION_DURABLE_DISPATCH_ENABLED` et `EXECUTION_TEMPORAL_ENABLED`.
 - Références : `backend/app/core/config.py:120`, `ops/helm/agentium/values.yaml:339`, `docker/env/agentium.env.example:64`.
 - Le message du commit précise : « No production activation or deployment ».
+- **Correction du 17 octobre.** L'opérateur a ensuite mis en production 4a404d61, le 15 octobre. Le journal, la supervision, l'admission, les échéances, l'annulation et la réconciliation y sont ouverts pour tous les workspaces ; seul Temporal reste désactivé (`docs/ops/execution-observability-production-2026-10-15.md`).
 
 **L'historique.**
 - Un backfill paginé existe : `backend/scripts/execution_operations.py backfill <kind>`, procédure dans `docs/agentium-execution-operations.md:58-63`.
@@ -550,9 +553,9 @@ Le commit a changé le composant de l'onglet par défaut : `<app-workspace-monit
 
 | Situation | Ce qui s'affiche |
 |---|---|
-| drapeau éteint (le cas partout aujourd'hui), ou API absente (404) | l'**ancien moniteur**, inchangé (`activities/activities.component.html:90`) |
+| drapeau éteint (valeur par défaut), ou API absente (404) | l'**ancien moniteur**, inchangé (`activities/activities.component.html:90`) |
 | erreur pendant cet appel | un message d'erreur, puis l'ancien moniteur |
-| drapeau allumé | **la nouvelle vue seule**. L'ancien moniteur n'est plus affiché nulle part. |
+| drapeau allumé (production depuis le 15 octobre) | **la nouvelle vue seule**. L'ancien moniteur n'est plus affiché nulle part. |
 
 **Ce que l'on perd quand le drapeau est allumé.** C'est tout le contenu de `workspace-monitor.component.ts`, alimenté par `GET /api/v1/observability/workspace-overview` :
 - les alertes opérateur ;
@@ -738,8 +741,37 @@ Le travail sur le flow reste séparé : état des nœuds par run et frise des n�
 **3. Activation.**
 - Les trois lectures sont éteintes par défaut : `ACTIVITY_OBSERVABILITY_ENABLED`, `ACTIVITY_SERIES_ENABLED` et `EXECUTION_VIEW_ENABLED` (`backend/app/core/config.py:120-123`, `ops/helm/agentium/values.yaml:339-341`).
 - Les séries exigent que le journal soit actif. La vue du Flow fonctionne sans journal, comme un instantané à actualiser à la main.
-- Aucun déploiement n'est déclaré.
+- **Correction du 17 octobre.** La production tourne sur 4a404d61, avec le journal ouvert. Ce code ne contient ni R1 ni les séries, ni la vue du Flow. Aucun déploiement de R1–R5 n'est déclaré.
 
 **4. Tuiles d'Opérations.** Le plan prévoit qu'« à terme » les indicateurs R2 alimentent les tuiles d'Opérations (plan, ligne 108). Ce n'est pas encore fait.
 
 **5. Contrôle de la charte UI.** Un échec existait déjà avant ces lots : 7 halos pour une limite de 6 dans `styles.scss`. Ces lots ne l'ont pas modifié (rapport, ligne 53).
+
+---
+
+## 13. Fermeture des points ouverts (17 octobre, soir)
+
+> Deux branches attendent l'accord de fusion :
+> - `feat/operations-series-tiles` : correction de la charte UI, puis tuiles d'Opérations ;
+> - `perf/activity-series-typed-columns` : charge des séries et documentation.
+>
+> Base : `demo/agentic` = d814837b.
+
+| Point du §12.3 | État | Où |
+|---|---|---|
+| 1. Charge des séries | **Corrigée côté code**. Le p95 baisse d'un facteur 3 à 6 en mesures entrelacées, sur un poste chargé. Le seuil de 2 s reste à vérifier sur la VM. | `perf/activity-series-typed-columns`, `docs/evidence/activity-series-typed-2026-10-17/report.md` |
+| 2. Recette de release R5 | **À l'opérateur**. Elle demande la VM, Showcase et les budgets d'images ; la procédure est prête. | `docs/agentium-execution-operations.md`, section « Ouverture des séries et de la vue du Flow » |
+| 3. Activation | **À l'opérateur**. Déployer une révision avec R1 et la migration 138, qualifier, puis ouvrir `ACTIVITY_SERIES_ENABLED` et `EXECUTION_VIEW_ENABLED`. | même procédure |
+| 4. Tuiles d'Opérations | **Fait**. Les tuiles lisent la série exhaustive des Runs (même période, même ancre), et chacune ouvre Activités sur le filtre correspondant. | `feat/operations-series-tiles` |
+| 5. Charte UI | **Fait**. Le 7ᵉ halo venait de l'anneau de focus du `.ck-input` global, ajouté avec le catalogue des connecteurs (574854fb). | `feat/operations-series-tiles` |
+
+**Ce que change le lot de charge.**
+- La garde de cohérence des invocations parcourait tout l'historique du workspace. Elle ne regarde plus que la population lue.
+- `finished_at` et `duration_ms` deviennent des colonnes typées (migration 138), dérivées du snapshot avec les parseurs natifs.
+- La requête ne joint que les tables natives utiles au type demandé, et lit la preuve de coût une seule fois par ligne.
+- Une seule matérialisation remplace les deux précédentes.
+- La mémoire de travail est réglable : `ACTIVITY_SERIES_WORK_MEM_MB`, 16 Mo par défaut.
+- Le lecteur natif reste l'oracle. Les tests différentiels comparent les deux chemins, et de nouveaux tests couvrent la garde, le débordement de date, l'élision de jointure et la migration.
+
+**Ce qui reste vrai en production jusqu'au déploiement.** La production (4a404d61) a le journal ouvert sans R1. L'onglet Opérations y montre donc la supervision à la place du moniteur, et il n'y a ni séries ni vue du Flow.
+

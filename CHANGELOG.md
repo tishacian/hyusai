@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-17 · Activity series read path lighter, migration 138
+
+- The invocation consistency guard of the SQL series path scanned the whole
+  workspace history with a nested loop whenever nothing differed (0.9–1.4 s per
+  read). It now counts only the rows the request can select; a row outside the
+  window reaches neither reader.
+- Migration 138 adds typed `finished_at` and `duration_ms` copies of the
+  activity snapshot, derived with the native reader's parsers and kept in step
+  by the projection and an ORM hook, plus a `(workspace_id, finished_at)` index.
+  Existing rows are back-filled in batches of 1,000. The snapshot stays the
+  source; the native reader stays the test oracle.
+- The aggregate joins only the native tables the requested kind can involve,
+  skips the invocation join for activity counts when no invocation is orphaned,
+  reads the cost evidence once per row, materializes once, and runs with
+  `SET LOCAL work_mem` from `ACTIVITY_SERIES_WORK_MEM_MB` (16 by default, 4–256)
+  instead of spilling to temporary files.
+- Interleaved local benches (100,000 activities, PostgreSQL 16 defaults, a loaded
+  workstation) cut the p95 by 3–6×. They are not a VM qualification: the 2 s
+  target stays a release check. See the
+  [evidence](docs/evidence/activity-series-typed-2026-10-17/report.md) and the
+  [opening procedure](docs/agentium-execution-operations.md#ouverture-des-séries-et-de-la-vue-du-flow).
+- Correction: production (`4a404d61`) has had the activity journal open since
+  15 October without R1, so its Operations tab shows the supervision instead of
+  the monitor until a revision with R1 is deployed.
+
 ## 2026-10-15 · Connector catalogue made visible, with brand logos
 
 - The Connectors page now shows the whole catalogue as one grid: 25 data
