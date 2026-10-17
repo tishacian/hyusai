@@ -209,3 +209,44 @@ def test_real_mlflow_http_server_predicts_without_repo_or_registry(exported_mode
             except subprocess.TimeoutExpired:
                 os.killpg(child.pid, signal.SIGKILL)
                 child.wait(timeout=5)
+
+
+def test_an_attested_reader_exports_with_its_attestation(exported_model, tmp_path):
+    """M4.2: an older producer runtime exports only under an attested reader."""
+    from app.resources.ml_artifact_contract import runtime_versions
+    from app.services.ml.artifacts import artifact_fingerprint
+
+    model, _, _, _ = exported_model
+    model.metrics_json["artifact"]["runtime"]["scikit-learn"] = "0.0.0"
+    artifact = model.metrics_json["artifact"]
+    with pytest.raises(TabularError) as refused:
+        build_export(model, tmp_path / "refused")
+    assert refused.value.code == "ML_ARTIFACT_RUNTIME_MISMATCH"
+    attestation = {
+        "id": "attestation-1",
+        "artifact_fingerprint": artifact_fingerprint(artifact),
+        "producer_runtime": artifact["runtime"],
+        "reader_runtime": runtime_versions("tabular", "skops"),
+        "reference_sha256": "a" * 64,
+        "rows_compared": 7,
+        "metrics": {"label_disagreements": 0},
+        "tolerances": {"proba_atol": 1e-6},
+        "created_at": "2026-10-16T10:00:00",
+    }
+    path, metadata = build_export(model, tmp_path / "export", attested=[attestation])
+    assert metadata["attestations"] == ["attestation-1"]
+    with zipfile.ZipFile(path) as archive:
+        shipped = json.loads(archive.read("runtime-attestations.json"))
+        manifest = json.loads(archive.read("export-manifest.json"))
+        readme = archive.read("README.md").decode()
+    assert shipped["attestations"] == [attestation]
+    assert "runtime-attestations.json" in manifest["files"]
+    assert "OR under a reader runtime listed in" in readme
+
+
+def test_an_unattested_export_ships_no_attestation_file(exported_model, tmp_path):
+    model, _, _, _ = exported_model
+    path, metadata = build_export(model, tmp_path / "export")
+    assert metadata["attestations"] == []
+    with zipfile.ZipFile(path) as archive:
+        assert "runtime-attestations.json" not in archive.namelist()
