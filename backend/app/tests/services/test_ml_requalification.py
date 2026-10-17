@@ -7,12 +7,14 @@ gets the same report through a ``sitecustomize`` on its PYTHONPATH. Every
 other check — hashes, trust profile, skops allowlist, loader — runs for real.
 """
 
+# Fixtures imported from the training suite are re-declared as test arguments.
+# ruff: noqa: F811
+
 from __future__ import annotations
 
 import gzip
 import hashlib
 import json
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -226,9 +228,15 @@ def test_upgrade_refuses_then_requalification_attests_and_serves(
 
     # Revocation evicts the resident pipeline: the very next call is refused.
     assert tabular_predict.cache_state()["size"] == 1
-    service.revoke(db_session, model=model, attestation_id=attestation.id, actor=admin.id, user=admin)
-    assert _refusal(lambda: _predict(db_session, model, rows)).code == "ML_ARTIFACT_RUNTIME_MISMATCH"
-    assert db_session.query(AuditLog).filter_by(event_type="ml.model.attestation_revoke").count() == 1
+    service.revoke(
+        db_session, model=model, attestation_id=attestation.id, actor=admin.id, user=admin
+    )
+    assert (
+        _refusal(lambda: _predict(db_session, model, rows)).code == "ML_ARTIFACT_RUNTIME_MISMATCH"
+    )
+    assert (
+        db_session.query(AuditLog).filter_by(event_type="ml.model.attestation_revoke").count() == 1
+    )
     assert service.runtime_status(db_session, model)["status"] == "requalification_required"
 
 
@@ -247,7 +255,9 @@ def test_revocation_in_another_process_evicts_on_the_next_call(
     row.revoked_by = "elsewhere"
     db_session.commit()
     assert tabular_predict.cache_state()["size"] == 1
-    assert _refusal(lambda: _predict(db_session, model, rows)).code == "ML_ARTIFACT_RUNTIME_MISMATCH"
+    assert (
+        _refusal(lambda: _predict(db_session, model, rows)).code == "ML_ARTIFACT_RUNTIME_MISMATCH"
+    )
 
 
 def test_a_perturbed_reader_fails_and_stays_refused(
@@ -262,7 +272,9 @@ def test_a_perturbed_reader_fails_and_stays_refused(
     assert attestation["verdict"] == "failed"
     assert attestation["error_code"] == "ML_REQUALIFICATION_OUTPUT_MISMATCH"
     assert attestation["metrics"]["max_abs_proba_diff"] == pytest.approx(1e-3, rel=1e-3)
-    assert _refusal(lambda: _predict(db_session, model, rows)).code == "ML_ARTIFACT_RUNTIME_MISMATCH"
+    assert (
+        _refusal(lambda: _predict(db_session, model, rows)).code == "ML_ARTIFACT_RUNTIME_MISMATCH"
+    )
     state = service.runtime_status(db_session, model)
     assert state["status"] == "requalification_required"
     assert state["attestations"][0]["verdict"] == "failed"
@@ -276,7 +288,12 @@ def test_tampered_reference_outputs_fail_and_a_broken_digest_is_invalid(
     model, _ = _train(db_session, workspace)
     summary = service.reference_summary(model)
     payload = json.loads(gzip.decompress(get_object_store().read_bytes(summary["key"])))
-    flipped = {label: other for label, other in zip(payload["outputs"]["classes"], reversed(payload["outputs"]["classes"]), strict=True)}
+    flipped = {
+        label: other
+        for label, other in zip(
+            payload["outputs"]["classes"], reversed(payload["outputs"]["classes"]), strict=True
+        )
+    }
     payload["outputs"]["labels"][0] = flipped[payload["outputs"]["labels"][0]]
     # A consistently re-hashed reference that disagrees with the model.
     encoded = service.encode_reference(payload)
@@ -296,10 +313,15 @@ def test_tampered_reference_outputs_fail_and_a_broken_digest_is_invalid(
 
     # Bytes that no longer match the recorded digest are refused outright.
     get_object_store().write_bytes(key, encoded[:-1] + bytes([encoded[-1] ^ 1]))
-    assert _refusal(lambda: service.requalify(db_session, model, actor=admin.id)).code == "ML_REFERENCE_INVALID"
+    assert (
+        _refusal(lambda: service.requalify(db_session, model, actor=admin.id)).code
+        == "ML_REFERENCE_INVALID"
+    )
 
 
-def test_a_missing_or_changed_dataset_is_an_explicit_refusal(db_session, workspace, serving, monkeypatch):
+def test_a_missing_or_changed_dataset_is_an_explicit_refusal(
+    db_session, workspace, serving, monkeypatch
+):
     monkeypatch.setattr(settings, "ml_reference_capture_on_train", False)
     model, dataset = _train(db_session, workspace)
     assert service.reference_summary(model) is None
@@ -326,17 +348,23 @@ def test_without_a_reference_an_upgraded_model_stays_refused(
     model, _ = _train(db_session, workspace)
     _upgrade(monkeypatch, tmp_path)
     assert service.runtime_status(db_session, model)["status"] == "reference_missing"
-    assert _refusal(
-        lambda: service.request(db_session, kind=service.REQUALIFY, model=model, user=admin)
-    ).code == "ML_REFERENCE_MISSING"
+    assert (
+        _refusal(
+            lambda: service.request(db_session, kind=service.REQUALIFY, model=model, user=admin)
+        ).code
+        == "ML_REFERENCE_MISSING"
+    )
     # A reference cannot be captured under the new runtime either.
-    assert _refusal(
-        lambda: service.capture_reference(db_session, model, actor="test")
-    ).code == "ML_REFERENCE_PRODUCER_RUNTIME_REQUIRED"
+    assert (
+        _refusal(lambda: service.capture_reference(db_session, model, actor="test")).code
+        == "ML_REFERENCE_PRODUCER_RUNTIME_REQUIRED"
+    )
     assert tabular_predict.serving_readiness(db_session, model)["readiness"]["action"] == "retrain"
 
 
-def test_regression_requalifies_within_tolerance(db_session, workspace, admin, serving, monkeypatch, tmp_path):
+def test_regression_requalifies_within_tolerance(
+    db_session, workspace, admin, serving, monkeypatch, tmp_path
+):
     model, _ = _train(db_session, workspace, task="regression", target="arpu")
     reference = service.read_reference(model, service.reference_summary(model))
     assert "values" in reference["outputs"]
@@ -344,7 +372,9 @@ def test_regression_requalifies_within_tolerance(db_session, workspace, admin, s
     outcome = service.requalify(db_session, model, actor=admin.id, user=admin)
     assert outcome["attestation"]["verdict"] == "qualified", outcome
     assert outcome["attestation"]["metrics"]["out_of_tolerance"] == 0
-    assert outcome["attestation"]["metrics"]["max_abs_diff"] <= settings.ml_requalify_regression_atol
+    assert (
+        outcome["attestation"]["metrics"]["max_abs_diff"] <= settings.ml_requalify_regression_atol
+    )
     rows = _inputs(db_session, model)
     assert _predict(db_session, db_session.get(MLModel, model.id), rows)["rows"] == 2
 

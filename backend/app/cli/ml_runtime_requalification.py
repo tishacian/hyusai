@@ -96,7 +96,9 @@ def apply(db, model, action: str) -> dict:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("action", choices=("capture", "requalify"))
     scope = parser.add_mutually_exclusive_group(required=True)
     scope.add_argument("--workspace", action="append", metavar="ID")

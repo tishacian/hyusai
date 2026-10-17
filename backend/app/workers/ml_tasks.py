@@ -86,9 +86,7 @@ def ml_shadow_recover() -> dict:
     return recover()
 
 
-@shared_task(
-    name="agentium.ml_runtime_requalification", acks_late=True, reject_on_worker_lost=True
-)
+@shared_task(name="agentium.ml_runtime_requalification", acks_late=True, reject_on_worker_lost=True)
 def ml_runtime_requalification(job_id: str) -> dict:
     """Capture reference predictions or requalify one model (M4.2).
 

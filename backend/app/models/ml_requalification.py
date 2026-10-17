@@ -53,7 +53,9 @@ class MLRuntimeAttestation(Base):
     revoked_by = Column(String(64), nullable=True)
 
     __table_args__ = (
-        CheckConstraint("verdict IN ('qualified', 'failed')", name="ck_ml_runtime_attestation_verdict"),
+        CheckConstraint(
+            "verdict IN ('qualified', 'failed')", name="ck_ml_runtime_attestation_verdict"
+        ),
         Index("ix_ml_runtime_attestations_model", "model_id", "created_at"),
         Index("ix_ml_runtime_attestations_workspace", "workspace_id"),
         # At most one active qualified attestation per artifact and reader.

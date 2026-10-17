@@ -414,9 +414,7 @@ def reference_rows(db, model, *, wanted: list[str] | None = None):
         names = [str(field["name"]) for field in contract_fields(model)]
     except TabularError:
         _unavailable("contract_missing")
-    columns = sorted(
-        set(evaluation.get("columns") or [*(model.features or []), model.target])
-    )
+    columns = sorted(set(evaluation.get("columns") or [*(model.features or []), model.target]))
     if not set(names) <= set(columns):
         _unavailable("contract_outside_partition")
     budget = (
@@ -563,11 +561,16 @@ def replay(model, rows: list[dict], *, mode: str) -> dict:
         if not isinstance(reader, dict) or any(
             not isinstance(key, str) or not isinstance(item, str) for key, item in reader.items()
         ):
-            _refuse("ML_REQUALIFICATION_HARNESS_FAILED", "The isolated reader did not report itself.")
+            _refuse(
+                "ML_REQUALIFICATION_HARNESS_FAILED", "The isolated reader did not report itself."
+            )
         try:
             outputs = validate_outputs(model.task, value.get("outputs"), len(rows))
         except ValueError:
-            _refuse("ML_REQUALIFICATION_HARNESS_FAILED", "The isolated reader returned malformed outputs.")
+            _refuse(
+                "ML_REQUALIFICATION_HARNESS_FAILED",
+                "The isolated reader returned malformed outputs.",
+            )
         return {
             "reader_runtime": reader,
             "outputs": outputs,
@@ -627,7 +630,16 @@ def compare(task: str, reference: dict, observed: dict, limits: dict) -> dict:
             max_rel_diff=_finite_or_none(worst_rel),
             out_of_tolerance=outside,
         )
-        return failed() if outside else {"verdict": "qualified", "error_code": None, "metrics": metrics, "rows_compared": rows}
+        return (
+            failed()
+            if outside
+            else {
+                "verdict": "qualified",
+                "error_code": None,
+                "metrics": metrics,
+                "rows_compared": rows,
+            }
+        )
 
     expected, actual = reference.get("labels") or [], observed.get("labels") or []
     if not rows or len(actual) != rows:
@@ -900,13 +912,21 @@ def requalify(
             or artifact_fingerprint(_artifact(current)) != fingerprint
             or (reference_summary(current) or {}).get("sha256") != summary["sha256"]
         ):
-            _refuse("ML_REFERENCE_SOURCE_CHANGED", "The model changed during requalification. Try again.")
+            _refuse(
+                "ML_REFERENCE_SOURCE_CHANGED",
+                "The model changed during requalification. Try again.",
+            )
         _reauthorize(db, current, user)
         if verdict["verdict"] == "qualified":
-            concurrent = _active(db, current).filter(MLRuntimeAttestation.reader_digest == digest).first()
+            concurrent = (
+                _active(db, current).filter(MLRuntimeAttestation.reader_digest == digest).first()
+            )
             if concurrent is not None:
                 db.rollback()
-                return {"action": "already_attested", "attestation": _public_attestation(concurrent, reader)}
+                return {
+                    "action": "already_attested",
+                    "attestation": _public_attestation(concurrent, reader),
+                }
         row = MLRuntimeAttestation(
             workspace_id=current.workspace_id,
             model_id=current.id,
@@ -949,7 +969,10 @@ def requalify(
         concurrent = _active(db, model).filter(MLRuntimeAttestation.reader_digest == digest).first()
         if concurrent is None:
             raise
-        return {"action": "already_attested", "attestation": _public_attestation(concurrent, reader)}
+        return {
+            "action": "already_attested",
+            "attestation": _public_attestation(concurrent, reader),
+        }
     except BaseException:
         db.rollback()
         raise
@@ -1023,12 +1046,18 @@ def _jobs(db, model) -> dict:
     }
     if support(model) is None:
         ids[REQUALIFY] = job_id(
-            REQUALIFY, model.workspace_id, model.id, fingerprint, runtime_digest(reader_runtime(model))
+            REQUALIFY,
+            model.workspace_id,
+            model.id,
+            fingerprint,
+            runtime_digest(reader_runtime(model)),
         )
     rows = {
         row.id: row
         for row in db.query(WorkspaceJob)
-        .filter(WorkspaceJob.workspace_id == model.workspace_id, WorkspaceJob.id.in_(list(ids.values())))
+        .filter(
+            WorkspaceJob.workspace_id == model.workspace_id, WorkspaceJob.id.in_(list(ids.values()))
+        )
         .populate_existing()
         .all()
     }
@@ -1147,7 +1176,9 @@ def _job_identity(kind: str, model) -> tuple[str, dict]:
     return operational_job_id(kind, *parts), data
 
 
-def _upsert_job(db, *, kind: str, model, actor: str, user_id: str | None) -> tuple[WorkspaceJob, bool]:
+def _upsert_job(
+    db, *, kind: str, model, actor: str, user_id: str | None
+) -> tuple[WorkspaceJob, bool]:
     """The one job for this key; re-armed when terminal or abandoned."""
     identifier, data = _job_identity(kind, model)
     now = datetime.utcnow()
@@ -1217,7 +1248,11 @@ def request(db, *, kind: str, model, user) -> dict:
                 "ML_REQUALIFICATION_NOT_REQUIRED",
                 "This reader is the model's producer runtime; nothing to requalify.",
             )
-        if _active(db, model).filter(MLRuntimeAttestation.reader_digest == runtime_digest(reader)).first():
+        if (
+            _active(db, model)
+            .filter(MLRuntimeAttestation.reader_digest == runtime_digest(reader))
+            .first()
+        ):
             return {"job": _jobs(db, model).get(REQUALIFY), "started": False}
         if reference_summary(model) is None:
             _refuse(
