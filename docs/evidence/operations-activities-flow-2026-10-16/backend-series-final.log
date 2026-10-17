@@ -1,6 +1,6 @@
 ...................................                                      [100%]
 =============================== warnings summary ===============================
-../omnirag/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
   <venv>/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
     _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
 

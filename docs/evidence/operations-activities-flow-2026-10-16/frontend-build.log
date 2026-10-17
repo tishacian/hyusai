@@ -130,7 +130,7 @@ Application bundle generation complete. [73.876 seconds] - 2026-10-16T08:26:03.8
 ▲ [WARNING] src/app/features/experience/studio/studio.scss exceeded maximum budget. Budget 24.00 kB was not met by 1.78 kB with a total of 25.78 kB.
 
 
-▲ [WARNING] Module 'dagre' used by '../../omnirag/frontend-ng/node_modules/@foblex/flow-dagre-layout/fesm2022/foblex-flow-dagre-layout.mjs' is not ESM
+▲ [WARNING] Module 'dagre' used by '../../agentium/frontend-ng/node_modules/@foblex/flow-dagre-layout/fesm2022/foblex-flow-dagre-layout.mjs' is not ESM
 
   CommonJS or AMD dependencies can cause optimization bailouts.
   For more information see: https://angular.dev/tools/cli/build#configuring-commonjs-dependencies
