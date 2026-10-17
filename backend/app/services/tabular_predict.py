@@ -868,8 +868,86 @@ def _add_intervals(answers: list[dict[str, Any]], band: tuple[float, float] | No
             )
 
 
+def _explain_method(value: Any) -> str:
+    from app.services.ml.tree_explanations import METHODS
+
+    method = str(value or "counterfactual")
+    if method not in METHODS:
+        raise TabularError(
+            code="ML_EXPLAIN_METHOD_INVALID",
+            message="explain_method must be auto, shap or counterfactual.",
+            details={"allowed": list(METHODS)},
+        )
+    return method
+
+
+def _explained_label(served: MLModel, answer: dict[str, Any], positive: str | None) -> str | None:
+    """The class a Shapley explanation is about: the score's class, else the answer's."""
+
+    if served.task != CLASSIFICATION:
+        return None
+    return positive if positive is not None else str(answer.get("prediction"))
+
+
+def _explain_answer(
+    db: DBSession | None,
+    entry: LoadedModel,
+    served: MLModel,
+    fields: list[dict[str, Any]],
+    row: dict[str, Any],
+    answer: dict[str, Any],
+    *,
+    classes: list[str],
+    positive: str | None,
+    method: str,
+) -> None:
+    """Attach one row's explanation to its answer, by the method asked for.
+
+    ``counterfactual`` is today's contract and stays the default for API keys
+    and Flows: ``contributions`` only, no new key. ``auto`` and ``shap`` add an
+    ``explanation`` naming the method that answered; TreeSHAP comes from the
+    ml-ts worker (``ml.tree_explanations``) and, under ``auto``, any reason it
+    cannot answer falls back to the counterfactual and says why.
+    """
+
+    if method in {"auto", "shap"}:
+        from app.services.ml.tree_explanations import (
+            ExplanationUnavailableError,
+            explain_served_row,
+            refusal,
+        )
+
+        try:
+            answer["explanation"] = explain_served_row(
+                db, served, entry.pipeline, row, label=_explained_label(served, answer, positive)
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - an explanation never fails the answer
+            reason = (
+                exc.reason if isinstance(exc, ExplanationUnavailableError) else "explain_failed"
+            )
+            if not isinstance(exc, ExplanationUnavailableError):
+                logger.warning(
+                    "tabular_predict: tree explanation skipped",
+                    model_id=served.id,
+                    error=type(exc).__name__,
+                )
+            if method == "shap":
+                raise refusal(reason) from exc
+            answer["explanation"] = {"method": "counterfactual", "reason": reason}
+    answer["contributions"] = explain_row(
+        entry, served, fields, row, base=answer, classes=classes, positive=positive
+    )
+
+
 def _prediction_payload(
-    served: MLModel, coerced: list[dict], *, explain=False, interval_level=None
+    served: MLModel,
+    coerced: list[dict],
+    *,
+    explain=False,
+    interval_level=None,
+    explain_method: str = "counterfactual",
+    db: DBSession | None = None,
 ) -> dict:
     band = _interval_band(served, interval_level)
     entry, resident = load_pipeline_traced(served)
@@ -882,14 +960,16 @@ def _prediction_payload(
     answers = _rows_from(served, classes, positive, predicted, proba)
     _add_intervals(answers, band)
     if explain and len(answers) == 1:
-        answers[0]["contributions"] = explain_row(
+        _explain_answer(
+            db,
             entry,
             served,
             fields,
             coerced[0],
-            base=answers[0],
+            answers[0],
             classes=classes,
             positive=positive,
+            method=_explain_method(explain_method),
         )
     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
     return {
@@ -913,11 +993,13 @@ def predict_rows(
     interval_level: float | None = None,
     store: bool = True,
     key_id: str | None = None,
+    explain_method: str = "counterfactual",
 ) -> dict[str, Any]:
     """Answer an inline batch, and say which version answered."""
 
     from app.services.ml_operations import inference_attempt
 
+    method = _explain_method(explain_method)
     with inference_attempt(db, model=model, caller=caller) as observation:
         served = serving_version(db, model, version=version)
         observation["served_id"] = served.id
@@ -932,12 +1014,28 @@ def predict_rows(
         ):
             from app.services.ml.deep_serving import request_rows
 
+            if explain and method == "shap" and len(coerced) == 1:
+                from app.services.ml.tree_explanations import refusal
+
+                raise refusal("not_a_tree_model")
             result = request_rows(
                 db, served, coerced, explain=explain, interval_level=interval_level
             )
+            if explain and method == "auto" and len(result.get("predictions") or []) == 1:
+                # An embedding model is never a tree: its answer is the
+                # counterfactual the deep runtime computed, and it says so.
+                result["predictions"][0]["explanation"] = {
+                    "method": "counterfactual",
+                    "reason": "not_a_tree_model",
+                }
         else:
             result = _prediction_payload(
-                served, coerced, explain=explain, interval_level=interval_level
+                served,
+                coerced,
+                explain=explain,
+                interval_level=interval_level,
+                explain_method=method,
+                db=db,
             )
         answers, classes, positive = (
             result["predictions"],
@@ -1015,6 +1113,29 @@ def _score_summary(answers: Sequence[dict[str, Any]], *, task: str | None = None
     return summary
 
 
+def _strip_values(items: Any) -> list[dict[str, Any]]:
+    return [
+        {key: value for key, value in item.items() if key != "value"}
+        for item in items
+        if isinstance(item, dict)
+    ]
+
+
+def _without_caller_values(answer: dict[str, Any]) -> dict[str, Any]:
+    """A journal copy of one answer with the caller's input values removed."""
+
+    copy: dict[str, Any] = dict(answer)
+    if isinstance(answer.get("contributions"), list):
+        copy["contributions"] = _strip_values(answer["contributions"])
+    explanation = answer.get("explanation")
+    if isinstance(explanation, dict) and isinstance(explanation.get("contributions"), list):
+        copy["explanation"] = {
+            **explanation,
+            "contributions": _strip_values(explanation["contributions"]),
+        }
+    return copy
+
+
 def journal_call(
     db: DBSession,
     *,
@@ -1043,23 +1164,8 @@ def journal_call(
         # Explanations echo caller values alongside derived effects. Retain the
         # effects, not those input values, and never mutate the answer returned
         # to the caller (the same objects are still in the serving response).
-        journal_answers = [
-            {
-                **answer,
-                **(
-                    {
-                        "contributions": [
-                            {key: value for key, value in contribution.items() if key != "value"}
-                            for contribution in answer["contributions"]
-                            if isinstance(contribution, dict)
-                        ],
-                    }
-                    if isinstance(answer.get("contributions"), list)
-                    else {}
-                ),
-            }
-            for answer in journal_answers
-        ]
+        # TreeSHAP's ``explanation.contributions`` echo them the same way.
+        journal_answers = [_without_caller_values(answer) for answer in journal_answers]
     row = MLPrediction(
         workspace_id=served.workspace_id,
         model_id=requested.id,

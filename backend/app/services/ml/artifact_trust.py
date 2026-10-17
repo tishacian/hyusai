@@ -10,6 +10,10 @@ TABULAR_TYPES = frozenset(
         "sklearn.calibration._SigmoidCalibration",
         "sklearn.utils.validation.check_array",
         "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
+        # The fitted tree of every sklearn forest and boosting stage. The catalog
+        # trains ``random_forest`` and the harness records this type; without it
+        # such a model trained but could not be served (M5 found it via TreeSHAP).
+        "sklearn.tree._tree.Tree",
         "skrub._apply_to_each_col.ApplyToEachCol",
         "skrub._check_input.CheckInputDataFrame",
         "skrub._clean_categories.CleanCategories",

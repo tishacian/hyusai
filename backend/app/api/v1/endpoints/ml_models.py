@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -579,6 +579,11 @@ class PredictBody(BaseModel):
     # Off by default: a counterfactual explanation costs a second predict, and a
     # batch integration scoring a thousand rows never wants it.
     explain: bool = False
+    # Which explanation answers ``explain``. ``counterfactual`` is the historical
+    # contract and the default for keys and Flows; the model card asks ``auto``
+    # (TreeSHAP from the ml-ts worker when the model is a tree ensemble, the
+    # counterfactual otherwise, saying why); ``shap`` refuses rather than falls back.
+    explain_method: Literal["auto", "shap", "counterfactual"] = "counterfactual"
     interval_level: Optional[float] = Field(default=None, allow_inf_nan=False)
 
     def records(self) -> list[dict[str, Any]]:
@@ -677,6 +682,7 @@ async def predict(
             caller=caller.kind,
             key_id=caller.key_id, store=body.store,
             explain=body.explain,
+            explain_method=body.explain_method,
             interval_level=body.interval_level,
         )
     except TabularError as exc:

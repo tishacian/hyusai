@@ -863,6 +863,31 @@ class Settings(BaseSettings):
     ml_concept_regression_alert: float = Field(default=0.25, gt=0)
     ml_concept_multiclass_watch: float = Field(default=0.02, ge=0, le=1)
     ml_concept_multiclass_alert: float = Field(default=0.05, gt=0, le=1)
+    # M5 — explanations and production debugging (docs/agentium-mlops-explainability-
+    # implementation.md). TreeSHAP runs in the ml-ts RPC worker, where shap is
+    # installed; the API waits at most ``ml_explain_timeout_s`` before answering
+    # with the counterfactual instead, so an explanation never holds a prediction
+    # longer than that. Three seconds covers a warm worker and the broker round
+    # trip with a wide margin; a cold model load that overruns it still completes
+    # in the worker and makes the next explanation warm.
+    ml_explain_shap_enabled: bool = True
+    ml_explain_timeout_s: float = Field(default=3.0, ge=0.5, le=30.0)
+    ml_explain_shap_top_fields: int = Field(default=8, ge=1, le=50)
+    ml_explain_shap_exact_budget_s: float = Field(default=1.0, ge=0.05, le=30.0)
+    # Counterfactual search: predictions only, in-process, never journalled.
+    ml_counterfactual_max_candidates: int = Field(default=2000, ge=10, le=20_000)
+    ml_counterfactual_batch_rows: int = Field(default=500, ge=1, le=5_000)
+    ml_counterfactual_grid_points: int = Field(default=12, ge=2, le=50)
+    ml_counterfactual_max_results: int = Field(default=3, ge=1, le=10)
+    # Production debugging on labelled production samples of one model version.
+    ml_production_debug_min_rows: int = Field(default=50, ge=10, le=100_000)
+    ml_production_debug_max_rows: int = Field(default=5000, ge=100, le=50_000)
+    ml_production_debug_interval_minutes: int = Field(default=1440, ge=5, le=525_600)
+    ml_production_debug_time_limit_s: int = Field(default=300, ge=30, le=3600)
+    ml_production_debug_max_report_bytes: int = Field(default=200_000, ge=10_000, le=2_000_000)
+    ml_fairness_watch_gap: float = Field(default=0.05, gt=0, le=1)
+    ml_fairness_alert_gap: float = Field(default=0.10, gt=0, le=1)
+    ml_fairness_min_group_rows: int = Field(default=30, ge=5, le=100_000)
     # MLflow tracking + Model Registry. There is no MLflow *server* to operate:
     # the client writes straight to a SQL backend store, which is the only store
     # that supports the registry at all (a bare ``mlruns/`` file store does not,
