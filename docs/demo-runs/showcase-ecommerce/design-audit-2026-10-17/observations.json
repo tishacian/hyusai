@@ -1,0 +1,79 @@
+{
+  "date_utc": "2026-10-17",
+  "workspace": "agentium-showcase",
+  "source": "Deployed frontend and real API via local relay to HTTPS with default TLS verification. No application payload alteration.",
+  "frontend_revision": "f4329db35d428e5f646028c783d7ee335de76e3b",
+  "backend_revision": "f4329db35d428e5f646028c783d7ee335de76e3b",
+  "repo_revision": "4a4ea3588fbe52fb40f1da41f1c56ace5161b627",
+  "desktop_viewport": [
+    1440,
+    1000
+  ],
+  "mobile_viewport": [
+    390,
+    844
+  ],
+  "theme": "light",
+  "language": "en",
+  "business_mutations": false,
+  "limitations": [
+    "Owner account; minimal SAV role not tested",
+    "Claims list API returned 503; full live case journey not completed",
+    "No direct-origin browser TLS or performance qualification",
+    "Local QA screenshots referenced separately use simulated data"
+  ],
+  "images": [
+    {
+      "name": "01-work-home.png",
+      "sha256": "5dceecfb2bb4150beb4bff82031a94a8a3602dc6623345fbe79990acda834732"
+    },
+    {
+      "name": "02-work-dossier.png",
+      "sha256": "bc1e520071988f155591796baf791a0c05124df51b61579d5aca5d98d2273709"
+    },
+    {
+      "name": "03-work-charge.png",
+      "sha256": "38e4ce845348833a0622b99ff0809aeec3bdeca9d367874547ec1e347c24803d"
+    },
+    {
+      "name": "04-work-improvement.png",
+      "sha256": "24fa0a1dbe2b8077fd930d058f5e56fb916db43baa46d5ef602e8e0095117d0b"
+    },
+    {
+      "name": "05-postgresql.png",
+      "sha256": "c814706247d64f931cd9a519f97bf74100668f566cd4939ab71b673ab29e4dc3"
+    },
+    {
+      "name": "06-knowledge.png",
+      "sha256": "d4cf2b89c6def6b82594b1af711aed3ce157a569676a4127c778cebb367a8942"
+    },
+    {
+      "name": "07-dataset.png",
+      "sha256": "abfcb5c99e12d9344428a3030d45bb4e70c469dddeea856db3d92aa0fcf4cfd0"
+    },
+    {
+      "name": "08-model.png",
+      "sha256": "8a8c6f78ef8e9682f5df32b06ec79fe6293f66c9aae93ff0b61a2d2c25cfc0ec"
+    },
+    {
+      "name": "09-flow.png",
+      "sha256": "72eb05f54aa744ac25b8aab62524a8652b1012b1d103a591c985be591a4e3100"
+    },
+    {
+      "name": "10-impact.png",
+      "sha256": "414e95abd37691404b8f89a819dc7b76bf2907a7131881eb4535e360e38d7b66"
+    },
+    {
+      "name": "11-knowledge-rules.png",
+      "sha256": "874e82efc2035520477379248b1b52cd141237654b20b8fdc1201a82e0f269e9"
+    },
+    {
+      "name": "12-knowledge-documents.png",
+      "sha256": "d413744e7b5f0bf5f51f12470779b3055a36a073dc8644cb70317b30ca834ef5"
+    },
+    {
+      "name": "13-impact-customize-mobile.png",
+      "sha256": "e5151421fdd8eb15333951ad9946262d005f6df5a240b49614fa3c3f70682253"
+    }
+  ]
+}
