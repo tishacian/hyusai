@@ -5,7 +5,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { ActivitySeriesChartsComponent } from './activity-series-charts.component';
 import { ActivityApiService } from './activity-api.service';
-import type { ActivitySeries } from './activity-series.vm';
+import { seriesRange, type ActivitySeries } from './activity-series.vm';
 
 @Component({
   selector: 'app-activity-series', standalone: true, imports: [ActivitySeriesChartsComponent],
@@ -99,9 +99,8 @@ export class ActivitySeriesComponent implements OnDestroy {
       if (!valid()) return;
       this.enabled.set(Boolean(features.activity_series_enabled));
       if (!features.activity_series_enabled) return;
-      const until = new Date(context.anchor || Date.now());
-      const hours = context.since === '24h' ? 24 : context.since === '30d' ? 720 : 168;
-      const params = new URLSearchParams({ from: new Date(until.getTime() - hours * 3600000).toISOString(), until: until.toISOString(), bucket: hours > 168 ? 'day' : 'hour', metric: context.mode === 'activity' ? 'activity' : 'cost', time_basis: context.mode === 'activity' ? context.basis : 'finished' });
+      const range = seriesRange(context.since, context.anchor);
+      const params = new URLSearchParams({ ...range, metric: context.mode === 'activity' ? 'activity' : 'cost', time_basis: context.mode === 'activity' ? context.basis : 'finished' });
       if (context.system) params.set('system_id', context.system);
       if (context.mode === 'activity') { if(context.kind) params.set('kind', context.kind); if(context.status) params.set('status', context.status); }
       else params.set('kind', context.mode === 'skill_cost' ? 'skill_invocation' : 'compute_run');

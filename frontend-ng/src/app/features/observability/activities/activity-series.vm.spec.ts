@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { durationChart, expenseChart, STATUS_COLOURS, volumeChart, type ActivitySeries, type SeriesSummary } from './activity-series.vm';
+import { durationChart, expenseChart, runTiles, seriesRange, STATUS_COLOURS, volumeChart, type ActivitySeries, type SeriesSummary } from './activity-series.vm';
 
 const cell: SeriesSummary = {
   total: 2, by_status: { succeeded: 1, unknown: 1 }, by_kind: { run: 2 },
@@ -37,4 +37,22 @@ test('expense charts preserve genuine zero and use gaps for uncovered buckets', 
   assert.equal(chart.datasets[1].data[0], 0);
   assert.notEqual(chart.datasets[0].label, chart.datasets[1].label);
   assert.equal(chart.datasets[0].stack, undefined);
+});
+test('Operations tiles read the exhaustive Run series with the overview status sets', () => {
+  const value = structuredClone(series);
+  value.totals = { ...value.totals, total: 9, by_status: { pending: 1, running: 2, waiting: 1, succeeded: 3, failed: 1, timed_out: 1 } };
+  value.totals.durations = { run: { eligible_count: 5, measured_count: 4, p50_ms: 20, p95_ms: 80 } };
+  // pending + running + waiting = native pending, running, hitl/debug pending, waiting subflows.
+  assert.deepEqual(runTiles(value), { total: 9, succeeded: 3, running: 4, failed: 1, p95_ms: 80, measured: 4, eligible: 5 });
+  value.totals.durations = {};
+  const empty = runTiles(value);
+  assert.equal(empty.p95_ms, null); // An absent duration is never a zero latency.
+  assert.equal(empty.measured, 0);
+});
+test('tiles and chart share one anchored window per period', () => {
+  const anchor = '2026-01-31T12:00:00.000Z';
+  assert.deepEqual(seriesRange('24h', anchor), { from: '2026-01-30T12:00:00.000Z', until: anchor, bucket: 'hour' });
+  assert.deepEqual(seriesRange('7d', anchor), { from: '2026-01-24T12:00:00.000Z', until: anchor, bucket: 'hour' });
+  assert.deepEqual(seriesRange('30d', anchor), { from: '2026-01-01T12:00:00.000Z', until: anchor, bucket: 'day' });
+  assert.equal(seriesRange('7d', '', Date.parse(anchor)).until, anchor);
 });
