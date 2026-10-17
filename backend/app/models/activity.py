@@ -1,6 +1,7 @@
 """Read projections and a transactionally ordered journal, never execution authorities."""
 
-from datetime import datetime
+import math
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -8,14 +9,56 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
     String,
     UniqueConstraint,
+    event,
 )
 
 from app.db.base import Base
+
+
+def non_negative_number(value):
+    """A finite, non-negative JSON number; booleans and strings are not numbers."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return value if value >= 0 else None
+
+
+def parse_instant(value):
+    """The native reader's date: ISO text, offsets normalized to naive UTC."""
+    if not isinstance(value, str):
+        return None
+    try:
+        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return result.astimezone(UTC).replace(tzinfo=None) if result.tzinfo else result
+    except ValueError:
+        return None
+
+
+def measured_columns(snapshot):
+    """Typed copies of snapshot fields, derived with the native reader's parsers.
+
+    An overflowing date or number is stored as NULL. Readers that use these
+    columns detect such snapshots and fall back to the native reader, which keeps
+    its own error semantics.
+    """
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    try:
+        finished = parse_instant(snapshot.get("finished_at"))
+    except OverflowError:
+        finished = None
+    measurements = snapshot.get("measurements")
+    try:
+        duration = non_negative_number(
+            measurements.get("duration_ms") if isinstance(measurements, dict) else None
+        )
+    except OverflowError:
+        duration = None
+    return {"finished_at": finished, "duration_ms": duration}
 
 
 class ActivityWorkspaceCursor(Base):
@@ -46,12 +89,27 @@ class Activity(Base):
     origin = Column(String(24), nullable=False, default="observed")
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # Typed copies of snapshot["finished_at"] and snapshot["measurements"]
+    # ["duration_ms"] (migration 138). Every write derives them from the
+    # snapshot through measured_columns(); series aggregate on them instead of
+    # re-parsing JSON text for each row.
+    finished_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Float, nullable=True)
     __table_args__ = (
         UniqueConstraint("kind", "native_id", name="uq_activity_native"),
         Index("ix_activities_workspace_status", "workspace_id", "status"),
         Index("ix_activities_workspace_system", "workspace_id", "system_id"),
         Index("ix_activities_workspace_created", "workspace_id", "created_at", "id"),
+        Index("ix_activities_workspace_finished", "workspace_id", "finished_at"),
     )
+
+
+@event.listens_for(Activity, "before_insert")
+@event.listens_for(Activity, "before_update")
+def _derive_measured_columns(mapper, connection, target):
+    """ORM writes (tests, maintenance) keep the typed copies in step with the snapshot."""
+    for key, value in measured_columns(target.snapshot).items():
+        setattr(target, key, value)
 
 
 class ActivityEvent(Base):
