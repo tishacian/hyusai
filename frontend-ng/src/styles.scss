@@ -418,7 +418,8 @@ lucide-icon svg {
   line-height: 1.25rem;
 }
 .ck-input::placeholder { color: var(--text-muted); }
-.ck-input:focus { outline: none; box-shadow: 0 0 0 2px rgb(34 211 238 / 0.6); }
+/* Keyboard and pointer focus use the global :focus-visible outline (primary). */
+.ck-input:focus { border-color: var(--ck-primary); }
 .ck-input:disabled { opacity: 0.6; cursor: not-allowed; }
 
 html:not(.dark) {

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-26T06:28:44.404Z",
+  "generated_at": "2026-10-17T14:20:31.324Z",
   "rules": {
     "font": "banned font",
     "violet": "banned violet",
@@ -15,8 +15,8 @@
       "pill": 2
     },
     "src/app/features/auth/auth-shell.component.ts": {
-      "violet": 6,
-      "pill": 6,
+      "violet": 3,
+      "pill": 5,
       "halo": 5
     },
     "src/app/features/auth/password-reset.component.ts": {
