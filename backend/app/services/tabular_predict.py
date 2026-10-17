@@ -180,25 +180,49 @@ _cache: OrderedDict[str, LoadedModel] = OrderedDict()
 _cache_lock = threading.RLock()
 
 
-def _fingerprint(model: MLModel) -> str:
+def _fingerprint(model: MLModel, attested: Sequence[dict] = ()) -> str:
     """What must change for a cached pipeline to be the wrong answer.
 
     The artifact URI and the row's last write. A retrain publishes under a new
     model id, so this is belt and braces — but the belt is what keeps a promoted
     v2 from being answered by v1's resident pipeline.
+
+    The active runtime attestations are part of it too (M4.2): a pipeline
+    loaded under an attested reader must not outlive the attestation's
+    revocation in any process, so a revoke changes the key everywhere.
     """
 
     from app.services.ml.artifacts import artifact_fingerprint
 
     stamp = model.trained_at or model.updated_at
-    return "|".join(
-        (
-            str(model.model_uri or ""),
-            stamp.isoformat() if stamp else "",
-            str(model.status or ""),
-            artifact_fingerprint((model.metrics_json or {}).get("artifact") or {}),
-        )
-    )
+    parts = [
+        str(model.model_uri or ""),
+        stamp.isoformat() if stamp else "",
+        str(model.status or ""),
+        artifact_fingerprint((model.metrics_json or {}).get("artifact") or {}),
+    ]
+    if attested:
+        parts.append("attested:" + ",".join(sorted(str(item.get("id")) for item in attested)))
+    return "|".join(parts)
+
+
+def _attested(model: MLModel) -> list[dict]:
+    """The row's active runtime attestations, through the session it came from.
+
+    Serving callers hand this module a session-bound row; a detached one or a
+    plain namespace (the isolated harnesses) has no attestation and keeps the
+    strict producer-runtime gate.
+    """
+
+    from sqlalchemy import inspect as inspect_instance
+
+    state = inspect_instance(model, raiseerr=False)
+    session = getattr(state, "session", None) if state is not None else None
+    if session is None:
+        return []
+    from app.services.ml_requalification import attested_runtimes
+
+    return attested_runtimes(session, model)
 
 
 def _evict(entry: LoadedModel) -> None:
@@ -302,7 +326,8 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
         from app.services.huggingface.adapters import require_model_foundation
 
         require_model_foundation(model)
-    fingerprint = _fingerprint(model)
+    attested = _attested(model)
+    fingerprint = _fingerprint(model, attested)
     with _cache_lock:
         cached = _cache.get(model.id)
         if cached is not None and cached.fingerprint == fingerprint:
@@ -323,6 +348,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
                 (model.metrics_json or {}).get("artifact") or {},
                 family=family.key,
                 max_bytes=int(settings.ml_train_artifact_limit_mb) * 1024 * 1024,
+                attested=attested,
             )
             pipeline = _load_mlflow_model(directory)
         except TabularError:
@@ -2110,7 +2136,9 @@ def serving_readiness(db: DBSession, model: MLModel) -> dict[str, Any]:
                     message="No model worker is listening right now.",
                     status_code=409,
                 )
-            require_artifact_runtime(family, artifact, db)
+            from app.services.ml_requalification import attested_runtimes
+
+            require_artifact_runtime(family, artifact, db, attested_runtimes(db, model))
             callable_now = enabled
         except TabularError as exc:
             # Status is a safe, bounded projection; do not expose runtime package
@@ -2135,6 +2163,13 @@ def serving_readiness(db: DBSession, model: MLModel) -> dict[str, Any]:
             }
             else "check_runtime"
         )
+        if refusal["code"] == "ML_ARTIFACT_RUNTIME_MISMATCH":
+            from app.services.ml_requalification import reference_summary, support
+
+            # A stored reference makes requalification the cheaper way back;
+            # without one the model stays refused under this runtime.
+            if support(model) is None and reference_summary(model) is not None:
+                action = "requalify"
     return {
         "enabled": enabled,
         "callable": callable_now,

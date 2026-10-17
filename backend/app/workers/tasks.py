@@ -934,6 +934,7 @@ def dataset_ingest(dataset_id: str) -> dict:
 # without importing this module; re-exported here for the general worker.
 from app.workers.ml_tasks import (  # noqa: E402,F401
     ml_retraining_recovery,
+    ml_runtime_requalification,
     ml_shadow,
     ml_shadow_recover,
     ml_train,

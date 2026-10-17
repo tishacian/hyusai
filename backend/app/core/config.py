@@ -863,6 +863,29 @@ class Settings(BaseSettings):
     ml_concept_regression_alert: float = Field(default=0.25, gt=0)
     ml_concept_multiclass_watch: float = Field(default=0.02, ge=0, le=1)
     ml_concept_multiclass_alert: float = Field(default=0.05, gt=0, le=1)
+    # M4.2 runtime requalification. Reference predictions are the outputs a
+    # model gave, under its producer runtime, on the first rows of its recorded
+    # final test (row ids only; the rows are re-derived from the source).
+    ml_reference_rows: int = Field(default=256, ge=1, le=10_000)
+    # Bounds the stored reference object, compressed and decoded alike.
+    ml_reference_max_bytes: int = Field(default=16 * 1024 * 1024, ge=64 * 1024)
+    # Re-deriving the rows reads the whole source to verify the partition
+    # fingerprint; independent of the retraining budget, sized like training.
+    ml_reference_source_max_rows: int = Field(default=2_000_000, ge=100)
+    ml_reference_source_max_bytes: int = Field(default=512 * 1024 * 1024, ge=1024 * 1024)
+    # Capture a reference after each supported fit, while the producer runtime
+    # is by definition still the reader's. The bulk CLI covers older models.
+    ml_reference_capture_on_train: bool = True
+    # Comparison tolerances; see docs/agentium-mlops-requalification-implementation.md.
+    ml_requalify_max_label_disagreements: int = Field(default=0, ge=0)
+    ml_requalify_proba_atol: float = Field(default=1e-6, ge=0, le=0.01)
+    ml_requalify_regression_atol: float = Field(default=1e-9, ge=0)
+    ml_requalify_regression_rtol: float = Field(default=1e-6, ge=0, le=0.01)
+    # The isolated reader that loads and predicts the reference rows.
+    ml_requalify_timeout_s: float = Field(default=300.0, ge=10.0, le=3600.0)
+    ml_requalify_memory_limit_mb: int = Field(default=4096, ge=1024)
+    # Attempts listed on the model card (active ones are always listed).
+    ml_requalify_history_limit: int = Field(default=10, ge=1, le=100)
     # MLflow tracking + Model Registry. There is no MLflow *server* to operate:
     # the client writes straight to a SQL backend store, which is the only store
     # that supports the registry at all (a bare ``mlruns/`` file store does not,

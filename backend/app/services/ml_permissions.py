@@ -26,7 +26,12 @@ ACTIONS = {
     "policy": ADMIN,
     "export": ADMIN,
     "import": ADMIN,
+    # M4.2: capture references, requalify and revoke runtime attestations.
+    "requalify": ADMIN,
 }
+# New trust-expanding actions never fall back to report mode: report mode
+# measures role changes on existing actions, it does not grant new ones.
+STRICT = frozenset({"export", "import", "requalify"})
 
 
 def allowed(db, action, workspace, user):
@@ -63,7 +68,7 @@ def require(db, action, workspace, user):
     )
     if (
         action in ACTIONS
-        and action not in {"export", "import"}
+        and action not in STRICT
         and not settings.ml_rbac_enforced
         and member
         and user.is_active
