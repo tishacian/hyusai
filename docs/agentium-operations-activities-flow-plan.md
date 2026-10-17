@@ -24,7 +24,7 @@ Leur simple présence dans le code ne ferme pas cette recette.
 
 Ce plan précise le [plan d'exécution O0–O7](agentium-execution-observability-plan.md)
 et reprend R1/R2/R3 de la
-[fiche papAI/Agentium à `3a2d60f7`](https://github.com/tishacian/hyusai/blob/3a2d60f78630068a91ef6c6fb8a8132bbb5eb74d/docs/papai-jobs-flow-observability.md).
+fiche papAI/Agentium au commit `3a2d60f7`, fichier `docs/papai-jobs-flow-observability.md`.
 La fiche reste une analyse datée ; le présent document définit les travaux à
 réaliser après les décisions utilisateur. R4 ajoute le suivi dans le Flow ; R5
 qualifie l'ensemble. Les correctifs de papAI sont hors périmètre.

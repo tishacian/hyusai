@@ -164,7 +164,7 @@ E             + ML_WORKSPACE_UNAVAILABLE
 
 app/tests/services/test_tabicl_pilot.py:374: AssertionError
 =============================== warnings summary ===============================
-../../hyusai/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
   <venv>/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
     _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
 
