@@ -737,6 +737,7 @@ def run(report_id: str) -> dict[str, Any]:
             row.fairness_badge = result["badge"]
         elif status == "insufficient_data":
             row.report_json = {"minimum": int(settings.ml_production_debug_min_rows)}
+        db.flush()  # the session does not autoflush; the queries below read this row
         model = db.get(MLModel, row.model_id)
         if model is not None and status == "completed":
             _raise_transition(db, model, row)
