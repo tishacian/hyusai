@@ -29,7 +29,7 @@ Running 1 test using 1 worker
       171 |     await expect(page.getByTestId('observability-facets').getByRole('button')).toHaveCount(5);
       172 |     expect(await page.evaluate(() => localStorage.getItem('agentium_workspace_slug'))).toBe(workspaceSlug);
       173 |     completed.push('operations-default-and-five-facets');
-        at /workspace/omnirag-showcase-qualification/frontend-ng/e2e/tests/66-showcase-quality-release-canary.spec.ts:170:57
+        at /workspace/agentium-showcase-qualification/frontend-ng/e2e/tests/66-showcase-quality-release-canary.spec.ts:170:57
 
     attachment #1: showcase-quality-evidence (application/json) ────────────────────────────────────
     e2e/results/showcase-qualification/66-showcase-quality-releas-8ceb6-of-on-desktop-and-at-390-px-chromium/attachments/showcase-quality-evidence-a2ff4a7d5a466242fd9e807c709c7b7239b1f2d8.json
