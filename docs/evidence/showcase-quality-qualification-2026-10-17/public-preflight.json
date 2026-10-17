@@ -1,0 +1,46 @@
+{
+  "checked_at_utc": "2026-10-17T14:14:53.282449+00:00",
+  "base_url": "https://agentium.papai.ai",
+  "expected_revision": "8679a4f26efe089024df7680d894f68169f5ff21",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "content_type": "text/html"
+    },
+    {
+      "path": "/api/v1/build-info",
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "service": "backend",
+        "revision": "8679a4f26efe089024df7680d894f68169f5ff21",
+        "revision_verified": true,
+        "version": "1.0.0-demo"
+      }
+    },
+    {
+      "path": "/api/v1/health",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "path": "/api/v1/health/ready",
+      "status": 200,
+      "content_type": "application/json",
+      "status_fields": {
+        "status": "healthy"
+      }
+    },
+    {
+      "path": "/api/v1/observability/activities/features",
+      "status": 401,
+      "content_type": "application/json"
+    }
+  ],
+  "authenticated_recipe": "blocked_missing_credentials",
+  "canary_login_status": 401,
+  "canary_login_attempts": 1,
+  "runtime_options_changed": false,
+  "application_data_written": false
+}
