@@ -1,0 +1,41 @@
+
+Running 1 test using 1 worker
+
+(node:110876) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:110876) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium] › e2e/tests/66-showcase-quality-release-canary.spec.ts:92:5 › Showcase release: point and matrix retain the real Run and proof on desktop and at 390 px (27.7s)
+
+
+  1) [chromium] › e2e/tests/66-showcase-quality-release-canary.spec.ts:92:5 › Showcase release: point and matrix retain the real Run and proof on desktop and at 390 px 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('app-workspace-monitor')
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 15000ms[22m
+    [2m  - waiting for locator('app-workspace-monitor')[22m
+
+
+      168 |     await page.setViewportSize({width: 1440, height: 1000});
+      169 |     await page.goto(`/observability?${scope}`);
+    > 170 |     await expect(page.locator('app-workspace-monitor')).toBeVisible();
+          |                                                         ^
+      171 |     await expect(page.getByTestId('observability-facets').getByRole('button')).toHaveCount(5);
+      172 |     expect(await page.evaluate(() => localStorage.getItem('agentium_workspace_slug'))).toBe(workspaceSlug);
+      173 |     completed.push('operations-default-and-five-facets');
+        at /workspace/omnirag-showcase-qualification/frontend-ng/e2e/tests/66-showcase-quality-release-canary.spec.ts:170:57
+
+    attachment #1: showcase-quality-evidence (application/json) ────────────────────────────────────
+    e2e/results/showcase-qualification/66-showcase-quality-releas-8ceb6-of-on-desktop-and-at-390-px-chromium/attachments/showcase-quality-evidence-a2ff4a7d5a466242fd9e807c709c7b7239b1f2d8.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: e2e/results/showcase-qualification/66-showcase-quality-releas-8ceb6-of-on-desktop-and-at-390-px-chromium/error-context.md
+
+  1 failed
+    [chromium] › e2e/tests/66-showcase-quality-release-canary.spec.ts:92:5 › Showcase release: point and matrix retain the real Run and proof on desktop and at 390 px 
