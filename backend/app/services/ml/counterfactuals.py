@@ -345,11 +345,15 @@ def search(
         if exhausted or len(found) >= wanted:
             break
 
-    found.sort(key=lambda item: (item["changed_fields"], item["distance"]))
+    def rank(item):
+        return (item["changed_fields"], item["distance"])
+
+    found.sort(key=rank)
     return {
         **base,
         "status": "found" if found else "not_found",
-        "results": _diverse(found, wanted),
+        # Chosen for diversity, presented in rank order.
+        "results": sorted(_diverse(found, wanted), key=rank),
         "evaluated": evaluated,
         "exhausted": exhausted,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),

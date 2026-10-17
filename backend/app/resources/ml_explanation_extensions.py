@@ -123,12 +123,13 @@ def _tree_nodes(tree, names, matrix, describe):
     return {"nodes": nodes, "depth": int(t.max_depth), "leaves": int(t.n_leaves)}
 
 
-def error_tree(model, x, y, *, task, seed, predicted=None):
+def error_tree(model, x, y, *, task, seed, predicted=None, matrix=None):
     # ``predicted`` lets production debugging measure the answers that were
-    # actually served (from the journal) instead of re-predicting them.
+    # actually served (from the journal) instead of re-predicting them, and
+    # ``matrix`` hand it an already numeric ``(values, names)`` encoding.
     import numpy as np
     from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-    matrix, names = _matrix(model, x)
+    matrix, names = _matrix(model, x) if matrix is None else matrix
     predicted = model.predict(x) if predicted is None else np.asarray(predicted)
     errors = (np.asarray(predicted) != np.asarray(y)) if task == "classification" else np.abs(np.asarray(predicted) - np.asarray(y))
     factory = DecisionTreeClassifier if task == "classification" else DecisionTreeRegressor

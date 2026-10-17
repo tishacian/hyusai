@@ -306,6 +306,43 @@ def _bounded(report: dict[str, Any]) -> dict[str, Any]:
     return report if size(report) <= limit else {"error": "too_large"}
 
 
+def numeric_matrix(pipeline: Any, x: Any) -> tuple[Any, list[str]]:
+    """The pipeline's transformed columns, with categorical ones one-hot encoded.
+
+    The error tree splits where the model's own preprocessing put the data, so
+    its rules read like the training-time tree. skrub hands a boosting model
+    its low-cardinality columns as pandas categoricals, which a decision tree
+    cannot split; they become ``<column>_<level>`` indicators, skrub's own
+    one-hot naming. A missing value is the absence of every indicator.
+    """
+
+    import pandas as pd
+
+    from app.resources import ml_explanation_extensions as extensions
+
+    values, names = extensions._matrix(pipeline, x)
+    frame = (
+        values.reset_index(drop=True)
+        if isinstance(values, pd.DataFrame)
+        else pd.DataFrame(values, columns=names)
+    )
+    frame.columns = names
+    parts = []
+    for name in names:
+        column = frame[name]
+        numeric = pd.api.types.is_numeric_dtype(column) and not isinstance(
+            column.dtype, pd.CategoricalDtype
+        )
+        if numeric:
+            parts.append(column.astype("float64").rename(name))
+            continue
+        parts.append(
+            pd.get_dummies(column.astype("object"), prefix=name, prefix_sep="_", dtype="float64")
+        )
+    encoded = pd.concat(parts, axis=1) if parts else frame
+    return encoded, [str(column) for column in encoded.columns]
+
+
 def analyse(model: MLModel, collected: dict[str, Any]) -> dict[str, Any]:
     """Build the aggregated report from collected samples (no database access)."""
 
@@ -332,7 +369,13 @@ def analyse(model: MLModel, collected: dict[str, Any]) -> dict[str, Any]:
     report: dict[str, Any] = {"error_measure": "served_answer_vs_label", "rows": len(samples)}
     try:
         report["error_tree"] = extensions.error_tree(
-            entry.pipeline, x, y, task=task, seed=seed, predicted=served
+            entry.pipeline,
+            x,
+            y,
+            task=task,
+            seed=seed,
+            predicted=served,
+            matrix=numeric_matrix(entry.pipeline, x),
         )
     except Exception as exc:  # noqa: BLE001 - each section is expendable evidence
         report["error_tree"] = {"error": type(exc).__name__}
