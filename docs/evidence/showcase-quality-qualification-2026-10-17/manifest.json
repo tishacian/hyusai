@@ -1,0 +1,54 @@
+{
+  "source_revision": "8679a4f26efe089024df7680d894f68169f5ff21",
+  "browser": "Chromium",
+  "language": "en",
+  "theme": "light",
+  "account_scope": "workspace owner",
+  "screenshots_published": false,
+  "source_files": {
+    "frontend-ng/e2e/tests/66-showcase-quality-release-canary.spec.ts": "a4b323068345d9d365465bb87eef3e05343a9b0c93fe93fabcd0ce0c19a4328e",
+    "frontend-ng/playwright.showcase.config.ts": "920acbd27c4b6d8abe4ce795aa7fd1cfbdd3df55f39d1fde333fae4480c9b619"
+  },
+  "local_screenshots": [
+    {
+      "file": "proof-matrix-1440.png",
+      "sha256": "ba05921d6e5324366974a45cb9f71fa7cb3ae37ecc2e149c6e02f7c456aedf7b"
+    },
+    {
+      "file": "proof-matrix-390.png",
+      "sha256": "0cb2bcb03c35daff8fcf267902a477d173446be688ec4ef098eb2430f3fcc159"
+    },
+    {
+      "file": "proof-point-1440.png",
+      "sha256": "3e96983c7d3e4fe5082f292297c124af29dc5672f444ae995fa18cc965751e16"
+    },
+    {
+      "file": "proof-point-390.png",
+      "sha256": "0cb2bcb03c35daff8fcf267902a477d173446be688ec4ef098eb2430f3fcc159"
+    },
+    {
+      "file": "quality-matrix-1440.png",
+      "sha256": "13355aa3b182b7e0b39fb2e99fd2a1caee37932bd95e078c3a9e28f1556faf66"
+    },
+    {
+      "file": "quality-matrix-390.png",
+      "sha256": "71ef42c723c923bd27f5031cf895056025a6bd97a109dcd411848b74c30985b5"
+    },
+    {
+      "file": "quality-point-1440.png",
+      "sha256": "8ea2125adffa42dd04f3c496eb102abd62c1e2756a9665900e11575282b0a1e7"
+    },
+    {
+      "file": "quality-point-390.png",
+      "sha256": "0b73a5ac02f6a655d3f80adfa2c2534b42b11d24987f0b3d9dcaa41be68d2149"
+    },
+    {
+      "file": "radar-history-1440.png",
+      "sha256": "6abd10cd57a9731fe3e7d9443351e42465712c2d9bbf193bec9c4691147f7311"
+    },
+    {
+      "file": "radar-history-390.png",
+      "sha256": "b33dfb50d7da4c66e5e2317d179770fcc103fe869375f526b65f8d8d5b78abe7"
+    }
+  ]
+}
