@@ -5,17 +5,23 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.config import settings
 from app.db.base import SessionLocal
 from app.models.tabular import MLModel, MLPrediction
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services import ml_shadow as shadow
 from app.services import tabular_predict
+from app.services.ml_feedback import attach, sample_id
 from app.services.tabular_datasets import TabularError
 
 
 @pytest.fixture
-def pair(db_session):
+def pair(db_session, monkeypatch):
+    from app.resources.ml_artifact_contract import PROFILES, runtime_versions
+
+    monkeypatch.setattr(settings, "tabular_data_enabled", True)
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
     workspace = Workspace(id=str(uuid4()), slug="shadow-" + uuid4().hex, name="Shadow", settings={})
     db_session.add(workspace)
     models = []
@@ -35,7 +41,21 @@ def pair(db_session):
             model_uri="artifact/" + str(version),
             classes_json=["a", "b"],
             signature_json={"inputs": [{"name": "x", "type": "double"}]},
-            metrics_json={"primary": {"key": "roc_auc", "value": 0.8}, "target": {"positive": "b"}},
+            metrics_json={
+                "primary": {"key": "roc_auc", "value": 0.8},
+                "target": {"positive": "b"},
+                "artifact": {
+                    "contract_version": 1,
+                    "family": "tabular",
+                    "serialization": "skops",
+                    "trust_profile": PROFILES[("tabular", "skops")],
+                    "trusted_types": [],
+                    "files": {"MLmodel": "a" * 64},
+                    "file_sizes": {"MLmodel": 1},
+                    "total_bytes": 1,
+                    "runtime": runtime_versions("tabular", "skops"),
+                },
+            },
             params_json={},
             trained_at=datetime(2026, 1, version),
         )
@@ -183,6 +203,9 @@ def test_historical_shadow_identity_is_cancelled_without_fabricating_anchor(
         legacy = shadow._snapshot(model)
         legacy["metrics_json"].pop("artifact")
         original[key] = hashlib.sha256(shadow._json(legacy).encode()).hexdigest()
+        model.metrics_json = {
+            name: value for name, value in model.metrics_json.items() if name != "artifact"
+        }
     job.input_ref = original
     db_session.commit()
     monkeypatch.setattr(
@@ -246,15 +269,14 @@ def test_different_columns_or_classes_are_explicitly_skipped(db_session, pair):
     assert job is None and row.scores_json["shadow"]["error"] == "ML_SHADOW_INCOMPATIBLE"
 
 
-def test_feedback_quality_uses_only_the_first_row_and_current_pair(db_session, pair, monkeypatch):
+def test_feedback_quality_uses_selected_sample_and_current_pair(db_session, pair, monkeypatch):
     row, job = enqueue(
         db_session,
         pair,
         rows=[{"x": 1}, {"x": 2}],
         answers=[{"prediction": "a"}, {"prediction": "b"}],
     )
-    row.label = "b"
-    db_session.commit()
+    attach(db_session, model=pair[1], prediction_id=row.id, sample_id=sample_id(row, 0), label="b")
     monkeypatch.setattr(shadow, "_score_isolated", fake_score)
     shadow.run_shadow(job.id)
     db_session.expire_all()
@@ -281,8 +303,7 @@ def test_regression_quality_is_measured_mae_not_latency_as_cost(db_session, pair
         rows=[{"x": 1}, {"x": 2}],
         answers=[{"prediction": 4.0}, {"prediction": 10.0}],
     )
-    row.label = "7"
-    db_session.commit()
+    attach(db_session, model=pair[1], prediction_id=row.id, sample_id=sample_id(row, 0), label="7")
     monkeypatch.setattr(
         shadow,
         "_score_isolated",
@@ -299,6 +320,148 @@ def test_regression_quality_is_measured_mae_not_latency_as_cost(db_session, pair
     assert block["comparison"]["challenger_mae"] == 1
     assert block["window"]["labeled_pairs"] == 1
     assert "cost" not in str(block)
+
+
+def test_batch_feedback_uses_each_matching_shadow_row_and_refreshes_corrections(
+    db_session, pair, monkeypatch
+):
+    row, job = enqueue(
+        db_session,
+        pair,
+        rows=[{"x": 1}, {"x": 2}],
+        answers=[{"prediction": "a"}, {"prediction": "b"}],
+    )
+    # An old batch label has no sample identity and must contribute no truth.
+    row.label = "b"
+    db_session.commit()
+    monkeypatch.setattr(shadow, "_score_isolated", fake_score)
+    shadow.run_shadow(job.id)
+    assert shadow.summary(db_session, model=pair[1])["window"]["labeled_pairs"] == 0
+    attach(db_session, model=pair[1], prediction_id=row.id, sample_id=sample_id(row, 1), label="a")
+    block = shadow.summary(db_session, model=pair[1])
+    assert block["window"]["labeled_pairs"] == 1
+    assert block["comparison"]["champion_accuracy"] == 0
+    assert block["comparison"]["challenger_accuracy"] == 0
+    attach(db_session, model=pair[1], prediction_id=row.id, sample_id=sample_id(row, 0), label="b")
+    block = shadow.summary(db_session, model=pair[1])
+    assert block["window"]["labeled_pairs"] == 2
+    assert block["comparison"]["champion_accuracy"] == 0
+    assert block["comparison"]["challenger_accuracy"] == 0.5
+    attach(db_session, model=pair[1], prediction_id=row.id, sample_id=sample_id(row, 1), label="b")
+    block = shadow.summary(db_session, model=pair[1])
+    assert block["comparison"]["champion_accuracy"] == 0.5
+    assert block["comparison"]["challenger_accuracy"] == 1
+
+
+@pytest.mark.parametrize("excluded", ["not_scored", "not_stored", "foreign_workspace"])
+def test_feedback_without_admissible_matching_shadow_sample_is_excluded(
+    db_session, pair, monkeypatch, excluded
+):
+    from app.models.ml_feedback import MLPredictionFeedback
+
+    row, job = enqueue(
+        db_session,
+        pair,
+        rows=[{"x": 1}, {"x": 2}],
+        answers=[{"prediction": "a"}, {"prediction": "b"}],
+    )
+    attach(db_session, model=pair[1], prediction_id=row.id, sample_id=sample_id(row, 1), label="b")
+    monkeypatch.setattr(shadow, "_score_isolated", fake_score)
+    shadow.run_shadow(job.id)
+    db_session.expire_all()
+    if excluded == "not_scored":
+        job.result = {**job.result, "predictions": [{"prediction": "b"}]}
+    elif excluded == "not_stored":
+        row.input_storage_allowed = False
+    else:
+        workspace = Workspace(id=str(uuid4()), slug=uuid4().hex, name="Other")
+        db_session.add(workspace)
+        db_session.flush()
+        db_session.get(MLPredictionFeedback, sample_id(row, 1)).workspace_id = workspace.id
+    db_session.commit()
+    block = shadow.summary(db_session, model=pair[1])
+    assert block["window"]["labeled_pairs"] == 0
+    assert block["comparison"]["champion_accuracy"] is None
+    assert block["comparison"]["challenger_accuracy"] is None
+
+
+def test_single_row_legacy_feedback_remains_usable(db_session, pair, monkeypatch):
+    row, job = enqueue(db_session, pair)
+    row.label = "b"
+    db_session.commit()
+    monkeypatch.setattr(shadow, "_score_isolated", fake_score)
+    result = shadow.run_shadow(job.id)
+    assert result["status"] == "completed", result
+    block = shadow.summary(db_session, model=pair[1])
+    assert block["window"]["labeled_pairs"] == 1
+    assert block["comparison"]["champion_accuracy"] == 0
+    assert block["comparison"]["challenger_accuracy"] == 1
+
+
+@pytest.mark.parametrize(
+    "change,reason",
+    [
+        ("legacy", "ML_ARTIFACT_LEGACY_UNSUPPORTED"),
+        ("runtime", "ML_ARTIFACT_RUNTIME_MISMATCH"),
+        ("disabled", "ML_SHADOW_SERVING_UNAVAILABLE"),
+    ],
+)
+def test_non_callable_version_cannot_enable_shadow_but_can_disable(
+    db_session, pair, monkeypatch, change, reason
+):
+    from copy import deepcopy
+
+    primary = pair[1]
+    metadata = deepcopy(primary.metrics_json)
+    if change == "legacy":
+        metadata["artifact"].pop("contract_version")
+    elif change == "runtime":
+        metadata["artifact"]["runtime"]["scikit-learn"] = "0.0.0"
+    else:
+        monkeypatch.setattr(settings, "ml_predict_enabled", False)
+    primary.metrics_json = metadata
+    db_session.commit()
+    monkeypatch.setattr(
+        tabular_predict, "_load_mlflow_model", lambda *a, **kw: pytest.fail("metadata only")
+    )
+    block = shadow.summary(db_session, model=primary)
+    assert block["readiness"] == {"can_enable": False, "reason": reason}
+    with pytest.raises(TabularError) as error:
+        shadow.configure(db_session, model=primary, config=shadow.ShadowConfig(enabled=True))
+    assert error.value.code == reason
+    shadow.configure(db_session, model=primary, config=shadow.ShadowConfig(enabled=False))
+    assert not shadow.configuration(primary).enabled
+    assert primary.is_champion and primary.status == "ready"
+
+
+@pytest.mark.parametrize(
+    "change,reason",
+    [
+        ("legacy", "ML_ARTIFACT_LEGACY_UNSUPPORTED"),
+        ("runtime", "ML_ARTIFACT_RUNTIME_MISMATCH"),
+    ],
+)
+def test_known_challenger_must_be_callable_before_activation(db_session, pair, change, reason):
+    from copy import deepcopy
+
+    metadata = deepcopy(pair[2].metrics_json)
+    if change == "legacy":
+        metadata["artifact"].pop("contract_version")
+    else:
+        metadata["artifact"]["runtime"]["scikit-learn"] = "0.0.0"
+    pair[2].metrics_json = metadata
+    db_session.commit()
+    assert tabular_predict.serving_readiness(db_session, pair[1])["callable"]
+    assert shadow.summary(db_session, model=pair[1])["readiness"] == {
+        "can_enable": False,
+        "reason": reason,
+        "challenger_id": pair[2].id,
+    }
+    with pytest.raises(TabularError) as error:
+        shadow.configure(db_session, model=pair[1], config=shadow.ShadowConfig(enabled=True))
+    assert error.value.code == reason
+    shadow.configure(db_session, model=pair[1], config=shadow.ShadowConfig(enabled=False))
+    assert pair[1].is_champion and not pair[2].is_champion
 
 
 def test_worker_failure_is_safe_and_does_not_modify_primary(db_session, pair, monkeypatch):

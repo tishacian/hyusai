@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
-import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
+import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, judgeDraftFromNode, judgeNodePatch, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
 import { hashSaltOptions, prepFieldDefault, prepFields, prepNumber, prepParamChange, prepStepDefaults, prepStepParamChange } from './prep-fields';
 import type { SecretMeta } from '@app/shared/secrets/secrets.api';
 
@@ -180,6 +180,29 @@ test('judge draft validates budget ceilings and never treats blank or fractional
     assert.ok(validateJudgeDraft({...draft,budget:{...draft.budget,[key]:value}}).includes('dataops.error.judge_budget'));
   }
   assert.ok(validateJudgeDraft({...draft,tariff:{...draft.tariff,input_per_million:1001}}).includes('dataops.error.judge_tariff'));
+});
+
+test('run evidence selectors must identify bounded fields and retain source scope', () => {
+  const draft = newJudgeDraft();
+  draft.run_evidence = { sources: [{id: 'proposal', skill_slug: 'propose_v1', paths: ['/action'], required: true}], native_refs: [] };
+  assert.ok(!validateJudgeDraft(draft).includes('dataops.error.judge_run_evidence'));
+  draft.run_evidence.sources[0].paths = ['/'];
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_run_evidence'));
+  draft.run_evidence.sources[0].paths = ['/action'];
+  draft.run_evidence.sources.push({...draft.run_evidence.sources[0]});
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_run_evidence'));
+});
+
+test('editing a nested judge preserves its frozen rubric without creating two conflicting configs', () => {
+  const original = newJudgeDraft(); original.rubric_id = 'published-rubric';
+  const node = {config: {skill_slug: 'evaluate_v2', params: {typed_evaluation: original, timeout_s: 45}}} as unknown as CanonicalFlowNode;
+  const draft = judgeDraftFromNode(node);
+  assert.equal(draft.rubric_id, 'published-rubric');
+  draft.rubric_version = '2';
+  const next = judgeNodePatch(node, draft).config as Record<string, unknown>;
+  assert.equal((next['typed_evaluation'] as typeof draft).rubric_version, '2');
+  assert.deepEqual(next['params'], {timeout_s: 45});
+  assert.equal(original.rubric_version, '1');
 });
 
 import { prepBindingSources, prepSplitConditionOutputs, prepRenameRows, PREP_SELECTOR_KINDS } from './prep-fields';

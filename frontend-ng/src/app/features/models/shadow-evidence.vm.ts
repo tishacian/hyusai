@@ -1,6 +1,9 @@
+import { servingErrorKey } from './models.vm';
+
 export interface ShadowConfig { enabled: boolean; sample_percent: number; timeout_s: number; }
 export interface ShadowReport {
   supported: boolean;
+  readiness?: { can_enable: boolean; reason: string | null; challenger_id?: string };
   config: ShadowConfig;
   can_configure: boolean;
   challenger: { id: string; version: number } | null;
@@ -27,8 +30,10 @@ export function shadowValue(value: number | null | undefined, locale: string, pe
 
 const REASONS = new Set(['FORBIDDEN', 'UNSUPPORTED', 'NO_CHALLENGER', 'INCOMPATIBLE', 'ARTIFACT_TOO_LARGE',
   'PAYLOAD_TOO_LARGE', 'BUSY', 'BACKLOG_FULL', 'RETRY_LIMIT', 'SOURCE_UNAVAILABLE', 'SOURCE_CHANGED',
-  'MODEL_CHANGED', 'DISABLED', 'TIMEOUT', 'FAILED', 'INVALID_OUTPUT']);
+  'MODEL_CHANGED', 'DISABLED', 'TIMEOUT', 'FAILED', 'INVALID_OUTPUT', 'SERVING_UNAVAILABLE']);
 export function shadowErrorKey(code: string | null | undefined): string {
+  const modelRefusal = servingErrorKey(code);
+  if (modelRefusal) return modelRefusal;
   const suffix = code?.replace(/^ML_SHADOW_/, '');
   return `models.shadow.error.${suffix && REASONS.has(suffix) ? suffix.toLowerCase() : 'failed'}`;
 }

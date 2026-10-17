@@ -1,0 +1,32 @@
+{
+  "captured_at": "2026-10-17T07:39:37.367474+00:00",
+  "backend_build": {
+    "service": "backend",
+    "revision": "f4329db35d428e5f646028c783d7ee335de76e3b",
+    "revision_verified": true,
+    "version": "1.0.0-demo"
+  },
+  "claims_http_status": 503,
+  "claims_error": {
+    "detail": {
+      "code": "POSTGRESQL_READ_UNAVAILABLE"
+    }
+  },
+  "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+  "published_version_id": "0c18cb17-ee28-4cbc-acd8-aafb6bcce150",
+  "published_flow_sha256": "fad0507f94c836d392a5822c81aed47e482329b5f240398661c72c12b7944556",
+  "live_flow_changed": false,
+  "new_triggers_created": false,
+  "model_promotion": false,
+  "sla_candidate": {
+    "id": "cd2d0692-7586-4e19-b541-8363118e031c",
+    "version": 3,
+    "status": "training",
+    "status_detail": "saving",
+    "is_champion": false,
+    "error": null,
+    "created_at": "2026-10-17T07:28:25.836125",
+    "updated_at": "2026-10-17T07:29:07.220161",
+    "trained_at": null
+  }
+}

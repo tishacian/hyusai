@@ -11,6 +11,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { WorkActionReceiptComponent, type WorkActionReceipt } from '@app/shared/work-records/work-action-receipt.component';
+import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
 import { WorkRecordQueueComponent, type WorkRecordItem } from '@app/shared/work-records/work-record-queue.component';
 import { workSourceRef } from '@app/shared/work-sources/work-source';
@@ -24,7 +25,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
+  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -120,6 +121,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                 }
               } @else if (!recordedActions().length) { <p class="claims-quiet">{{ i18n.t('experience.claims.start_hint') }}</p> }
               @if (recordedActions()[0]; as receipt) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }
+              @if (machineAidsAllowed()) { <app-run-quality-review [run]="run()" /> }
               @if (machineAidsAllowed() && run()?.status === 'hitl_pending') {
                 <div class="claims-approval"><p>{{ i18n.t('experience.claims.approval_hint') }}</p>
                   <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy()" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>

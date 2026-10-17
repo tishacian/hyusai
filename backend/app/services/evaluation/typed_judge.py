@@ -549,6 +549,7 @@ def _envelope(spec, answers, *, evaluation_id, status, reason, usage, model, exa
         "rubric_id": spec.rubric_id,
         "rubric_version": spec.rubric_version,
         "rubric_sha256": _hash([q.model_dump() for q in spec.questions]),
+        "questions": [q.model_dump() for q in spec.questions],
         "evidence_sha256": _hash(
             [{"id": e.id, "sha256": e.sha256, "asset_ref": e.asset_ref} for e in spec.evidence]
         ),

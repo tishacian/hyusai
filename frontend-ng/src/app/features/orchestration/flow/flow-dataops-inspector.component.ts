@@ -9,7 +9,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { TypedJudgeEditorComponent } from '@app/features/data/typed-judge-editor.component';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
-import { newJudgeDraft, prepDraftFromNode, prepNodePatch, type PrepDraft, type TypedJudgeDraft } from '@app/features/data/dataops.models';
+import { judgeDraftFromNode, judgeNodePatch, prepDraftFromNode, prepNodePatch, type PrepDraft, type TypedJudgeDraft } from '@app/features/data/dataops.models';
 import { FlowStore } from './flow.store';
 
 @Component({
@@ -42,9 +42,9 @@ export class FlowDataOpsInspectorComponent {
   readonly datasets = signal<DatasetDto[]>([]); readonly failed = signal(false);
   readonly slug = computed(() => (this.node().config as Record<string, unknown>)?.['skill_slug']);
   readonly prep = computed(() => prepDraftFromNode(this.node()));
-  readonly judge = computed(() => ((this.node().config as Record<string, unknown>)?.['typed_evaluation'] as TypedJudgeDraft | undefined) ?? newJudgeDraft());
+  readonly judge = computed(() => judgeDraftFromNode(this.node()));
   constructor() { effect(() => { if (this.slug() === 'data_prep_v1') void this.loadDatasets(); }); }
   private async loadDatasets(): Promise<void> { this.failed.set(false); try { const [datasets,catalog]=await Promise.all([this.data.refresh(),this.api.catalog()]);this.datasets.set(datasets);this.placements.set([...new Set(['auto',...(catalog.feature?.placements??catalog.placements)])]); } catch { this.failed.set(true); } }
   savePrep(value: PrepDraft): void { this.store.patchNode(this.node().id, prepNodePatch(this.node(), value)); }
-  saveJudge(value: TypedJudgeDraft): void { this.store.updateNodeConfig(this.node().id, 'typed_evaluation', value); }
+  saveJudge(value: TypedJudgeDraft): void { this.store.patchNode(this.node().id, judgeNodePatch(this.node(), value)); }
 }

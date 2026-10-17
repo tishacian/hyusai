@@ -13,7 +13,7 @@ const source = { reference: 'refund-policy-v2', document_id: 'qa-original-doc', 
 const claimSource = { reference: 'claim-lm1042', document_id: 'qa-claim-doc', collection: 'qa-case', filename: 'reclamation-lm1042.pdf', title: 'reclamation-lm1042.pdf' };
 function detail(id: string, queue = rows) { const row = queue.find(r => r.claim_id === id)!; return { data: { context: [{ ...row, shipping_postcode: '75011', payment_status: 'paid' }], items: [{ product_name: 'Lampe Aube', quantity: 1, unit_price: row.paid_amount }], shipments: [{ status: id === 'RC-1043' ? 'lost' : 'delivered', carrier: 'ColisAzur', tracking_id: 'CA-' + id.slice(3) }], refunds: id === 'RC-1044' ? [{ refund_id: 'RF-1044', amount: '89.00', currency: 'EUR', status: 'executed' }] : [] }, provenance: { captured_at: '2026-10-02T09:00:00Z', snapshot_sha256: 'qa-snapshot', read_mode: 'live' }, sources: [source, claimSource], receipts: [], latest_run_id: null }; }
 
-async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean } = {}) {
+async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed' } = {}) {
  const posts: unknown[] = []; let run: Record<string, unknown> | null = null;
  const queue = options.volume ? [...rows, ...Array.from({ length: 20 }, (_, index) => ({ ...rows[index % rows.length], claim_id: `RC-${5001 + index}`, order_id: `LM-${5001 + index}`, display_name: `Client synthétique ${index + 1}`, state: index % 2 ? 'waiting_information' : 'resolved' }))] : rows;
  await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.fulfill({ status: 204, body: '' }));
@@ -71,6 +71,17 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
      const context = { claim_id: id, served: { model_id: 'qa-sla-model', version: 1 }, target: 'resolution_over_72h', positive_label: '1', score: id === 'RC-1043' ? 0.16 : 0.82,
        prepared_dataset: { id: 'qa-case-prepared', name: 'Case data', version: 1, rows: 1 }, scored_dataset: { id: 'qa-case-scored', name: 'Case prediction', version: 1, rows: 1 } };
      run = { id: 'qa-native-run', system_id: 'qa-system', input_ref: { claim_id: id }, status: 'hitl_pending', hitl: { decision_id: 'qa-decision', node_id: 'hitl.review' }, skill_invocations: ['ecommerce_sav_dataset_v1', 'sql_transform_v1', 'ml_batch_score_v1', 'ecommerce_sav_context_v1', 'postgresql_claim_snapshot_v1', 'ecommerce_policy_evidence_v1', tool, 'ecommerce_resolution_propose_v1'].map((slug, i) => ({ id: 'qa-inv-' + i, skill_slug: slug, status: 'completed', completed_at: new Date().toISOString(), output_ref: slug === 'ecommerce_resolution_propose_v1' ? proposal : slug === 'ecommerce_sav_context_v1' ? context : {} })) };
+     if (options.judge) (run['skill_invocations'] as unknown[]).push({
+       id: 'qa-judge', skill_slug: 'evaluate_v2', status: options.judge === 'failed' ? 'failed' : 'completed',
+       error: options.judge === 'failed' ? 'PRIVATE_PROVIDER_DIAGNOSTIC' : null,
+       output_ref: options.judge === 'failed' ? {} : {
+         schema_version: 2, evaluation_id: 'qa-evaluation', status: 'partial', quality_status: 'unassessed', disposition: 'review', confidence: null,
+         questions: [{key: 'policy', question: locale === 'fr' ? 'Les preuves permettent-elles cette résolution ?' : 'Does the evidence support this resolution?'}],
+         answers: {policy: {status: 'abstained', value: null, reason: 'insufficient_evidence', explanation: locale === 'fr' ? 'La preuve transporteur manque.' : 'Carrier evidence is missing.', evidence: [], confidence: null}},
+         coverage: {questions_answered: 0, questions_total: 1, evidence_examined: 2, evidence_total: 2, images_examined: 0, images_total: 0},
+         cost: {amount: null, currency: 'USD', measurement_coverage: 'unavailable'},
+       },
+     });
      return json(route, { id: 'qa-native-run', status: 'pending' }, 201);
    }
    if (path === '/runs/qa-native-run' && request.method() === 'GET') return json(route, run);
@@ -85,6 +96,40 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
 
 test.describe('Claims studio — isolated end-user QA', () => {
  test.skip(!enabled, 'Enable E2E_CHROME_V2_MOCKED for isolated QA');
+ for (const width of [1440, 390]) {
+  test(`judge: evidence-based abstention remains visible before human approval at ${width}px`, async ({ page }, testInfo) => {
+    const posts = await setup(page, 'dark', 'en', false, null, {judge: 'abstained'});
+    await page.setViewportSize({width, height: 900});
+    await page.goto('/work/reclamations/studio?record=RC-1042');
+    await page.getByRole('button', {name: 'Start investigation', exact: true}).click();
+    const review = page.getByTestId('typed-judge-result');
+    await expect(review.getByRole('heading', {name: 'Quality review', exact: true})).toBeVisible();
+    await expect(review).toContainText('Unassessed');
+    await expect(review).toContainText('Human review required before delivery.');
+    await expect(review).toContainText('Does the evidence support this resolution?');
+    await expect(review.getByText(/Abstained.*Insufficient evidence/)).toBeVisible();
+    await expect(review.getByText('Carrier evidence is missing.', {exact: true})).toBeVisible();
+    const technical = review.getByTestId('judge-technical-details');
+    await expect(technical).not.toHaveAttribute('open');
+    await expect(review.getByText(/Calibrated confidence/)).not.toBeVisible();
+    const approval = page.getByRole('button', {name: 'Approve proposal', exact: true});
+    await expect(approval).toBeVisible();
+    expect((await review.boundingBox())!.y).toBeLessThan((await approval.boundingBox())!.y);
+    expect(posts).toHaveLength(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect((await new AxeBuilder({page}).include('.claims-app').analyze()).violations).toEqual([]);
+    await page.screenshot({path: testInfo.outputPath(`judge-review-${width}.png`), fullPage: true});
+  });
+ }
+ test('judge: a failed evaluation is explicit without exposing provider diagnostics', async ({ page }) => {
+   await setup(page, 'light', 'fr', false, null, {judge: 'failed'});
+   await page.goto('/work/reclamations/studio?record=RC-1042');
+   await page.getByRole('button', {name: 'Lancer l’enquête', exact: true}).click();
+   await expect(page.getByTestId('run-quality-review-state')).toContainText('Aucune validation du juge n’est attestée.');
+   await expect(page.getByTestId('typed-judge-result')).toHaveCount(0);
+   await expect(page.getByText('PRIVATE_PROVIDER_DIAGNOSTIC')).toHaveCount(0);
+   await expect(page.getByRole('button', {name: 'Valider la proposition', exact: true})).toBeVisible();
+ });
  for (const theme of ['dark', 'light']) {
   test(`${theme}: model scores prioritize cases, expose lineage and rescore through the pinned Flow`, async ({ page }, testInfo) => {
     const posts = await setup(page, theme, 'fr', false, 'ready');

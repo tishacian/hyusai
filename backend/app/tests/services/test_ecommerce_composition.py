@@ -6,6 +6,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -37,6 +38,104 @@ from app.services.systems import flow_publication
 from app.services.tabular_datasets import read_rows, register_frame
 from app.services.tabular_ml import harness_path, upload_model_dir
 from app.tests.services.test_ecommerce_triage import FIXTURES, facts, module
+
+
+def _operation_run(ingress_id, kind="manual", operations=None):
+    entries = [
+        (composition.CASE_INGRESS, "manual"),
+        (composition.QUEUE_INGRESS, "manual"),
+        ("incoming.claim", "http"),
+        ("refresh.daily", "schedule"),
+        ("forecast", "manual"),
+    ]
+    runtime = {"ecommerce_composition_v1": True}
+    if operations is not None:
+        runtime["ecommerce_ingress_operations"] = operations
+    surface = "published_" + kind
+    return SimpleNamespace(
+        flow_snapshot={
+            "runtime_contract": runtime,
+            "nodes": [{"id": key, "kind": "source"} for key, _ in entries]
+            + [{"id": "facts", "kind": "task"}],
+            "edges": [{"from": key, "to": "facts"} for key, _ in entries],
+        },
+        input_ref={
+            "operation": "queue" if ingress_id != composition.QUEUE_INGRESS else "case",
+            "claim_id": "RC-1042",
+            "_ingress": {"ingress_id": ingress_id, "source_node_id": ingress_id, "kind": kind},
+            "execution": {
+                "ingress_id": ingress_id,
+                "ingress_selection_version": 1,
+                "execution_surface": surface,
+                "published_flow_version_id": "published-v1",
+            },
+        },
+        published_flow_version_id="published-v1",
+        execution_surface=surface,
+        execution_contract={
+            "ingresses": [
+                {"ingress_id": key, "source_node_id": key, "kind": entry_kind}
+                for key, entry_kind in entries
+            ]
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "ingress,kind,expected",
+    [
+        (composition.CASE_INGRESS, "manual", "case"),
+        (composition.QUEUE_INGRESS, "manual", "queue"),
+        ("incoming.claim", "http", "case"),
+        ("refresh.daily", "schedule", "queue"),
+    ],
+)
+def test_published_ingress_operation_is_independent_of_transport_and_payload(
+    ingress, kind, expected
+):
+    operations = {
+        composition.CASE_INGRESS: "case",
+        composition.QUEUE_INGRESS: "queue",
+        "incoming.claim": "case",
+        "refresh.daily": "queue",
+    }
+    run = _operation_run(ingress, kind, operations)
+    assert composition.operation_for_run(run) == expected
+    run.input_ref.pop("claim_id")
+    run.input_ref["operation"] = "case" if expected == "queue" else "queue"
+    assert composition.operation_for_run(run) == expected
+
+
+@pytest.mark.parametrize(
+    "ingress,expected", [(composition.CASE_INGRESS, "case"), (composition.QUEUE_INGRESS, "queue")]
+)
+def test_existing_published_flows_keep_their_legacy_operation_contract(ingress, expected):
+    assert composition.operation_for_run(_operation_run(ingress)) == expected
+
+
+@pytest.mark.parametrize(
+    "operations",
+    [
+        {},
+        [],
+        {"missing": "case"},
+        {"facts": "case"},
+        {"incoming.claim": "admin"},
+        {"incoming.claim": []},
+    ],
+)
+def test_invalid_published_operation_configuration_is_refused(operations):
+    with pytest.raises(ValueError, match="CLAIMS_COMPOSITION_OPERATIONS_INVALID"):
+        composition.operation_for_run(_operation_run("incoming.claim", "http", operations))
+
+
+def test_unmapped_entry_and_caller_forged_ingress_do_not_select_a_cohort():
+    with pytest.raises(ValueError, match="CLAIMS_COMPOSITION_INGRESS_REQUIRED"):
+        composition.operation_for_run(_operation_run("forecast"))
+    run = _operation_run(composition.CASE_INGRESS)
+    run.input_ref["_ingress"]["ingress_id"] = composition.QUEUE_INGRESS
+    with pytest.raises(dag.ContractIngressSelectionError, match="identity_mismatch"):
+        composition.operation_for_run(run)
 
 
 @pytest.fixture(scope="module")
@@ -633,10 +732,38 @@ def test_activation_keeps_one_operational_system_and_freezes_both_work_actions(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["manual", "schedule"])
 async def test_native_queue_and_case_share_real_preparation_and_model_without_reviving_dead_branches(
-    db_session, environment, monkeypatch
+    db_session, environment, monkeypatch, transport
 ):
-    ws, _, main, _, model, _, reader = environment
+    ws, actor, main, _, model, plan, reader = environment
+    if transport == "schedule":
+        reviewed = activation.upgrade(db_session, ws, actor, plan=plan)
+        flow = copy.deepcopy(reviewed["flow_definition"])
+        flow["nodes"].append(
+            {
+                "id": "refresh.daily",
+                "kind": "source",
+                "type": "source.schedule",
+                "config": {
+                    "ingress_kind": "schedule",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                },
+            }
+        )
+        flow["edges"].append(
+            {"from": "refresh.daily", "to": composition.FEATURE_NODE, "kind": "data"}
+        )
+        flow["runtime_contract"]["ecommerce_ingress_operations"] = {
+            composition.CASE_INGRESS: "case",
+            composition.QUEUE_INGRESS: "queue",
+            "refresh.daily": "queue",
+        }
+        plan["configuration"] = {"flow_definition": flow}
     activate(db_session, environment)
     inquiries = []
 
@@ -651,7 +778,21 @@ async def test_native_queue_and_case_share_real_preparation_and_model_without_re
         return {"output": {"claim_id": "RC-1042", "exit": "complete"}}
 
     monkeypatch.setattr(dag, "_run_agent_loop", inquiry)
-    queue = create_run(db_session, environment, composition.QUEUE_INGRESS)
+    if transport == "schedule":
+        from app.services.systems.flow_ingress import create_published_ingress_run
+
+        queue = create_published_ingress_run(
+            db_session,
+            system_id=main.id,
+            workspace=ws,
+            ingress_id="refresh.daily",
+            kind="schedule",
+            payload={},
+            initiated_by_user_id=actor.id,
+        )
+        db_session.commit()
+    else:
+        queue = create_run(db_session, environment, composition.QUEUE_INGRESS)
     summary = await dag.execute_run_dag(queue.id)
     assert summary["status"] == "completed", summary
     db_session.expire_all()

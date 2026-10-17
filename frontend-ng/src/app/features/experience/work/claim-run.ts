@@ -27,6 +27,7 @@ export const CLAIM_TOOL_LABELS: Record<string, string> = {
   ecommerce_delivery_evidence_v1: 'experience.claims.step.delivery',
   ecommerce_refund_evidence_v1: 'experience.claims.step.refund',
   ecommerce_resolution_propose_v1: 'experience.claims.step.proposal',
+  evaluate_v2: 'dataops.judge.result',
   ecommerce_resolution_simulate_v1: 'experience.claims.step.receipt',
 };
 export const CLAIM_REASON_LABELS: Record<string, string> = {
