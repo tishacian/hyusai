@@ -10,6 +10,8 @@ import { forkJoin } from 'rxjs';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { NavLinkDirective } from '@app/shared/cockpit/nav-link.directive';
 import { I18nService } from '@app/core/i18n.service';
+import { navigationObjectUrl } from '@app/core/navigation.catalog';
+import { NavigationResolverService } from '@app/core/navigation-resolver.service';
 import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -164,16 +166,19 @@ const ENRICHED_DECISIONS = 3;
                             <div class="xp-home-item-body">
                               <p class="xp-home-item-title">{{ itemTitle(item) }}</p>
                               @if (itemMeta(item); as meta) {
-                                @if (meta.length || (item.kind === 'review' && item.runId)) {
+                                @if (meta.length || ((item.kind === 'review' || item.kind === 'result') && item.runId)) {
                                   <p class="xp-home-meta">
                                     @for (part of meta; track $index) {
                                       @if ($index > 0) { <span aria-hidden="true"> · </span> }<span>{{ part }}</span>
                                     }
-                                    @if (item.kind === 'review' && item.runId) {
+                                    @if ((item.kind === 'review' || item.kind === 'result') && item.runId) {
                                       @if (meta.length) { <span aria-hidden="true"> · </span> }<span class="xp-home-id">{{ short(item.runId) }}</span>
                                     }
                                   </p>
                                 }
+                              }
+                              @if (item.kind === 'result' && item.runId && !item.target) {
+                                <p class="xp-home-meta">{{ i18n.t('experience.work.home.result.restricted') }}</p>
                               }
                             </div>
                             <span class="xp-home-chip" [attr.data-kind]="item.kind">{{ i18n.t('experience.work.home.status.' + item.kind) }}</span>
@@ -333,12 +338,15 @@ const ENRICHED_DECISIONS = 3;
                           }
                           <p class="xp-home-ref">
                             <span>{{ i18n.t('experience.work.home.agents.ref') }}</span>
-                            <a
-                              class="xp-home-id"
-                              [navLink]="{ type: 'run', ref: work.run_id }"
-                              [attr.aria-label]="i18n.t('experience.work.home.agents.ref_label', { id: short(work.run_id), app: workName(work) })"
-                            >{{ short(work.run_id) }}</a>
+                            @if (runHref(work); as href) {
+                              <a
+                                class="xp-home-id"
+                                [routerLink]="href"
+                                [attr.aria-label]="i18n.t('experience.work.home.agents.ref_label', { id: short(work.run_id), app: workName(work) })"
+                              >{{ short(work.run_id) }}</a>
+                            } @else { <span class="xp-home-id">{{ short(work.run_id) }}</span> }
                           </p>
+                          @if (!runHref(work)) { <p class="xp-home-meta">{{ i18n.t('experience.work.home.result.restricted') }}</p> }
                         </div>
                       </li>
                     }
@@ -367,6 +375,7 @@ export class WorkLauncherComponent {
   readonly adoption = inject(AdoptionService);
   private readonly api = inject(WorkApiService);
   private readonly router = inject(Router);
+  private readonly navigationResolver = inject(NavigationResolverService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly destroyRef = inject(DestroyRef);
   readonly workspace = inject(WorkspaceService);
@@ -412,7 +421,7 @@ export class WorkLauncherComponent {
     );
   });
 
-  readonly queue = computed(() => homeQueue(this.home()));
+  readonly queue = computed(() => homeQueue(this.home(), url => this.navigationResolver.resolve(url) === null));
   readonly waitingTotal = computed(() => homeWaitingTotal(this.home()));
   readonly hiddenCount = computed(() => Math.max(0, this.waitingTotal() - this.queue().length));
   readonly agentWork = computed(() => this.home()?.agent_work?.items ?? []);
@@ -559,6 +568,16 @@ export class WorkLauncherComponent {
 
   workName(work: HomeWork): string {
     return work.source?.name?.trim() || this.i18n.t('experience.work.home.agents.untitled');
+  }
+
+  runHref(work: HomeWork): string | null {
+    const runId = work.run_id?.trim();
+    if (!runId) return null;
+    const url = navigationObjectUrl('run', runId, {
+      lens: 'operate',
+      systemId: work.source?.system_id?.trim() || null,
+    });
+    return this.navigationResolver.resolve(url) === null ? url : null;
   }
 
   receipt(work: HomeWork): string[] {

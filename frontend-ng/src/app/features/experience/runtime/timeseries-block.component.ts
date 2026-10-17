@@ -17,9 +17,11 @@ interface DatasetResponse {
   changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './runtime.scss',
   template: `
     @if (loading() || working()) { <p class="xp-rt-hint" role="status">{{ i18n.t('experience.timeseries.loading') }}</p> }
-    @else if (error() || runError()) {
+    @else if (runError()) {
+      <p class="xp-rt-err" role="alert">{{ i18n.t('experience.timeseries.execution_unavailable') }}</p>
+    } @else if (error()) {
       <p class="xp-rt-err" role="alert">{{ i18n.t('experience.timeseries.error') }}</p>
-      @if (!runError()) { <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="retry()">{{ i18n.t('experience.wizard.retry') }}</button> }
+      <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="retry()">{{ i18n.t('experience.wizard.retry') }}</button>
     } @else if (!projection().groups.length) { <p class="xp-rt-hint">{{ i18n.t('experience.timeseries.empty') }}</p> }
     @else {
       @if (projection().groups.length > 1) {

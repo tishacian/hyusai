@@ -9,9 +9,9 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
-from app.services.ecommerce import claims as claims
 from app.services import work_predictions
 from app.services.connectors.generic import postgresql_claims as pg
+from app.services.ecommerce import claims as claims
 from app.services.ecommerce.install import BLUEPRINT
 from app.services.ecommerce.triage import (
     FEATURES,
@@ -223,18 +223,44 @@ def compose(flow, model_id, version, *, model_slug):
     return result
 
 
+def _ingress_operations(flow):
+    runtime = (flow or {}).get("runtime_contract", {})
+    if runtime.get("ecommerce_composition_v1") is not True:
+        raise ValueError("CLAIMS_COMPOSITION_FLOW_REQUIRED")
+    # The published business configuration owns the operation, independently of
+    # how a root is delivered (Work, signed HTTP or a schedule). Never infer a
+    # queue read from an omitted claim_id or accept a caller's operation field.
+    # Older published Flows retain their original two-entry contract.
+    operations = runtime.get(
+        "ecommerce_ingress_operations", {CASE_INGRESS: "case", QUEUE_INGRESS: "queue"}
+    )
+    roots = {
+        node.get("id") for node in (flow or {}).get("nodes", []) if node.get("kind") == "source"
+    }
+    if (
+        not isinstance(operations, dict)
+        or not operations
+        or any(
+            not isinstance(key, str)
+            or key not in roots
+            or not isinstance(value, str)
+            or value not in {"case", "queue"}
+            for key, value in operations.items()
+        )
+    ):
+        raise ValueError("CLAIMS_COMPOSITION_OPERATIONS_INVALID")
+    return operations
+
+
 def operation_for_run(run):
     """Use the engine's immutable ingress evidence; payload cannot select a cohort."""
     from app.services.run_engine.dag import DagGraph, _contract_ingress_selection
 
-    if (run.flow_snapshot or {}).get("runtime_contract", {}).get(
-        "ecommerce_composition_v1"
-    ) is not True:
-        raise ValueError("CLAIMS_COMPOSITION_FLOW_REQUIRED")
+    operations = _ingress_operations(run.flow_snapshot)
     selection = _contract_ingress_selection(run, DagGraph.from_flow_definition(run.flow_snapshot))
-    if selection is None or selection[0] not in {CASE_INGRESS, QUEUE_INGRESS}:
+    if selection is None or selection[0] not in operations:
         raise ValueError("CLAIMS_COMPOSITION_INGRESS_REQUIRED")
-    return "queue" if selection[0] == QUEUE_INGRESS else "case"
+    return operations[selection[0]]
 
 
 def _context(db, ctx):
@@ -495,6 +521,11 @@ def read_queue(db, workspace, triage):
             "use": "queue_ordering_only",
             "composition": MODE,
         }
+        queue_ingresses = [
+            key
+            for key, operation in _ingress_operations(published["flow_definition"]).items()
+            if operation == "queue"
+        ]
         scored = (
             db.query(TabularDataset)
             .join(Run, Run.id == TabularDataset.run_id)
@@ -507,7 +538,7 @@ def read_queue(db, workspace, triage):
                 Run.workspace_id == workspace.id,
                 Run.status == "completed",
                 Run.flow_sha256 == published["flow_sha256"],
-                Run.input_ref["_ingress"]["ingress_id"].as_string() == QUEUE_INGRESS,
+                Run.input_ref["_ingress"]["ingress_id"].as_string().in_(queue_ingresses),
             )
             .order_by(TabularDataset.created_at.desc())
             .first()

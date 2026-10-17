@@ -340,6 +340,13 @@ def test_withdrawn_regression_cannot_run_publish_or_be_promoted(
         model_uri="existing-export",
         metrics_json={"artifact": {"trust_profile": "tabicl-json-safetensors-v2"}},
     )
+    # Publishing now verifies workspace exposure policy before model profile.
+    # Supply that real prerequisite so this test still reaches the withdrawal
+    # guard; a nonexistent workspace exercises a different refusal.
+    from app.models.workspace import Workspace
+
+    db_session.add(Workspace(id=model.workspace_id, slug=model.workspace_id, name="TabICL policy test"))
+    db_session.commit()
     monkeypatch.setattr(settings, "ml_predict_enabled", True)
     monkeypatch.setattr(settings, "ml_runtime", "ml-deep")
     monkeypatch.setattr(tabular_predict, "champion_for", lambda *a, **k: model)

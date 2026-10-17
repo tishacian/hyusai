@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
-test.use({ serviceWorkers: 'block', video: 'off', viewport: { width: 1440, height: 1000 } });
+test.use({ serviceWorkers: 'block', video: 'off', ignoreHTTPSErrors: false, viewport: { width: 1440, height: 1000 } });
 const catalog = JSON.parse(readFileSync(resolve(process.cwd(), 'e2e/fixtures/ml-forecast.json'), 'utf8')).catalog;
 const workspace = { id: 'shadow-qa', slug: 'shadow-qa', name: 'Shadow QA', role: 'owner', role_template: 'workspace_owner', settings: {}, mode: 'builder' };
 const baseModel = { id: 'served-v1', name: 'Ticket outcome', slug: 'ticket-outcome', version: 1,
@@ -13,11 +13,12 @@ const baseModel = { id: 'served-v1', name: 'Ticket outcome', slug: 'ticket-outco
   signature: { inputs: [{ name: 'visits', type: 'double' }], outputs: [{ name: 'prediction', type: 'string' }] },
 };
 
-async function setup(page: Page, locale: string, options: { forbidden?: boolean; readOnly?: boolean; unsupported?: boolean; regression?: boolean } = {}) {
-  const model = { ...baseModel, ...(options.unsupported ? { family: 'timeseries', task: 'forecasting' } : options.regression ? { task: 'regression' } : {}) };
-  let config = { enabled: false, sample_percent: 10, timeout_s: 15 }, completed = false;
+async function setup(page: Page, locale: string, options: { forbidden?: boolean; readOnly?: boolean; unsupported?: boolean; regression?: boolean; blocked?: boolean; enabled?: boolean; challengerBlocked?: boolean } = {}) {
+  const model = { ...baseModel, ...(options.unsupported ? { family: 'forecasting', task: 'forecasting' } : options.regression ? { task: 'regression' } : {}) };
+  let config = { enabled: options.enabled ?? false, sample_percent: 10, timeout_s: 15 }, completed = false;
   const posts: any[] = [];
   const shadow = () => ({ supported: !options.unsupported, can_configure: !options.readOnly, config,
+    readiness: { can_enable: !(options.blocked || options.challengerBlocked), reason: options.blocked || options.challengerBlocked ? 'ML_ARTIFACT_LEGACY_UNSUPPORTED' : null, ...(options.challengerBlocked ? {challenger_id: 'challenger-v2'} : {}) },
     challenger: { id: 'challenger-v2', version: 2 }, limits: { max_rows: 64, max_pending: 100, max_attempts: 2, window: 400 }, comparison_scope: 'current_pair',
     window: { jobs: completed ? 2 : 0, completed: completed ? 1 : 0, pending: 0, failed: completed ? 1 : 0, skipped: 0, compared_rows: completed ? 64 : 0, labeled_pairs: completed ? 1 : 0 },
     comparison: { agreement: completed ? 0 : null, mean_absolute_difference: completed ? 0 : null,
@@ -60,6 +61,16 @@ async function setup(page: Page, locale: string, options: { forbidden?: boolean;
 test.describe('Challenger shadow scoring', () => {
   test.beforeEach(async ({}, info) => { test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost', '127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.'); });
   for (const locale of ['fr', 'en']) {
+    test(`${locale}: an unavailable model explains the block and still permits disabling shadow`, async ({ page }) => {
+      const api = await setup(page, locale, { blocked: true, enabled: true });
+      await page.goto('/models/served-v1?facet=monitor');
+      await expect(page.getByTestId('shadow-readiness')).toContainText(locale === 'fr' ? 'ancien artefact' : 'older artifact');
+      await expect(page.getByTestId('shadow-save')).toBeDisabled();
+      await page.getByTestId('shadow-enabled').uncheck();
+      await page.getByTestId('shadow-save').click();
+      await expect.poll(() => api.posts).toEqual([{ enabled: false, sample_percent: 10, timeout_s: 15 }]);
+      await expect(page.getByTestId('shadow-enabled')).toBeDisabled();
+    });
     test(`${locale}: enable on an empty window, then read paired evidence and worker failures`, async ({ page }, info) => {
       const api = await setup(page, locale); await page.goto('/models/served-v1?facet=monitor');
       const panel = page.getByTestId('shadow-panel');
@@ -93,9 +104,16 @@ test.describe('Challenger shadow scoring', () => {
     await expect(page.getByTestId('shadow-enabled')).toBeDisabled(); await expect(page.getByTestId('shadow-save')).toHaveCount(0);
     expect(api.posts).toHaveLength(0);
   });
-  test('time-series models explain unsupported scoring without an enable control', async ({ page }) => {
+  test('an incompatible challenger is identified separately from the callable primary', async ({ page }) => {
+    const api = await setup(page, 'en', { challengerBlocked: true }); await page.goto('/models/served-v1?facet=monitor');
+    await expect(page.getByTestId('shadow-readiness')).toContainText('selected challenger cannot be evaluated');
+    await expect(page.getByTestId('shadow-enabled')).toBeDisabled();
+    expect(api.posts).toHaveLength(0);
+  });
+  test('time-series monitoring never offers tabular shadow controls', async ({ page }) => {
     await setup(page, 'en', { unsupported: true }); await page.goto('/models/served-v1?facet=monitor');
-    await expect(page.getByTestId('shadow-unsupported')).toContainText('ready tabular classification or regression');
+    await expect(page.getByRole('tab', { name: 'Monitoring', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('shadow-panel')).toHaveCount(0);
     await expect(page.getByTestId('shadow-enabled')).toHaveCount(0);
   });
   test('regression keeps a zero prediction difference distinct from unavailable challenger error', async ({ page }) => {

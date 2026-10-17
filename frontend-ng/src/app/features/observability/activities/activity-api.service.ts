@@ -16,7 +16,18 @@ export class ActivityApiService {
   private readonly auth = inject(AuthStore);
   private readonly base = '/api/v1/observability';
 
-  features(signal?: AbortSignal): Promise<ActivityFeatures> { return this.json('/activities/features', { signal }); }
+  private featureCache?: { workspace: ReturnType<WorkspaceService['captureRequestScope']>; principal: ReturnType<InstanceType<typeof AuthStore>['captureRequestScope']>; promise: Promise<ActivityFeatures> };
+  async features(signal?: AbortSignal): Promise<ActivityFeatures> {
+    const cached = this.featureCache;
+    if (!cached || !this.workspace.isRequestScopeCurrent(cached.workspace) || !this.auth.isRequestScopeCurrent(cached.principal)) {
+      const entry = { workspace: this.workspace.captureRequestScope(), principal: this.auth.captureRequestScope(), promise: this.json<ActivityFeatures>('/activities/features', {}) };
+      this.featureCache = entry;
+      entry.promise.catch(() => { if (this.featureCache === entry) this.featureCache = undefined; });
+    }
+    const features = await this.featureCache!.promise;
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    return features;
+  }
   list(filters: ActivityFilters, signal?: AbortSignal): Promise<ActivityPage> { return this.json(`/activities?${activityQuery(filters)}`, { signal }); }
   detail(id: string, signal?: AbortSignal): Promise<ActivityDetail> { return this.json(`/activities/${encodeURIComponent(id)}`, { signal }); }
   events(id: string, cursor = '', signal?: AbortSignal): Promise<ActivityEventPage> {

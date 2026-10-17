@@ -184,6 +184,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  overflow-wrap: anywhere;
   font-size: 12px;
 
   strong {
@@ -202,6 +203,30 @@
   flex-direction: column;
   gap: 6px;
 }
+
+.ck-trig__setup {
+  font-size: 12px;
+
+  > summary { cursor: pointer; color: var(--ck-fg-2); }
+  &[open] > summary { margin-bottom: 10px; }
+}
+
+.ck-trig__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ck-fg-2);
+}
+
+.ck-trig__row > .ck-trig__btn,
+.ck-trig__form > .ck-trig__btn { align-self: flex-start; }
+
+.ck-trig__json,
+.ck-trig__payload { font: 11px / 1.5 var(--ck-font-mono, monospace); }
+.ck-trig__json { resize: vertical; min-height: 64px; }
+.ck-trig__payload { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+.ck-trig__error { margin: 0; color: var(--ck-signal-neg); font-size: 11px; line-height: 1.5; }
 
 .ck-trig__input {
   width: 100%;

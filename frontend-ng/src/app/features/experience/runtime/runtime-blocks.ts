@@ -17,6 +17,7 @@ import { take } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { TagComponent, NavLinkDirective, type CkTagTone } from '@app/shared/cockpit';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { NavigationResolverService } from '@app/core/navigation-resolver.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
 import { ExperienceRuntimeService } from './experience-runtime.service';
@@ -53,6 +54,7 @@ import {
 import { TimeseriesBlockComponent } from './timeseries-block.component';
 import { PredictionCardComponent } from '../work/prediction-card.component';
 import { a11yOf, appearanceOf } from './style';
+import { runtimeFailureKind, runtimeFailureRunId } from './runtime-failure';
 
 function str(node: ExperienceNode, key: string, fallback = ''): string {
   const value = node.props?.[key];
@@ -162,9 +164,14 @@ export class RuntimeSlotComponent {
   readonly i18n = inject(I18nService);
   readonly state = input<Slot>('ready');
   readonly detail = input('');
-  readonly errorDescription = computed(() =>
-    this.detail() ? this.i18n.t('experience.runtime.error.body') : undefined,
-  );
+  readonly errorDescription = computed(() => {
+    if (!this.detail()) return undefined;
+    const kind = runtimeFailureKind(this.detail());
+    if (kind === 'model_incompatible' || kind === 'model_unavailable') {
+      return this.i18n.t('experience.runtime.error.model_dependency');
+    }
+    return this.i18n.t('experience.runtime.error.body');
+  });
   readonly empty = input('');
   readonly emptyTitle = input('');
   readonly emptyIcon = input('inbox');
@@ -253,14 +260,21 @@ export class HeaderBlock {
     <aside class="xp-rt-block" role="note">
       <p class="xp-rt-sub">{{ body() }}</p>
       @if (href()) {
-        <a class="xp-rt-link" [routerLink]="href()">{{ href() }}</a>
+        <a class="xp-rt-link xp-rt-link-action" [routerLink]="href()" [attr.aria-label]="linkName()">
+          {{ i18n.t('common.open') }} <span aria-hidden="true">→</span>
+        </a>
       }
     </aside>
   `,
 })
 export class CalloutBlock {
+  readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
-  readonly body = computed(() => str(this.node(), 'body'));
+  readonly body = computed(() => copyText(this.node(), 'body'));
+  readonly linkName = computed(() =>
+    [this.i18n.t('common.open'), appearanceOf(this.node()).title || this.body()]
+      .filter(Boolean).join(': '),
+  );
   readonly href = computed(() => {
     const value = this.node().props?.['href'];
     if (typeof value !== 'string') return null;
@@ -976,20 +990,51 @@ export class HistoryBlock {
   selector: 'xp-rt-status',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TagComponent],
+  imports: [TagComponent, NavLinkDirective],
   styleUrl: './runtime.scss',
   template: `
-    <div class="xp-rt-block xp-rt-row" role="status" aria-live="polite">
-      <ck-tag [tone]="tone()">{{ label() }}</ck-tag>
+    <div class="xp-rt-block" role="status" aria-live="polite">
+      <div class="xp-rt-row">
+        <ck-tag [tone]="tone()">{{ label() }}</ck-tag>
+        @if (inspectableRunId(); as id) {
+          <a class="xp-rt-link xp-rt-link-action" [navLink]="{ type: 'run', lens: 'operate', ref: id }">
+            {{ i18n.t('experience.runtime.failure.inspect') }}
+          </a>
+        }
+      </div>
+      @if (vocab() === 'error') {
+        <p class="xp-rt-sub">{{ failureDescription() }}</p>
+        @if (failureRunId(); as id) {
+          <details class="xp-rt-failure-reference">
+            <summary>{{ i18n.t('experience.runtime.failure.reference') }}</summary>
+            <div class="xp-rt-row">
+              <code>{{ id }}</code>
+              <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="copyReference()">
+                {{ i18n.t(copiedRunId() === id ? 'experience.runtime.failure.copied' : 'experience.runtime.failure.copy') }}
+              </button>
+            </div>
+            @if (copyFailed()) { <p class="xp-rt-sub">{{ i18n.t('experience.runtime.failure.copy_fallback') }}</p> }
+          </details>
+        }
+      }
     </div>
   `,
 })
 export class RuntimeStatusBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly profile = inject(NavigationProfileService);
+  private readonly navigation = inject(ZoomContextService);
+  private readonly resolver = inject(NavigationResolverService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
+  private readonly error = computed(() => this.runtime.lastError(this.context().sourceStateKey));
+  readonly copiedRunId = signal<string | null>(null);
+  readonly copyFailed = signal(false);
   readonly vocab = computed(() => {
+    const phase = this.runtime.phase(this.context().sourceStateKey);
+    if (phase === 'error') return 'error';
+    if (phase === 'loading') return 'running';
     const projected = runtimeDataBinding(this.node())
       ? runtimeSummary(dynamicValue(this.runtime, this.node(), this.context()))
       : undefined;
@@ -998,9 +1043,25 @@ export class RuntimeStatusBlock {
       : str(this.node(), 'status') || this.runtime.run(this.context().sourceStateKey)?.status;
     return mapRunStatus(value);
   });
+  readonly failureDescription = computed(() => {
+    const kind = runtimeFailureKind(this.error() || this.runtime.run(this.context().sourceStateKey)?.error);
+    return this.i18n.t(`experience.runtime.failure.${kind === 'failed' && !this.failureRunId() ? 'failed_without_reference' : kind}`);
+  });
+  readonly failureRunId = computed(() => this.context().mode === 'live' && this.vocab() === 'error'
+    ? runtimeFailureRunId(this.runtime.run(this.context().sourceStateKey), this.error()) : null);
+  readonly inspectableRunId = computed(() => {
+    const id = this.failureRunId(), profile = this.profile.effective();
+    if (!id || (profile.active && profile.advancedAccess !== 'link'
+      && !(profile.advancedAccess === 'admin_only' && profile.admin))) return null;
+    const url = this.navigation.resolveLink({ type: 'run', lens: 'operate', ref: id }).url;
+    return this.resolver.resolve(url) ? null : id;
+  });
   readonly label = computed(() => {
     const vocab = this.vocab();
     if (!vocab) return this.i18n.t('experience.runtime.status.idle');
+    if (vocab === 'error' && runtimeFailureKind(this.error()) === 'status_unknown') {
+      return this.i18n.t('experience.runtime.failure.status_unknown_label');
+    }
     return this.i18n.t(`experience.runtime.status.${vocab}`);
   });
   readonly tone = computed<CkTagTone>(() => {
@@ -1013,11 +1074,23 @@ export class RuntimeStatusBlock {
       case 'retry':
         return 'warn';
       case 'error':
-        return 'neg';
+        return runtimeFailureKind(this.error()) === 'status_unknown' ? 'warn' : 'neg';
       default:
         return 'neutral';
     }
   });
+
+  async copyReference(): Promise<void> {
+    const id = this.failureRunId();
+    if (!id) return;
+    this.copyFailed.set(false);
+    try {
+      await navigator.clipboard.writeText(id);
+      this.copiedRunId.set(id);
+    } catch {
+      this.copyFailed.set(true);
+    }
+  }
 }
 
 @Component({
@@ -1766,7 +1839,9 @@ export class ActionButtonBlock {
         </ul>
       </xp-rt-slot>
       @if (href()) {
-        <a class="xp-rt-link" [routerLink]="href()">{{ href() }}</a>
+        <a class="xp-rt-link xp-rt-link-action" [routerLink]="href()" [attr.aria-label]="linkName()">
+          {{ i18n.t('common.open') }} <span aria-hidden="true">→</span>
+        </a>
       }
     </section>
   `,
@@ -1795,6 +1870,10 @@ export class FeedBlock {
   readonly description = computed(() => appearanceOf(this.node()).description);
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
+  readonly linkName = computed(() =>
+    [this.i18n.t('common.open'), this.title() === this.node().id ? this.description() : this.title()]
+      .filter(Boolean).join(': '),
+  );
   readonly href = computed(() => {
     const value = this.node().props?.['href'];
     if (typeof value !== 'string') return null;

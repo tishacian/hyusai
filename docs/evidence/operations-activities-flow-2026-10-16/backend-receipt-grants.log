@@ -1,0 +1,17 @@
+....................................                                     [100%]
+=============================== warnings summary ===============================
+../../agentium/.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  <venv>/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/services/test_activity_receipt_authorization.py: 61 warnings
+app/tests/services/test_service_contracts.py: 361 warnings
+  <venv>/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_activity_receipt_authorization.py: 25 warnings
+  <repo>/backend/app/services/activity_observability/projection.py:289: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+36 passed, 448 warnings in 4.81s

@@ -11,11 +11,11 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Subject, takeUntil } from 'rxjs';
+import { Subject, Subscription, takeUntil } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
 import { observabilityText, observabilityNumber } from './observability-labels';
-import { observabilitySystemId } from './observability-facets';
+import { observabilitySystemId, observabilityPeriod, observabilityAnchor } from './observability-facets';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { PublicBenchPanelComponent } from './public-bench-panel.component';
 import { BaseChartDirective } from 'ng2-charts';
@@ -95,7 +95,7 @@ const PALETTE = {
       <div actions [style.display]="'inline-flex'" [style.gap.px]="6">
         <button
           type="button"
-          (click)="refresh()"
+          (click)="refreshAnchor()"
           [disabled]="loading()"
           class="ck-mono"
           [style.display]="'inline-flex'"
@@ -143,7 +143,7 @@ const PALETTE = {
 
     <div class="flex gap-4 flex-wrap items-end my-4">
      <label>{{i18n.t('observability.charts.system')}}<select class="ck-surface p-2 block" [ngModel]="systemFilter()" (ngModelChange)="setScope($event,period())"><option value="">{{i18n.t('observability.charts.all_systems')}}</option>@for(system of systems();track system.id){<option [value]="system.id">{{system.name}}</option>}</select></label>
-     <label>{{i18n.t('observability.charts.period')}}<select class="ck-surface p-2 block" [ngModel]="period()" (ngModelChange)="setScope(systemFilter(),$event)"><option value="7d">{{i18n.t('observability.charts.week')}}</option><option value="30d">{{i18n.t('observability.charts.month')}}</option></select></label>
+     <label>{{i18n.t('observability.charts.period')}}<select class="ck-surface p-2 block" [ngModel]="period()" (ngModelChange)="setScope(systemFilter(),$event)"><option value="24h">{{i18n.t('observability.activities.period_day')}}</option><option value="7d">{{i18n.t('observability.charts.week')}}</option><option value="30d">{{i18n.t('observability.charts.month')}}</option></select></label>
     </div>
     @if(loadError()){<p role="alert">{{i18n.t('observability.charts.load_error')}}</p>}
     <app-quality-evidence-charts [rows]="history()" />
@@ -221,7 +221,7 @@ const PALETTE = {
             </div>
           } @else {
             <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-4)'" [style.fontStyle]="'italic'">
-              No {{i18n.t('observability.quality.evaluated')}} in the window.
+              {{i18n.t('observability.charts.empty')}}
             </div>
           }
         </div>
@@ -499,12 +499,14 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   code(category: string, value: unknown): string { return observabilityText(this.i18n, category, value); }
   number(value: number | null | undefined, digits=0): string { return observabilityNumber(value, this.i18n.locale(), digits); }
   date(value: string | null | undefined): string { const d=new Date(value || ''); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(this.i18n.locale()); }
-  periodLabel(): string { return this.i18n.t(this.period()==='30d'?'observability.charts.month':'observability.charts.week'); }
+  periodLabel(): string { return this.i18n.t(this.period()==='24h'?'observability.activities.period_day':this.period()==='30d'?'observability.charts.month':'observability.charts.week'); }
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly cancel = new Subject<void>();
   readonly systemFilter = signal(observabilitySystemId(this.route.snapshot.queryParamMap));
-  readonly period = signal(this.route.snapshot.queryParamMap.get('since') === '30d' ? '30d' : '7d');
+  readonly period = signal(observabilityPeriod(this.route.snapshot.queryParamMap.get('since')));
+  readonly asOf = signal(observabilityAnchor(this.route.snapshot.queryParamMap.get('as_of')));
+  private routeSubscription?: Subscription;
   readonly systems = signal<Array<{id:string;name:string}>>([]);
   readonly loadError = signal(false);
   private readonly navigation = inject(ZoomContextService);
@@ -819,16 +821,18 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => {
-      this.workspace.current()?.id; this.systemFilter(); this.period();
+      this.workspace.current()?.id; this.systemFilter(); this.period(); this.asOf();
       untracked(() => this.refresh());
     });
   }
   setScope(systemId:string,since:string):void {
-    this.systemFilter.set(systemId);this.period.set(since==='30d'?'30d':'7d');
+    this.systemFilter.set(systemId);this.period.set(observabilityPeriod(since));
     void this.router.navigate([],{relativeTo:this.route,queryParams:{systemId:systemId||null,system_id:null,since:this.period()},queryParamsHandling:'merge',replaceUrl:true});
   }
-  ngOnDestroy():void { this.cancel.next();this.cancel.complete(); }
+  refreshAnchor(): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { as_of: new Date().toISOString() }, queryParamsHandling: 'merge' }); }
+  ngOnDestroy():void { this.routeSubscription?.unsubscribe(); this.cancel.next();this.cancel.complete(); }
   ngOnInit(): void {
+    this.routeSubscription = this.route.queryParamMap.subscribe(params => { this.systemFilter.set(observabilitySystemId(params)); this.period.set(observabilityPeriod(params.get('since'))); this.asOf.set(observabilityAnchor(params.get('as_of'), this.asOf())); });
     this.zone.runOutsideAngular(() => {
       const schedule = (window as any).requestIdleCallback ?? window.setTimeout;
       schedule(() => {
@@ -840,7 +844,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   refresh(): void {
     this.cancel.next();this.loading.set(true);this.loadError.set(false);
     this.latest.set(null);this.history.set([]);this.trend.set(null);this.componentHealth.set(null);this.systems.set([]);
-    const scope = {since:this.period(), ...(this.systemFilter()?{system_id:this.systemFilter()}: {})};
+    const scope = {since:this.period(), as_of:this.asOf(), ...(this.systemFilter()?{system_id:this.systemFilter()}: {})};
     this.canonical.listSystems().pipe(takeUntil(this.cancel)).subscribe(rows=>this.systems.set(rows));
     this.api.get<DimensionsResponse>('/evaluation/dimensions').pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => {

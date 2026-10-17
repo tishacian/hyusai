@@ -1137,8 +1137,12 @@ export function publishedNodeExecutor(
                 </a>
               }
               @if (systemId(); as sid) {
-                <app-flow-trigger-controls [systemId]="sid" />
-                <app-flow-triggers-panel [systemId]="sid" />
+                @if (n.type !== 'source.schedule') {
+                  <app-flow-trigger-controls [systemId]="sid" />
+                }
+                @if (n.type === 'source.schedule' || n.type === 'source.webhook') {
+                  <app-flow-triggers-panel [systemId]="sid" [kind]="n.type === 'source.schedule' ? 'schedule' : 'webhook'" />
+                }
               } @else {
                 <p class="ck-flow-hint">{{ i18n.t('flow.inspector.trigger.unavailable') }}</p>
               }

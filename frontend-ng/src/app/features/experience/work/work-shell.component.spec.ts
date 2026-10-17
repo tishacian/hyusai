@@ -8,6 +8,9 @@ import { WorkShellComponent } from './work-shell.component';
 import { signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import type { Run } from '@app/core/canonical-api.service';
+import { hostedWorkPage } from './work-release-pages-nav';
+import { CERTIFIED_RENDERER_VERSION } from '../runtime/model';
+import type { WorkResolve } from './work-catalog';
 
 function decisionHarness() {
   const run = { id: 'run-a', status: 'hitl_pending', flow_sha256: 'version-a', hitl: {
@@ -121,6 +124,7 @@ test('Work editor links preserve the application ID and release context as route
     experienceId: () => 'app-1',
     releaseId: () => 'release-1',
     releaseNumber: () => 3,
+    hostedPage: () => null,
   }) as WorkShellComponent;
 
   const tree = shell.studioLink();
@@ -133,6 +137,81 @@ test('Work editor links preserve the application ID and release context as route
 
   Object.assign(shell, { activePage: () => 'validations', releaseId: () => null, releaseNumber: () => null });
   assert.deepEqual(shell.studioLink().queryParams, { returnTo: '/work/operational-analysis/validations' });
+});
+
+function navigationHarness(requested: string | null) {
+  const serializer = new DefaultUrlSerializer();
+  const document = { pages: [
+    { id: 'requests', title: 'Requests', components: [] },
+    { id: 'capacity', title: 'Capacity', components: [] },
+  ] };
+  const navigations: Array<{ href: string; replaceUrl: boolean }> = [];
+  const shell = Object.assign(Object.create(WorkShellComponent.prototype), {
+    document: () => document,
+    hostedPage: () => hostedWorkPage(document, 'support', { live_href: '/work/support/desk' }),
+    requestedPage: signal(requested), activePage: signal<string | null>(null),
+    slug: () => 'support', showValidations: () => true, announcement: signal(''),
+    i18n: { t: (key: string) => key }, focusRouteTarget: () => undefined,
+    experienceId: () => 'support-app', releaseId: () => 'support-release', releaseNumber: () => 2,
+    router: {
+      url: `/work/support/${requested ?? ''}?returnTo=%2Fwork#context`,
+      parseUrl: (url: string) => serializer.parse(url),
+      navigateByUrl: (url: UrlTree, options: { replaceUrl: boolean }) => {
+        navigations.push({ href: serializer.serialize(url), ...options });
+        return Promise.resolve(true);
+      },
+    },
+  }) as WorkShellComponent;
+  const activate = () => (shell as unknown as { activateRequestedPage(replaceInvalid: boolean): void }).activateRequestedPage(true);
+  return { shell, activate, navigations };
+}
+
+test('page menus, entry redirects and creator returns all resolve the published hosted entry', () => {
+  const { shell, activate, navigations } = navigationHarness('requests');
+  activate();
+  assert.equal(shell.pageHref('requests'), '/work/support/desk');
+  assert.equal(shell.pageHref('capacity'), '/work/support/capacity');
+  assert.equal(shell.pageHref('validations'), '/work/support/validations');
+  assert.deepEqual(navigations, [{ href: '/work/support/desk?returnTo=%2Fwork#context', replaceUrl: true }]);
+  assert.equal(shell.studioLink().queryParams['returnTo'], '/work/support/desk');
+  assert.equal(shell.studioLink().queryParams['pageId'], 'requests');
+});
+
+test('a hosted destination does not redirect itself, and standard pages keep their own route', () => {
+  for (const requested of ['desk', 'capacity', 'validations']) {
+    const { shell, activate, navigations } = navigationHarness(requested);
+    activate();
+    assert.equal(shell.activePage(), requested === 'desk' ? 'requests' : requested);
+    assert.deepEqual(navigations, [], requested);
+  }
+  for (const requested of [null, 'missing']) {
+    const { shell, activate, navigations } = navigationHarness(requested);
+    activate();
+    assert.equal(shell.activePage(), 'requests');
+    assert.equal(navigations[0]?.href, '/work/support/desk?returnTo=%2Fwork#context');
+  }
+});
+
+test('an empty published theme removes a legacy host while a legacy release can still inherit one', () => {
+  for (const releaseTheme of [{}, undefined]) {
+    const shell = Object.assign(Object.create(WorkShellComponent.prototype), {
+      boundSystemIds: signal([]), experienceId: signal(null), releaseId: signal(null), releaseNumber: signal(null),
+      title: signal(''), description: signal(''), emblem: signal(''), channel: signal(null),
+      renderer: signal(null), pinMismatch: signal(false), rawDocument: signal(null), state: signal('loading'),
+      hostedPage: signal(null), theme: signal({}), appearance: signal({}), locales: signal([]), showValidations: signal(false),
+      i18n: { locale: () => 'en', setLocale: () => undefined },
+      activateRequestedPage: () => undefined, watchValidations: () => undefined,
+    }) as WorkShellComponent;
+    const body = {
+      experience: { id: 'support', name: 'Support', slug: 'support', pattern: 'form', theme: { live_href: '/work/support/desk' } },
+      channel: 'live',
+      release: { id: 'release', renderer_version: CERTIFIED_RENDERER_VERSION, theme: releaseTheme,
+        bindings_snapshot: [], pages: { pages: [{ id: 'requests', title: 'Requests', components: [] }] } },
+    } satisfies WorkResolve;
+    (shell as unknown as { open(body: WorkResolve): void }).open(body);
+    assert.equal(shell.state(), 'ready');
+    assert.deepEqual(shell.hostedPage(), releaseTheme === undefined ? { pageId: 'requests', routeSegment: 'desk' } : null);
+  }
 });
 
 test('Work chrome exposes the shared bar and hides the creator hand-off from readers', () => {

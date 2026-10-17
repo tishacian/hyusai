@@ -28,6 +28,7 @@ from app.services.connectors.network_policy import (
     ConnectorNetworkError,
     postgresql_connection_options,
 )
+from app.services.connectors.postgresql_diagnostics import diagnose
 
 MAX_TABLES = 500
 MAX_COLUMNS = 128
@@ -46,12 +47,6 @@ class PostgresBrowseError(Exception):
     def __init__(self, code: str, status: int = 422, sqlstate: str | None = None):
         self.code, self.status, self.sqlstate = code, status, sqlstate
         super().__init__(code)
-
-
-def _sqlstate(exc: BaseException) -> str | None:
-    """The standard five-character SQLSTATE, never the driver's message."""
-    code = getattr(exc, "pgcode", None)
-    return code if isinstance(code, str) and len(code) == 5 and code.isalnum() else None
 
 
 def _canonical(value: Any) -> str:
@@ -97,6 +92,7 @@ def _connection(workspace):
                 connect_timeout=5,
                 application_name="agentium-postgresql-explorer",
             )
+        stage = "query"
         # Catalog rechecks must see DDL committed while we acquired the table
         # lock. The SELECT cursor owns one row snapshot; ACCESS SHARE holds
         # the relation/schema stable through that read.
@@ -105,7 +101,6 @@ def _connection(workspace):
             cursor.execute("SET LOCAL statement_timeout = '5s'")
             cursor.execute("SET LOCAL lock_timeout = '1s'")
             cursor.execute("SET LOCAL idle_in_transaction_session_timeout = '5s'")
-        stage = "query"
         yield connection, config
     except PostgresBrowseError:
         raise
@@ -114,30 +109,18 @@ def _connection(workspace):
     except Exception as exc:
         # Driver strings can contain connection details; only closed codes leave
         # this boundary. It also covers decryption/configuration failures.
-        import psycopg2
-
-        sqlstate = _sqlstate(exc)
-        driver_error = isinstance(exc, psycopg2.Error)
-        # The log keeps what support needs to tell a refused query from an
-        # unreachable server: the stage, the error class and the SQLSTATE.
+        diagnostic = diagnose(exc, stage=stage)
+        # Support can distinguish a refused query from connection failures
+        # using only the stage, the closed diagnostic and the SQLSTATE.
         # The driver's message, which can name the host or the account, stays out.
         logger.warning(
-            "postgresql_explorer.%s_failed error=%s sqlstate=%s",
+            "postgresql_explorer.%s_failed code=%s sqlstate=%s",
             stage,
-            type(exc).__name__,
-            sqlstate or "-",
+            diagnostic.code,
+            diagnostic.sqlstate or "-",
             exc_info=None,
         )
-        if sqlstate == "42501":
-            raise PostgresBrowseError("PG_PERMISSION_DENIED", 403, sqlstate) from None
-        if sqlstate in {"57014", "55P03"}:
-            raise PostgresBrowseError("PG_TIMEOUT", 504, sqlstate) from None
-        if sqlstate in {"42P01", "42703"}:
-            raise PostgresBrowseError("PG_SOURCE_CHANGED", 409, sqlstate) from None
-        if stage == "query" and driver_error:
-            # Connected, then the server refused the statement.
-            raise PostgresBrowseError("PG_QUERY_FAILED", 502, sqlstate) from None
-        raise PostgresBrowseError("PG_UNAVAILABLE", 503, sqlstate) from None
+        raise PostgresBrowseError(diagnostic.code, diagnostic.status, diagnostic.sqlstate) from None
     finally:
         if connection is not None:
             for finish in (connection.rollback, connection.close):

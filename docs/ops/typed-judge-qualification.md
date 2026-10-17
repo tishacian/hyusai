@@ -234,3 +234,67 @@ Validation locale :
 cd backend
 ../.venv/bin/python -m pytest -q app/tests/services/test_typed_judge.py app/tests/services/test_typed_vision.py app/tests/services/test_typed_calibration.py app/tests/services/test_model_execution.py
 ```
+
+## Preuves issues des appels d'un Flow
+
+Depuis le 17 octobre, `evaluate_v2` peut figer une projection explicite des
+sorties de Skills de sa propre exécution. L'inspecteur du juge propose
+« Preuves de l'exécution » : noms des preuves, Skill source, nœud facultatif,
+pointeurs JSON des champs et sources sous-jacentes. Cette configuration est
+publiée dans `config.typed_evaluation.run_evidence` :
+
+```json
+{
+  "sources": [
+    {
+      "id": "proposal",
+      "skill_slug": "proposal_v1",
+      "node_id": "propose",
+      "paths": ["/action", "/reason"],
+      "required": true
+    }
+  ],
+  "native_refs": []
+}
+```
+
+Le bloc complète les questions, le budget et le tarif habituels. Il ne doit
+pas être combiné avec `batch_mode=per_unit` ni avec une entrée `evidence`,
+`asset_ref` ou `subject_ref`. Le sujet et ses références A1 sont dérivés côté
+serveur. Aucun autre Run, identifiant d'appel libre ou extrait fourni par
+l'appelant ne peut remplacer les sources publiées.
+
+Le serveur exige que la dernière tentative de chaque source soit terminée :
+un nouvel échec ne réutilise pas un succès antérieur. Les pointeurs sélectionnent
+des champs explicites, avec une limite de 16 sources, 32 pointeurs par source,
+32 Ko par preuve et 96 Ko au total. Les tableaux sont limités à 128 éléments,
+la profondeur à 12 niveaux ; un dépassement ou un champ absent bloque le juge,
+sans troncature. Les champs de secrets et d'identifiants sensibles reconnus sont
+refusés. La revue des champs sélectionnés reste nécessaire : ce contrôle ne
+détecte pas un secret placé dans un texte libre.
+
+La preuve contient du JSON canonique `{"/action": "...", "/reason": "..."}`.
+Ses citations portent sur ce texte exact. Le manifeste conserve les identités
+des appels, les chemins, l'acteur et les hashes. Les collections observées dans
+les métadonnées des sorties sont ajoutées aux références natives même si le
+champ sélectionné ne contient que le texte ; une collection sans registre
+canonique est refusée. Les autres dépendances (datasets et modèles) peuvent
+être déclarées dans `native_refs` avec `kind` et `id`. Les versions et droits
+sont revérifiés par le juge avant et après l'appel, y compris pour un Run dont
+le contexte initial ne portait pas d'utilisateur : son initiateur persistant
+devient alors l'acteur de lecture. Un Run sans acteur autorisé est refusé.
+
+Le snapshot atteste les observations enregistrées, pas leur véracité ni une
+calibration indépendante. Le fournisseur, le tarif, la qualification et la
+revue humaine conservent leurs contrôles habituels. Le résultat expose les
+questions publiées et reste `disposition=review`. Dans Work, la question, sa
+réponse ou son abstention et sa raison précèdent la décision humaine ; coût,
+couverture et confiance restent accessibles sous « Mesures et périmètre du
+contrôle ». Runs conserve la présentation complète.
+
+Validation locale supplémentaire, avec transport fournisseur simulé :
+
+```bash
+cd backend
+../.venv/bin/python -m pytest -q app/tests/services/test_judge_run_evidence.py
+```

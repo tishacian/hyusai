@@ -5,9 +5,11 @@ System run lists and the object projectors).  Keeping the private-chat and
 migration-managed HITL boundary here prevents a projection from becoming an
 authorization bypass while ``run.read`` rolls out independently.
 """
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
@@ -28,6 +30,49 @@ from app.services.iam.decision_plane import (
 from app.services.run_engine.execution_contract import WORKBENCH_EXECUTION_SURFACES
 
 PRIVATE_CHAT_TRIGGER = "chat_agentic"
+_UNLOADED = object()
+
+
+@dataclass
+class RunReadContext:
+    """Preloaded native IAM inputs for one caller-owned read transaction.
+
+    No resolution is shared across identities or snapshots. The decision plane
+    still evaluates every resource and emits its usual shadow summary.
+    """
+
+    workspace_id: str
+    user_id: str
+    membership: WorkspaceMember | None
+    config: WorkspaceIAMConfig | None
+    session: DBSession
+    transaction: Any
+    mode_cache: ModeResolutionCache = field(default_factory=dict)
+
+    @classmethod
+    def load(cls, db, workspace, user):
+        membership = (
+            db.query(WorkspaceMember)
+            .filter_by(
+                user_id=user.id,
+                workspace_id=workspace.id,
+            )
+            .first()
+        )
+        return cls(
+            workspace.id,
+            user.id,
+            membership,
+            load_iam_config(db, workspace.id, create=False),
+            db,
+            db.get_transaction(),
+        )
+
+    def require_scope(self, workspace, user):
+        if self.workspace_id != workspace.id or self.user_id != user.id:
+            raise ValueError("Read context belongs to another identity or workspace")
+        if self.session.get_transaction() is not self.transaction or not self.transaction.is_active:
+            raise ValueError("Read context expired with its transaction")
 
 
 def is_workbench_run(run: Run) -> bool:
@@ -36,8 +81,7 @@ def is_workbench_run(run: Run) -> bool:
     execution_surface = str(run.execution_surface or "").strip().lower()
     trigger = str(run.trigger or "").strip().lower()
     return (
-        execution_surface in WORKBENCH_EXECUTION_SURFACES
-        or trigger in WORKBENCH_EXECUTION_SURFACES
+        execution_surface in WORKBENCH_EXECUTION_SURFACES or trigger in WORKBENCH_EXECUTION_SURFACES
     )
 
 
@@ -46,21 +90,20 @@ def has_private_chat_admin_access(
     *,
     user: User,
     workspace: Workspace,
+    membership: Any = _UNLOADED,
 ) -> bool:
     if getattr(user, "role", None) == "admin":
         return True
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
+    if membership is _UNLOADED:
+        membership = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.user_id == user.id,
+                WorkspaceMember.workspace_id == workspace.id,
+            )
+            .first()
         )
-        .first()
-    )
-    return bool(
-        membership
-        and is_admin_template(membership.role_template, membership.role)
-    )
+    return bool(membership and is_admin_template(membership.role_template, membership.role))
 
 
 def can_view_private_chat_runs(
@@ -68,23 +111,24 @@ def can_view_private_chat_runs(
     *,
     user: User,
     workspace: Workspace,
+    membership: Any = _UNLOADED,
 ) -> bool:
     """Reviewers and workspace/org admins may inspect all Agentic chat Runs."""
 
-    if has_private_chat_admin_access(db, user=user, workspace=workspace):
+    if has_private_chat_admin_access(db, user=user, workspace=workspace, membership=membership):
         return True
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
+    if membership is _UNLOADED:
+        membership = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.user_id == user.id,
+                WorkspaceMember.workspace_id == workspace.id,
+            )
+            .first()
         )
-        .first()
-    )
     return bool(
         membership
-        and normalize_role_template(membership.role_template, membership.role)
-        == WORKSPACE_REVIEWER
+        and normalize_role_template(membership.role_template, membership.role) == WORKSPACE_REVIEWER
     )
 
 
@@ -108,8 +152,7 @@ def managed_agentic_run_requires_admin(
         decision_ids = [
             checkpoint.get("decision_id")
             for checkpoint in list(run.checkpoints or [])
-            if isinstance(checkpoint, dict)
-            and checkpoint.get("kind") == "hitl_pause"
+            if isinstance(checkpoint, dict) and checkpoint.get("kind") == "hitl_pause"
         ]
         decision_ids = [decision_id for decision_id in decision_ids if decision_id]
         if decision_ids:
@@ -140,8 +183,7 @@ def managed_agentic_run_requires_admin(
     return any(
         isinstance(checkpoint, dict)
         and checkpoint.get("kind") == "hitl_resume"
-        and str(checkpoint.get("decision_status") or "").strip().lower()
-        == "rejected"
+        and str(checkpoint.get("decision_status") or "").strip().lower() == "rejected"
         for checkpoint in list(run.checkpoints or [])
     )
 
@@ -153,6 +195,7 @@ def run_is_visible(
     user: User,
     workspace: Workspace,
     allow_managed_hitl_for_resolution: bool = False,
+    membership: Any = _UNLOADED,
 ) -> bool:
     """Apply the complete pre-v2 Run visibility boundary."""
 
@@ -161,14 +204,13 @@ def run_is_visible(
         run=run,
         workspace=workspace,
     )
-    resolution_may_authorize = (
-        allow_managed_hitl_for_resolution and run.status == "hitl_pending"
-    )
+    resolution_may_authorize = allow_managed_hitl_for_resolution and run.status == "hitl_pending"
     if requires_admin and not resolution_may_authorize:
         return has_private_chat_admin_access(
             db,
             user=user,
             workspace=workspace,
+            membership=membership,
         )
     if is_workbench_run(run):
         if run.initiated_by_user_id == user.id:
@@ -177,12 +219,13 @@ def run_is_visible(
             db,
             user=user,
             workspace=workspace,
+            membership=membership,
         )
     if run.trigger != PRIVATE_CHAT_TRIGGER:
         return True
     if run.initiated_by_user_id == user.id:
         return True
-    return can_view_private_chat_runs(db, user=user, workspace=workspace)
+    return can_view_private_chat_runs(db, user=user, workspace=workspace, membership=membership)
 
 
 def run_read_attrs(run: Run) -> dict[str, Any]:
@@ -201,9 +244,9 @@ def resolve_run_read(
     user: User,
     workspace: Workspace,
     legacy_allowed: bool = True,
-    membership: Optional[WorkspaceMember] = None,
-    config: Optional[WorkspaceIAMConfig] = None,
-    mode_cache: Optional[ModeResolutionCache] = None,
+    membership: WorkspaceMember | None = None,
+    config: WorkspaceIAMConfig | None = None,
+    mode_cache: ModeResolutionCache | None = None,
     audit_shadow_diff: bool = True,
     audit_shadow_evidence: bool = True,
 ) -> ActionResolution:
@@ -229,6 +272,7 @@ def readable_runs(
     runs: list[Run],
     user: User,
     workspace: Workspace,
+    read_context: RunReadContext | None = None,
 ) -> list[Run]:
     """Filter a collection through legacy visibility then granular read."""
 
@@ -238,18 +282,11 @@ def readable_runs(
     # and the IAM config are constant across every Run in this batch, so the
     # engine must not re-issue one lookup per row (the /skills aggregate used
     # to fan out thousands of identical SELECTs here).
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
-        )
-        .first()
-    )
-    config = load_iam_config(db, workspace.id, create=False)
-    mode_cache: ModeResolutionCache = {}
+    context = read_context or RunReadContext.load(db, workspace, user)
+    context.require_scope(workspace, user)
+    membership, config, mode_cache = context.membership, context.config, context.mode_cache
     for run in runs:
-        if not run_is_visible(db, run=run, user=user, workspace=workspace):
+        if not run_is_visible(db, run=run, user=user, workspace=workspace, membership=membership):
             continue
         resolution = resolve_run_read(
             db,
@@ -344,9 +381,9 @@ def resolve_skill_invocation_read(
     user: User,
     workspace: Workspace,
     legacy_allowed: bool = True,
-    membership: Optional[WorkspaceMember] = None,
-    config: Optional[WorkspaceIAMConfig] = None,
-    mode_cache: Optional[ModeResolutionCache] = None,
+    membership: WorkspaceMember | None = None,
+    config: WorkspaceIAMConfig | None = None,
+    mode_cache: ModeResolutionCache | None = None,
     audit_shadow_diff: bool = True,
     audit_shadow_evidence: bool = True,
 ) -> ActionResolution:
@@ -408,6 +445,7 @@ def readable_skill_invocations_for_runs(
     runs: list[Run],
     user: User,
     workspace: Workspace,
+    read_context: RunReadContext | None = None,
 ) -> list[SkillInvocation]:
     """Filter a multi-Run ledger with one aggregate shadow event at most."""
 
@@ -416,16 +454,9 @@ def readable_skill_invocations_for_runs(
     resolutions: list[tuple[str, ActionResolution]] = []
     # Same per-request preload as ``readable_runs``: one membership + one IAM
     # config lookup for the whole batch instead of one per invocation row.
-    membership = (
-        db.query(WorkspaceMember)
-        .filter(
-            WorkspaceMember.user_id == user.id,
-            WorkspaceMember.workspace_id == workspace.id,
-        )
-        .first()
-    )
-    config = load_iam_config(db, workspace.id, create=False)
-    mode_cache: ModeResolutionCache = {}
+    context = read_context or RunReadContext.load(db, workspace, user)
+    context.require_scope(workspace, user)
+    membership, config, mode_cache = context.membership, context.config, context.mode_cache
     for invocation in invocations:
         run = runs_by_id.get(invocation.run_id)
         if run is None:

@@ -508,7 +508,9 @@ def dispatch_import(db, job):
     db.commit()
 
 
-def require_artifact(db, workspace_id: str, artifact_id: str, usage: str | None = None):
+def require_artifact(
+    db, workspace_id: str, artifact_id: str, usage: str | None = None, *, touch: bool = True
+):
     artifact = db.get(HubArtifact, artifact_id, populate_existing=True)
     grant = db.get(HubArtifactGrant, (workspace_id, artifact_id), populate_existing=True)
     if artifact is None or grant is None:
@@ -530,7 +532,8 @@ def require_artifact(db, workspace_id: str, artifact_id: str, usage: str | None 
         and artifact.kind != "model"
     ):
         raise HFError("HF_INCOMPATIBLE_USAGE", "This usage requires a model artifact.", 409)
-    artifact.last_used_at = _now()
+    if touch:
+        artifact.last_used_at = _now()
     return artifact
 
 

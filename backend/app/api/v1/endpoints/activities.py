@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.db.base import SessionLocal, get_db
 from app.models.activity import Activity
 from app.models.user import User
@@ -37,6 +38,8 @@ def features(
     queries.require_membership(db, workspace, user)
     return {
         "enabled": queries.enabled(),
+        "execution_view_enabled": bool(getattr(settings, "execution_view_enabled", False)),
+        "activity_series_enabled": bool(queries.enabled() and getattr(settings, "activity_series_enabled", False)),
         "scopes": ["workspace", "system"] + (["platform"] if is_platform_admin(user) else []),
         "kinds": KINDS,
         "statuses": STATUSES,
@@ -49,6 +52,7 @@ def activities(
     kind: str | None = None,
     status: str | None = None,
     since: datetime | None = None,
+    until: datetime | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
@@ -58,6 +62,12 @@ def activities(
     _access(db, workspace, user)
     if since and since.tzinfo:
         since = since.astimezone(UTC).replace(tzinfo=None)
+    if until:
+        from app.services.observation_window import observation_anchor
+
+        until = observation_anchor(until)
+        if since and since >= until:
+            raise HTTPException(422, detail="ACTIVITY_WINDOW_INVALID")
     return queries.list_activities(
         db,
         workspace,
@@ -66,9 +76,42 @@ def activities(
         kind=kind,
         status=status,
         since=since,
+        until=until,
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/activities/series")
+def activity_series(
+    start: datetime = Query(alias="from"),
+    until: datetime = Query(),
+    metric: str = "activity",
+    kind: str | None = None,
+    status: str | None = None,
+    system_id: str | None = None,
+    bucket: str = "hour",
+    time_basis: str = "created",
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _access(db, workspace, user)
+    if not settings.activity_series_enabled:
+        raise HTTPException(404, detail="ACTIVITY_SERIES_DISABLED")
+    from app.services.activity_observability.series import activity_series as aggregate
+
+    arguments = dict(start=start, until=until, metric=metric, kind=kind,
+                     status=status, system_id=system_id, bucket=bucket, time_basis=time_basis)
+    if db.get_bind().dialect.name == "postgresql":
+        # Dependencies may already have opened a READ COMMITTED transaction.
+        # A dedicated read transaction gives counts and buckets one snapshot.
+        with db.get_bind().connect().execution_options(isolation_level="REPEATABLE READ") as connection:
+            with Session(bind=connection) as current:
+                member, scope = current.get(User, user.id), current.get(Workspace, workspace.id)
+                _access(current, scope, member)
+                return aggregate(current, scope, member, **arguments)
+    return aggregate(db, workspace, user, **arguments)
 
 
 @router.get("/activities/{activity_id}")
@@ -137,6 +180,8 @@ def issue_command(
 def activity_events(
     cursor: str | None = Query(None, max_length=256),
     activity_id: str | None = None,
+    run_id: str | None = None,
+    subtree: bool = False,
     limit: int = Query(100, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -144,7 +189,8 @@ def activity_events(
 ):
     _access(db, workspace, user)
     return queries.event_page(
-        db, workspace, user, cursor=cursor, activity_id=activity_id, limit=limit
+        db, workspace, user, cursor=cursor, activity_id=activity_id, limit=limit,
+        **({"run_id": run_id, "subtree": subtree} if run_id else {})
     )
 
 
@@ -160,7 +206,7 @@ def _frame(event, payload, cursor=None):
     )
 
 
-def _stream_page(workspace_id, user_id, cursor, activity_id, authorization):
+def _stream_page(workspace_id, user_id, cursor, activity_id, authorization, run_id=None, subtree=False):
     # Called independently of traffic on every poll, with a fresh DB session.
     # Long-lived sessions cannot preserve withdrawn membership, role or token.
     if authorization:
@@ -175,12 +221,13 @@ def _stream_page(workspace_id, user_id, cursor, activity_id, authorization):
         user = db.get(User, user_id)
         _access(db, workspace, user)
         return queries.event_page(
-            db, workspace, user, cursor=cursor, activity_id=activity_id, limit=100
+            db, workspace, user, cursor=cursor, activity_id=activity_id, limit=100,
+            **({"run_id": run_id, "subtree": subtree} if run_id else {})
         )
 
 
 async def stream_events(
-    request, workspace_id, user_id, cursor, activity_id, *, poll_s=1.0, lifetime_s=300
+    request, workspace_id, user_id, cursor, activity_id, *, poll_s=1.0, lifetime_s=300, run_id=None, subtree=False
 ):
     started, last_heartbeat = time.monotonic(), 0.0
     yield _frame("snapshot", {"cursor": cursor}, cursor)
@@ -195,8 +242,12 @@ async def stream_events(
                 cursor,
                 activity_id,
                 request.headers.get("authorization"),
+                **({"run_id": run_id, "subtree": subtree} if run_id else {}),
             )
-        except HTTPException:
+        except HTTPException as exc:
+            if exc.status_code in {409, 410}:
+                yield _frame("resync_required", {"code": "ACTIVITY_CURSOR_EXPIRED"})
+                return
             yield _frame("error", {"code": "ACTIVITY_ACCESS_REVOKED"})
             return
         for item in page["items"]:
@@ -215,6 +266,8 @@ def event_stream(
     request: Request,
     cursor: str | None = Query(None, max_length=256),
     activity_id: str | None = None,
+    run_id: str | None = None,
+    subtree: bool = False,
     last_event_id: str | None = Header(None, alias="Last-Event-ID", max_length=256),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -228,9 +281,10 @@ def event_stream(
         or cursor
         or queries.encode_cursor(workspace.id, queries.highwater(db, workspace.id))
     )
-    queries.event_page(db, workspace, user, cursor=cursor, activity_id=activity_id, limit=1)
+    queries.event_page(db, workspace, user, cursor=cursor, activity_id=activity_id, limit=1,
+                       **({"run_id": run_id, "subtree": subtree} if run_id else {}))
     return StreamingResponse(
-        stream_events(request, workspace.id, user.id, cursor, activity_id),
+        stream_events(request, workspace.id, user.id, cursor, activity_id, run_id=run_id, subtree=subtree),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )

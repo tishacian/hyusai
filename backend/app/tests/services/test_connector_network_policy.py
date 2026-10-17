@@ -131,7 +131,7 @@ def test_every_postgresql_entrypoint_pins_and_requires_tls(monkeypatch, consumer
     if consumer == "test":
         assert service._test_postgresql(config["values"], config["secrets"]) == (
             "unreachable",
-            None,
+            "PG_UNAVAILABLE",
         )
     elif consumer == "browser":
         monkeypatch.setattr(postgresql_browser, "get_config", lambda *a, **k: config)

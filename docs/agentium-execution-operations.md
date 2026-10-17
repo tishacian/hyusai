@@ -6,6 +6,14 @@ release et de recette ; sa mise à jour ne réalise aucune opération sur la VM.
 Les résultats locaux historiques sont consignés dans le
 [rapport d'implémentation](agentium-execution-observability-implementation.md).
 
+Le [plan Opérations, Activités et suivi du Flow](agentium-operations-activities-flow-plan.md)
+ajoute une recette de conservation des écrans et de continuité des jobs. Ses
+lots ont une [implémentation et une recette locale séparées](agentium-operations-activities-flow-implementation.md).
+La recette cible doit vérifier Opérations et Activités séparément, ainsi que le
+nuage de points, la matrice des preuves et leurs liens dans Qualité. Les options
+`EXECUTION_VIEW_ENABLED` et `ACTIVITY_SERIES_ENABLED`, fermées par défaut,
+contrôlent les nouvelles lectures sans arrêter le journal existant.
+
 ## État déclaré au 15 octobre 2026
 
 Le [bilan de production](ops/execution-observability-production-2026-10-15.md)

@@ -11,7 +11,7 @@ export interface ClaimSnapshot {
 export interface ClaimProposal {
   claim_id: string; order_id: string; action: string; reason: string; amount: string; currency: string;
   missing_references: string[]; requires_human: boolean; requires_sav_manager: boolean;
-  evidence_kind: string; receipt_id?: string; status?: string;
+  evidence_kind: string; receipt_id?: string; status?: string; executed_at?: string;
   citations: Array<Record<string, unknown>>;
 }
 
@@ -27,6 +27,7 @@ export const CLAIM_TOOL_LABELS: Record<string, string> = {
   ecommerce_delivery_evidence_v1: 'experience.claims.step.delivery',
   ecommerce_refund_evidence_v1: 'experience.claims.step.refund',
   ecommerce_resolution_propose_v1: 'experience.claims.step.proposal',
+  evaluate_v2: 'dataops.judge.result',
   ecommerce_resolution_simulate_v1: 'experience.claims.step.receipt',
 };
 export const CLAIM_REASON_LABELS: Record<string, string> = {
@@ -44,6 +45,22 @@ export const CLAIM_ACTION_LABELS: Record<string, string> = {
   refund: 'experience.claims.action.refund',
   carrier_investigation: 'experience.claims.action.investigation',
 };
+
+/** Receipts belong to the order, including earlier claims on the same order.
+ * A proposal or a receipt from another order must not suppress the action.
+ */
+export function recordedClaimActions(snapshot: ClaimSnapshot | null, proposal: ClaimProposal | null): ClaimProposal[] {
+  const orderId = snapshot?.data.context[0]?.order_id;
+  if (!orderId) return [];
+  const seen = new Set<string>();
+  return [...(proposal ? [proposal] : []), ...(snapshot?.receipts ?? []).slice().reverse()].filter(receipt => {
+    if (!receipt.receipt_id?.trim() || seen.has(receipt.receipt_id) || receipt.order_id !== orderId
+      || receipt.status !== 'simulated' || receipt.evidence_kind !== 'synthetic_demo'
+      || !CLAIM_ACTION_LABELS[receipt.action] || receipt.action === 'request_information') return false;
+    seen.add(receipt.receipt_id);
+    return true;
+  });
+}
 
 /** Only settled server invocations are proposals, never planner prose or a failed call. */
 export function claimRunProjection(run: Run | null): { proposal: ClaimProposal | null; steps: SkillInvocation[] } {
