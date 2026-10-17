@@ -107,6 +107,33 @@ def ml_tree_shap(model_id: str, row: dict, *, label=None) -> dict:
     return answer_for(model_id, row, label=label)
 
 
+def _production_debug_limit() -> int:
+    from app.core.config import settings
+
+    return int(settings.ml_production_debug_time_limit_s)
+
+
+@shared_task(
+    name="agentium.ml_production_debug",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    time_limit=_production_debug_limit(),
+    soft_time_limit=max(10, _production_debug_limit() - 10),
+)
+def ml_production_debug(report_id: str) -> dict:
+    """Analyse one staged production report on the general worker.
+
+    acks_late: the row is the state, and claiming it is a compare-and-swap on
+    ``queued``, so a redelivery after a lost worker is a no-op rather than a
+    second report. The time limit bounds native work; a report left running
+    past twice the limit is expired by the next request or monitoring cycle.
+    """
+
+    from app.services.ml_production_debug import run
+
+    return run(report_id)
+
+
 @shared_task(name="agentium.hf_validate_adapter", acks_late=True, reject_on_worker_lost=True)
 def hf_validate_adapter(job_id: str) -> dict:
     from app.services.huggingface.activation import run_activation

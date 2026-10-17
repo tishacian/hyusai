@@ -885,6 +885,7 @@ class Settings(BaseSettings):
     ml_production_debug_interval_minutes: int = Field(default=1440, ge=5, le=525_600)
     ml_production_debug_time_limit_s: int = Field(default=300, ge=30, le=3600)
     ml_production_debug_max_report_bytes: int = Field(default=200_000, ge=10_000, le=2_000_000)
+    ml_production_debug_history: int = Field(default=50, ge=1, le=500)
     ml_fairness_watch_gap: float = Field(default=0.05, gt=0, le=1)
     ml_fairness_alert_gap: float = Field(default=0.10, gt=0, le=1)
     ml_fairness_min_group_rows: int = Field(default=30, ge=5, le=100_000)

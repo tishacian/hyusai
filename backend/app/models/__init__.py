@@ -299,3 +299,4 @@ from app.services.activity_observability.observer import install_observers
 install_observers()
 
 from app.models.ml_operations import (MLInferenceUsage, MLUsageRollup, MLAlertChannel, MLAlertState, MLAlert, MLAlertDelivery, MLAlertSource)
+from app.models.ml_explanations import MLProductionExplanation  # noqa: E402,F401

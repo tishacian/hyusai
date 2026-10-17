@@ -123,11 +123,13 @@ def _tree_nodes(tree, names, matrix, describe):
     return {"nodes": nodes, "depth": int(t.max_depth), "leaves": int(t.n_leaves)}
 
 
-def error_tree(model, x, y, *, task, seed):
+def error_tree(model, x, y, *, task, seed, predicted=None):
+    # ``predicted`` lets production debugging measure the answers that were
+    # actually served (from the journal) instead of re-predicting them.
     import numpy as np
     from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
     matrix, names = _matrix(model, x)
-    predicted = model.predict(x)
+    predicted = model.predict(x) if predicted is None else np.asarray(predicted)
     errors = (np.asarray(predicted) != np.asarray(y)) if task == "classification" else np.abs(np.asarray(predicted) - np.asarray(y))
     factory = DecisionTreeClassifier if task == "classification" else DecisionTreeRegressor
     tree = factory(max_depth=3, min_samples_leaf=max(20, math.ceil(0.02 * len(x))), random_state=seed).fit(matrix, errors)
@@ -240,12 +242,14 @@ def partial_effect(model, x, feature, *, task, seed):
             **({"class": _scalar(classes[-1])} if task == "classification" else {})}
 
 
-def fairness(model, x, y, groups, *, task):
+def fairness(model, x, y, groups, *, task, predicted=None, classes=None):
+    # Production passes the served answers and the served label vocabulary
+    # (positive class last); training re-predicts with the fitted classes.
     import numpy as np
     import pandas as pd
-    predicted = np.asarray(model.predict(x))
+    predicted = np.asarray(model.predict(x) if predicted is None else predicted)
     truth = np.asarray(y)
-    classes = list(getattr(model, "classes_", []))
+    classes = list(getattr(model, "classes_", [])) if classes is None else list(classes)
     binary = task == "classification" and len(classes) == 2
     positive = classes[-1] if binary else None
     overall_mae = float(np.mean(np.abs(predicted - truth))) if task == "regression" else None
