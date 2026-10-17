@@ -1,7 +1,8 @@
 """Explicit metadata allowlist shared by live hooks and historical snapshots.
 
-No inputs, outputs, checkpoints, errors, SQL, log tails, metrics JSON, model
-parameters or credentials are read by this projector.
+No inputs, outputs, errors, SQL, log tails, metrics JSON, model parameters or
+credentials are projected. Checkpoints/trace are read only through an explicit
+metadata allowlist and retained only as a revision digest.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ STATUS_MAP = {
     "running": "running",
     "training": "running",
     "committing": "running",
+    "waiting": "waiting",
     "waiting_subflows": "waiting",
     "hitl_pending": "waiting",
     "debug_pending": "waiting",
@@ -86,12 +88,20 @@ SOURCE_FIELDS = frozenset(
         "train_duration_ms",
         "provider_cost_usd",
         "cost_measured",
+        "cost",
+        "metrics",
         "cost_usd",
         "cpu_cores",
         "memory_mb",
         "core_hours",
         "reserved_core_hours",
         "deadline_at",
+        "checkpoints",
+        "trace",
+        "node_id",
+        "attempt",
+        "stage",
+        "outcome_unknown",
     }
 )
 
@@ -170,6 +180,11 @@ def metadata(connection, table_name: str, row):
     measurements["cost_basis"] = (
         "infrastructure_allocation" if kind == "compute_run" else "provider_tariff"
     )
+    if kind == "skill_invocation":
+        from .execution_metadata import invocation_cost
+
+        measurements.update(invocation_cost(cost=row.get("cost"), provider_cost_usd=row.get("provider_cost_usd"),
+                                            cost_measured=row.get("cost_measured"), metrics=row.get("metrics")))
     if kind == "compute_run":
         measurements.update(
             {
@@ -178,7 +193,22 @@ def metadata(connection, table_name: str, row):
             }
         )
         measurements["resource_basis"] = "requested_resources_x_wall_time"
+    execution_revision = None
+    if kind == "run":
+        from .execution_metadata import transitions
+
+        # Identity/transition metadata only: no errors, labels, decisions, state,
+        # outputs or timestamps. Token-only writes cannot invalidate this view.
+        public = [{key: value for key, value in item.items() if key != "t"}
+                  for item in transitions(row.get("checkpoints"), row["id"])]
+        if public:
+            execution_revision = hashlib.sha256(json.dumps(public, sort_keys=True).encode()).hexdigest()
+    elif kind == "skill_invocation":
+        from .execution_metadata import correlation
+
+        execution_revision = hashlib.sha256(json.dumps(correlation(row.get("trace")), sort_keys=True).encode()).hexdigest()
     return {
+        **({"execution_revision": execution_revision} if execution_revision else {}),
         "kind": kind,
         "native_id": row["id"],
         "workspace_id": workspace_id,
@@ -186,7 +216,7 @@ def metadata(connection, table_name: str, row):
         "run_id": run_id,
         "owner_id": owner_id,
         "parent_activity_id": parent_id,
-        "status": STATUS_MAP.get(native_status, "unknown"),
+        "status": "unknown" if kind == "compute_run" and row.get("outcome_unknown") is True else STATUS_MAP.get(native_status, "unknown"),
         "native_status": native_status,
         "created_at": iso(created),
         "started_at": iso(row.get("started_at")),

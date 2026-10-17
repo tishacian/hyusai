@@ -1,0 +1,9 @@
+UI chrome budget can be tightened (a sweep landed — please ratchet it down):
+- src/app/features/auth/auth-shell.component.ts.violet: 6 → 3
+- src/app/features/auth/auth-shell.component.ts.pill: 6 → 5
+check-ui-chrome: 438 ratchet hit(s) across 103 file(s) · baseline docs/compliance/ui-chrome-baseline.v1.json
+UI chrome ratchet failed — counts may only go down:
+- src/styles.scss:halo — 7 hit(s), budget is 6
+-     src/styles.scss:201: banned glow halo
+-     src/styles.scss:206: banned glow halo
+-     src/styles.scss:210: banned glow halo

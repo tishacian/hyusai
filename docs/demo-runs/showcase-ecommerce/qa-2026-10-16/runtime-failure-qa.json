@@ -1,0 +1,50 @@
+[
+  {
+    "width": 1440,
+    "height": 1000,
+    "locale": "fr",
+    "theme": "dark",
+    "href": "/runs/qa-forecast-run",
+    "linkDimensions": {
+      "x": 340,
+      "y": 417.921875,
+      "width": 75.5625,
+      "height": 28
+    },
+    "overflow": {
+      "viewport": 1440,
+      "scrollWidth": 1440
+    },
+    "referenceInitiallyCollapsed": true,
+    "clipboard": "qa-forecast-run",
+    "rawErrorVisible": false,
+    "dependencyCopy": "Priorité du dossier\nUne erreur est survenue\n\nCe résultat est indisponible tant que le problème du modèle n’est pas résolu. Contactez le responsable de l’application.",
+    "retryAdviceVisible": false,
+    "axeViolations": 0,
+    "datasetRequests": []
+  },
+  {
+    "width": 390,
+    "height": 844,
+    "locale": "en",
+    "theme": "light",
+    "href": "/runs/qa-forecast-run",
+    "linkDimensions": {
+      "x": 93.5,
+      "y": 622.921875,
+      "width": 72.140625,
+      "height": 28
+    },
+    "overflow": {
+      "viewport": 390,
+      "scrollWidth": 390
+    },
+    "referenceInitiallyCollapsed": true,
+    "clipboard": "qa-forecast-run",
+    "rawErrorVisible": false,
+    "dependencyCopy": "Priorité du dossier\nSomething went wrong\n\nThis result is unavailable until the model issue is resolved. Contact the application owner.",
+    "retryAdviceVisible": false,
+    "axeViolations": 0,
+    "datasetRequests": []
+  }
+]

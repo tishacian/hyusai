@@ -149,6 +149,9 @@ export class ExperienceRuntimeService {
     }
     this.patch(context.stateKey, {
       phase: 'loading',
+      // A rejected submission has no execution of its own. Keep older runs in
+      // history, but never present one as the cause/result of this new action.
+      run: null,
       lastError: null,
       lastInvoke: { context, bindingKey, payload, confirmed, idempotencyKey },
     });

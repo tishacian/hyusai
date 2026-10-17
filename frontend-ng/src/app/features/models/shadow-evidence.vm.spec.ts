@@ -26,5 +26,8 @@ test('unmeasured shadow evidence remains distinct from true zero in both languag
 test('public refusal codes have stable copy while unknown worker failures use a safe fallback', () => {
   assert.equal(shadowErrorKey('ML_SHADOW_FORBIDDEN'), 'models.shadow.error.forbidden');
   assert.equal(shadowErrorKey('ML_SHADOW_TIMEOUT'), 'models.shadow.error.timeout');
+  assert.equal(shadowErrorKey('ML_SHADOW_SERVING_UNAVAILABLE'), 'models.shadow.error.serving_unavailable');
+  assert.equal(shadowErrorKey('ML_ARTIFACT_LEGACY_UNSUPPORTED'), 'models.serving.error.ml_artifact_legacy_unsupported');
+  assert.equal(shadowErrorKey('ML_ARTIFACT_RUNTIME_MISMATCH'), 'models.serving.error.ml_artifact_runtime_mismatch');
   assert.equal(shadowErrorKey('private path /srv/model'), 'models.shadow.error.failed');
 });

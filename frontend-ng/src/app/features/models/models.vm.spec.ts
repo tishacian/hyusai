@@ -59,6 +59,8 @@ import {
   pipelineHops,
   provenanceLineParams,
   servingErrorKey,
+  servingStatusKey,
+  type ServingBlock,
   splitError,
   targetCandidates,
   taskIcon,
@@ -1339,4 +1341,14 @@ test('algorithms requiring unprovisioned models are not offered while old catalo
     {key:'forest',tasks:['regression'],available:true},
   ]} as ModelCatalog;
   assert.deepEqual(algosForTask(catalog,'forecasting').map((algo) => algo.key), ['linear']);
+});
+
+
+test('serving labels distinguish selection, training and callable state', () => {
+  const selected = {enabled: true, callable: false, is_serving: true} as ServingBlock;
+  assert.equal(servingStatusKey(selected), 'models.readiness.blocked');
+  assert.equal(servingStatusKey({...selected, callable: true}), 'models.readiness.ready');
+  assert.equal(servingStatusKey({...selected, enabled: false}), 'models.readiness.disabled');
+  assert.equal(servingStatusKey(null), 'models.readiness.checking');
+  assert.equal(servingErrorKey('ML_ARTIFACT_RUNTIME_UNVERIFIED'), 'models.serving.error.ml_artifact_runtime_unverified');
 });

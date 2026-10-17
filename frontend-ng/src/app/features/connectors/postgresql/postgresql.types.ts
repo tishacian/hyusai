@@ -12,6 +12,10 @@ export const PG_ERROR_CODES: ReadonlySet<string> = new Set([
   'PG_QUERY_FAILED', 'PG_TABLE_NOT_ACCESSIBLE', 'PG_CATALOG_TOO_LARGE', 'PG_TOO_MANY_COLUMNS',
   'PG_SELECTION_INVALID', 'PG_RESULT_TOO_LARGE', 'PG_IMPORT_ROW_LIMIT', 'PG_UNSUPPORTED_VALUE',
   'PG_DATASETS_DISABLED', 'PG_REQUEST_CONFLICT', 'PG_NAME_INVALID', 'WORKSPACE_PERMISSION_DENIED',
+  'PG_AUTH_FAILED', 'PG_DATABASE_NOT_FOUND', 'PG_TLS_TRUST_REQUIRED', 'PG_TLS_VERIFICATION_FAILED',
+  'PG_TLS_UNAVAILABLE', 'PG_TLS_FAILED', 'PG_CONNECTION_REFUSED', 'PG_CONNECTION_TIMEOUT',
+  'CONNECTOR_HOST_INVALID', 'CONNECTOR_PORT_INVALID', 'CONNECTOR_NETWORK_POLICY_INVALID',
+  'CONNECTOR_DNS_FAILED', 'CONNECTOR_DESTINATION_DENIED',
 ]);
 
 export interface PgFailure {
@@ -19,6 +23,17 @@ export interface PgFailure {
   code: string;
   /** The standard SQLSTATE the server reported, for support; never server text. */
   sqlstate: string | null;
+}
+
+export interface PgTestResult { status: string; checked_at: string; detail?: unknown; }
+
+/** Test failures are HTTP 200 outcomes; accept only the same closed diagnostics. */
+export function pgTestFailure(result: PgTestResult): PgFailure | null {
+  if (result.status === 'connected') return null;
+  const code = typeof result.detail === 'string' && PG_ERROR_CODES.has(result.detail) ? result.detail
+    : result.status === 'auth_failed' ? 'PG_AUTH_FAILED'
+    : result.status === 'not_configured' ? 'PG_NOT_CONFIGURED' : 'PG_UNAVAILABLE';
+  return { code, sqlstate: null };
 }
 
 export function pgFailure(error: unknown): PgFailure {

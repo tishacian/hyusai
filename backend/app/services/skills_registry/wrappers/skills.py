@@ -2894,6 +2894,7 @@ async def _ml_train_sklearn_v1(
     def _submit() -> str:
         with SessionLocal() as db:
             from app.services.ml_permissions import require_context
+
             actor = require_context(db, "train", str(workspace_id), ctx)
             from app.services.ml_methodology import validate_training_method
 
@@ -3065,6 +3066,7 @@ async def _ml_predict_v1(
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
             from app.services.ml_permissions import require_context
+
             require_context(db, "predict", str(workspace_id), ctx)
             model = _resolve_model(db, spec, workspace_id)
             answer = predict_rows(
@@ -3122,6 +3124,7 @@ async def _ml_batch_score_v1(
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
             from app.services.ml_permissions import require_context
+
             require_context(db, "score", str(workspace_id), ctx)
             model = _resolve_model(db, spec, workspace_id)
             dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
@@ -3152,6 +3155,7 @@ async def _ml_batch_score_v1(
         def submit():
             with SessionLocal() as db:
                 from app.services.ml_permissions import require_context
+
                 require_context(db, "score", str(workspace_id), ctx)
                 model = _resolve_model(db, spec, workspace_id)
                 row = submit_score(
@@ -3169,6 +3173,7 @@ async def _ml_batch_score_v1(
         identifier = await asyncio.to_thread(submit)
         if ctx.get("_native_submission_only") is True:
             from app.services.execution.runtimes.deferred import DeferredNativeExecution
+
             return DeferredNativeExecution("recipe_execution", identifier)
         status, output, error, _ = await _await_managed_execution(
             identifier, deadline=time.monotonic() + app_settings.dataops_t0_max_timeout_s + 30
@@ -3238,6 +3243,7 @@ async def _ml_forecast_v1(
     def _submit() -> str:
         with SessionLocal() as db:
             from app.services.ml_permissions import require_context
+
             require_context(db, "predict", str(workspace_id), ctx)
             model = _resolve_model(db, spec, str(workspace_id))
             takes_future = any(
@@ -3277,7 +3283,13 @@ async def _ml_forecast_v1(
             row = db.query(TabularDataset).filter(TabularDataset.id == output_id).first()
             if row is None:
                 raise RuntimeError("ml_forecast_dataset_missing")
-            return row.status, row.error, dataset_reference(row), dict(row.lineage_json or {}), row.row_count
+            return (
+                row.status,
+                row.error,
+                dataset_reference(row),
+                dict(row.lineage_json or {}),
+                row.row_count,
+            )
 
     def _expire() -> None:
         with SessionLocal() as db:
@@ -7352,7 +7364,9 @@ def _connector_skill_call(call, payload, ctx):
         return call(db, payload, ctx or {})
     except ValidationError:
         db.rollback()
-        raise SkillBindingError("CONNECTOR_PARAMETERS_INVALID", "CONNECTOR_PARAMETERS_INVALID") from None
+        raise SkillBindingError(
+            "CONNECTOR_PARAMETERS_INVALID", "CONNECTOR_PARAMETERS_INVALID"
+        ) from None
     except Exception as exc:
         db.rollback()
         code = getattr(exc, "code", "CONNECTOR_SKILL_FAILED")
@@ -7393,6 +7407,7 @@ async def _data_prep_v1(payload, ctx=None):
     identifier = await asyncio.to_thread(submit)
     if ctx.get("_native_submission_only") is True:
         from app.services.execution.runtimes.deferred import DeferredNativeExecution
+
         return DeferredNativeExecution("recipe_execution", identifier)
     status, output, error, _ = await _await_managed_execution(
         identifier, deadline=time.monotonic() + settings.dataops_t0_max_timeout_s + 30
@@ -7417,6 +7432,13 @@ async def _evaluate_v2(payload, ctx=None):
         raise ValueError("TYPED_EVALUATION_GRAPH_CONFIG_REQUIRED")
     config = dict(block.get("typed_evaluation") or {})
     data = {key: value for key, value in payload.items() if not key.startswith("_")}
+    run_evidence = config.pop("run_evidence", None)
+    if run_evidence is not None and (
+        any(key in data for key in ("evidence", "asset_ref", "subject_ref"))
+        or any(key in config for key in ("evidence", "asset_ref", "subject_ref"))
+        or config.get("batch_mode", "single") != "single"
+    ):
+        raise ValueError("JUDGE_RUN_EVIDENCE_INPUT_CONFLICT")
     config.update({key: data[key] for key in ("evidence", "subject_ref") if key in data})
     from app.db.base import SessionLocal
     from app.services.service_engine import window_for_run
@@ -7437,6 +7459,12 @@ async def _evaluate_v2(payload, ctx=None):
     if batch_mode not in {"single", "per_unit"}:
         raise ValueError("JUDGE_BATCH_MODE_INVALID")
     reference = data.get("asset_ref")
+    if run_evidence is not None:
+        from app.services.evaluation.run_evidence import capture_run_evidence, run_evidence_context
+
+        with SessionLocal() as db:
+            ctx = run_evidence_context(db, ctx)
+            reference = capture_run_evidence(db, ctx, run_evidence, node_id=block.get("node_id"))
     if batch_mode == "per_unit":
         if not reference:
             raise ValueError("JUDGE_BATCH_ASSET_REQUIRED")

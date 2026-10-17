@@ -23,8 +23,14 @@ import { shadowConfig, shadowErrorKey, shadowValue, type ShadowReport } from './
             @else { · {{ i18n.t('models.shadow.error.no_challenger') }} }
           </p>
           <p data-testid="shadow-state">{{ i18n.t(report.config.enabled ? 'models.shadow.enabled' : 'models.shadow.disabled') }}</p>
+          @if (report.readiness?.can_enable === false) {
+            <p data-testid="shadow-readiness" role="status">
+              @if (report.readiness?.challenger_id) { {{ i18n.t('models.shadow.challenger_unavailable') }} }
+              {{ i18n.t(reason(report.readiness?.reason ?? 'ML_SHADOW_SERVING_UNAVAILABLE')) }}
+            </p>
+          }
           <div class="settings">
-            <label class="enable"><input type="checkbox" data-testid="shadow-enabled" [checked]="enabled()" [disabled]="!editable() || busy()" (change)="enabled.set($any($event.target).checked)" />{{ i18n.t('models.shadow.enable') }}</label>
+            <label class="enable"><input type="checkbox" data-testid="shadow-enabled" [checked]="enabled()" [disabled]="!editable() || busy() || (!enabled() && report.readiness?.can_enable === false)" (change)="enabled.set($any($event.target).checked)" />{{ i18n.t('models.shadow.enable') }}</label>
             <label>{{ i18n.t('models.shadow.sample') }}<input type="number" data-testid="shadow-sample" min="1" max="100" step="1" [value]="sample()" [disabled]="!editable() || busy()" (input)="sample.set($any($event.target).value)" /></label>
             <label>{{ i18n.t('models.shadow.timeout') }}<input type="number" data-testid="shadow-timeout" min="1" max="60" step="1" [value]="timeout()" [disabled]="!editable() || busy()" (input)="timeout.set($any($event.target).value)" /></label>
             @if (editable()) { <button type="button" data-testid="shadow-save" [disabled]="busy() || !config()" (click)="save()">{{ i18n.t('models.shadow.save') }}</button> }
@@ -87,7 +93,8 @@ export class ShadowEvidenceComponent {
   readonly error = signal('');
   readonly forbidden = signal(false);
   readonly editable = computed(() => this.evidence()?.supported === true && this.evidence()?.can_configure === true && !this.forbidden());
-  readonly config = computed(() => shadowConfig(this.enabled(), this.sample(), this.timeout()));
+  readonly config = computed(() => this.enabled() && this.evidence()?.readiness?.can_enable === false
+    ? null : shadowConfig(this.enabled(), this.sample(), this.timeout()));
   readonly countKeys = ['jobs', 'completed', 'pending', 'failed', 'skipped'] as const;
   private generation = 0;
   private seeded = '';

@@ -1,0 +1,30 @@
+
+Running 18 tests using 1 worker
+
+(node:90763) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+(node:90763) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/18] [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:62:9 › Activity observability — isolated browser fixture › fr/1440: exact totals, scoped filters, native evidence and cancellation request
+[2/18] [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:62:9 › Activity observability — isolated browser fixture › en/390: exact totals, scoped filters, native evidence and cancellation request
+[3/18] [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:86:7 › Activity observability — isolated browser fixture › revocation clears an open activity and a disconnected stream resumes its cursor
+[4/18] [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:94:7 › Activity observability — isolated browser fixture › feature disabled exposes only the existing operations view
+[5/18] [chromium] › e2e/tests/59-activity-observability-mocked.spec.ts:98:7 › Activity observability — isolated browser fixture › platform aggregates require the server capability and do not expose cross-workspace activities
+[6/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › fr/dark/activities=true: operations, quality points, matrix, radar, history and exact evidence
+[7/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › fr/dark/activities=false: operations, quality points, matrix, radar, history and exact evidence
+[8/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › fr/light/activities=true: operations, quality points, matrix, radar, history and exact evidence
+[9/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › fr/light/activities=false: operations, quality points, matrix, radar, history and exact evidence
+[10/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › en/dark/activities=true: operations, quality points, matrix, radar, history and exact evidence
+[11/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › en/dark/activities=false: operations, quality points, matrix, radar, history and exact evidence
+[12/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › en/light/activities=true: operations, quality points, matrix, radar, history and exact evidence
+[13/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:6:107 › en/light/activities=false: operations, quality points, matrix, radar, history and exact evidence
+[14/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:22:5 › legacy links, slow discovery and errors do not replace Operations or fabricate empty activities
+[15/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:27:5 › frozen Flow, retry history, parallel work, fixed selection, no draft calls, reconnection and revocation
+[16/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:38:5 › old Run without snapshot is honest and a foreign activity cannot select a node
+[17/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:42:5 › series keep unknown duration and partial cost coverage, without parent costs
+[18/18] [chromium] › e2e/tests/65-operations-flow-preservation-mocked.spec.ts:48:5 › Flow read capability without activity journal stays a manual snapshot and opens no SSE
+  18 passed (1.4m)

@@ -1,0 +1,40 @@
+{
+  "applied": false,
+  "activation_ready": false,
+  "activation_status": "blocked",
+  "model_pin_qualified": false,
+  "blockers": [
+    "SLA_SERVING_NOT_READY",
+    "PINNED_SLA_INFERENCE_PROOF_REQUIRED"
+  ],
+  "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+  "target_flow_sha256": "67a0903b4ba2ddb66faa38f725d3fff6d271e930eb6ea01516469fbd886d322e",
+  "configuration_sha256": "c0594690e05acd859ac139a1b2703a1e89f5675572544f8b62f8cd41fdff4c98",
+  "nodes": 27,
+  "edges": 28,
+  "ingresses": [
+    "source.request",
+    "source.queue",
+    "source.forecast",
+    "source.claim_arrival",
+    "source.queue_schedule"
+  ],
+  "preserved_unpublished_node_ids": [
+    "flow.mv95zi21.1"
+  ],
+  "judge_node": "quality.review",
+  "event_ingresses": [
+    "source.claim_arrival",
+    "source.queue_schedule"
+  ],
+  "model_pin": {
+    "model_id": "cd2d0692-7586-4e19-b541-8363118e031c",
+    "version": 3,
+    "prediction_id": null,
+    "captured_at": null
+  },
+  "human_review_required": true,
+  "calibration_profile": null,
+  "triggers_enabled": false,
+  "model_promotion": false
+}

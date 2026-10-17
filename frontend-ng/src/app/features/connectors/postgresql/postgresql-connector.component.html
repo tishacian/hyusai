@@ -9,6 +9,7 @@
       <app-icon name="alert-triangle" [size]="16" />
       <div class="pg-failure-text">
         <p>{{ i18n.t('connectors.pg.error.' + failure.code) }}</p>
+        <p class="pg-failure-ref ck-mono">{{ failure.code }}</p>
         @if (failure.sqlstate) { <p class="pg-failure-ref ck-mono">{{ i18n.t('connectors.pg.sqlstate', { code: failure.sqlstate }) }}</p> }
       </div>
       @if (failure.retry) {
@@ -51,7 +52,7 @@
         </div>
       </div>
       @if (testResult(); as result) {
-        @if (result.status !== 'connected') { <p class="pg-note" data-testid="pg-test-failed">{{ i18n.t('connectors.pg.test_failed') }} · {{ formattedTime(result.checked_at) }}</p> }
+        @if (result.status !== 'connected') { <p class="pg-note" data-testid="pg-test-failed">{{ i18n.t('connectors.pg.test_checked', { at: formattedTime(result.checked_at) }) }}</p> }
       }
     }
     @if (editOpen()) {

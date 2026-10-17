@@ -355,7 +355,9 @@ async def test_artifact_node_calls_recheck_grants_and_keep_provenance(hub, monke
     monkeypatch.setattr(
         serving_nodes.settings,
         "llm_serving_nodes_json",
-        json.dumps([{"name": "gpu", "base_url": "http://node.example:9000", "token": "node-token"}]),
+        json.dumps(
+            [{"name": "gpu", "base_url": "http://node.example:9000", "token": "node-token"}]
+        ),
     )
     registered = registration.sync_from_node_snapshots(
         [
@@ -410,3 +412,58 @@ async def test_artifact_node_calls_recheck_grants_and_keep_provenance(hub, monke
         ]
     finally:
         registration.clear_routable_providers()
+
+
+def test_foundation_readiness_checks_grants_without_touching_use_or_cache(hub, monkeypatch):
+    from app.services import tabular_predict
+    from app.services.huggingface.adapters import require_model_foundation
+    from app.services.tabular_datasets import TabularError
+
+    db, workspace, _ = hub
+    artifact, job = request(db, workspace)
+    publish(db, artifact, job)
+    model = SimpleNamespace(
+        id="derived",
+        workspace_id=workspace.id,
+        family="forecasting_deep",
+        params_json={"foundation": {"artifact_id": artifact.id}},
+    )
+    monkeypatch.setattr(
+        tabular_predict,
+        "drop_from_cache",
+        lambda *_: pytest.fail("Status must not mutate the model cache"),
+    )
+    assert artifact.last_used_at is None
+    require_model_foundation(model, db, read_only=True)
+    assert artifact.last_used_at is None
+    assert not db.dirty
+    registry.revoke_grant(db, workspace.id, artifact.id, actor="admin", reason="withdrawn")
+    with pytest.raises(TabularError) as error:
+        require_model_foundation(model, db, read_only=True)
+    assert error.value.code == "HF_ACCESS_REVOKED"
+    assert artifact.last_used_at is None
+
+
+def test_foundation_readiness_checks_workspace_pilot_admission_without_eviction(monkeypatch):
+    from app.core.config import settings
+    from app.services import tabular_predict
+    from app.services.huggingface.adapters import require_model_foundation
+    from app.services.tabular_datasets import TabularError
+
+    monkeypatch.setattr(settings, "ml_tabicl_enabled", True)
+    monkeypatch.setattr(settings, "ml_tabicl_workspaces", ["allowed"])
+    monkeypatch.setattr(
+        tabular_predict,
+        "drop_from_cache",
+        lambda *_: pytest.fail("Status must not mutate the model cache"),
+    )
+    model = SimpleNamespace(
+        id="derived",
+        workspace_id="not-allowed",
+        family="tabular_foundation",
+        task="classification",
+        spec_json={},
+    )
+    with pytest.raises(TabularError) as error:
+        require_model_foundation(model, read_only=True)
+    assert error.value.code == "ML_FAMILY_UNAVAILABLE"

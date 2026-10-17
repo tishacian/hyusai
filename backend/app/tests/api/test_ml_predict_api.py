@@ -98,15 +98,20 @@ def session_client(app_and_client, workspace, user, db_session) -> TestClient:
     because it resolves them itself in order to be able to fall back to a key.
     """
 
-    db_session.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="admin", role_template="workspace_admin"))
+    db_session.add(
+        WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="admin",
+            role_template="workspace_admin",
+        )
+    )
     db_session.commit()
     app, client = app_and_client
     app.dependency_overrides[ml_models_api.get_current_workspace] = lambda: workspace
     app.dependency_overrides[ml_models_api.get_current_user] = lambda: user
-    app.dependency_overrides[ml_models_api.predict_caller] = (
-        lambda: ml_models_api.PredictCaller(
-            workspace_id=workspace.id, kind="session", user_id=user.id
-        )
+    app.dependency_overrides[ml_models_api.predict_caller] = lambda: ml_models_api.PredictCaller(
+        workspace_id=workspace.id, kind="session", user_id=user.id
     )
     return client
 
@@ -145,9 +150,7 @@ def model(db_session, workspace, churn_artifact, app_and_client) -> MLModel:
     )
     db_session.add(row)
     db_session.flush()
-    uri, size = upload_model_dir(
-        directory, workspace_id=workspace.id, model_id=row.id
-    )
+    uri, size = upload_model_dir(directory, workspace_id=workspace.id, model_id=row.id)
     row.model_uri = uri
     row.artifact_bytes = size
     db_session.commit()
@@ -166,9 +169,7 @@ def _row(**overrides) -> dict:
 
 
 def test_the_mlflow_serving_shape_is_what_the_endpoint_takes(session_client, model):
-    response = session_client.post(
-        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
-    )
+    response = session_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]})
 
     assert response.status_code == 200
     body = response.json()
@@ -182,12 +183,8 @@ def test_the_mlflow_serving_shape_is_what_the_endpoint_takes(session_client, mod
 
 
 @pytest.mark.parametrize("field", ["inputs", "dataframe_records", "rows"])
-def test_every_accepted_spelling_of_the_batch_reaches_the_model(
-    session_client, model, field
-):
-    response = session_client.post(
-        f"/ml-models/{model.id}/predict", json={field: [_row()]}
-    )
+def test_every_accepted_spelling_of_the_batch_reaches_the_model(session_client, model, field):
+    response = session_client.post(f"/ml-models/{model.id}/predict", json={field: [_row()]})
 
     assert response.status_code == 200
     assert response.json()["rows"] == 1
@@ -214,9 +211,7 @@ def test_a_field_the_model_never_saw_is_a_422_that_names_it(session_client, mode
     assert "roaming" in detail["message"]
 
 
-def test_a_missing_field_is_refused_instead_of_being_scored_as_a_hole(
-    session_client, model
-):
+def test_a_missing_field_is_refused_instead_of_being_scored_as_a_hole(session_client, model):
     response = session_client.post(
         f"/ml-models/{model.id}/predict", json={"inputs": [{"plan": "prepaid"}]}
     )
@@ -301,9 +296,7 @@ def test_a_row_for_a_version_off_the_alias_is_refused_unless_that_version_is_nam
 
     # Unpinned the alias answers, and the alias is v1, which was fitted on four
     # columns: v2's row is missing two of them and is rightly refused.
-    unpinned = session_client.post(
-        f"/ml-models/{challenger.id}/predict", json={"inputs": [row]}
-    )
+    unpinned = session_client.post(f"/ml-models/{challenger.id}/predict", json={"inputs": [row]})
     assert unpinned.status_code == 422
     assert unpinned.json()["detail"]["code"] == "ML_PREDICT_FIELD_MISSING"
 
@@ -319,9 +312,7 @@ def test_a_row_for_a_version_off_the_alias_is_refused_unless_that_version_is_nam
     assert body["predictions"][0]["prediction"] in {"0", "1"}
 
 
-def test_naming_the_champions_own_version_is_accepted_too(
-    session_client, model, challenger
-):
+def test_naming_the_champions_own_version_is_accepted_too(session_client, model, challenger):
     """So the pin is not a special case the serving card has to avoid."""
 
     response = session_client.post(
@@ -332,12 +323,8 @@ def test_naming_the_champions_own_version_is_accepted_too(
     assert response.json()["served"]["version"] == 1
 
 
-def test_an_explanation_is_returned_only_when_the_caller_asks_for_one(
-    session_client, model
-):
-    plain = session_client.post(
-        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
-    ).json()
+def test_an_explanation_is_returned_only_when_the_caller_asks_for_one(session_client, model):
+    plain = session_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}).json()
     explained = session_client.post(
         f"/ml-models/{model.id}/predict",
         json={"inputs": [_row(support_tickets=6, tenure_months=2)], "explain": True},
@@ -369,9 +356,7 @@ def test_a_scoped_key_calls_the_endpoint_without_any_workspace_session(
 
 
 def test_no_credential_at_all_is_a_401(key_client, model):
-    response = key_client.post(
-        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
-    )
+    response = key_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]})
 
     assert response.status_code == 401
 
@@ -426,9 +411,7 @@ def test_a_key_is_scoped_to_its_own_model_and_cannot_call_a_sibling(
     )
     db_session.add(other)
     db_session.flush()
-    uri, _size = upload_model_dir(
-        directory, workspace_id=workspace.id, model_id=other.id
-    )
+    uri, _size = upload_model_dir(directory, workspace_id=workspace.id, model_id=other.id)
     other.model_uri = uri
     db_session.commit()
     _key, secret = tabular_predict.mint_api_key(db_session, model=model)
@@ -443,9 +426,7 @@ def test_a_key_is_scoped_to_its_own_model_and_cannot_call_a_sibling(
     assert response.json()["detail"]["code"] == "ML_KEY_WRONG_MODEL"
 
 
-def test_a_key_only_opens_the_predict_route_and_nothing_else(
-    db_session, key_client, model
-):
+def test_a_key_only_opens_the_predict_route_and_nothing_else(db_session, key_client, model):
     _key, secret = tabular_predict.mint_api_key(db_session, model=model)
     headers = {"X-API-Key": secret}
 
@@ -461,9 +442,7 @@ def test_a_key_only_opens_the_predict_route_and_nothing_else(
 def test_a_session_cannot_predict_with_a_model_of_another_workspace(
     db_session, session_client, churn_artifact
 ):
-    other = Workspace(
-        id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
-    )
+    other = Workspace(id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={})
     db_session.add(other)
     db_session.commit()
     foreign = MLModel(
@@ -482,9 +461,7 @@ def test_a_session_cannot_predict_with_a_model_of_another_workspace(
     db_session.add(foreign)
     db_session.commit()
 
-    response = session_client.post(
-        f"/ml-models/{foreign.id}/predict", json={"inputs": [_row()]}
-    )
+    response = session_client.post(f"/ml-models/{foreign.id}/predict", json={"inputs": [_row()]})
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "ML_MODEL_NOT_FOUND"
@@ -496,9 +473,7 @@ def test_a_session_cannot_predict_with_a_model_of_another_workspace(
 
 
 def test_minting_returns_the_secret_once_and_never_again(session_client, model):
-    minted = session_client.post(
-        f"/ml-models/{model.id}/keys", json={"name": "Demo cURL"}
-    )
+    minted = session_client.post(f"/ml-models/{model.id}/keys", json={"name": "Demo cURL"})
 
     assert minted.status_code == 200
     body = minted.json()
@@ -515,9 +490,7 @@ def test_minting_returns_the_secret_once_and_never_again(session_client, model):
     assert listed["keys"][0]["prefix"] == secret[:12]
 
 
-def test_revoking_a_key_from_the_card_keeps_it_visible_as_revoked(
-    session_client, model
-):
+def test_revoking_a_key_from_the_card_keeps_it_visible_as_revoked(session_client, model):
     key = session_client.post(f"/ml-models/{model.id}/keys", json={}).json()["key"]
 
     response = session_client.delete(f"/ml-models/{model.id}/keys/{key['id']}")
@@ -574,9 +547,7 @@ def test_publishing_from_the_card_returns_the_skill_and_marks_the_lineage(
     assert db_session.query(Skill).filter(Skill.slug == skill["slug"]).count() == 1
 
 
-def test_withdrawing_from_the_card_removes_it_from_the_catalog(
-    db_session, session_client, model
-):
+def test_withdrawing_from_the_card_removes_it_from_the_catalog(db_session, session_client, model):
     slug = session_client.post(f"/ml-models/{model.id}/publish").json()["skill"]["slug"]
 
     response = session_client.delete(f"/ml-models/{model.id}/publish")
@@ -588,29 +559,21 @@ def test_withdrawing_from_the_card_removes_it_from_the_catalog(
     assert db_session.query(Skill).filter(Skill.slug == slug).count() == 0
 
 
-def test_serving_is_reported_as_off_when_the_plane_is_disabled(
-    session_client, model, monkeypatch
-):
+def test_serving_is_reported_as_off_when_the_plane_is_disabled(session_client, model, monkeypatch):
     monkeypatch.setattr(settings, "ml_predict_enabled", False)
 
     block = session_client.get(f"/ml-models/{model.id}/keys").json()["serving"]
 
     # The card has to know before it renders a Predict button.
     assert block["enabled"] is False and block["callable"] is False
-    response = session_client.post(
-        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
-    )
+    response = session_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]})
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "ML_PREDICT_DISABLED"
 
 
 def test_each_predict_call_returns_a_fresh_prediction_id(session_client, model):
-    first = session_client.post(
-        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
-    ).json()
-    second = session_client.post(
-        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
-    ).json()
+    first = session_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}).json()
+    second = session_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}).json()
     assert first["prediction_id"] != second["prediction_id"]
 
 
@@ -655,31 +618,70 @@ def test_a_predict_call_shows_up_on_the_monitoring_window(session_client, model)
 
 @pytest.fixture(scope="module")
 def regression_artifact(tmp_path_factory):
-    return fit_churn_artifact(tmp_path_factory.mktemp("interval-api-fit"), task="regression", target="arpu")
+    return fit_churn_artifact(
+        tmp_path_factory.mktemp("interval-api-fit"), task="regression", target="arpu"
+    )
 
 
 @pytest.mark.parametrize("authentication", ["session", "key"])
-def test_interval_level_reaches_regression_for_both_authentication_paths(request, db_session, model, regression_artifact, authentication):
+def test_interval_level_reaches_regression_for_both_authentication_paths(
+    request, db_session, model, regression_artifact, authentication
+):
     directory, summary = regression_artifact
     model.task = "regression"
     model.target = "arpu"
     model.features = [name for name in CHURN_FEATURES if name != "arpu"]
     model.signature_json = summary["signature"]
     model.classes_json = []
-    model.metrics_json = {**summary["metrics"], "intervals": {"default_level": .9, "levels": [{"level": .8, "q": 3.}, {"level": .9, "q": 5.}]}}
-    model.model_uri, model.artifact_bytes = upload_model_dir(directory, workspace_id=model.workspace_id, model_id=model.id)
+    model.metrics_json = {
+        **summary["metrics"],
+        "intervals": {
+            "default_level": 0.9,
+            "levels": [{"level": 0.8, "q": 3.0}, {"level": 0.9, "q": 5.0}],
+        },
+    }
+    model.model_uri, model.artifact_bytes = upload_model_dir(
+        directory, workspace_id=model.workspace_id, model_id=model.id
+    )
     db_session.commit()
-    client = request.getfixturevalue("session_client" if authentication == "session" else "key_client")
+    client = request.getfixturevalue(
+        "session_client" if authentication == "session" else "key_client"
+    )
     headers = {}
     if authentication == "key":
         _, secret = tabular_predict.mint_api_key(db_session, model=model)
         headers = {"X-API-Key": secret}
-    body = {"inputs": [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}], "interval_level": .8}
+    body = {
+        "inputs": [{"plan": "postpaid", "tenure_months": 30, "support_tickets": 1}],
+        "interval_level": 0.8,
+    }
     result = client.post(f"/ml-models/{model.id}/predict", json=body, headers=headers)
     assert result.status_code == 200, result.text
     prediction = result.json()["predictions"][0]
-    assert prediction["level"] == .8
-    assert prediction["upper"] - prediction["lower"] == pytest.approx(6.)
-    result = client.post(f"/ml-models/{model.id}/predict", json={**body, "interval_level": .85}, headers=headers)
+    assert prediction["level"] == 0.8
+    assert prediction["upper"] - prediction["lower"] == pytest.approx(6.0)
+    result = client.post(
+        f"/ml-models/{model.id}/predict", json={**body, "interval_level": 0.85}, headers=headers
+    )
     assert result.status_code == 422
     assert result.json()["detail"]["code"] == "ML_INTERVAL_LEVEL_UNKNOWN"
+
+
+def test_candidate_readiness_does_not_claim_the_default_alias_is_compatible(
+    session_client, db_session, model, challenger
+):
+    import copy
+
+    metadata = copy.deepcopy(model.metrics_json)
+    metadata["artifact"].pop("contract_version")
+    model.metrics_json = metadata
+    db_session.commit()
+    selected = session_client.get(f"/ml-models/{model.id}").json()["serving"]
+    candidate = session_client.get(f"/ml-models/{challenger.id}").json()["serving"]
+    assert selected["callable"] is False
+    assert selected["refusal"]["code"] == "ML_ARTIFACT_LEGACY_UNSUPPORTED"
+    assert candidate["callable"] is True and candidate["is_serving"] is False
+    assert candidate["readiness"]["scope"] == "version"
+    assert candidate["readiness"]["model_id"] == challenger.id
+    assert candidate["readiness"]["version"] == challenger.version
+    assert candidate["serving_model_id"] == model.id

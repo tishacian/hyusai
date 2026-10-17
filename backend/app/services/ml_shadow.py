@@ -20,12 +20,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, text
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.tabular import MLModel, MLPrediction
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+from app.services.ml_feedback import iter_labeled_samples
 from app.services.mlops_jobs import operational_job_id
 from app.services.tabular_datasets import TabularError
 
@@ -63,6 +65,35 @@ def supported(model):
     }
 
 
+def readiness(db, model):
+    """Metadata readiness only; disabling never needs a working artifact."""
+    if not supported(model) or model.status != "ready":
+        return {"can_enable": False, "reason": "ML_SHADOW_UNSUPPORTED"}
+    from app.services.tabular_predict import serving_readiness
+
+    state = serving_readiness(db, model)
+    if state["callable"]:
+        from app.services.tabular_ml import runner_up
+
+        challenger = runner_up(db, model)
+        if challenger is not None and challenger.id != model.id:
+            challenger_state = serving_readiness(db, challenger)
+            if not challenger_state["callable"]:
+                return {
+                    "can_enable": False,
+                    "reason": (challenger_state.get("refusal") or {}).get(
+                        "code", "ML_SHADOW_SERVING_UNAVAILABLE"
+                    ),
+                    "challenger_id": challenger.id,
+                }
+    return {
+        "can_enable": state["callable"],
+        "reason": None
+        if state["callable"]
+        else (state.get("refusal") or {}).get("code", "ML_SHADOW_SERVING_UNAVAILABLE"),
+    }
+
+
 def configure(db, *, model, config: ShadowConfig):
     model = (
         db.query(MLModel)
@@ -71,11 +102,15 @@ def configure(db, *, model, config: ShadowConfig):
         .with_for_update()
         .one()
     )
-    if config.enabled and (not supported(model) or model.status != "ready"):
+    state = readiness(db, model) if config.enabled else None
+    if state and not state["can_enable"]:
         raise TabularError(
-            code="ML_SHADOW_UNSUPPORTED",
-            message="Shadow scoring requires a ready tabular model.",
+            code=state["reason"],
+            message="Shadow scoring requires a callable tabular model. Check its reader contract and runtime.",
             status_code=409,
+            details={"challenger_id": state["challenger_id"]}
+            if state.get("challenger_id")
+            else None,
         )
     params = dict(model.params_json or {})
     params["mlops"] = {**(params.get("mlops") or {}), "shadow": config.model_dump()}
@@ -503,6 +538,8 @@ def summary(db, *, model):
         contender = None
     rows = (
         db.query(MLPrediction)
+        .options(selectinload(MLPrediction.feedback_samples))
+        .populate_existing()
         .filter_by(workspace_id=model.workspace_id, served_id=model.id)
         .order_by(MLPrediction.created_at.desc(), MLPrediction.id.desc())
         .limit(WINDOW_LIMIT)
@@ -517,6 +554,7 @@ def summary(db, *, model):
             WorkspaceJob.workspace_id == model.workspace_id,
             WorkspaceJob.id.in_(ids),
         )
+        .populate_existing()
         .order_by(WorkspaceJob.created_at.desc(), WorkspaceJob.id.desc())
         .all()
         if ids
@@ -560,20 +598,25 @@ def summary(db, *, model):
                 a, b = _number(left.get("prediction")), _number(right.get("prediction"))
                 if a is not None and b is not None:
                     differences.append(abs(a - b))
-        # Feedback has exactly one truth: for the first retained row only.
-        if pairs and row.label is not None:
-            left, right = pairs[0]
-            if model.task == "classification" and str(row.label) in set(
+        # A label belongs to one retained sample, never to an entire batch.
+        # Ignore samples absent from the bounded shadow result; retain the
+        # same consent and legacy single-row rules as monitor/retraining.
+        for sample in iter_labeled_samples(row):
+            if sample["index"] >= len(pairs):
+                continue
+            left, right = pairs[sample["index"]]
+            label = sample["label"]
+            if model.task == "classification" and str(label) in set(
                 map(str, model.classes_json or [])
             ):
-                primary_correct.append(int(str(left.get("prediction")) == str(row.label)))
-                challenger_correct.append(int(str(right.get("prediction")) == str(row.label)))
+                primary_correct.append(int(str(left.get("prediction")) == str(label)))
+                challenger_correct.append(int(str(right.get("prediction")) == str(label)))
                 labeled += 1
             elif model.task == "regression":
                 a, b, truth = (
                     _number(left.get("prediction")),
                     _number(right.get("prediction")),
-                    _number(row.label),
+                    _number(label),
                 )
                 if a is not None and b is not None and truth is not None:
                     primary_errors.append(abs(a - truth))
@@ -613,6 +656,7 @@ def summary(db, *, model):
         )
     return {
         "supported": supported(model),
+        "readiness": readiness(db, model),
         "config": configuration(model).model_dump(),
         "can_configure": False,
         "challenger": {"id": contender.id, "version": contender.version} if contender else None,

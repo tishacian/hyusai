@@ -112,7 +112,9 @@ def validate_layout(snapshot: Snapshot, usage: str) -> dict[str, Any]:
         from app.resources.ml_tabicl_notice import MAX_NOTICE_BYTES, NOTICE_NAME, validate_notice
         from app.resources.ml_tabicl_runtime import validate_weights
 
-        if snapshot.manifest.get("format") != "safetensors" or architectures != ["AgentiumTabICLv2"]:
+        if snapshot.manifest.get("format") != "safetensors" or architectures != [
+            "AgentiumTabICLv2"
+        ]:
             _invalid("TabICL requires the qualified converted safetensors format.")
         if NOTICE_NAME not in files:
             raise ArtifactError(
@@ -480,8 +482,8 @@ class ArtifactReranker:
     __call__ = rerank
 
 
-def require_model_foundation(model, db=None) -> None:
-    """Derived ML exports and explicitly migrated v1 exports retain grant checks."""
+def require_model_foundation(model, db=None, *, read_only: bool = False) -> None:
+    """Derived exports retain grant checks; readiness must not evict or record use."""
     if model.family == "tabular_foundation":
         from app.core.config import settings
         from app.services.ml.families.tabular_foundation import require_qualified_profile
@@ -493,12 +495,14 @@ def require_model_foundation(model, db=None) -> None:
                 getattr(model, "task", None), getattr(model, "spec_json", None)
             )
         except TabularError:
-            drop_from_cache(model.id)
+            if not read_only:
+                drop_from_cache(model.id)
             raise
         if not getattr(settings, "ml_tabicl_enabled", False) or model.workspace_id not in getattr(
             settings, "ml_tabicl_workspaces", []
         ):
-            drop_from_cache(model.id)
+            if not read_only:
+                drop_from_cache(model.id)
             raise TabularError(
                 code="ML_FAMILY_UNAVAILABLE",
                 message="TabICL pilot is disabled for this workspace.",
@@ -522,7 +526,8 @@ def require_model_foundation(model, db=None) -> None:
         from app.services.tabular_datasets import TabularError
         from app.services.tabular_predict import drop_from_cache
 
-        drop_from_cache(model.id)
+        if not read_only:
+            drop_from_cache(model.id)
         raise TabularError(
             code="HF_ARTIFACT_UNAVAILABLE",
             message="TabICL requires a workspace artifact grant.",
@@ -532,20 +537,22 @@ def require_model_foundation(model, db=None) -> None:
         from app.services.tabular_datasets import TabularError
 
         try:
-            authorized_manifest(
-                model.workspace_id,
-                artifact_id,
-                usage={
-                    "forecasting_deep": "forecasting",
-                    "tabular_deep": "embedding",
-                    "tabular_foundation": "tabular_foundation",
-                }.get(model.family, "embedding"),
-                db=db,
-            )
+            usage = {
+                "forecasting_deep": "forecasting",
+                "tabular_deep": "embedding",
+                "tabular_foundation": "tabular_foundation",
+            }.get(model.family, "embedding")
+            if read_only:
+                from app.services.huggingface.registry import require_artifact
+
+                require_artifact(db, model.workspace_id, artifact_id, usage=usage, touch=False)
+            else:
+                authorized_manifest(model.workspace_id, artifact_id, usage=usage, db=db)
         except ValueError as exc:
             from app.services.tabular_predict import drop_from_cache
 
-            drop_from_cache(model.id)
+            if not read_only:
+                drop_from_cache(model.id)
             raise TabularError(
                 code=getattr(exc, "code", "HF_ARTIFACT_UNAVAILABLE"),
                 message=str(exc),

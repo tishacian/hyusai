@@ -77,9 +77,46 @@ test('priority: decisions oldest first, then reviews, then newest results', () =
   ]);
   assert.deepEqual(queue[0]!.target, { kind: 'work', url: '/work/pr-to-po/validations' });
   assert.deepEqual(queue[2]!.target, { kind: 'review', decisionId: 'rev-1' });
-  assert.deepEqual(queue[3]!.target, { kind: 'work', url: '/work/automation/sys-1' });
+  assert.deepEqual(queue[3]!.target, { kind: 'work', url: '/runs/res-b?systemId=sys-1' });
   assert.equal(isPrToPoDecision(queue[0]!), true);
   assert.equal(isPrToPoDecision(queue[2]!), false);
+});
+
+test('completed results open their exact execution across apps and automations', () => {
+  const queue = homeQueue({ results: { items: [
+    { run_id: 'older-result', completed_at: '2026-09-28T10:00:00', source: app },
+    { run_id: 'newer-result', completed_at: '2026-09-29T10:00:00', source: app },
+    { run_id: 'automation-result', completed_at: '2026-09-27T10:00:00', source: automation },
+    { run_id: 'source-unavailable', completed_at: '2026-09-26T10:00:00', source: null },
+  ] } });
+
+  assert.deepEqual(queue.map(item => item.target), [
+    { kind: 'work', url: '/runs/newer-result' },
+    { kind: 'work', url: '/runs/older-result' },
+    { kind: 'work', url: '/runs/automation-result?systemId=sys-1' },
+    { kind: 'work', url: '/runs/source-unavailable' },
+  ]);
+});
+
+test('a result without an execution reference does not fall back to an unrelated app result', () => {
+  const [result] = homeQueue({ results: { items: [{ run_id: '  ', source: app }] } });
+  assert.equal(result!.runId, null);
+  assert.equal(result!.target, null);
+});
+
+test('a restricted run keeps its receipt and reference without offering a blocked destination', () => {
+  const queue = homeQueue(home(), () => false);
+  const results = queue.filter(item => item.kind === 'result');
+  assert.deepEqual(results.map(item => [item.runId, item.target]), [
+    ['res-b', null], ['res-a', null],
+  ]);
+  // The result gate must not remove actionable decisions or reviews.
+  assert.deepEqual(queue[0]!.target, { kind: 'work', url: '/work/pr-to-po/validations' });
+  assert.deepEqual(queue[2]!.target, { kind: 'review', decisionId: 'rev-1' });
+  const receipt = { steps: 4, agent_ms: 12000, write: 'sealed' };
+  const [result] = homeQueue({ results: { items: [{ run_id: 'specific-run', source: app, receipt }] } }, () => false);
+  assert.deepEqual(result!.receipt, receipt);
+  assert.equal(result!.target, null);
 });
 
 test('a decision without a known stamp goes after dated ones', () => {

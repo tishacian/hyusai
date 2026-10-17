@@ -24,6 +24,22 @@ test('navigation recomputes the localized release without retaining a previous d
   assert.deepEqual(nav.links(), []);
 });
 
+test('the shared menu reads the release theme when no explicit host is supplied', () => {
+  const theme = signal<Record<string, unknown> | null>({ live_href: '/work/support/desk' });
+  const injector = Injector.create({ providers: [
+    WorkReleasePagesNavComponent,
+    { provide: I18nService, useValue: { locale: () => 'en', t: (key: string) => key } },
+  ] });
+  const nav = injector.get(WorkReleasePagesNavComponent);
+  Object.defineProperties(nav, {
+    document: { value: () => ({ pages: [{ id: 'requests', title: 'Requests' }, { id: 'capacity', title: 'Capacity' }] }) },
+    slug: { value: () => 'support' }, theme: { value: theme },
+  });
+  assert.equal(nav.links()[0]?.href, '/work/support/desk');
+  theme.set({});
+  assert.equal(nav.links()[0]?.href, '/work/support/requests');
+});
+
 function loadHarness() {
   const releases = [new Subject<WorkResolveResult>(), new Subject<WorkResolveResult>()];
   let next = 0;

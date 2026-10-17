@@ -45,7 +45,7 @@ import {
   type ForecastAnswer,
   type ForecastRequestBody,
 } from './forecast.vm';
-import { servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
+import { pinnedVersion, servingErrorKey, type ModelDto, type ServingBlock } from './models.vm';
 
 @Component({
   selector: 'ck-forecast-playground',
@@ -336,6 +336,7 @@ export class ForecastPlaygroundComponent {
     return { store: this.storeInputs(), ...forecastRequest({
       horizon: this.horizon(),
       level: this.level(),
+      version: pinnedVersion(this.serving(), this.model().version),
       series: this.levels().length > 1 ? this.series() || this.levels()[0] : null,
       covariates,
       stamps: this.stamps(),

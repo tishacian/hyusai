@@ -158,6 +158,7 @@ def test_workspace_overview_aggregates_workspace_runs_jobs_and_alerts(db_session
             WorkspaceJob(
                 id="job-sftp",
                 workspace_id=workspace.id,
+                created_by_user_id=f"observer-{workspace.id}",
                 kind="sftp_reconciliation",
                 title="SFTP check",
                 status="failed",

@@ -179,6 +179,7 @@ export interface TypedJudgeDraft {
   rubric_id: string; rubric_version: string; questions: TypedQuestion[];
   budget: { max_calls: number; max_tokens: number; max_cost_usd: number; max_output_tokens: number; timeout_s: number; max_prompt_bytes: number; };
   tariff: { provider: string; model: string; input_per_million: number; output_per_million: number; currency: 'USD'; reference: string; };
+  run_evidence?: { sources: Array<{ id: string; skill_slug: string; node_id?: string | null; paths: string[]; required: true }>; native_refs: Array<{kind: 'document_set' | 'dataset' | 'model'; id: string}> };
 }
 export const JUDGE_BUDGET_LIMITS = {
   max_calls: {min:1,max:10000,step:1}, max_tokens: {min:1,max:100000000,step:1},
@@ -187,6 +188,15 @@ export const JUDGE_BUDGET_LIMITS = {
 } as const;
 export function validateJudgeDraft(draft: TypedJudgeDraft): string[] {
   const errors = validateQuestions(draft.questions);
+  if (draft.run_evidence) {
+    const {sources, native_refs} = draft.run_evidence;
+    if (!sources.length || sources.length > 16 || new Set(sources.map(source => source.id)).size !== sources.length
+      || sources.some(source => !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(source.id) || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,159}$/.test(source.skill_slug)
+        || !source.paths.length || source.paths.length > 32 || new Set(source.paths).size !== source.paths.length || source.paths.some(path => !path.startsWith('/') || path === '/' || path.length > 500 || /~(?![01])/.test(path))
+        || source.node_id != null && (!source.node_id.trim() || source.node_id.length > 160))
+      || native_refs.length > 32 || native_refs.some(ref => !ref.id.trim() || ref.id.length > 36)
+      || new Set(native_refs.map(ref => `${ref.kind}:${ref.id}`)).size !== native_refs.length) errors.push('dataops.error.judge_run_evidence');
+  }
   for (const key of Object.keys(JUDGE_BUDGET_LIMITS) as Array<keyof typeof JUDGE_BUDGET_LIMITS>) {
     const value = draft.budget[key], limits = JUDGE_BUDGET_LIMITS[key];
     if (!Number.isFinite(value) || (key === 'max_cost_usd' ? value <= 0 : value < limits.min) || value > limits.max || limits.step === 1 && !Number.isInteger(value)) errors.push('dataops.error.judge_budget');
@@ -200,6 +210,20 @@ export function newJudgeDraft(): TypedJudgeDraft {
   return { rubric_id: '', rubric_version: '1', questions: [newQuestion('question_1')],
     budget: { max_calls: 1, max_tokens: 10000, max_cost_usd: 1, max_output_tokens: 2048, timeout_s: 45, max_prompt_bytes: 32000 },
     tariff: { provider: '', model: '', input_per_million: 0, output_per_million: 0, currency: 'USD', reference: '' } };
+}
+export function judgeDraftFromNode(node: CanonicalFlowNode): TypedJudgeDraft {
+  const config = node.config as Record<string, unknown> | undefined;
+  const params = config?.['params'] as Record<string, unknown> | undefined;
+  const draft = structuredClone((config?.['typed_evaluation'] ?? params?.['typed_evaluation']) as TypedJudgeDraft | undefined ?? newJudgeDraft());
+  if (draft.run_evidence) draft.run_evidence.native_refs ??= [];
+  return draft;
+}
+export function judgeNodePatch(node: CanonicalFlowNode, draft: TypedJudgeDraft): Partial<CanonicalFlowNode> {
+  const config = structuredClone(node.config ?? {}) as Record<string, unknown>;
+  const params = config['params'];
+  if (params && typeof params === 'object' && !Array.isArray(params)) delete (params as Record<string, unknown>)['typed_evaluation'];
+  config['typed_evaluation'] = structuredClone(draft);
+  return {config};
 }
 export function changeQuestionType(question: TypedQuestion, type: QuestionType): TypedQuestion {
   return { key: question.key, question: question.question, type, required: question.required, requires_evidence: question.requires_evidence,
@@ -223,7 +247,7 @@ export function validateQuestions(questions: TypedQuestion[]): string[] {
   return [...new Set(errors)];
 }
 export interface TypedAnswer { status: 'answered' | 'abstained' | 'invalid'; value: unknown; reason: string | null; explanation: string; confidence: number | null; evidence: Array<{ kind?: 'text'|'image'; evidence_id: string; start?: number; end?: number; quote?: string; image_sha256?:string; region?:number[]|null; description?:string }>; }
-export interface TypedEvaluationResult { schema_version: 2; evaluation_id: string; answers: Record<string, TypedAnswer>; status: string; disposition: string; quality_status: string; confidence: number | null; coverage: Record<string, number | string>; calibration?: {scope: string}; cost?: { amount: number | null; currency: string; measurement_coverage: string }; }
+export interface TypedEvaluationResult { schema_version: 2; evaluation_id: string; questions?: TypedQuestion[]; answers: Record<string, TypedAnswer>; status: string; disposition: string; quality_status: string; confidence: number | null; coverage: Record<string, number | string>; calibration?: {scope: string}; cost?: { amount: number | null; currency: string; measurement_coverage: string }; }
 export function typedResult(value: unknown): TypedEvaluationResult | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;

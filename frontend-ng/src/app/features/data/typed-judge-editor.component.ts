@@ -9,6 +9,29 @@ import { changeQuestionType, newQuestion, JUDGE_BUDGET_LIMITS, validateJudgeDraf
     <div class="dp-grid">@for (field of rubricFields; track field) {
       <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + field) }}</span><input class="dp-input" [value]="value()[field]" (input)="rubric(field, val($event))" /></label>
     }</div>
+    <details class="dp-section"><summary>{{ i18n.t('dataops.judge.run_evidence') }}</summary>
+      <p class="dp-note">{{ i18n.t('dataops.judge.run_evidence_hint') }}</p>
+      <label class="dp-check"><input type="checkbox" [checked]="!!value().run_evidence" (change)="runEvidence(checked($event))" />{{ i18n.t('dataops.judge.run_evidence_enable') }}</label>
+      @if (value().run_evidence; as binding) {
+        @for (source of binding.sources; track $index; let n = $index) {
+          <section class="dp-section">
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_id') }}</span><input class="dp-input" [value]="source.id" (input)="evidenceField(n, 'id', val($event))" /></label>
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_skill') }}</span><input class="dp-input" [value]="source.skill_slug" (input)="evidenceField(n, 'skill_slug', val($event))" /></label>
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_node') }}</span><input class="dp-input" [value]="source.node_id ?? ''" (input)="evidenceField(n, 'node_id', val($event))" /></label>
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_paths') }}</span><textarea class="dp-input" rows="3" [value]="source.paths.join('\n')" (change)="evidencePaths(n, val($event))"></textarea></label>
+            <button type="button" class="dp-button" [disabled]="binding.sources.length <= 1" (click)="removeEvidence(n)">{{ i18n.t('dataops.remove') }}</button>
+          </section>
+        }
+        <button type="button" class="dp-button" [disabled]="binding.sources.length >= 16" (click)="addEvidence()">{{ i18n.t('dataops.judge.add_evidence') }}</button>
+        <p class="dp-note">{{ i18n.t('dataops.judge.evidence_native_hint') }}</p>
+        @for (ref of binding.native_refs; track $index; let n = $index) {
+          <div class="dp-row"><label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_asset_kind') }}</span><select class="dp-input" [value]="ref.kind" (change)="nativeField(n, 'kind', val($event))">@for (kind of nativeKinds; track kind) { <option [value]="kind">{{ i18n.t('dataops.asset_kind.' + kind) }}</option> }</select></label>
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_asset_id') }}</span><input class="dp-input" [value]="ref.id" (input)="nativeField(n, 'id', val($event))" /></label>
+            <button type="button" class="dp-button" (click)="removeNative(n)">{{ i18n.t('dataops.remove') }}</button></div>
+        }
+        <button type="button" class="dp-button" [disabled]="binding.native_refs.length >= 32" (click)="addNative()">{{ i18n.t('dataops.judge.add_native') }}</button>
+      }
+    </details>
     @for (question of value().questions; track $index; let n = $index) {
       <section class="dp-section"><div class="dp-row"><label class="dp-field"><span>{{ i18n.t('dataops.judge.key') }}</span><input class="dp-input" [value]="question.key" (input)="questionField(n, 'key', val($event))" /></label>
         <label class="dp-field"><span>{{ i18n.t('dataops.judge.type') }}</span><select class="dp-input" [value]="question.type" (change)="type(n, val($event))">@for (kind of types; track kind) { <option [value]="kind">{{ i18n.t('dataops.judge.type.' + kind) }}</option> }</select></label>
@@ -54,6 +77,7 @@ export class TypedJudgeEditorComponent {
   readonly budgetFields = ['max_calls', 'max_tokens', 'max_cost_usd', 'max_output_tokens', 'timeout_s', 'max_prompt_bytes'] as const;
   readonly tariffText = ['provider', 'model', 'reference'] as const; readonly tariffNumbers = ['input_per_million', 'output_per_million'] as const;
   readonly budgetLimits = JUDGE_BUDGET_LIMITS;
+  readonly nativeKinds = ['document_set', 'dataset', 'model'] as const;
   readonly errors = computed(() => validateJudgeDraft(this.value()));
   val(event: Event): string { return (event.target as HTMLInputElement).value; }
   checked(event: Event): boolean { return (event.target as HTMLInputElement).checked; }
@@ -61,6 +85,14 @@ export class TypedJudgeEditorComponent {
   optionalNumber(event: Event): number | null { return this.val(event) === '' ? null : this.number(event); }
   selected(event: Event): string[] { return Array.from((event.target as HTMLSelectElement).selectedOptions, o => o.value); }
   private change(fn: (draft: TypedJudgeDraft) => void): void { const next = structuredClone(this.value()); fn(next); this.valueChange.emit(next); }
+  runEvidence(enabled: boolean): void { this.change(d => { if (enabled) d.run_evidence = {sources: [{id: 'proposal', skill_slug: '', paths: [], required: true}], native_refs: []}; else delete d.run_evidence; }); }
+  evidenceField(n: number, key: 'id'|'skill_slug'|'node_id', value: string): void { this.change(d => { if (d.run_evidence) d.run_evidence.sources[n] = {...d.run_evidence.sources[n], [key]: key === 'node_id' && !value ? null : value}; }); }
+  evidencePaths(n: number, value: string): void { this.change(d => { if (d.run_evidence) d.run_evidence.sources[n].paths = value.split('\n').map(path => path.trim()).filter(Boolean); }); }
+  addEvidence(): void { this.change(d => { if (d.run_evidence && d.run_evidence.sources.length < 16) d.run_evidence.sources.push({id: '', skill_slug: '', paths: [], required: true}); }); }
+  removeEvidence(n: number): void { this.change(d => { if (d.run_evidence && d.run_evidence.sources.length > 1) d.run_evidence.sources.splice(n, 1); }); }
+  nativeField(n: number, key: 'kind'|'id', value: string): void { this.change(d => { if (d.run_evidence) d.run_evidence.native_refs[n] = {...d.run_evidence.native_refs[n], [key]: value}; }); }
+  addNative(): void { this.change(d => { if (d.run_evidence && d.run_evidence.native_refs.length < 32) d.run_evidence.native_refs.push({kind: 'document_set', id: ''}); }); }
+  removeNative(n: number): void { this.change(d => { d.run_evidence?.native_refs.splice(n, 1); }); }
   questionField(index: number, key: keyof TypedQuestion, value: unknown): void { this.change(d => { d.questions[index] = { ...d.questions[index], [key]: value }; }); }
   type(index: number, type: string): void { this.change(d => { d.questions[index] = changeQuestionType(d.questions[index], type as QuestionType); }); }
   add(): void { if (this.value().questions.length >= 32) return; this.change(d => { let n = d.questions.length + 1; while (d.questions.some(q => q.key === `question_${n}`)) n++; d.questions.push(newQuestion(`question_${n}`)); }); }

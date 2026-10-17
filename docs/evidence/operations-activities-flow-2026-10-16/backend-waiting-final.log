@@ -1,0 +1,20 @@
+.                                                                        [100%]
+=============================== warnings summary ===============================
+app/tests/services/test_execution_view.py: 11 warnings
+  <venv>/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+app/tests/services/test_execution_view.py::test_deferred_invocation_wait_requires_native_dependency_evidence
+  <repo>/backend/app/services/activity_observability/projection.py:289: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 25 deselected, 20 warnings in 2.22s

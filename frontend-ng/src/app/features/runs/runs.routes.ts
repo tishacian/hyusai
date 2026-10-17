@@ -19,6 +19,6 @@ export const runsRoutes: Routes = [
   {
     path: ':runId',
     loadComponent: () =>
-      import('./run-view.component').then((m) => m.RunViewComponent),
+      import('./run-page.component').then((m) => m.RunPageComponent),
   },
 ];

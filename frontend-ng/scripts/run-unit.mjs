@@ -25,6 +25,8 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/features/runs/run-execution.models.spec.ts',
+  'src/app/features/observability/activities/activity-series.vm.spec.ts',
   'src/app/features/models/monitoring-history.vm.spec.ts',
   'src/app/features/models/endpoints.vm.spec.ts',
   'src/app/features/observability/activities/activity-stream.spec.ts',
@@ -59,6 +61,7 @@ const pureSpecs = [
   'src/app/features/mandate/mandate.models.spec.ts',
   'src/app/features/chat/chat-proof.spec.ts',
   'src/app/shared/work-sources/work-source.spec.ts',
+  'src/app/shared/work-records/run-quality-review.spec.ts',
   'src/app/features/mandate/mandate-editor.vm.spec.ts',
   'src/app/features/systems/system-mandate-coverage.vm.spec.ts',
   'src/app/features/experience/work/work-decision.spec.ts',
@@ -192,6 +195,7 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/runs/run-execution-api.service.spec.ts',
   'src/app/features/models/ml-governance.component.spec.ts',
   'src/app/features/models/endpoints.component.spec.ts',
   'src/app/features/observability/activities/activity-api.service.spec.ts',
@@ -220,6 +224,8 @@ const storeSpecs = [
   'src/app/features/chat/assistant-object-context.service.spec.ts',
   'src/app/features/experience/runtime/renderer-registry.spec.ts',
   'src/app/features/experience/runtime/chart-block.spec.ts',
+  'src/app/features/experience/runtime/runtime-status.spec.ts',
+  'src/app/features/experience/runtime/navigation-blocks.spec.ts',
   'src/app/features/experience/work/work-shell.component.spec.ts',
   'src/app/features/experience/work/work-release-pages-nav.component.spec.ts',
   'src/app/features/data/dataset-label-review.component.spec.ts',
@@ -313,6 +319,7 @@ const storeSpecs = [
   'src/app/features/orchestration/flow/flow-inspector-retrieval.spec.ts',
   'src/app/features/orchestration/flow/manifest-fields.component.spec.ts',
   'src/app/features/orchestration/flow/flow-palette.component.spec.ts',
+  'src/app/features/orchestration/flow/flow-triggers-panel.component.spec.ts',
 ];
 
 // Optional comma-separated basename/path filter for constrained developer

@@ -7,6 +7,13 @@
 .dp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dp-row > .dp-field { flex: 1; min-width: 130px; }
 .dp-section { padding: 16px 0; border-bottom: 1px solid var(--ck-stroke-2); }
+.dp-section summary, .dp-section blockquote { overflow-wrap: anywhere; }
+.dp-section summary { cursor: pointer; font-size: 12px; line-height: 1.5; }
+.dp-section summary:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 2px; }
+.dp-section blockquote { margin: 12px 0; border-inline-start: 2px solid var(--ck-stroke-2); padding-inline-start: 12px; font-size: 12px; line-height: 1.5; }
+.dp-answer { padding: 10px 0; }
+.dp-answer h3 { font-size: 12px; line-height: 1.5; }
+.dp-answer .dp-note { margin: 4px 0; }
 .dp-section h2, .dp-section h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
 .dp-note { color: var(--ck-fg-3); font-size: 12px; line-height: 1.5; }
 .dp-error { color: var(--ck-signal-warn); font-size: 12px; }

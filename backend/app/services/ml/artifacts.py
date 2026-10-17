@@ -136,11 +136,15 @@ def _check_skops_archive(path: Path, *, max_bytes: int) -> None:
         )
 
 
-def verify_model_bundle(
-    directory: Path, artifact: dict, *, family: str, max_bytes: int = MAX_BUNDLE_BYTES
+def validate_model_metadata(
+    artifact: dict, *, family: str, max_bytes: int = MAX_BUNDLE_BYTES
 ) -> None:
-    """The only serving gate; artifact comes from the authorized MLModel row."""
-    if artifact.get("contract_version") != CONTRACT_VERSION:
+    """Cheap producer-record checks; never fetch or deserialize model files.
+
+    This is also used by the serving status projection. Passing it does not
+    certify bytes: every inference still enters verify_model_bundle.
+    """
+    if not isinstance(artifact, dict) or artifact.get("contract_version") != CONTRACT_VERSION:
         _refuse(
             "ML_ARTIFACT_LEGACY_UNSUPPORTED",
             "This artifact has no qualified reader contract. Keep its producer runtime or explicitly retrain it; no conversion was performed.",
@@ -155,8 +159,23 @@ def verify_model_bundle(
         or artifact.get("trust_profile") != expected_profile
     ):
         _refuse("ML_ARTIFACT_UNVERIFIED", "The family, format or trust profile is not qualified.")
-    verify_bundle(directory, artifact, max_bytes=max_bytes)
-    current = runtime_versions(family, serialization)
+    validate_inventory(artifact, max_bytes=max_bytes)
+    if serialization == "skops":
+        from app.services.ml.artifact_trust import TRUSTED_PROFILES
+
+        recorded = artifact.get("trusted_types")
+        if (
+            not isinstance(recorded, list)
+            or any(not isinstance(name, str) for name in recorded)
+            or not set(recorded).issubset(TRUSTED_PROFILES[expected_profile])
+        ):
+            _refuse(
+                "ML_ARTIFACT_UNTRUSTED_TYPES",
+                "The artifact requests types outside the qualified reader profile.",
+            )
+
+
+def validate_model_runtime(artifact: dict, current: dict) -> None:
     recorded = artifact.get("runtime")
     if not isinstance(recorded, dict) or recorded != current or "missing" in current.values():
         _refuse(
@@ -166,6 +185,17 @@ def verify_model_bundle(
             reader=current,
             action="retain_producer_runtime",
         )
+
+
+def verify_model_bundle(
+    directory: Path, artifact: dict, *, family: str, max_bytes: int = MAX_BUNDLE_BYTES
+) -> None:
+    """The only serving gate; artifact comes from the authorized MLModel row."""
+    validate_model_metadata(artifact, family=family, max_bytes=max_bytes)
+    serialization = artifact.get("serialization")
+    expected_profile = PROFILES[(family, serialization)]
+    verify_bundle(directory, artifact, max_bytes=max_bytes)
+    validate_model_runtime(artifact, runtime_versions(family, serialization))
 
     import yaml
 

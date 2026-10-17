@@ -84,3 +84,23 @@ test('bounded timeline deduplicates replay and native evidence cannot navigate o
   for (const href of ['//evil.test', 'https://evil.test', '/\\evil.test', 'javascript:alert(1)', '/\nevil']) assert.equal(activityLink({ rel: 'native', href }), null);
   assert.equal(activityLink({ rel: 'native', href: '/runs/123?facet=trace' }), '/runs/123?facet=trace');
 });
+
+for (const event of ['reset', 'resync', 'resync_required']) {
+  test(`${event} discards the cursor and the remainder of its frame batch before reconnecting`, async () => {
+    const calls: Array<{ url: string; cursor: string | null }> = [];
+    const accepted: string[] = []; let resets = 0;
+    await followActivityStream({ url: '/events?run_id=run-A', cursor: 'expired', signal: new AbortController().signal,
+      fetch: async (url, init) => {
+        calls.push({ url, cursor: new Headers(init.headers).get('Last-Event-ID') });
+        if (calls.length === 1) return stream(`id: invalid-reset-cursor\nevent: ${event}\ndata: {}\n\nid: must-discard\nevent: activity.updated\ndata: {}\n\n`);
+        if (calls.length === 2) return stream('id: fresh\nevent: activity.updated\ndata: {}\n\n');
+        return new Response(null, { status: 403 });
+      }, frame: frame => accepted.push(frame.id!), state: () => undefined,
+      resync: () => resets++, delay: async () => undefined,
+    });
+    assert.equal(resets, 1);
+    assert.deepEqual(accepted, ['fresh']);
+    assert.deepEqual(calls.map(call => call.cursor), ['expired', null, 'fresh']);
+    assert.equal(calls[1].url, '/events?run_id=run-A');
+  });
+}

@@ -130,3 +130,38 @@ def test_batch_feedback_selects_one_retained_sample(client, db_session, subject)
     assert response.status_code == 200, response.text
     feedback = db_session.query(MLPredictionFeedback).one()
     assert feedback.sample_index == 1 and feedback.label == "3.0"
+
+
+def test_legacy_readiness_is_visible_without_granting_training_or_keys(
+    client, db_session, subject, monkeypatch
+):
+    _, _, member, model = subject
+    member.role_template = "workspace_viewer"
+    monkeypatch.setattr(settings, "ml_predict_enabled", True)
+    monkeypatch.setattr(settings, "tabular_data_enabled", True)
+    model.is_champion = True
+    db_session.commit()
+    response = client.get(f"/ml-models/{model.id}")
+    assert response.status_code == 200, response.text
+    serving = response.json()["serving"]
+    assert serving["callable"] is False and serving["is_serving"] is True
+    assert serving["readiness"]["action"] == "retrain"
+    assert serving["refusal"]["code"] == "ML_ARTIFACT_LEGACY_UNSUPPORTED"
+    assert serving["permissions"]["train"] is False
+    assert serving["permissions"]["keys"] is False
+    assert serving["keys"] == []
+
+
+def test_readiness_never_exposes_another_workspace_model(client, db_session, subject):
+    from uuid import uuid4
+
+    from app.models.workspace import Workspace
+
+    foreign = Workspace(name="Other", slug="other-" + uuid4().hex, settings={})
+    db_session.add(foreign)
+    db_session.flush()
+    subject[3].workspace_id = foreign.id
+    db_session.commit()
+    response = client.get(f"/ml-models/{subject[3].id}")
+    assert response.status_code == 404
+    assert "serving" not in response.json()

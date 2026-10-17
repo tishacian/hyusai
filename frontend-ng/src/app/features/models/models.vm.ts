@@ -310,6 +310,17 @@ export interface ServingBlock {
   permissions?: Record<string, boolean>;
   enabled: boolean;
   callable: boolean;
+  /** Metadata preflight; bytes and allowed types remain checked on each load. */
+  readiness?: {
+    training_ready: boolean;
+    training_status: string;
+    state: 'ready' | 'blocked' | 'disabled' | 'not_ready';
+    scope: 'version';
+    model_id: string;
+    version: number;
+    check: 'metadata';
+    action: 'retrain' | 'check_runtime' | null;
+  };
   /** An explicit refusal takes precedence over generic runtime availability. */
   refusal?: CodedRefusal | null;
   serving_version: number | null;
@@ -327,6 +338,14 @@ export interface ServingBlock {
   key_header: string;
   /** `forecast`: the model is asked for a horizon on /forecast, not for rows. */
   mode?: 'rows' | 'forecast';
+}
+
+/** A training result and a selected alias do not establish serving readiness. */
+export function servingStatusKey(block: ServingBlock | null): string {
+  if (!block) return 'models.readiness.checking';
+  if (!block.enabled) return 'models.readiness.disabled';
+  if (block.callable) return 'models.readiness.ready';
+  return 'models.readiness.blocked';
 }
 
 export interface ClassProbability {
@@ -1731,6 +1750,14 @@ export const SERVING_ERROR_CODES = [
   'ML_ARTIFACT_UNVERIFIED',
   'ML_ARTIFACT_LEGACY_UNSUPPORTED',
   'ML_ARTIFACT_RUNTIME_MISMATCH',
+  'ML_ARTIFACT_RUNTIME_UNVERIFIED',
+  'HF_ACCESS_REVOKED',
+  'HF_ARTIFACT_REVOKED',
+  'HF_NOT_FOUND',
+  'HF_ARTIFACT_NOT_READY',
+  'HF_ARTIFACT_UNAVAILABLE',
+  'HF_LICENSE_BLOCKED',
+  'HF_LICENSE_ACCEPTANCE_REQUIRED',
   'ML_ARTIFACT_UNTRUSTED_TYPES',
   'ML_ARTIFACT_LIMIT',
   'ML_USE_PREDICT_ROUTE',
