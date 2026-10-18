@@ -48,6 +48,6 @@ export class MLAlertInboxComponent implements OnInit {
     } catch { if (current()) this.failed.set(true); }
   }
   label(event: string): string {
-    return this.i18n.t(event === 'monitor_transition' ? 'models.endpoints.transition' : event === 'monitor_failed' ? 'models.endpoints.monitor_failed' : event === 'key_expiring' ? 'models.endpoints.key_expiring' : 'models.endpoints.quota');
+    return this.i18n.t(event === 'monitor_transition' ? 'models.endpoints.transition' : event === 'monitor_failed' ? 'models.endpoints.monitor_failed' : event === 'key_expiring' ? 'models.endpoints.key_expiring' : event === 'fairness_gap' ? 'models.endpoints.fairness_gap' : 'models.endpoints.quota');
   }
 }
