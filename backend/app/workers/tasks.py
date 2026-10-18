@@ -933,6 +933,7 @@ def dataset_ingest(dataset_id: str) -> dict:
 # Defined as a shared task in ml_tasks so a model-family image can register it
 # without importing this module; re-exported here for the general worker.
 from app.workers.ml_tasks import (  # noqa: E402,F401
+    ml_model_import,
     ml_retraining_recovery,
     ml_runtime_requalification,
     ml_shadow,

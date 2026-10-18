@@ -62,7 +62,12 @@ KINDS = frozenset({CAPTURE, REQUALIFY})
 TASK = "agentium.ml_runtime_requalification"
 SCHEMA = 1
 FORMAT = "agentium-runtime-reference-v1"
-SUPPORTED_FAMILIES = frozenset({"tabular"})
+SUPPORTED_FAMILIES = frozenset({"tabular", "external"})
+# Where a reference's rows come from: re-derived from the recorded final test
+# (tabular), or stored with the reference because an imported model has no
+# source dataset (M4.3). Only the latter keeps input rows, bounded.
+FINAL_TEST = "final_test"
+IMPORT_VALIDATION = "import_validation"
 SUPPORTED_TASKS = frozenset({"classification", "regression"})
 SYSTEM = "system:training"
 OPERATOR = "operator-cli"
@@ -222,6 +227,8 @@ def reference_summary(model) -> dict | None:
         or summary.get("artifact_fingerprint") != artifact_fingerprint(artifact)
         or summary.get("producer_runtime") != artifact.get("runtime")
         or summary.get("partition_sha256") != (metrics.get("evaluation") or {}).get("sha256")
+        or summary.get("source", FINAL_TEST) not in {FINAL_TEST, IMPORT_VALIDATION}
+        or (summary.get("source") == IMPORT_VALIDATION) != (_family(model) == "external")
     ):
         return None
     return summary
@@ -232,6 +239,7 @@ def _public_reference(summary: dict | None) -> dict:
         return {"status": "missing"}
     return {
         "status": "stored",
+        "source": summary.get("source", FINAL_TEST),
         "rows": summary.get("rows"),
         "sha256": summary.get("sha256"),
         "captured_at": summary.get("captured_at"),
@@ -328,7 +336,27 @@ def decode_reference(encoded: bytes, *, sha256: str) -> dict:
     ):
         raise ValueError("reference row ids")
     payload["outputs"] = validate_outputs(payload.get("task"), payload.get("outputs"), len(ids))
+    if payload.get("source", FINAL_TEST) == IMPORT_VALIDATION:
+        rows = payload.get("rows")
+        if (
+            not isinstance(rows, list)
+            or len(rows) != len(ids)
+            or len(rows) > int(settings.ml_import_max_validation_rows)
+            or any(
+                not isinstance(row, dict) or row_digest(row) != key for row, key in zip(rows, ids)
+            )
+        ):
+            raise ValueError("stored reference rows")
+    elif "rows" in payload:
+        raise ValueError("a final-test reference never stores rows")
     return payload
+
+
+def row_digest(row: dict) -> str:
+    """Content identity of a stored validation row (import references)."""
+    return hashlib.sha256(
+        json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
 
 
 def read_reference(model, summary: dict) -> dict:
@@ -494,12 +522,13 @@ def _child_environment(scratch: Path) -> dict[str, str]:
     }
 
 
-def replay(model, rows: list[dict], *, mode: str) -> dict:
+def replay(model, rows: list[dict], *, mode: str, bundle: Path | None = None) -> dict:
     """Predict the reference rows in a killable, credential-free subprocess.
 
     The parent downloads the bundle through the authorized inventory and
     checks its hashes; the child re-verifies right before loading. Child
-    refusals come back as codes only.
+    refusals come back as codes only. An import (M4.3) hands over the bundle
+    it just extracted instead: there is nothing stored to download yet.
     """
     from app.services.ml.artifacts import validate_inventory, verify_bundle
     from app.services.recipe_executions import supervise_harness
@@ -512,9 +541,10 @@ def replay(model, rows: list[dict], *, mode: str) -> dict:
     harness = Path(__file__).resolve().parents[1] / "resources" / "ml_requalify_harness.py"
     with tempfile.TemporaryDirectory(prefix="ml-requalify-") as directory:
         scratch = Path(directory)
-        bundle = scratch / "artifact"
         validate_inventory(artifact, max_bytes=budget)
-        download_model_dir(model, bundle)
+        if bundle is None:
+            bundle = scratch / "artifact"
+            download_model_dir(model, bundle)
         verify_bundle(bundle, artifact, max_bytes=budget)
         manifest, output = scratch / "input.json", scratch / "result.json"
         manifest.write_text(
@@ -574,14 +604,24 @@ def replay(model, rows: list[dict], *, mode: str) -> dict:
         return {
             "reader_runtime": reader,
             "outputs": outputs,
-            "load_ms": value.get("load_ms"),
-            "predict_ms": value.get("predict_ms"),
+            "load_ms": _measure(value.get("load_ms")),
+            "predict_ms": _measure(value.get("predict_ms")),
+            "single_row_ms": _measure(value.get("single_row_ms")),
+            "estimator": str(value.get("estimator") or "")[:80] or None,
+            "model_memory_mb": _measure(value.get("model_memory_mb")),
         }
 
 
 # ---------------------------------------------------------------------------
 # Comparison
 # ---------------------------------------------------------------------------
+
+
+def _measure(value) -> float | None:
+    """A child-reported cost, kept only when it is a finite number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) and value >= 0 else None
 
 
 def tolerances() -> dict:
@@ -716,6 +756,9 @@ def capture_reference(db, model, *, actor: str, user=None, job_id: str | None = 
     existing = reference_summary(model)
     if existing is not None:
         return {"action": "already_captured", "reference": _public_reference(existing)}
+    if _family(model) == "external":
+        # Its reference is the importer's validation set, stored at import.
+        _unavailable("import_validation_only")
     artifact = _artifact(model)
     reader = reader_runtime(model)
     if artifact.get("runtime") != reader or "missing" in reader.values():
@@ -890,7 +933,11 @@ def requalify(
             action="retrain",
         )
     reference = read_reference(model, summary)
-    _, rows, _ = reference_rows(db, model, wanted=reference["row_ids"])
+    if reference.get("source") == IMPORT_VALIDATION:
+        # An imported model has no source dataset: its rows travel with it.
+        rows = reference["rows"]
+    else:
+        _, rows, _ = reference_rows(db, model, wanted=reference["row_ids"])
     limits = tolerances()
     try:
         result = replay(model, rows, mode="requalify")
@@ -1032,6 +1079,83 @@ def revoke(db, *, model, attestation_id: str, actor: str, user=None) -> dict:
     return _public_attestation(row, reader_runtime(model))
 
 
+def write_import_reference(model, *, rows: list[dict], outputs: dict, actor: str) -> dict:
+    """Store an imported model's validation rows and reader outputs (M4.3).
+
+    No source dataset exists to re-derive rows from, so this variant keeps
+    them, bounded by ``ML_IMPORT_MAX_VALIDATION_ROWS``. The outputs are the
+    ones this reader just produced: the reference is what the model answered
+    under its qualified runtime, like a final-test reference. Identical rows
+    are kept once. The caller commits the summary or deletes the object.
+    """
+    artifact = _artifact(model)
+    keep: dict[str, int] = {}
+    for position, row in enumerate(rows):
+        keep.setdefault(row_digest(row), position)
+    positions = sorted(keep.values())
+    # Per-row outputs follow the kept rows; the class order is not per row.
+    picked = {
+        key: [value[index] for index in positions]
+        if key in {"labels", "values", "probabilities"} and isinstance(value, list)
+        else value
+        for key, value in outputs.items()
+    }
+    captured_at = datetime.utcnow().isoformat()
+    payload = {
+        "schema": SCHEMA,
+        "format": FORMAT,
+        "source": IMPORT_VALIDATION,
+        "model_id": model.id,
+        "workspace_id": model.workspace_id,
+        "version": model.version,
+        "task": model.task,
+        "family": _family(model),
+        "artifact_fingerprint": artifact_fingerprint(artifact),
+        "producer_runtime": artifact.get("runtime"),
+        "partition_sha256": None,
+        "dataset": None,
+        "row_ids": [row_digest(rows[index]) for index in positions],
+        "rows": [rows[index] for index in positions],
+        "outputs": picked,
+        "captured_at": captured_at,
+        "captured_by": actor,
+    }
+    encoded = encode_reference(payload)
+    sha256 = hashlib.sha256(encoded).hexdigest()
+    key = reference_key(model.workspace_id, model.id, sha256)
+    from app.services.object_store import get_object_store
+
+    get_object_store().write_bytes(key, encoded)
+    return {
+        "status": "stored",
+        "schema": SCHEMA,
+        "source": IMPORT_VALIDATION,
+        "key": key,
+        "sha256": sha256,
+        "bytes": len(encoded),
+        "rows": len(positions),
+        "task": model.task,
+        "artifact_fingerprint": artifact_fingerprint(artifact),
+        "producer_runtime": artifact.get("runtime"),
+        "partition_sha256": None,
+        "captured_at": captured_at,
+        "captured_by": actor,
+    }
+
+
+def delete_reference(model) -> None:
+    """Remove a model's stored reference with its row; never fails the delete.
+
+    Import references hold the importer's rows, so they go on every object
+    store backend, not only where model bytes are removed.
+    """
+    summary = (getattr(model, "metrics_json", None) or {}).get("runtime_reference")
+    key = summary.get("key") if isinstance(summary, dict) else None
+    if isinstance(key, str) and isinstance(summary.get("sha256"), str):
+        if key == reference_key(model.workspace_id, model.id, summary["sha256"]):
+            _delete_object(key)
+
+
 # ---------------------------------------------------------------------------
 # Status read model
 # ---------------------------------------------------------------------------
@@ -1146,7 +1270,10 @@ def runtime_status(db, model) -> dict:
         "reader_runtime": reader,
         "differences": _diff(producer, reader) if reader is not None else [],
         "reference": _public_reference(summary),
-        "can_capture": reason is None and current and summary is None,
+        "can_capture": reason is None
+        and current
+        and summary is None
+        and _family(model) != "external",
         "can_requalify": reason is None
         and not current
         and summary is not None
@@ -1234,6 +1361,8 @@ def request(db, *, kind: str, model, user) -> dict:
     if kind == CAPTURE:
         if reference_summary(model) is not None:
             return {"job": _jobs(db, model).get(CAPTURE), "started": False}
+        if _family(model) == "external":
+            _unavailable("import_validation_only")
         if artifact.get("runtime") != reader or "missing" in reader.values():
             _refuse(
                 "ML_REFERENCE_PRODUCER_RUNTIME_REQUIRED",
@@ -1299,12 +1428,13 @@ def capture_after_training(db, model) -> None:
         logger.warning("ml_requalification: capture after training skipped", model_id=model.id)
 
 
-def _claim(db, job_id: str, now: datetime) -> WorkspaceJob | None:
+def _claim(db, job_id: str, now: datetime, kinds=KINDS) -> WorkspaceJob | None:
+    """Compare-and-swap lease on one server-managed job (also used by M4.3)."""
     from datetime import timedelta
 
     job = (
         db.query(WorkspaceJob)
-        .filter(WorkspaceJob.id == job_id, WorkspaceJob.kind.in_(list(KINDS)))
+        .filter(WorkspaceJob.id == job_id, WorkspaceJob.kind.in_(list(kinds)))
         .populate_existing()
         .first()
     )

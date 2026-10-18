@@ -65,8 +65,24 @@ FORECAST_TYPES = frozenset(
         "skforecast.recursive._forecaster_recursive_multiseries.ForecasterRecursiveMultiSeries",
     }
 )
+# M4.3 imported sklearn pipelines. Beyond skops' own defaults (sklearn
+# estimators, numpy ufuncs, plain containers) only two fitted *data*
+# structures, rebuilt from arrays and never calling user code: dtype
+# descriptors, and the node storage of decision trees, forests and gradient
+# boosting. The latter is indexed without bounds checks by scikit-learn, so an
+# imported model's trees are structurally checked in the isolated reader
+# before its first prediction. HistGradientBoosting's TreePredictor is left
+# out until its node arrays get the same check. No functools.partial, no
+# builtins callable, no numpy function object, no module of the importer's.
+EXTERNAL_TYPES = frozenset(
+    {
+        "numpy.dtype",
+        "sklearn.tree._tree.Tree",
+    }
+)
 TRUSTED_PROFILES = {
     "tabular-skops-v1": TABULAR_TYPES,
     "clustering-skops-v1": frozenset({"numpy.dtype"}),
     "forecast-skops-v1": FORECAST_TYPES,
+    "external-sklearn-skops-v1": EXTERNAL_TYPES,
 }

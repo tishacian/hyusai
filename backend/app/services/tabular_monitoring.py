@@ -318,6 +318,11 @@ def _labeled_pairs(rows: list[MLPrediction]) -> tuple[list[str], list[float]]:
 def data_drift(
     model: MLModel, rows: list[MLPrediction], dataset: TabularDataset | None
 ) -> dict[str, Any]:
+    if model.family == "external":
+        # An imported model brings no training distribution, and its
+        # importer-chosen validation rows are not one: no input drift is shown
+        # rather than a drift measured against an arbitrary sample.
+        return {"status": "unknown", "reason": "no_training_distribution", "features": []}
     stats = (
         dataset.stats_json if dataset is not None and isinstance(dataset.stats_json, dict) else {}
     )

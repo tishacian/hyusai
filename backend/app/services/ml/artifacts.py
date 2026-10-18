@@ -289,7 +289,7 @@ def _verify_loader(directory: Path, artifact: dict, *, family: str, max_bytes: i
     config = yaml.safe_load((directory / "MLmodel").read_text(encoding="utf-8"))
     flavors = config.get("flavors", {}) if isinstance(config, dict) else {}
     pyfunc = flavors.get("python_function", {})
-    if family in {"tabular", "tabular_deep", "clustering"}:
+    if family in {"tabular", "tabular_deep", "clustering", "external"}:
         flavor = flavors.get("sklearn", {})
         name = "model.skops" if serialization == "skops" else "model.pkl"
         if (

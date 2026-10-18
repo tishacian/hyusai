@@ -27,6 +27,7 @@ import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { DataService } from '@app/features/data/data.service';
 import { ModelTrainComponent } from './model-train.component';
+import { ModelImportComponent } from './model-import.component';
 import { ModelsService, isModelActive } from './models.service';
 import {
   bestScore,
@@ -54,6 +55,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
     EmptyStateComponent,
     CkObjectHeaderComponent,
     ModelTrainComponent,
+    ModelImportComponent,
   ],
   template: `
     <ck-object-header
@@ -81,6 +83,16 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="models.loading()" />
           {{ i18n.t('models.list.refresh') }}
         </button>
+        @if (models.permissions()['import'] === true) {
+          <button
+            type="button"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+            data-testid="models-import"
+            (click)="importOpen.set(true)"
+          >
+            <app-icon name="upload" [size]="14" /> {{ i18n.t('models.import.action') }}
+          </button>
+        }
         @if (canTrain()) {
           <button
             type="button"
@@ -257,6 +269,15 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           </table>
         </div>
       }
+    }
+
+    @if (importOpen()) {
+      <ck-model-import
+        [models]="models.models()"
+        [canImport]="models.permissions()['import'] === true"
+        (closed)="importOpen.set(false)"
+        (imported)="reload()"
+      />
     }
 
     @if (studioOpen()) {
@@ -494,6 +515,8 @@ export class ModelsListComponent implements OnInit {
 
   protected readonly filter = signal<ModelFilter>('all');
   protected readonly studioOpen = signal(false);
+  /** M4.3: the import dialog; offered only with the server's `import` capability. */
+  protected readonly importOpen = signal(false);
 
   /** Rows seen mid-fit, so the one that settles can be announced rather than
    *  merely stop pulsing. */

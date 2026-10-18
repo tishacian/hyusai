@@ -132,6 +132,7 @@ def test_state_names_the_gap_without_storage_locations_or_rows(case):
     ]
     assert body["reference"] == {
         "status": "stored",
+        "source": "final_test",
         "rows": 7,
         "sha256": "a" * 64,
         "captured_at": "2026-10-16T10:00:00",

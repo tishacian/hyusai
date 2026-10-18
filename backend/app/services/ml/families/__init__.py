@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.ml.families.base import Family, SpecField, SpecInvalid
 from app.services.ml.families.clustering import CLUSTERING_FAMILY
+from app.services.ml.families.external import EXTERNAL
 from app.services.ml.families.forecasting import FORECASTING_FAMILY
 from app.services.ml.families.forecasting_deep import FORECASTING_DEEP
 from app.services.ml.families.tabular import TABULAR
@@ -17,6 +18,7 @@ FAMILIES: tuple[Family, ...] = (
     TABULAR_DEEP,
     TABULAR_FOUNDATION,
     CLUSTERING_FAMILY,
+    EXTERNAL,
 )
 FAMILY_BY_KEY = {family.key: family for family in FAMILIES}
 
@@ -29,7 +31,7 @@ def get_family(key: str | None) -> Family:
 
 def family_of_task(task: str) -> Family | None:
     for family in FAMILIES:
-        if task in family.tasks:
+        if family.trainable and task in family.tasks:
             return family
     return None
 
@@ -40,6 +42,7 @@ def all_tasks() -> tuple[str, ...]:
 
 __all__ = [
     "CLUSTERING_FAMILY",
+    "EXTERNAL",
     "FAMILIES",
     "FORECASTING_FAMILY",
     "FAMILY_BY_KEY",

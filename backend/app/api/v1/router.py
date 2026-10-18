@@ -69,6 +69,7 @@ from app.api.v1.endpoints import (
     ml_governance,
     ml_explanations,
     ml_exports,
+    ml_imports,
     ml_models,
     ml_operations,
     ml_runtime,
@@ -203,6 +204,7 @@ api_router.include_router(ml_models.router, prefix="/ml-models", tags=["ml-model
 api_router.include_router(ml_exports.router, prefix="/ml-models", tags=["ml-models"])
 api_router.include_router(ml_runtime.router, prefix="/ml-models", tags=["ml-models"])
 api_router.include_router(ml_explanations.router, prefix="/ml-models", tags=["ml-models"])
+api_router.include_router(ml_imports.router, prefix="/ml-models", tags=["ml-models"])
 api_router.include_router(impact.router, prefix="/impact", tags=["impact"])
 api_router.include_router(hypervisor.router, prefix="/hypervisor", tags=["hypervisor"])
 api_router.include_router(control_plane.router, prefix="/control-plane", tags=["control-plane"])

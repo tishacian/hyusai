@@ -11,13 +11,15 @@ production. Les branches sont empilées pour garder les lots révisables :
 | M3 | `codex/mlops-m3-operations` | Endpoints, agrégats, alertes durables, livraisons reprises et tarifs explicites |
 | M4.1 | `codex/mlops-m4-export` | Export administrateur d’une version MLflow vérifiée |
 | M4.2 | `feat/mlops-m4-requalification` | Requalification d’un modèle pour un nouvel environnement d’exécution, attestée et révocable |
+| M4.3 | `feat/mlops-m4-import` | Import administrateur de modèles externes sklearn/skops, validés en environnement isolé |
 
 Les détails, écarts et preuves propres aux lots sont dans
 `agentium-mlops-governance-implementation.md`,
 `agentium-mlops-correctness-implementation.md`, `agentium-mlops-operations.md`,
-`agentium-mlops-export-implementation.md` et
-`agentium-mlops-requalification-implementation.md`. M4.2 part de
-`demo/agentic` à `d814837b`, où M1 à M4.1 sont déjà assemblés.
+`agentium-mlops-export-implementation.md`,
+`agentium-mlops-requalification-implementation.md` et
+`agentium-mlops-import-implementation.md`. M4.2 part de `demo/agentic` à
+`d814837b`, où M1 à M4.1 sont déjà assemblés ; M4.3 est empilé sur M4.2.
 
 ## Contrats d’assemblage
 
@@ -101,8 +103,13 @@ révoque depuis la fiche ; le service la refuse alors au prochain appel.
 
 ## Lots conservés ouverts
 
-M4.3 (BYOM isolé), M5 et M6 ne sont pas déclarés livrés. M4.2 est livré sur sa
-branche, non assemblé à `demo/agentic`. M6 reste le lot « model instance/model as a pod », conditionné
+M4.3b (pool isolé pour les formats qui exécutent du code au chargement :
+pickle, cloudpickle, joblib, pyfunc personnalisé, chemins de code), M5 et M6
+ne sont pas déclarés livrés. M4.2 et M4.3 (formats sûrs : sklearn/skops) sont
+livrés sur leurs branches empilées, non assemblés à `demo/agentic`.
+L’import reste éteint (`ML_IMPORT_ENABLED=false`) : l’activer après avoir
+borné le corps des requêtes au proxy, avec l’API et le worker général sur la
+même image. M6 reste le lot « model instance/model as a pod », conditionné
 par un besoin mesuré et D4. La dérive multivariée optionnelle, Kubernetes, Spark,
 Kafka, tout nouvel usage de Redis et la narration conservent leurs handovers
 existants. La parité d’export est prouvée pour un tabulaire sklearn/skops avec

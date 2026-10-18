@@ -198,6 +198,9 @@ class Family:
     # Settings attribute naming the queue a remote family answers on; empty
     # for a family served in the API process.
     serve_queue_setting: str = ""
+    # False for a family that is only imported (M4.3): it is never offered by
+    # the training catalog nor chosen for a task.
+    trainable: bool = True
 
     def train_queue(self) -> str:
         queue = str(getattr(settings, self.queue_setting, "") or "").strip()
