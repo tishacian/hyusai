@@ -1,5 +1,10 @@
 # Recette écran Observabilité — 18 octobre 2026
 
+> Suivi ultérieur : le correctif est désormais déployé sur `bb33ceba`, options
+> séries et Flow toujours fermées. Voir la
+> [recette après déploiement](observability-reopening-recipe-2026-10-18.md).
+> Les constats ci-dessous décrivent la recette initiale et son repli.
+
 **Verdict : échec de la recette globale ; repli exécuté par l'opérateur et
 confirmé par HTTP depuis cet environnement.** Le défaut de population de la
 tuile « En cours » est reproduit ci-dessous sur la livraison avant repli.

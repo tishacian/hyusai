@@ -1,0 +1,89 @@
+{
+  "revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+  "workspace": "agentium-showcase",
+  "as_of": "2026-10-18T12:56:16.272Z",
+  "since": "30d",
+  "completed": [
+    "revision-and-declared-R2-R4",
+    "operations-default-and-five-facets",
+    "point-1440-exact-run-proof-back-reload-keyboard",
+    "matrix-1440-exact-run-proof-back-reload-keyboard",
+    "radar-history-1440",
+    "point-390-exact-run-proof-back-reload-keyboard",
+    "matrix-390-exact-run-proof-back-reload-keyboard",
+    "radar-history-390"
+  ],
+  "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+  "features": {
+    "enabled": true,
+    "execution_view_enabled": false,
+    "activity_series_enabled": false,
+    "scopes": [
+      "workspace",
+      "system"
+    ],
+    "kinds": [
+      "run",
+      "skill_invocation",
+      "recipe_execution",
+      "compute_run",
+      "ml_training",
+      "workspace_job",
+      "service_window",
+      "delivery_receipt"
+    ],
+    "statuses": [
+      "pending",
+      "running",
+      "waiting",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "timed_out",
+      "lost",
+      "unknown"
+    ]
+  },
+  "ids": {
+    "evaluation": "417379b9-c451-4415-a707-6afb46ba9593",
+    "run": "c8e9d120-b76e-4405-8b5f-4e54be8ce5de",
+    "invocation": null,
+    "excerpt": "1",
+    "claim": 0
+  },
+  "invocation_link_available": false,
+  "final_features": {
+    "enabled": true,
+    "execution_view_enabled": false,
+    "activity_series_enabled": false,
+    "scopes": [
+      "workspace",
+      "system"
+    ],
+    "kinds": [
+      "run",
+      "skill_invocation",
+      "recipe_execution",
+      "compute_run",
+      "ml_training",
+      "workspace_job",
+      "service_window",
+      "delivery_receipt"
+    ],
+    "statuses": [
+      "pending",
+      "running",
+      "waiting",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "timed_out",
+      "lost",
+      "unknown"
+    ]
+  },
+  "accepted": true,
+  "blocked_business_writes": 0,
+  "blocked_business_paths": [],
+  "suppressed_navigation_audits": 30
+}
