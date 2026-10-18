@@ -12,6 +12,7 @@ import functools
 import io
 import json
 import zipfile
+from contextlib import nullcontext
 from uuid import uuid4
 
 import mlflow.pyfunc
@@ -251,19 +252,11 @@ def _symlink(name: str) -> zipfile.ZipInfo:
 )
 def test_archive_attacks_are_refused_before_extraction(case, entries, mutate, reason):
     pipeline, data = estimator("forest")
-    with pytest.warns(UserWarning) if reason == "archive_duplicate" else _nothing():
+    with pytest.warns(UserWarning) if reason == "archive_duplicate" else nullcontext():
         archive = _zip(entries, mutate=mutate)
     response = post_import(case, archive, validation(pipeline, data))
     _refused(case, response, 422, "ML_IMPORT_REJECTED", reason)
     assert not (case.tmp / "evil.txt").exists()
-
-
-class _nothing:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
 
 
 def test_oversize_uploads_and_zip_bombs_are_refused(case, monkeypatch):
