@@ -600,7 +600,9 @@ def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
 def test_135_legacy_key_grace_and_guarded_downgrade(migrated):
     from datetime import datetime, timedelta
 
-    _alembic("downgrade", "134_execution_control")
+    # Down from the head crosses 138_activity_measures, another plane's revision
+    # the scratch database only stamped: walk the slice rather than run its DDL.
+    _migrate_to("134_execution_control")
     with migrated.begin() as connection:
         connection.exec_driver_sql("insert into workspaces (id) values ('ws-grace')")
         connection.exec_driver_sql("""
