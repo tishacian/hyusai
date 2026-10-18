@@ -342,7 +342,9 @@ def decode_reference(encoded: bytes, *, sha256: str) -> dict:
             not isinstance(rows, list)
             or len(rows) != len(ids)
             or len(rows) > int(settings.ml_import_max_validation_rows)
-            or any(not isinstance(row, dict) or row_digest(row) != key for row, key in zip(rows, ids))
+            or any(
+                not isinstance(row, dict) or row_digest(row) != key for row, key in zip(rows, ids)
+            )
         ):
             raise ValueError("stored reference rows")
     elif "rows" in payload:
