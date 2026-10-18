@@ -151,12 +151,16 @@ def serving_availability(
     return _heard_on(family.runtime, family.serve_queue(), db, now)
 
 
-def require_artifact_runtime(family: Family, artifact: dict, db: Any = None) -> None:
+def require_artifact_runtime(
+    family: Family, artifact: dict, db: Any = None, attested: Any = ()
+) -> None:
     """Check metadata against every current consumer, never the API's deep stack.
 
     Celery can choose any worker on the serving queue. A mixed or incomplete
     fleet cannot be advertised as callable, even when one consumer is compatible.
     Old heartbeats become qualified on their next beat; no artifact is rewritten.
+    ``attested`` are the row's active qualified attestations, looked up by the
+    caller: each consumer must equal the producer or one attested reader.
     """
     from app.resources.ml_artifact_contract import runtime_versions
     from app.services.ml.artifacts import validate_model_runtime
@@ -164,7 +168,7 @@ def require_artifact_runtime(family: Family, artifact: dict, db: Any = None) -> 
 
     versions = runtime_versions(family.key, artifact.get("serialization"))
     if family.serving == "in_process" or settings.worker_eager_mode:
-        validate_model_runtime(artifact, versions)
+        validate_model_runtime(artifact, versions, attested)
         return
     from app.models.tabular import MLRuntimeHeartbeat
 
@@ -197,7 +201,7 @@ def require_artifact_runtime(family: Family, artifact: dict, db: Any = None) -> 
             )
         current = {name: packages.get(name, "missing") for name in versions if name != "python"}
         current["python"] = ".".join(python.split(".")[:2])
-        validate_model_runtime(artifact, current)
+        validate_model_runtime(artifact, current, attested)
 
 
 def _heard_on(runtime: str, queue: str, db: Any, now: datetime | None) -> tuple[bool, str | None]:

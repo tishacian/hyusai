@@ -50,6 +50,8 @@ CHAIN = (
     "136_mlops_correctness",
     "137_mlops_operations",
     "138_activity_measures",
+    "139_mlops_requalification",
+    "140_mlops_prod_explanations",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
@@ -80,7 +82,8 @@ PLANE_TABLES = (
     "ml_alerts",
     "ml_alert_deliveries",
     "ml_alert_sources",
-
+    "ml_runtime_attestations",
+    "ml_production_explanations",
 )
 
 # The pre-slice tables the slice points at or reads from, reduced to the
@@ -597,7 +600,9 @@ def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
 def test_135_legacy_key_grace_and_guarded_downgrade(migrated):
     from datetime import datetime, timedelta
 
-    _alembic("downgrade", "134_execution_control")
+    # Down from the head crosses 138_activity_measures, another plane's revision
+    # the scratch database only stamped: walk the slice rather than run its DDL.
+    _migrate_to("134_execution_control")
     with migrated.begin() as connection:
         connection.exec_driver_sql("insert into workspaces (id) values ('ws-grace')")
         connection.exec_driver_sql("""
@@ -619,3 +624,87 @@ def test_135_legacy_key_grace_and_guarded_downgrade(migrated):
         _alembic("downgrade", "134_execution_control")
     with migrated.connect() as connection:
         assert connection.exec_driver_sql("select expires_at from ml_model_api_keys where id='key-grace'").scalar_one() == expiry
+
+
+def test_139_keeps_one_active_attestation_and_refuses_a_destructive_downgrade(migrated):
+    """The partial unique index exists on PostgreSQL, and attestations are evidence."""
+    from sqlalchemy.exc import IntegrityError
+
+    insert = """
+        insert into ml_runtime_attestations (id, workspace_id, model_id, artifact_fingerprint,
+            producer_runtime, reader_runtime, reader_digest, reference_sha256, rows_compared,
+            metrics, tolerances, verdict, actor, created_at, revoked_at)
+        values ('{id}', 'ws-rq', 'm-rq', 'fp', '{{}}', '{{}}', 'reader', 'ref', 3, '{{}}', '{{}}',
+            '{verdict}', 'admin', now(), {revoked})
+    """
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("insert into workspaces (id) values ('ws-rq')")
+        connection.exec_driver_sql("""
+            insert into ml_models (id, workspace_id, name, slug, version, task, algo, target,
+                status, is_champion, created_at, updated_at)
+            values ('m-rq','ws-rq','Rq','rq',1,'classification','gb','y','ready',true,now(),now())
+        """)
+        for identifier, verdict, revoked in (
+            ("a-1", "qualified", "null"),
+            ("a-2", "failed", "null"),
+            ("a-3", "qualified", "now()"),
+        ):
+            connection.exec_driver_sql(
+                insert.format(id=identifier, verdict=verdict, revoked=revoked)
+            )
+    with pytest.raises(IntegrityError):
+        with migrated.begin() as connection:
+            connection.exec_driver_sql(insert.format(id="a-4", verdict="qualified", revoked="null"))
+    with pytest.raises(IntegrityError):
+        with migrated.begin() as connection:
+            connection.exec_driver_sql(insert.format(id="a-5", verdict="unknown", revoked="null"))
+    with pytest.raises(AssertionError, match="ML_REQUALIFICATION_DOWNGRADE_REFUSED"):
+        _alembic("downgrade", "138_activity_measures")
+    with migrated.connect() as connection:
+        remaining = connection.exec_driver_sql("select count(*) from ml_runtime_attestations")
+        assert remaining.scalar() == 3
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("delete from ml_runtime_attestations")
+    _alembic("downgrade", "138_activity_measures")
+    assert "ml_runtime_attestations" not in inspect(migrated).get_table_names()
+    _alembic("upgrade", HEAD)
+
+
+def test_140_reports_cascade_with_their_model_and_guard_their_downgrade(migrated):
+    """Reports are model-owned evidence; a downgrade must not silently drop them."""
+
+    inspector = inspect(migrated)
+    cascades = {
+        fk["referred_table"]: fk["options"].get("ondelete")
+        for fk in inspector.get_foreign_keys("ml_production_explanations")
+    }
+    assert cascades == {"ml_models": "CASCADE", "workspaces": "CASCADE"}
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("insert into workspaces (id) values ('ws-report')")
+        connection.exec_driver_sql(
+            """
+            insert into ml_models (id, workspace_id, name, slug, version, task, algo, target,
+                status, is_champion, created_at, updated_at)
+            values ('m-report','ws-report','Report','report',1,'classification','gb','y',
+                'ready',true,now(),now())
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            insert into ml_production_explanations (id, workspace_id, model_id, version, trigger,
+                status, labeled_count, used_count, excluded_json, metrics_json, report_json,
+                created_at)
+            values ('r-1','ws-report','m-report',1,'manual','completed',60,60,'{}','{}','{}',now())
+            """
+        )
+    with pytest.raises(AssertionError, match="ML_EXPLANATIONS_DOWNGRADE_NOT_EMPTY"):
+        _alembic("downgrade", "139_mlops_requalification")
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("delete from ml_models where id = 'm-report'")
+        remaining = connection.exec_driver_sql(
+            "select count(*) from ml_production_explanations"
+        ).scalar_one()
+    assert remaining == 0
+    _alembic("downgrade", "139_mlops_requalification")
+    assert "ml_production_explanations" not in inspect(migrated).get_table_names()
+    _alembic("upgrade", "140_mlops_prod_explanations")

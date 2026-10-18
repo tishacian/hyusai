@@ -50,11 +50,21 @@ with --env-manager local. Optional image packaging, in that qualified environmen
 mlflow models build-docker -m model -n exported-model
 ```
 
-This export does not requalify another runtime, import external models or deploy
-a service. Agentium refuses export when the producer runtime/trust profile cannot
-be verified in its reader environment. A portable tabular sklearn/skops model
-has been exercised via a real MLflow HTTP server; that does not qualify every
-model family or another dependency version.
+This export does not import external models or deploy a service. Agentium
+refuses export when the producer runtime/trust profile cannot be verified in its
+reader environment. A portable tabular sklearn/skops model has been exercised
+via a real MLflow HTTP server; that does not qualify every model family.
+
+## Runtime attestations
+
+The archive runs under the producer runtime recorded in artifact-contract.json
+(model/requirements.txt pins it), OR under a reader runtime listed in
+runtime-attestations.json when that file is present. Each attestation records
+that Agentium replayed the model's reference predictions under that reader
+runtime and found them within the stated tolerances. It covers exactly the
+listed package versions for this exact artifact, nothing else; install those
+versions instead of model/requirements.txt to use it. An attestation revoked
+after this export is not reflected in the archive.
 """
 
 
@@ -70,11 +80,30 @@ def _sha256(path):
     return digest.hexdigest()
 
 
-def build_export(model, destination: Path):
+def _attestation_record(item: dict) -> dict:
+    return {
+        key: item.get(key)
+        for key in (
+            "id",
+            "artifact_fingerprint",
+            "producer_runtime",
+            "reader_runtime",
+            "reference_sha256",
+            "rows_compared",
+            "metrics",
+            "tolerances",
+            "created_at",
+        )
+    }
+
+
+def build_export(model, destination: Path, attested=()):
     """Return a bounded archive and non-sensitive audit metadata.
 
     ``destination`` is a fresh, private temporary directory owned by the caller.
-    The caller authorizes and audits before sending any bytes.
+    The caller authorizes and audits before sending any bytes. ``attested`` are
+    the row's active qualified runtime attestations (M4.2): they let the gate
+    accept an attested reader and are shipped as runtime-attestations.json.
     """
     if model.status != "ready":
         raise TabularError(
@@ -84,7 +113,7 @@ def build_export(model, destination: Path):
     budget = int(settings.ml_train_artifact_limit_mb) * 1024**2
     contents = destination / "contents"
     bundle = download_model_dir(model, contents / "model")
-    verify_model_bundle(bundle, artifact, family=model.family, max_bytes=budget)
+    verify_model_bundle(bundle, artifact, family=model.family, max_bytes=budget, attested=attested)
     if not {"requirements.txt", "input_example.json"} <= artifact["files"].keys():
         raise TabularError(
             code="ML_EXPORT_INCOMPLETE",
@@ -92,6 +121,18 @@ def build_export(model, destination: Path):
             status_code=409,
         )
     _write_json(contents / "artifact-contract.json", artifact)
+    fingerprint = artifact_fingerprint(artifact)
+    attestations = [
+        _attestation_record(item)
+        for item in attested
+        if item.get("artifact_fingerprint") == fingerprint
+        and item.get("producer_runtime") == artifact.get("runtime")
+    ]
+    if attestations:
+        _write_json(
+            contents / "runtime-attestations.json",
+            {"format": "agentium-runtime-attestations-v1", "attestations": attestations},
+        )
     (contents / "README.md").write_text(README)
     inventory = {
         path.relative_to(contents).as_posix(): {
@@ -101,7 +142,6 @@ def build_export(model, destination: Path):
         for path in sorted(contents.rglob("*"))
         if path.is_file()
     }
-    fingerprint = artifact_fingerprint(artifact)
     _write_json(
         contents / "export-manifest.json",
         {
@@ -127,4 +167,5 @@ def build_export(model, destination: Path):
         "archive_sha256": _sha256(archive),
         "archive_bytes": archive.stat().st_size,
         "model_version": model.version,
+        "attestations": sorted(item["id"] for item in attestations),
     }

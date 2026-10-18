@@ -340,8 +340,12 @@ def _references(db, job):
     return row, challenger
 
 
-def _score_isolated(model, rows, *, timeout_s):
-    """The child gets artifact-store access but no DB or provider credentials."""
+def _score_isolated(model, rows, *, timeout_s, attested=()):
+    """The child gets artifact-store access but no DB or provider credentials.
+
+    ``attested`` are the challenger's active runtime attestations (M4.2), read
+    by the parent; the child's gate re-checks every binding before loading.
+    """
     from app.services.recipe_executions import supervise_harness
 
     backend = Path(__file__).resolve().parents[2]
@@ -356,6 +360,7 @@ def _score_isolated(model, rows, *, timeout_s):
                     "rows": rows,
                     "max_artifact_bytes": MAX_ARTIFACT_BYTES,
                     "parent_pid": os.getpid(),
+                    "attested": list(attested),
                 }
             ),
             encoding="utf-8",
@@ -426,7 +431,14 @@ def run_shadow(job_id: str):
                     code="ML_SHADOW_SOURCE_UNAVAILABLE", message="No retained input rows."
                 )
             config = ShadowConfig.model_validate(job.input_ref["config"])
-            result = _score_isolated(challenger, rows, timeout_s=config.timeout_s)
+            from app.services.ml_requalification import attested_runtimes
+
+            result = _score_isolated(
+                challenger,
+                rows,
+                timeout_s=config.timeout_s,
+                attested=attested_runtimes(db, challenger),
+            )
             _references(db, job)  # do not publish stale/deleted workspace data
         except Exception as exc:
             error = exc.code if isinstance(exc, TabularError) else "ML_SHADOW_FAILED"

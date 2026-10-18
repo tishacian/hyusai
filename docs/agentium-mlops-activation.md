@@ -25,6 +25,11 @@ refusé. Aucun ajout de métadonnées ne le convertit en artefact qualifié.
 
 ## Réparer une version incompatible
 
+Si seul l’environnement d’exécution a changé et qu’une référence existe, un
+administrateur peut d’abord **requalifier** la version (Réglages ›
+Environnement d’exécution ; voir `agentium-mlops-requalification-implementation.md`).
+Sinon, ou si la requalification échoue, réentraîner.
+
 Dans Model Center, ouvrir la version puis **Réentraîner**. Le studio reprend
 son dataset, sa cible, ses variables, son algorithme, ses réglages et sa spec.
 Vérifier le dataset et les choix avant soumission. Une nouvelle version dans

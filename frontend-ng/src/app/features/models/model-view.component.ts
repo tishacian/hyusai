@@ -29,6 +29,7 @@ import { DistillationEvidenceComponent } from './distillation-evidence.component
 import { ClusteringEvidenceComponent } from './clustering-evidence.component';
 import { DriftEvidenceComponent } from './drift-evidence.component';
 import { ShadowEvidenceComponent } from './shadow-evidence.component';
+import { ProductionDebugComponent } from './production-debug.component';
 import type { ShadowReport } from './shadow-evidence.vm';
 import {
   ChangeDetectionStrategy,
@@ -58,6 +59,8 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { MlGovernanceComponent } from './ml-governance.component';
 import { ModelExportComponent } from './model-export.component';
+import { ModelRuntimeComponent } from './model-runtime.component';
+import { importEvidence, isImported } from './model-import.vm';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { TabularIntervalsComponent } from './tabular-intervals.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
@@ -138,6 +141,7 @@ const CHART_ASPECT = 300 / 190;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ModelExportComponent,
+    ModelRuntimeComponent,
     ClassificationEvidenceComponent,
     EvaluationEvidenceComponent,
     PreprocessingEvidenceComponent,
@@ -161,6 +165,7 @@ const CHART_ASPECT = 300 / 190;
     ClusteringEvidenceComponent,
     DriftEvidenceComponent,
     ShadowEvidenceComponent,
+    ProductionDebugComponent,
     ForecastActualsComponent,
     ScheduledMonitoringComponent,
     ForecastChartComponent,
@@ -183,6 +188,11 @@ const CHART_ASPECT = 300 / 190;
           <span class="ck-badge ck-mono" data-testid="hero-version">
             {{ i18n.t('models.versions.label', { version: row.version }) }}
           </span>
+          @if (imported()) {
+            <span class="ck-badge ck-mono" data-testid="origin-imported" [title]="i18n.t('models.import.badge_hint')">
+              {{ i18n.t('models.import.badge') }}
+            </span>
+          }
           @if (row.is_champion) {
             <span class="ck-badge ck-badge--champion ck-mono">
               <app-icon name="crown" [size]="10" /> {{ i18n.t('models.detail.serving') }}
@@ -236,7 +246,7 @@ const CHART_ASPECT = 300 / 190;
             >
               <app-icon name="square" [size]="14" /> {{ i18n.t('models.detail.cancel') }}
             </button>
-          } @else if (!isActive(row) && serving()?.permissions?.['train']) {
+          } @else if (!isActive(row) && !imported() && serving()?.permissions?.['train']) {
             <button
               type="button"
               class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
@@ -263,6 +273,8 @@ const CHART_ASPECT = 300 / 190;
           @if (serving()?.readiness?.action === 'retrain') {
             <p class="ck-hint mt-1">{{ i18n.t(serving()?.permissions?.['train']
               ? 'models.readiness.retrain_hint' : 'models.readiness.owner_hint') }}</p>
+          } @else if (serving()?.readiness?.action === 'requalify') {
+            <p class="ck-hint mt-1" data-testid="serving-readiness-requalify">{{ i18n.t('models.readiness.requalify_hint') }}</p>
           }
         </div>
       }
@@ -346,7 +358,26 @@ const CHART_ASPECT = 300 / 190;
       <ck-tabs [active]="tab()" (activeChange)="onTabChange($event)">
         <!-- ── Results ──────────────────────────────────────────────────── -->
         <ck-tab id="evidence" [label]="i18n.t('models.detail.tab.evidence')">
-          @if (row.task === 'clustering') {
+          @if (importedEvidence(); as evidence) {
+            <section class="ck-surface rounded-md p-4 space-y-1" data-testid="import-evidence">
+              <div class="ck-section-label">{{ i18n.t('models.import.evidence.title') }}</div>
+              <p class="ck-hint">{{ i18n.t('models.import.evidence.hint') }}</p>
+              @if (evidence.rows !== null) {
+                <p class="text-sm">{{ i18n.t('models.import.evidence.rows', { rows: evidence.rows }) }}</p>
+              }
+              @for (line of evidence.gaps; track line.key) { <p class="ck-mono text-[12px]">{{ i18n.t(line.key, line.params) }}</p> }
+              @for (line of evidence.measures; track line.key) { <p class="ck-mono text-[12px]">{{ i18n.t(line.key, line.params) }}</p> }
+              @if (evidence.estimator) {
+                <p class="text-sm">{{ i18n.t('models.import.evidence.estimator', { name: evidence.estimator }) }}</p>
+              }
+              @if (evidence.archiveSha) {
+                <p class="ck-mono text-[12px]">{{ i18n.t('models.import.evidence.archive', { sha: evidence.archiveSha }) }}</p>
+              }
+              @if (evidence.requirements.length) {
+                <p class="ck-mono text-[12px]">{{ evidence.requirements.join(' · ') }}</p>
+              }
+            </section>
+          } @else if (row.task === 'clustering') {
             <ck-clustering-evidence [evidence]="row.metrics?.clustering" />
           } @else if (!scores().length) {
             <app-empty-state icon="brain" [title]="i18n.t('models.evidence.none')" />
@@ -610,6 +641,9 @@ const CHART_ASPECT = 300 / 190;
               @if (row.family === 'tabular' || !row.family) {
                 <ck-evaluation-evidence [metrics]="row.metrics ?? null" [modelId]="row.id" />
               }
+              @if (productionDebuggable(row)) {
+                <ck-production-debug [modelId]="row.id" [task]="row.task" [permissions]="serving()?.permissions" mode="evidence" />
+              }
               <div class="ck-charts">
                 <ck-classification-evidence [calibration]="calibration()" [decision]="decision()" [warnings]="classificationWarnings()" />
                 <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
@@ -751,7 +785,7 @@ const CHART_ASPECT = 300 / 190;
         </ck-tab>
 
         <!-- ── Comparison ──────────────────────────────────────────────────── -->
-        @if (row.task !== 'clustering') {
+        @if (row.task !== 'clustering' && !imported()) {
         <ck-tab id="compare" [label]="i18n.t('models.detail.tab.compare')">
           @if (!comparison().length) {
             <app-empty-state
@@ -913,12 +947,21 @@ const CHART_ASPECT = 300 / 190;
         }
         @if (row.task !== 'clustering') {
         <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
+          @if (imported()) {
+            <p class="ck-hint mb-3" data-testid="import-monitor-hint">{{ i18n.t('models.import.monitor_hint') }}</p>
+          } @else {
           <ck-scheduled-monitoring [evidence]="monitoring()?.scheduled" [modelId]="row.id" [version]="row.version" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
+          }
           @if (row.task === 'forecasting') {
             <ck-forecast-actuals [evidence]="monitoring()?.forecast_actuals" [modelId]="row.id" (changed)="onScheduledChanged($event)" (refresh)="reload()" />
           } @else {
+          @if (!imported()) {
           <ck-shadow-evidence [evidence]="monitoring()?.shadow" [modelId]="row.id" [version]="row.version" [task]="row.task"
             (changed)="onShadowChanged($event)" (refresh)="reload()" />
+          }
+          @if (productionDebuggable(row)) {
+            <ck-production-debug [modelId]="row.id" [task]="row.task" [permissions]="serving()?.permissions" mode="monitor" />
+          }
           @if (!monitoring() || !monitoring()!.window.predictions) {
             <app-empty-state
               icon="pulse"
@@ -1185,6 +1228,8 @@ const CHART_ASPECT = 300 / 190;
           <ck-ml-governance [modelId]="row.id" (changed)="reloadGovernance()" />
           <ck-model-export [modelId]="row.id" [ready]="row.status === 'ready'"
             [canExport]="serving()?.permissions?.['export'] === true" />
+          <ck-model-runtime [modelId]="row.id" [ready]="row.status === 'ready'"
+            [canRequalify]="serving()?.permissions?.['requalify'] === true" />
           <div class="ck-surface rounded-md ck-h-scroll">
             <table class="w-full text-sm ck-schema">
               <tbody>
@@ -1658,6 +1703,15 @@ export class ModelViewComponent implements OnInit {
   protected readonly detail = signal<ModelDetailDto | null>(null);
   protected readonly loading = signal(false);
   protected readonly tab = signal('evidence');
+
+  /** Production debugging covers ready, in-process tabular classifiers and regressors. */
+  protected productionDebuggable(row: ModelDto): boolean {
+    return (
+      (!row.family || row.family === 'tabular') &&
+      (row.task === 'classification' || row.task === 'regression') &&
+      row.status === 'ready'
+    );
+  }
   protected readonly studioOpen = signal(false);
   protected readonly monitoring = signal<MonitoringReport | null>(null);
   protected readonly feedbackId = signal('');
@@ -1697,6 +1751,9 @@ export class ModelViewComponent implements OnInit {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   protected readonly model = computed(() => this.detail()?.model ?? null);
+  /** M4.3: an imported version is served like tabular but was never trained here. */
+  protected readonly imported = computed(() => isImported(this.model()));
+  protected readonly importedEvidence = computed(() => importEvidence(this.model()));
   protected readonly dataset = computed(() => this.detail()?.dataset ?? null);
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
   /** Dataset → transform → this version → scored children. Not v1→v2. */

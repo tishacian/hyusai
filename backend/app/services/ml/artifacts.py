@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import zipfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from app.resources.ml_artifact_contract import (
@@ -175,28 +176,112 @@ def validate_model_metadata(
             )
 
 
-def validate_model_runtime(artifact: dict, current: dict) -> None:
+def runtime_digest(runtime: dict) -> str:
+    """Canonical identity of a reader runtime, as attestations index it."""
+    return hashlib.sha256(
+        json.dumps(runtime, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+
+
+def attested_reader(artifact: dict, current: dict, attested: Iterable = ()) -> Mapping | None:
+    """The active attestation letting this reader load this exact artifact.
+
+    ``attested`` is looked up by the caller (this module has no database). It
+    is never trusted as given: an entry counts only when it names this exact
+    artifact, this producer runtime and this reader runtime. A revoked or
+    failed attempt is filtered out by the caller and grants nothing here.
+    """
+    recorded = artifact.get("runtime") if isinstance(artifact, dict) else None
+    if not isinstance(recorded, dict) or not isinstance(current, dict):
+        return None
+    fingerprint = None
+    for item in attested or ():
+        if not isinstance(item, Mapping):
+            continue
+        if fingerprint is None:
+            fingerprint = artifact_fingerprint(artifact)
+        if (
+            item.get("artifact_fingerprint") == fingerprint
+            and item.get("producer_runtime") == recorded
+            and item.get("reader_runtime") == current
+        ):
+            return item
+    return None
+
+
+def validate_model_runtime(artifact: dict, current: dict, attested: Iterable = ()) -> None:
+    """Producer runtime equality, or a requalification attestation for this reader.
+
+    Equality is unchanged from M4.1. The only other way in is an active
+    qualified attestation whose fingerprint, producer and reader runtimes all
+    match: reference predictions were replayed under exactly this reader.
+    """
     recorded = artifact.get("runtime")
-    if not isinstance(recorded, dict) or recorded != current or "missing" in current.values():
-        _refuse(
-            "ML_ARTIFACT_RUNTIME_MISMATCH",
-            "This artifact requires its qualified producer runtime; cross-version loading is not enabled.",
-            producer=recorded,
-            reader=current,
-            action="retain_producer_runtime",
-        )
+    if (
+        isinstance(recorded, dict)
+        and isinstance(current, dict)
+        and "missing" not in current.values()
+        and (recorded == current or attested_reader(artifact, current, attested) is not None)
+    ):
+        return
+    _refuse(
+        "ML_ARTIFACT_RUNTIME_MISMATCH",
+        "This artifact's producer runtime differs from this reader's and no qualified requalification covers it. Requalify it against its reference predictions, or retrain it.",
+        producer=recorded,
+        reader=current,
+        action="requalify_or_retrain",
+    )
 
 
 def verify_model_bundle(
-    directory: Path, artifact: dict, *, family: str, max_bytes: int = MAX_BUNDLE_BYTES
+    directory: Path,
+    artifact: dict,
+    *,
+    family: str,
+    max_bytes: int = MAX_BUNDLE_BYTES,
+    attested: Iterable = (),
 ) -> None:
-    """The only serving gate; artifact comes from the authorized MLModel row."""
+    """The only serving gate; artifact comes from the authorized MLModel row.
+
+    ``attested`` carries the caller's active qualified attestations for this
+    row (see ``ml_requalification.attested_runtimes``); empty keeps the strict
+    producer-runtime equality.
+    """
     validate_model_metadata(artifact, family=family, max_bytes=max_bytes)
     serialization = artifact.get("serialization")
-    expected_profile = PROFILES[(family, serialization)]
     verify_bundle(directory, artifact, max_bytes=max_bytes)
-    validate_model_runtime(artifact, runtime_versions(family, serialization))
+    validate_model_runtime(artifact, runtime_versions(family, serialization), attested)
+    _verify_loader(directory, artifact, family=family, max_bytes=max_bytes)
 
+
+def verify_requalification_candidate(
+    directory: Path, artifact: dict, *, family: str, max_bytes: int = MAX_BUNDLE_BYTES
+) -> None:
+    """Every serving check except producer-runtime equality.
+
+    Only the isolated requalification harness calls this, to replay reference
+    predictions under a different reader before any attestation exists. It
+    never serves: the parent compares the outputs and decides. Hashes, sizes,
+    trust profile, skops type allowlist and MLmodel loader checks still apply,
+    and a reader that lacks a recorded package is still refused.
+    """
+    validate_model_metadata(artifact, family=family, max_bytes=max_bytes)
+    serialization = artifact.get("serialization")
+    verify_bundle(directory, artifact, max_bytes=max_bytes)
+    current = runtime_versions(family, serialization)
+    if "missing" in current.values():
+        _refuse(
+            "ML_ARTIFACT_RUNTIME_MISMATCH",
+            "This reader lacks a package the artifact's runtime records.",
+            reader=current,
+            action="retrain",
+        )
+    _verify_loader(directory, artifact, family=family, max_bytes=max_bytes)
+
+
+def _verify_loader(directory: Path, artifact: dict, *, family: str, max_bytes: int) -> None:
+    serialization = artifact.get("serialization")
+    expected_profile = PROFILES[(family, serialization)]
     import yaml
 
     # YAML is inert; this happens after hash and size verification and before
@@ -204,7 +289,7 @@ def verify_model_bundle(
     config = yaml.safe_load((directory / "MLmodel").read_text(encoding="utf-8"))
     flavors = config.get("flavors", {}) if isinstance(config, dict) else {}
     pyfunc = flavors.get("python_function", {})
-    if family in {"tabular", "tabular_deep", "clustering"}:
+    if family in {"tabular", "tabular_deep", "clustering", "external"}:
         flavor = flavors.get("sklearn", {})
         name = "model.skops" if serialization == "skops" else "model.pkl"
         if (

@@ -41,7 +41,13 @@ def main(source, destination):
     # the workspace/model namespace. Missing anchors are never synthesized.
     validate_inventory(artifact, max_bytes=limit)
     download_model_dir(model, directory)
-    verify_model_bundle(directory, artifact, family=model.family, max_bytes=limit)
+    verify_model_bundle(
+        directory,
+        artifact,
+        family=model.family,
+        max_bytes=limit,
+        attested=data.get("attested") or (),
+    )
     pipeline = _load_mlflow_model(directory)
     classes = _classes_of(model, pipeline)
     fields = contract_fields(model)

@@ -14,10 +14,12 @@ import { WorkspaceService } from '@app/core/workspace.service';
  * row. Nobody demos a model by typing forty fields.
  *
  * **The gauge names its class.** A bare 0.87 means nothing; "P(churn = 1) = 87%"
- * is a claim. The contributions under it are measured counterfactuals — what the
- * answer would have been had this field held its typical value — and they say so,
- * because calling them feature attributions would be a Shapley claim this does
- * not compute.
+ * is a claim. Under it, a tree ensemble is explained by exact TreeSHAP from the
+ * ml-ts worker (base value, signed contributions, output, in a stated space);
+ * any other model — or a TreeSHAP that cannot answer — by measured
+ * counterfactuals, what the answer would have been had this field held its
+ * typical value. The tab says which method answered and why, because the two
+ * are not the same claim: Shapley values add up to the output, effects do not.
  *
  * **The cURL is the request this form just made.** Same route, same body shape,
  * only the credential differs. A snippet that has to be edited before it works
@@ -50,6 +52,9 @@ import { I18nService } from '@app/core/i18n.service';
 import { ModelsService } from './models.service';
 import { intervalEvidence, predictionInterval } from './tabular-intervals.vm';
 import { ForecastPlaygroundComponent } from './forecast-playground.component';
+import { TreeShapExplanationComponent } from './tree-shap-explanation.component';
+import { CounterfactualPanelComponent } from './counterfactual-panel.component';
+import { fallbackOf, fallbackReasonKey, isTreeShap } from './explanations.vm';
 import { forecastCurlSnippet, type ForecastRequestBody } from './forecast.vm';
 import {
   GAUGE_ARC,
@@ -89,7 +94,14 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
   selector: 'app-model-playground',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, EmptyStateComponent, ForecastPlaygroundComponent],
+  imports: [
+    RouterLink,
+    IconComponent,
+    EmptyStateComponent,
+    ForecastPlaygroundComponent,
+    TreeShapExplanationComponent,
+    CounterfactualPanelComponent,
+  ],
   template: `
     @if (serving(); as block) {
       @if (!block.callable) {
@@ -319,6 +331,14 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
               </div>
             }
 
+            @if (treeShap(); as tree) {
+              <ck-tree-shap-explanation [explanation]="tree" />
+            }
+            @if (fallback(); as why) {
+              <p class="ck-hint mt-4" data-testid="explain-fallback">
+                {{ i18n.t('models.play.explain.fallback', { reason: i18n.t(reasonKey(why.reason)) }) }}
+              </p>
+            }
             @if (contributions().length) {
               <div class="mt-4">
                 <div class="ck-section-label">{{ i18n.t('models.play.why') }}</div>
@@ -358,6 +378,17 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           </section>
         </div>
         </div>
+        @if (searchable()) {
+          <!-- ── What would change the answer: a bounded counterfactual search ── -->
+          <ck-counterfactual-panel
+            [modelId]="model().id"
+            [task]="model().task"
+            [fields]="block.fields"
+            [classes]="block.classes"
+            [row]="formRow()"
+            [version]="pinned()"
+          />
+        }
         }
 
         <!-- ── The same call, for a machine ─────────────────────────────────── -->
@@ -1103,6 +1134,9 @@ export class ModelPlaygroundComponent {
           ...(pinned ? { version: pinned } : {}),
           store: this.storeInputs(),
           explain: this.model().task !== 'clustering',
+          // TreeSHAP when the model is a tree ensemble and the ml-ts worker can
+          // answer; the counterfactual otherwise, and the answer says which.
+          explainMethod: 'auto',
           intervalLevel: this.intervalLevel(),
         });
       if (!current()) return;
@@ -1183,6 +1217,33 @@ export class ModelPlaygroundComponent {
 
   protected readonly contributions = computed(() =>
     contributionBars(this.answer()?.predictions?.[0]?.contributions),
+  );
+
+  /** The Shapley explanation, when TreeSHAP is what answered. */
+  protected readonly treeShap = computed(() => {
+    const explanation = this.answer()?.predictions?.[0]?.explanation;
+    return isTreeShap(explanation) ? explanation : null;
+  });
+
+  /** The counterfactual answered instead, and the reason it did. */
+  protected readonly fallback = computed(() =>
+    fallbackOf(this.answer()?.predictions?.[0]?.explanation),
+  );
+
+  protected readonly reasonKey = fallbackReasonKey;
+
+  /** A counterfactual search needs an in-process tabular classifier or regressor. */
+  protected readonly searchable = computed(() => {
+    const model = this.model();
+    return (
+      (model.family ?? 'tabular') === 'tabular' &&
+      (model.task === 'classification' || model.task === 'regression')
+    );
+  });
+
+  /** The row in the form, typed as the predict request types it. */
+  protected readonly formRow = computed(() =>
+    predictPayload(this.serving().fields, this.values()),
   );
 
   protected readonly numeric = computed(() => {

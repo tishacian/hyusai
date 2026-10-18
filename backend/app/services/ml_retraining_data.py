@@ -52,10 +52,11 @@ def limits():
     )
 
 
-def read_source(dataset, columns):
+def read_source(dataset, columns, *, budget=None):
+    """Bounded read of a source; ``budget`` lets M4.2 reuse it with its own limits."""
     import polars as pl
 
-    rows, size = limits()
+    rows, size = budget or limits()
     if (
         dataset.status != "ready"
         or (dataset.row_count or 0) > rows
@@ -84,7 +85,12 @@ def read_source(dataset, columns):
     return frame.to_pandas()
 
 
-def partition_for(model, dataset, frame):
+def partition_for(model, dataset, frame, *, max_bytes=None):
+    """The verified recorded partition and the usable rows it was measured on.
+
+    Shared with runtime requalification, which re-derives its reference rows
+    from the same final test under its own byte budget (``max_bytes``).
+    """
     from app.services.tabular_ml import evaluation_partition_key
 
     metadata = (model.metrics_json or {}).get("evaluation") or {}
@@ -97,7 +103,7 @@ def partition_for(model, dataset, frame):
     try:
         with tempfile.TemporaryDirectory(prefix="ml-retrain-partition-") as folder:
             local = get_object_store().copy_to_local(
-                key, Path(folder) / "partition.gz", max_bytes=limits()[1]
+                key, Path(folder) / "partition.gz", max_bytes=max_bytes or limits()[1]
             )
             partition = read_partition(local.read_bytes(), sha256=metadata["sha256"])
         if (

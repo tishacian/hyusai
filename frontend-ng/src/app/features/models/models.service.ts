@@ -43,6 +43,8 @@ import {
 } from './models.vm';
 import type { ForecastAnswer, ForecastRequestBody } from './forecast.vm';
 import type { ShadowConfig, ShadowReport } from './shadow-evidence.vm';
+import type { CounterfactualAnswer, CounterfactualRequest } from './explanations.vm';
+import type { ProductionDebugView, ProductionReport } from './production-debug.vm';
 
 export interface ModelListDto {
   permissions?: Record<string, boolean>;
@@ -284,13 +286,21 @@ export class ModelsService {
   async predict(
     modelId: string,
     row: Record<string, unknown>,
-    options: { explain?: boolean; store?: boolean; version?: number; intervalLevel?: number | null } = {},
+    options: {
+      explain?: boolean;
+      /** `auto`: TreeSHAP for a tree model, else the counterfactual, saying which. */
+      explainMethod?: 'auto' | 'shap' | 'counterfactual';
+      store?: boolean;
+      version?: number;
+      intervalLevel?: number | null;
+    } = {},
   ): Promise<PredictAnswer> {
     const current = this.currentScope();
     const answer = await firstValueFrom(
       this.http.post<PredictAnswer>(`${this.base}/${modelId}/predict`, {
         inputs: [row],
         ...(options.explain ? { explain: true } : {}),
+        ...(options.explain && options.explainMethod ? { explain_method: options.explainMethod } : {}),
         ...(typeof options.store === 'boolean' ? { store: options.store } : {}),
         ...(options.version ? { version: options.version } : {}),
         ...(options.intervalLevel != null ? { interval_level: options.intervalLevel } : {}),
@@ -401,6 +411,33 @@ export class ModelsService {
     );
     if (current()) this.replace(response.model);
     return response;
+  }
+
+  /** The fewest, nearest changes to 1–3 fields that flip the answer; nothing is stored. */
+  counterfactuals(modelId: string, body: CounterfactualRequest): Promise<CounterfactualAnswer> {
+    return firstValueFrom(
+      this.http.post<CounterfactualAnswer>(`${this.base}/${modelId}/counterfactuals`, body),
+    );
+  }
+
+  /** The latest production report of this exact version and its fairness series. */
+  productionDebug(modelId: string): Promise<ProductionDebugView> {
+    return firstValueFrom(
+      this.http.get<ProductionDebugView>(`${this.base}/${modelId}/production-debug`),
+    );
+  }
+
+  /** Analyse production now (a WRITE action, audited server-side). */
+  runProductionDebug(
+    modelId: string,
+    window: { since?: string; until?: string } = {},
+  ): Promise<ProductionDebugView & { report: ProductionReport }> {
+    return firstValueFrom(
+      this.http.post<ProductionDebugView & { report: ProductionReport }>(
+        `${this.base}/${modelId}/production-debug`,
+        window,
+      ),
+    );
   }
 
   private replace(model: ModelDto): void {

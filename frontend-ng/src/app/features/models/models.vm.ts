@@ -319,7 +319,8 @@ export interface ServingBlock {
     model_id: string;
     version: number;
     check: 'metadata';
-    action: 'retrain' | 'check_runtime' | null;
+    /** `requalify`: a stored reference makes M4.2 requalification the way back. */
+    action: 'retrain' | 'requalify' | 'check_runtime' | null;
   };
   /** An explicit refusal takes precedence over generic runtime availability. */
   refusal?: CodedRefusal | null;
@@ -367,6 +368,8 @@ export interface PredictionRow {
   score?: number | null;
   probabilities?: ClassProbability[];
   contributions?: Contribution[];
+  /** Present when the call asked `auto`/`shap`: the method that answered, and why. */
+  explanation?: import('./explanations.vm').ServedExplanation;
   lower?: number;
   upper?: number;
   level?: number;
