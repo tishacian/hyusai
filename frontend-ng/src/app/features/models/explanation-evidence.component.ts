@@ -19,7 +19,7 @@ import {
         @if (explanation.error_tree; as tree) {
           <section class="ck-chart" data-testid="error-tree-evidence" [class.ck-tree]="errorNodes().length">
             <div class="ck-section-label">{{ i18n.t('models.explain.errors.title') }}</div>
-            <p class="ck-hint">{{ i18n.t('models.explain.rows', { rows: explanation.rows ?? 0 }) }}</p>
+            <p class="ck-hint">{{ i18n.t(rowsKey(), { rows: explanation.rows ?? 0 }) }}</p>
             @if (tree.error) { <p class="ck-hint">{{ failure(tree.error) }}</p> }
             @else {
               <p class="ck-hint">{{ i18n.t('models.explain.errors.global', { value: measure(tree.global_error, regression()) }) }}</p>
@@ -155,6 +155,8 @@ export class ExplanationEvidenceComponent {
   readonly i18n = inject(I18nService);
   readonly evidence = input<ExplanationEvidence | null | undefined>();
   readonly regression = input(false);
+  /** Where the rows come from: the test split here, production samples elsewhere. */
+  readonly rowsKey = input('models.explain.rows');
   protected readonly surrogate = computed(() => surrogateRules(this.evidence()?.surrogate));
   protected readonly errorPick = signal<number | null>(null);
   protected readonly surrogatePick = signal<number | null>(null);

@@ -62,6 +62,10 @@ def fit_churn_artifact(
     task: str = "classification",
     target: str = "churn",
     features: list[str] | None = None,
+    estimator: str | None = None,
+    params: dict | None = None,
+    frame=None,
+    spec: dict | None = None,
 ) -> tuple[Path, dict]:
     """Run the production training harness once; return its model dir and summary.
 
@@ -71,13 +75,17 @@ def fit_churn_artifact(
     ``features`` narrows the fit, which is how a test builds a lineage whose
     versions do not agree on a column list — the case that separates "answers
     from the alias" from "answers from the version asked for".
+
+    ``estimator``, ``params``, ``frame`` and ``spec`` swap the gradient boosting
+    default for another catalog estimator, data or problem definition, still
+    through the production harness.
     """
 
     from app.services.tabular_ml import harness_path
 
     directory.mkdir(parents=True, exist_ok=True)
     data = directory / "data.parquet"
-    churn_frame().to_parquet(data)
+    (churn_frame() if frame is None else frame).to_parquet(data)
     model_dir = directory / "model"
     manifest = {
         "data_path": str(data),
@@ -89,12 +97,13 @@ def fit_churn_artifact(
             for name in (features if features is not None else CHURN_FEATURES)
             if name != target
         ],
-        "estimator": (
+        "estimator": estimator
+        or (
             "sklearn.ensemble.HistGradientBoostingClassifier"
             if task == "classification"
             else "sklearn.ensemble.HistGradientBoostingRegressor"
         ),
-        "params": {"max_iter": 25, "random_state": 42},
+        "params": params if params is not None else {"max_iter": 25, "random_state": 42},
         "scale": False,
         "test_size": 0.25,
         "cv": 0,
@@ -103,6 +112,7 @@ def fit_churn_artifact(
         "max_classes": 24,
         "curve_points": 20,
         "importance_rows": 100,
+        **({"spec": spec} if spec else {}),
     }
     manifest_path = directory / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")

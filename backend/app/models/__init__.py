@@ -301,3 +301,4 @@ install_observers()
 
 from app.models.ml_operations import (MLInferenceUsage, MLUsageRollup, MLAlertChannel, MLAlertState, MLAlert, MLAlertDelivery, MLAlertSource)
 from app.models.ml_requalification import MLRuntimeAttestation
+from app.models.ml_explanations import MLProductionExplanation  # noqa: E402,F401

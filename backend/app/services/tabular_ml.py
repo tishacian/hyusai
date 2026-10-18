@@ -1614,6 +1614,13 @@ def delete_model(db: DBSession, model: MLModel) -> str:
         .filter(MLModelApiKey.model_id == model_id)
         .delete(synchronize_session=False)
     )
+    # Production reports are the version's own evidence; like its keys, they
+    # go with the row on every backend, cascade or not.
+    from app.models.ml_explanations import MLProductionExplanation
+
+    db.query(MLProductionExplanation).filter(MLProductionExplanation.model_id == model_id).delete(
+        synchronize_session=False
+    )
     from app.services.ml_retraining import stop_model_schedules
 
     stop_model_schedules(db, model)

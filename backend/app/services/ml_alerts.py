@@ -28,7 +28,9 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.ml_operations import digest
 
-EVENT_TYPES = frozenset({"monitor_transition", "monitor_failed", "key_expiring", "quota_reached"})
+EVENT_TYPES = frozenset(
+    {"monitor_transition", "monitor_failed", "key_expiring", "quota_reached", "fairness_gap"}
+)
 
 
 def enabled():

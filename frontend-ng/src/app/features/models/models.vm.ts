@@ -368,6 +368,8 @@ export interface PredictionRow {
   score?: number | null;
   probabilities?: ClassProbability[];
   contributions?: Contribution[];
+  /** Present when the call asked `auto`/`shap`: the method that answered, and why. */
+  explanation?: import('./explanations.vm').ServedExplanation;
   lower?: number;
   upper?: number;
   level?: number;

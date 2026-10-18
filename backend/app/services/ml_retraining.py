@@ -590,7 +590,22 @@ def monitor_cycle(db, *, model_id, run_id):
         result["reason"] = "ML_RETRAIN_PROPOSAL_EXISTS"
     elif not model.is_champion:
         result["reason"] = "ML_RETRAIN_CHAMPION_REQUIRED"
-    snapshot.result = {**snapshot.result, "last_result": result}
+    staged = None
+    if forecast is None:
+        # M5: production debugging rides the scheduled cycle, throttled and only
+        # on new labels. It must never fail or roll back the monitoring itself.
+        try:
+            from app.services.ml_production_debug import stage_scheduled
+
+            with db.begin_nested():
+                staged = stage_scheduled(db, model=model)
+        except Exception:  # noqa: BLE001 - monitoring stands without it
+            staged = {"skipped": "ML_PRODUCTION_DEBUG_STAGE_FAILED"}
+    snapshot.result = {
+        **snapshot.result,
+        "last_result": result,
+        **({"production_debug": staged} if staged else {}),
+    }
     run.checkpoints = [
         *(run.checkpoints or []),
         {
@@ -614,6 +629,13 @@ def monitor_cycle(db, *, model_id, run_id):
     for old in history:
         db.delete(old)
     db.commit()
+    if staged and staged.get("report_id"):
+        from app.services.ml_production_debug import dispatch
+
+        try:
+            dispatch(db, staged["report_id"])
+        except Exception:  # noqa: BLE001 - the staged row expires and is retried
+            db.rollback()
     return result
 
 

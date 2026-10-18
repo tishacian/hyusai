@@ -29,6 +29,7 @@ import { DistillationEvidenceComponent } from './distillation-evidence.component
 import { ClusteringEvidenceComponent } from './clustering-evidence.component';
 import { DriftEvidenceComponent } from './drift-evidence.component';
 import { ShadowEvidenceComponent } from './shadow-evidence.component';
+import { ProductionDebugComponent } from './production-debug.component';
 import type { ShadowReport } from './shadow-evidence.vm';
 import {
   ChangeDetectionStrategy,
@@ -163,6 +164,7 @@ const CHART_ASPECT = 300 / 190;
     ClusteringEvidenceComponent,
     DriftEvidenceComponent,
     ShadowEvidenceComponent,
+    ProductionDebugComponent,
     ForecastActualsComponent,
     ScheduledMonitoringComponent,
     ForecastChartComponent,
@@ -614,6 +616,9 @@ const CHART_ASPECT = 300 / 190;
               @if (row.family === 'tabular' || !row.family) {
                 <ck-evaluation-evidence [metrics]="row.metrics ?? null" [modelId]="row.id" />
               }
+              @if (productionDebuggable(row)) {
+                <ck-production-debug [modelId]="row.id" [task]="row.task" [permissions]="serving()?.permissions" mode="evidence" />
+              }
               <div class="ck-charts">
                 <ck-classification-evidence [calibration]="calibration()" [decision]="decision()" [warnings]="classificationWarnings()" />
                 <ck-explanation-evidence [evidence]="explanations()" [regression]="row.task === 'regression'" />
@@ -923,6 +928,9 @@ const CHART_ASPECT = 300 / 190;
           } @else {
           <ck-shadow-evidence [evidence]="monitoring()?.shadow" [modelId]="row.id" [version]="row.version" [task]="row.task"
             (changed)="onShadowChanged($event)" (refresh)="reload()" />
+          @if (productionDebuggable(row)) {
+            <ck-production-debug [modelId]="row.id" [task]="row.task" [permissions]="serving()?.permissions" mode="monitor" />
+          }
           @if (!monitoring() || !monitoring()!.window.predictions) {
             <app-empty-state
               icon="pulse"
@@ -1664,6 +1672,15 @@ export class ModelViewComponent implements OnInit {
   protected readonly detail = signal<ModelDetailDto | null>(null);
   protected readonly loading = signal(false);
   protected readonly tab = signal('evidence');
+
+  /** Production debugging covers ready, in-process tabular classifiers and regressors. */
+  protected productionDebuggable(row: ModelDto): boolean {
+    return (
+      (!row.family || row.family === 'tabular') &&
+      (row.task === 'classification' || row.task === 'regression') &&
+      row.status === 'ready'
+    );
+  }
   protected readonly studioOpen = signal(false);
   protected readonly monitoring = signal<MonitoringReport | null>(null);
   protected readonly feedbackId = signal('');
