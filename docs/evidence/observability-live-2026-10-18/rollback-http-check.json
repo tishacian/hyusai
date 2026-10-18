@@ -1,0 +1,41 @@
+{
+  "checked_at": "2026-10-18T11:57:56.963802+00:00",
+  "source": "direct_https_check_from_acceptance_environment",
+  "tls_verified": true,
+  "checks": {
+    "/api/v1/health": {
+      "http_status": 200
+    },
+    "/api/v1/health/ready": {
+      "http_status": 200
+    },
+    "/api/v1/build-info": {
+      "http_status": 200,
+      "build_info": {
+        "revision": "12cdac727b724fbf2bc0157fb38d555134d51f9d",
+        "revision_verified": true,
+        "version": "1.0.0-demo"
+      }
+    },
+    "/build-info.json": {
+      "http_status": 200,
+      "build_info": {
+        "revision": "12cdac727b724fbf2bc0157fb38d555134d51f9d",
+        "revision_verified": true
+      }
+    },
+    "/api/v1/observability/activities/features": {
+      "http_status": 200,
+      "features": {
+        "enabled": true,
+        "execution_view_enabled": false,
+        "activity_series_enabled": false,
+        "scopes": [
+          "workspace",
+          "system"
+        ]
+      }
+    }
+  },
+  "authentication_http_status": 200
+}

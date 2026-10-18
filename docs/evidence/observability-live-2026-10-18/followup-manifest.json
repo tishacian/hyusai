@@ -1,0 +1,82 @@
+{
+  "recorded_at": "2026-10-18T12:11:17.063268+00:00",
+  "corrective_commit": "63754d96e9d3e603b63b581e139796dd6456178c",
+  "production_revision": "12cdac727b724fbf2bc0157fb38d555134d51f9d",
+  "production_series_enabled": false,
+  "production_execution_view_enabled": false,
+  "qualification": "rollback_verified; native roles and journal revocation passed; corrected release not deployed or qualified",
+  "validation": {
+    "backend": {
+      "focused_distinct_passed": 88,
+      "surface_catalog_passed": 6,
+      "postgresql_17_included": 17,
+      "ruff": "passed",
+      "full_backend_suite": "not run"
+    },
+    "frontend": {
+      "unit_passed": 2351,
+      "unit_failed": 0,
+      "production_build": "passed",
+      "build_warnings": [
+        "initial JavaScript warning budget",
+        "chat/work/studio CSS warning budgets",
+        "dagre CommonJS optimization warning"
+      ]
+    },
+    "strict_canary_typescript": "passed",
+    "playwright_discovery": {
+      "tests": 4,
+      "files": 3
+    },
+    "i18n": "passed",
+    "git_diff_check": "passed",
+    "secret_value_scan": "zero matches"
+  },
+  "live_checks": {
+    "rollback": "rollback-http-check.json",
+    "profiles": "rollback-profiles-http-check.json",
+    "revocation": "revocation-live.json",
+    "revocation_scope": "Activities journal; series and Flow remained disabled",
+    "restricted_membership_restored": true,
+    "series_canary_67": "not run on closed production options",
+    "flow_canary_68": "not run on closed production options"
+  },
+  "screenshots_published": false,
+  "screenshots": [
+    {
+      "file": "revocation-before.png",
+      "sha256": "842a79d0702f2a896165615d39792ff780acdbd2f5ca3ea2fb92780835787612"
+    },
+    {
+      "file": "revocation-after.png",
+      "sha256": "def63e2ea861c749ab888e1ac974a9db6d480330da21ad60ec77512fba8e9d21"
+    }
+  ],
+  "revocation_probe_sha256": "f86bf199651d5ee1da15dd1e6601251af759e1ecce86ad0e8080a5f88927d8ac",
+  "source_files": {
+    "backend/app/api/v1/endpoints/activities.py": "858e28fd51f8de211cc7bf243efd6c00cb5eed26e0af97e928c77fdb68e8fd24",
+    "backend/app/services/activity_observability/filters.py": "542ba8f6565c80188e0d0c22ec46baaccd16ab1c35e257d634ed52fdf00838d6",
+    "backend/app/services/activity_observability/queries.py": "2e26f0a5aabf1d1f9ea76a92867baf572e0a2abc9e649cd07cb5f6dd2b9bcdc5",
+    "backend/app/services/activity_observability/series.py": "e0ad1a39af8bb8c5be920dfb0ea03e8407f1297927239fc9a698d07207553278",
+    "backend/app/services/activity_observability/series_sql.py": "f5f7a0a6d9d1e525d239780ffe6f6eaa809ae5c8fab91b9ef9f5ec63b7ba3fa4",
+    "backend/app/tests/services/test_activity_series_sql.py": "2f29277e06b4f34335dca3e7ca2c038ed627b39506b9900d970d1cd96a79a298",
+    "backend/app/tests/services/test_activity_status_filter.py": "a32a0c06224a207c3340a5b8ada9cd238be073ec035e335cd86355b9beb12ea1",
+    "frontend-ng/e2e/tests/67-observability-series-release-canary.spec.ts": "97626cc294eacb21e579918a08459fe607171c4145c94997b1572bb785beac94",
+    "frontend-ng/src/app/core/i18n/observability.dict.ts": "0dd325d3dfd34412ec52a34e425d5cf3bae63dba0b723c04ee5643d4f01ce495",
+    "frontend-ng/src/app/features/observability/activities/activities.component.html": "dbc21355696f4a9262735b06d0143128d3bbbe29b1b2769af76d3881aa533a90",
+    "frontend-ng/src/app/features/observability/activities/activities.component.spec.ts": "92bd3f07b8114a8ead70f4b267107ad0ff8d69fd6d3521ab5b3309b1bd25b07e",
+    "frontend-ng/src/app/features/observability/activities/activities.component.ts": "7259cd3a553bfcdb0b6c91e97666f244750d83086c9089f23efa34febbc9e449",
+    "frontend-ng/src/app/features/observability/activities/activity-api.service.spec.ts": "0b9bf7eebac96da72524f4ed240a2460b910c29b04385d6f59b5a55a8dee2652",
+    "frontend-ng/src/app/features/observability/activities/activity-series.component.ts": "16a1ca8fc175196480c2d76a82a75385f3423dca7ff9d61caf0141cc5598b74f",
+    "frontend-ng/src/app/features/observability/activities/activity-series.vm.ts": "965d7b65b09ab404ba655f52503ba03d6f4f97abeff33e51fd95723ab5a9591b",
+    "frontend-ng/src/app/features/observability/activities/activity.models.ts": "bbc22ec0882a49210ba489a91c1ac828bf30f49ed8ebfbd9fb08c71e16cf092a",
+    "frontend-ng/src/app/features/observability/workspace-monitor.component.ts": "d19024bffc1b72966f093d41d7abe3558a17c08af24f7d49d8c6d59da7ecb237"
+  },
+  "remaining": [
+    "deploy corrected candidate through normal release qualification before reopening",
+    "tile/list/series parity under all three principals",
+    "two newly executed composite journeys and historical Flow/reconnection",
+    "revocation with series and Flow open",
+    "no exclusive System-scoped role exists"
+  ]
+}

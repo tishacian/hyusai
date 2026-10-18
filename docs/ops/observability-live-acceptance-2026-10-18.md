@@ -1,9 +1,10 @@
 # Recette écran Observabilité — 18 octobre 2026
 
-**Verdict : échec de la recette globale. Repli demandé à l'opérateur, non exécuté
-par cet environnement.** La tuile « En cours » ouvre une population différente
-de celle de son compteur. Qualité est validée sur le parcours testé. Les étapes
-suivantes ne sont pas déclarées qualifiées.
+**Verdict : échec de la recette globale ; repli exécuté par l'opérateur et
+confirmé par HTTP depuis cet environnement.** Le défaut de population de la
+tuile « En cours » est reproduit ci-dessous sur la livraison avant repli.
+Qualité est validée sur le parcours testé. Le correctif décrit en fin de note
+n'est pas déployé ; les séries et le suivi Flow restent fermés.
 
 ## Candidat et périmètre réels
 
@@ -17,8 +18,9 @@ suivantes ne sont pas déclarées qualifiées.
   `/api/v1/observability/activities/features`.
 - Migration 138, budgets d'images et mesures 1,40 s / 1,90 s : déclarés livrés
   par l'opérateur ; ils ne sont pas remesurés par cette recette navigateur.
-- Chromium, TLS vérifié, interface anglaise, thème clair. Aucun Run créé,
-  aucune évaluation relancée, aucun droit ou paramètre de production modifié.
+- Recette initiale avant repli : Chromium, TLS vérifié, interface anglaise,
+  thème clair ; aucun Run créé, aucune évaluation relancée et aucun droit ou
+  paramètre de production modifié pendant cette première phase.
 
 ## Échec bloquant : destination de la tuile « En cours »
 
@@ -53,8 +55,8 @@ Les captures de la tuile et de sa destination sont conservées localement.
 | Comparaison exhaustive séries/liste du propriétaire | Canari préparé et typé, non exécuté après le déclenchement du repli |
 | Deux parcours composites nouvellement exécutés | Non exécutés |
 | Flow historique | Lectures API réelles sur quatre Runs ; recette écran complète et handshake SSE non exécutés |
-| Trois profils | Seul le propriétaire workspace est disponible ; responsable System restreint et administrateur plateforme non qualifiés |
-| Révocation d'un droit pendant le flux | Non effectuée ; pas de compte restreint de recette disponible |
+| Trois profils | Propriétaire vérifié avant repli ; contributeur et administrateur plateforme vérifiés après repli sur les API natives. Comparaison des séries non qualifiée, options fermées |
+| Révocation d'un droit pendant le flux | Réussie sur le journal Activités réel : retrait du membership du seul compte de recette, événement SSE de révocation, purge de la liste, des compteurs et du détail, puis restauration des droits |
 
 Les snapshots historiques lus par l'API sont présents sur les Runs Luma
 `519ce4f9-583e-4d70-a4b7-c3229d1749d8` et
@@ -64,34 +66,102 @@ explicitement partielle. Le Run Chat
 ne prouvent ni deux nouveaux composites, ni des transitions SSE, ni une
 révocation à chaud.
 
-## Repli autorisé à exécuter sur la VM
+## Repli exécuté et vérifié
 
-La consigne opérateur exige la fermeture des **deux** options dès qu'un parcours
-échoue. La condition est remplie. L'environnement de recette dispose de HTTP,
-mais d'aucun VPN ni droit TCP vers la VM ; il ne peut donc pas lancer `up`.
-L'opérateur a été sollicité immédiatement après la reproduction du défaut.
+L'opérateur rapporte l'exécution sur la VM, contrôlée à
+`2026-10-18T11:42:23Z`, puis les images relevées à `11:53:13Z` :
 
-1. Sauvegarder la configuration active et y fixer :
+1. Configuration active sauvegardée dans
+   `/root/series-rollback-2026-10-18/source-001.env`. Le fichier effectif est
+   `/srv/agentium-data/runtime-env/2026-10-12/runtime-env/source-001.env`, sans
+   doublon ni surcharge des deux options :
 
    ```dotenv
    ACTIVITY_SERIES_ENABLED=false
    EXECUTION_VIEW_ENABLED=false
    ```
 
-2. Relancer la commande `up` habituelle avec les **mêmes images**
-   (`AGENTIUM_IMAGE_TAG=12cdac727b72`) et les mêmes profils activés. Le script
-   versionné est
-   `/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-vm-deploy.sh`.
-   Modifier le bundle d'environnement effectivement employé par cette commande,
-   pas seulement des variables du shell d'appel.
-3. **Conserver la migration 138**, le journal d'activité et les services de
-   contrôle. Ce repli ferme les lectures, pas l'enregistrement des travaux.
-4. Vérifier santé, révision et `/observability/activities/features` :
-   `enabled=true`, `activity_series_enabled=false`, `execution_view_enabled=false`.
+2. `storage-check`, puis `up` réussis avec les mêmes images
+   (`AGENTIUM_IMAGE_TAG=12cdac727b72`), huit workers backend et les profils
+   ML-TS, ML-Deep, Hugging Face, OpenBao, connecteurs et contrôle conservés.
+   Runner connecteurs inchangé :
+   `sha256:d44a53fb8e155645312541bc720885354fa244c2917ccde8e77e6b6e66f9b77f`.
+3. Tête `138_activity_measures`, journal, admission, worker et scheduler de
+   contrôle conservés. Ces constats VM proviennent du compte rendu opérateur ;
+   cet environnement n'a toujours pas d'accès SSH.
 
-Le dernier état observé est conservé dans
-[final-state.json](../evidence/observability-live-2026-10-18/final-state.json).
-Une demande de repli ne vaut pas une preuve de son application.
+Le contrôle HTTP indépendant commencé à `2026-10-18T11:57:56Z` confirme les
+deux `build-info` sur `12cdac727b724fbf2bc0157fb38d555134d51f9d`, révision
+vérifiée, health/readiness 200 et les options `enabled=true`,
+`activity_series_enabled=false`, `execution_view_enabled=false`.
+Les deux comptes complémentaires confirment ensuite les mêmes valeurs ;
+les routes séries et `execution-view` répondent 404 avec leurs codes de
+fonction désactivée, y compris pour l'administrateur plateforme.
+
+Preuve directe : [rollback-http-check.json](../evidence/observability-live-2026-10-18/rollback-http-check.json).
+L'ancien [final-state.json](../evidence/observability-live-2026-10-18/final-state.json)
+conserve l'observation antérieure au repli, sans réécriture historique.
+
+## Comptes et révocation après repli
+
+L'opérateur a créé deux identités dédiées sans email, puis leur membership
+Showcase avant leur premier `/auth/me`. La connexion réelle confirme :
+
+- contributeur : rôle plateforme `user`, scopes `workspace` et `system` ;
+- administrateur : rôle plateforme `admin`, scope `platform` supplémentaire.
+
+Le contributeur voit deux activités ; l'administrateur en voit quatre.
+L'accès à l'agrégat plateforme est refusé au contributeur (403). Les détails
+et événements des deux jobs masqués sont également contrôlés directement.
+Le Run historique de Qualité est un ancien `trigger=chat`, sans initiateur,
+lisible selon sa politique native : il ne prouve pas l'isolation d'un chat
+privé `chat_agentic`.
+
+Aucun profil exclusif à un System n'existe actuellement. Un contributeur
+soumis aux droits natifs des Runs/jobs n'est pas présenté comme une preuve
+d'isolation par System.
+
+La recette navigateur du journal, commencée à `2026-10-18T12:03:35Z`, a ouvert
+deux lignes et un détail, puis observé le handshake et les heartbeats SSE.
+Le propriétaire a retiré le membership du seul compte dédié. Le serveur a
+émis `ACTIVITY_ACCESS_REVOKED` ; en 1 132 ms après le début de l'appel de
+retrait, la liste, les compteurs et le détail étaient purgés, et une nouvelle
+lecture API répondait 403. Le membership a été rétabli avec le même rôle,
+les mêmes labels et habilitations, sans email. Les deux options restent
+fermées. Cette recette ne qualifie pas la purge des séries ni celle du Flow.
+
+Preuves : [profils HTTP](../evidence/observability-live-2026-10-18/rollback-profiles-http-check.json)
+et [révocation navigateur](../evidence/observability-live-2026-10-18/revocation-live.json).
+Captures conservées hors du dépôt ; aucun mot de passe ni jeton dans les
+preuves publiées.
+
+## Correctif préparé après repli
+
+- La tuile transmet `status=pending,running,waiting`, issu du même ensemble
+  que son compteur. Le sélecteur affiche explicitement ce groupe en français
+  et en anglais.
+- La liste, les séries natives et les quatre prédicats PostgreSQL acceptent
+  la même union validée. Une valeur inconnue ou un élément vide donne 422 ;
+  les filtres simples, droits, fenêtres, pagination et périmètres restent
+  appliqués.
+- Les champs du formulaire restent des brouillons jusqu'à « Filtrer » :
+  liste et graphiques suivent ensemble l'URL appliquée, y compris lors d'un
+  rafraîchissement SSE. Les modes de coût conservent le statut sélectionné
+  avec leurs types et base temporelle propres.
+- Le canari 67 vérifie aussi le sélecteur et les vraies requêtes des
+  graphiques, avant et après rechargement. Il n'est pas relancé sur la
+  production dont les options sont fermées.
+- La revue de la révocation a révélé que, séries ouvertes, vider la liste ne
+  détruisait pas leurs graphiques. Le correctif ferme maintenant toute la
+  vue, détruit les séries, annule les requêtes et invalide les réponses
+  tardives. Trois tests couvrent ce cas, y compris une révocation dès la
+  connexion ; la recette live des séries ouvertes reste à exécuter.
+
+Validation backend : 88 tests distincts réussis, dont 17 sur PostgreSQL 17
+jetable réel, plus six tests du catalogue de surface. Ruff et contrôle de
+whitespace réussis. Les résultats frontend et les empreintes du suivi sont
+consignés dans le
+[manifeste complémentaire](../evidence/observability-live-2026-10-18/followup-manifest.json).
 
 ## Rejouer après correction et nouvelle décision d'ouverture
 
