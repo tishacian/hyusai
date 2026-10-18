@@ -1,0 +1,248 @@
+{
+  "checked_at": "2026-10-18T11:59:16.048263+00:00",
+  "source": "direct_https_read_only",
+  "tls_verified": true,
+  "scope": "native access and closed feature flags; not series/Flow qualification",
+  "profiles": {
+    "restricted": {
+      "principal": {
+        "id": "db328a81-d8a6-4495-bc6b-63d8bdedbbd9",
+        "role": "user",
+        "workspaces": [
+          {
+            "id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+            "slug": "agentium-showcase",
+            "role": "member",
+            "role_template": null
+          }
+        ]
+      },
+      "checks": {
+        "features": {
+          "http_status": 200,
+          "features": {
+            "enabled": true,
+            "activity_series_enabled": false,
+            "execution_view_enabled": false,
+            "scopes": [
+              "workspace",
+              "system"
+            ]
+          }
+        },
+        "activities": {
+          "http_status": 200,
+          "total": 2,
+          "aggregates": {
+            "total": 2,
+            "by_status": {
+              "failed": 2
+            },
+            "by_kind": {
+              "run": 1,
+              "skill_invocation": 1
+            }
+          },
+          "items": [
+            {
+              "id": "2756bb9d-a8c3-533c-bd69-1bb117ea2cdb",
+              "native_id": "27c0d226-8c21-4c88-a815-01ba38beecfc",
+              "kind": "skill_invocation",
+              "status": "failed",
+              "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8"
+            },
+            {
+              "id": "de576f78-e72a-5520-bc69-c4d8e4cb1d8a",
+              "native_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+              "kind": "run",
+              "status": "failed",
+              "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8"
+            }
+          ]
+        },
+        "platform": {
+          "http_status": 403,
+          "error": "PLATFORM_PERMISSION_DENIED"
+        },
+        "shared_run": {
+          "http_status": 200,
+          "metadata": {
+            "id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+            "status": "failed",
+            "trigger": "manual",
+            "execution_surface": null,
+            "initiated_by_user_id": null
+          }
+        },
+        "series": {
+          "http_status": 404,
+          "error": "ACTIVITY_SERIES_DISABLED"
+        },
+        "execution_view": {
+          "http_status": 404,
+          "error": "EXECUTION_VIEW_DISABLED"
+        },
+        "legacy_chat_run": {
+          "http_status": 200,
+          "metadata": {
+            "id": "c8e9d120-b76e-4405-8b5f-4e54be8ce5de",
+            "status": "completed",
+            "trigger": "chat",
+            "execution_surface": null,
+            "initiated_by_user_id": null
+          }
+        },
+        "legacy_chat_events": {
+          "http_status": 200,
+          "event_count": 0
+        },
+        "foreign_ml_training_detail": {
+          "http_status": 404,
+          "expected_access": false
+        },
+        "foreign_ml_training_events": {
+          "http_status": 404,
+          "expected_access": false
+        },
+        "foreign_workspace_job_detail": {
+          "http_status": 404,
+          "expected_access": false
+        },
+        "foreign_workspace_job_events": {
+          "http_status": 404,
+          "expected_access": false
+        }
+      }
+    },
+    "platform_admin": {
+      "principal": {
+        "id": "1153ee42-a4d9-4cf3-b971-016e31a95e11",
+        "role": "admin",
+        "workspaces": [
+          {
+            "id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+            "slug": "agentium-showcase",
+            "role": "member",
+            "role_template": null
+          }
+        ]
+      },
+      "checks": {
+        "features": {
+          "http_status": 200,
+          "features": {
+            "enabled": true,
+            "activity_series_enabled": false,
+            "execution_view_enabled": false,
+            "scopes": [
+              "workspace",
+              "system",
+              "platform"
+            ]
+          }
+        },
+        "activities": {
+          "http_status": 200,
+          "total": 4,
+          "aggregates": {
+            "total": 4,
+            "by_status": {
+              "failed": 3,
+              "succeeded": 1
+            },
+            "by_kind": {
+              "ml_training": 1,
+              "run": 1,
+              "skill_invocation": 1,
+              "workspace_job": 1
+            }
+          },
+          "items": [
+            {
+              "id": "004a7722-bf33-593d-b54a-f69617a655c3",
+              "native_id": "cd2d0692-7586-4e19-b541-8363118e031c",
+              "kind": "ml_training",
+              "status": "failed",
+              "run_id": null
+            },
+            {
+              "id": "2756bb9d-a8c3-533c-bd69-1bb117ea2cdb",
+              "native_id": "27c0d226-8c21-4c88-a815-01ba38beecfc",
+              "kind": "skill_invocation",
+              "status": "failed",
+              "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8"
+            },
+            {
+              "id": "de576f78-e72a-5520-bc69-c4d8e4cb1d8a",
+              "native_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+              "kind": "run",
+              "status": "failed",
+              "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8"
+            },
+            {
+              "id": "7b2fb908-427b-55ac-b95c-90796280879c",
+              "native_id": "320fcb9d-064a-43bf-ac4c-be4ae1552a74",
+              "kind": "workspace_job",
+              "status": "succeeded",
+              "run_id": "30ec252a-7281-49c6-bcff-17dc9f614b9f"
+            }
+          ]
+        },
+        "platform": {
+          "http_status": 200
+        },
+        "shared_run": {
+          "http_status": 200,
+          "metadata": {
+            "id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+            "status": "failed",
+            "trigger": "manual",
+            "execution_surface": null,
+            "initiated_by_user_id": null
+          }
+        },
+        "series": {
+          "http_status": 404,
+          "error": "ACTIVITY_SERIES_DISABLED"
+        },
+        "execution_view": {
+          "http_status": 404,
+          "error": "EXECUTION_VIEW_DISABLED"
+        },
+        "legacy_chat_run": {
+          "http_status": 200,
+          "metadata": {
+            "id": "c8e9d120-b76e-4405-8b5f-4e54be8ce5de",
+            "status": "completed",
+            "trigger": "chat",
+            "execution_surface": null,
+            "initiated_by_user_id": null
+          }
+        },
+        "legacy_chat_events": {
+          "http_status": 200,
+          "event_count": 0
+        },
+        "foreign_ml_training_detail": {
+          "http_status": 200,
+          "expected_access": true
+        },
+        "foreign_ml_training_events": {
+          "http_status": 200,
+          "expected_access": true
+        },
+        "foreign_workspace_job_detail": {
+          "http_status": 200,
+          "expected_access": true
+        },
+        "foreign_workspace_job_events": {
+          "http_status": 200,
+          "expected_access": true
+        }
+      }
+    }
+  },
+  "additional_checks_at": "2026-10-18T12:05:02.815013+00:00",
+  "legacy_chat_note": "The historical Quality Run has trigger=chat and no initiating user; it is shared under native policy and cannot qualify private chat isolation.",
+  "native_job_visibility_checks_passed": true
+}
