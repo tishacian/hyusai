@@ -240,10 +240,20 @@ Depuis `backend`, venv partagé (scikit-learn 1.9.0, skops 0.16.0, MLflow
   arbre forgé hors bornes (refusé avant toute prédiction), HistGradientBoosting
   refusé, non-administrateurs dans les deux modes de droits, drapeau éteint,
   audit indisponible qui n'enregistre rien. Chaque refus vérifie son audit.
-- Régression backend : RESULTAT_REGRESSION.
+- Régression backend en `-n 4`, deux lots. Premier lot (25 fichiers : import,
+  requalification M4.2, familles, entraînement, prédiction, export, contrat
+  d'artefact, surveillance, réentraînement, justesse M2, shadow, gouvernance,
+  clustering, comparaison, API ML, catalogues) : **752 réussis, 2 échecs**,
+  tous deux dus au lot et corrigés — la famille `external` n'avait pas de
+  libellé (contrat de copie du catalogue) et l'état M4.2 expose désormais
+  `source` (test d'API mis à jour) ; les deux fichiers repassent (23 tests).
+  Second lot (22 fichiers : distillation, registre, revue d'évaluation, flux,
+  embeddings, intervalles, calibration, alertes, portail, opérations, API
+  shadow/gouvernance/réentraînement) : **281 réussis, 3 ignorés**.
 - Frontend (Node 22) : 11 tests du VM et du composant d'import ; suite complète
-  RESULTAT_FRONT ; TypeScript, `check:i18n`, `check:nav-links` passent ;
-  `build:prod` RESULTAT_BUILD. `check:ui-chrome` reste rouge sur l'état
+  **2 364 tests réussis** ; TypeScript, `check:i18n`, `check:nav-links`
+  passent ; l'unique `build:prod` réussit, avec les avertissements
+  préexistants (budgets, NG8102/NG8107/NG8113), aucun ne provenant du lot. `check:ui-chrome` reste rouge sur l'état
   préexistant de `src/styles.scss` (7 halos, plafond 6), inchangé.
 
 Aucune recette navigateur, VM, PostgreSQL (pas de migration) ni charge n'est
