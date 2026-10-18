@@ -654,7 +654,8 @@ def test_138_keeps_one_active_attestation_and_refuses_a_destructive_downgrade(mi
     with pytest.raises(AssertionError, match="ML_REQUALIFICATION_DOWNGRADE_REFUSED"):
         _alembic("downgrade", "137_mlops_operations")
     with migrated.connect() as connection:
-        assert connection.exec_driver_sql("select count(*) from ml_runtime_attestations").scalar() == 3
+        remaining = connection.exec_driver_sql("select count(*) from ml_runtime_attestations")
+        assert remaining.scalar() == 3
     with migrated.begin() as connection:
         connection.exec_driver_sql("delete from ml_runtime_attestations")
     _alembic("downgrade", "137_mlops_operations")
