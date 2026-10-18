@@ -14,7 +14,7 @@ const workspace = { id: 'm5-qa', slug: 'm5-qa', name: 'M5', role: 'owner', role_
 const model = {
   id: 'm5-1', name: 'Churn', slug: 'churn', version: 1, family: 'tabular', task: 'classification', algo: 'random_forest',
   target: 'churn', features: ['visits', 'segment'], status: 'ready', is_champion: true, row_count: 800, test_size: 0.25,
-  cross_validation: 0, primary_metric: { key: 'roc_auc', value: 0.8 }, metrics: { primary: { key: 'roc_auc', value: 0.8 }, scores: [] },
+  cross_validation: 0, primary_metric: { key: 'roc_auc', value: 0.8 }, metrics: { primary: { key: 'roc_auc', value: 0.8 }, scores: [{ key: 'roc_auc', value: 0.8 }] },
   input_example: [{ visits: 10, segment: 'Retail' }], classes: ['0', '1'], params: { knobs: {} }, spec: { fairness_columns: ['segment'] },
 };
 const fields = [
@@ -116,6 +116,8 @@ for (const [locale, theme] of [['fr', 'dark'], ['en', 'light']] as const) {
       await expect(section.getByTestId('production-excluded')).toContainText('60');
       await expect(section.getByTestId('production-gap')).toContainText(locale === 'fr' ? 'alerte' : 'alert');
       await expect(section.getByTestId('error-tree-evidence').getByTestId('decision-tree-node')).toHaveCount(5);
+      // The reused tree says where its rows come from: production, not the test split.
+      await expect(section.getByTestId('error-tree-evidence')).toContainText(locale === 'fr' ? 'échantillons de production' : 'labelled production samples');
       await expect(section.getByTestId('fairness-evidence')).toContainText('Retail');
       await section.screenshot({ path: info.outputPath(`production-${theme}-${locale}.png`) });
       await section.getByTestId('production-debug-run').click();
@@ -141,7 +143,7 @@ for (const [locale, theme] of [['fr', 'dark'], ['en', 'light']] as const) {
       await expect.poll(() => calls.predict.at(-1)?.explain_method).toBe('auto');
       const explained = page.getByTestId('shap-explanation');
       await expect(explained.getByTestId('shap-bar')).toHaveCount(2);
-      await expect(explained.getByTestId('shap-other')).toBeVisible();
+      await expect(explained.getByTestId('shap-other')).toContainText(locale === 'fr' ? 'Autres champs (1)' : 'Other fields (1)');
       await expect(explained.getByTestId('shap-method')).toContainText(locale === 'fr' ? 'TreeSHAP exact' : 'Exact TreeSHAP');
       await explained.screenshot({ path: info.outputPath(`shap-${theme}-${locale}.png`) });
       const panel = page.getByTestId('counterfactual-panel');

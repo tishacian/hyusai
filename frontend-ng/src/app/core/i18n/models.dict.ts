@@ -1314,7 +1314,7 @@ export const MODELS_FR = {
   'models.play.explain.space.value': 'dans l’unité de la valeur prédite',
   'models.play.explain.base': 'Valeur de base (moyenne du modèle)',
   'models.play.explain.output': 'Sortie du modèle pour cette ligne',
-  'models.play.explain.other': '{count} autres champs',
+  'models.play.explain.other': 'Autres champs ({count})',
   'models.play.explain.hint':
     'Base + contributions = sortie du modèle. Chaque contribution regroupe toutes les colonnes que l’encodage a tirées d’un même champ.',
   'models.play.explain.fallback': 'Expliqué par contrefactuel : {reason}',
@@ -1370,6 +1370,7 @@ export const MODELS_FR = {
   'models.production.running': 'Analyse en cours…',
   'models.production.unsupported': 'Disponible pour les modèles tabulaires de classification et de régression.',
   'models.production.none': 'Aucune analyse de production pour cette version.',
+  'models.production.rows': 'Mesuré sur {rows} échantillons de production étiquetés.',
   'models.production.measure':
     'Erreur mesurée sur la réponse réellement servie (journal), comparée à l’étiquette, sans nouvelle prédiction.',
   'models.production.status.queued': 'Analyse en file d’attente',
@@ -2919,7 +2920,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.play.explain.space.value': 'in the unit of the predicted value',
   'models.play.explain.base': 'Base value (the model’s average)',
   'models.play.explain.output': 'Model output for this row',
-  'models.play.explain.other': '{count} other fields',
+  'models.play.explain.other': 'Other fields ({count})',
   'models.play.explain.hint':
     'Base + contributions = model output. Each contribution sums every column the encoding derived from one field.',
   'models.play.explain.fallback': 'Explained by counterfactual: {reason}',
@@ -2975,6 +2976,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.production.running': 'Analysing…',
   'models.production.unsupported': 'Available for tabular classification and regression models.',
   'models.production.none': 'No production analysis for this version yet.',
+  'models.production.rows': 'Measured on {rows} labelled production samples.',
   'models.production.measure':
     'Error measured on the answer actually served (from the journal) against the label, without predicting again.',
   'models.production.status.queued': 'Analysis queued',

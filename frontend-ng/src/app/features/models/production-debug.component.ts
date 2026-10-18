@@ -46,6 +46,7 @@ import {
   readView,
   statusKey,
   windowText,
+  type FairnessSeries,
   type ProductionDebugView,
 } from './production-debug.vm';
 
@@ -118,7 +119,7 @@ const POLL_LIMIT = 100;
               }
               @if (evidence(); as pack) {
                 <div class="ck-prod__charts">
-                  <ck-explanation-evidence [evidence]="pack" [regression]="task() === 'regression'" />
+                  <ck-explanation-evidence [evidence]="pack" [regression]="task() === 'regression'" [rowsKey]="'models.production.rows'" />
                 </div>
               }
             }
@@ -199,7 +200,7 @@ export class ProductionDebugComponent {
   protected readonly evidence = computed(() => productionEvidence(this.view()?.latest ?? null));
   protected readonly exclusions = computed(() => exclusionRows(this.view()?.latest ?? null));
   protected readonly series = computed(() => fairnessSeries(this.view()?.series));
-  protected readonly selected = computed(
+  protected readonly selected = computed<FairnessSeries | null>(
     () => this.series().find((item) => item.key === this.column()) ?? this.series()[0] ?? null,
   );
   protected readonly domain = computed(() =>
