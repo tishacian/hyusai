@@ -1,0 +1,85 @@
+{
+  "production_revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+  "qualification": "Corrective release deployed; Quality passed; open series and Flow acceptance pending",
+  "http_checks": "deployed-fix-http-check.json",
+  "quality_canary": {
+    "file": "deployed-quality-live.json",
+    "passed": 1,
+    "failed": 0,
+    "log": "deployed-quality-live.log"
+  },
+  "recipe_changes": {
+    "file": "frontend-ng/e2e/tests/67-observability-series-release-canary.spec.ts",
+    "profile_variable": "E2E_OBSERVABILITY_PROFILE",
+    "profiles": [
+      "owner",
+      "restricted",
+      "platform_admin"
+    ],
+    "system_variable": "E2E_OBSERVABILITY_SYSTEM_ID",
+    "strict_typescript": "passed",
+    "playwright_discovery": {
+      "tests": 4,
+      "files": 3
+    },
+    "live_execution": "not run; features disabled"
+  },
+  "screenshots_published": false,
+  "screenshots": [
+    {
+      "file": "proof-matrix-1440.png",
+      "sha256": "3e96983c7d3e4fe5082f292297c124af29dc5672f444ae995fa18cc965751e16"
+    },
+    {
+      "file": "proof-matrix-390.png",
+      "sha256": "0cb2bcb03c35daff8fcf267902a477d173446be688ec4ef098eb2430f3fcc159"
+    },
+    {
+      "file": "proof-point-1440.png",
+      "sha256": "ba05921d6e5324366974a45cb9f71fa7cb3ae37ecc2e149c6e02f7c456aedf7b"
+    },
+    {
+      "file": "proof-point-390.png",
+      "sha256": "0cb2bcb03c35daff8fcf267902a477d173446be688ec4ef098eb2430f3fcc159"
+    },
+    {
+      "file": "quality-matrix-1440.png",
+      "sha256": "c10d0e21ab7b6600fb569068c5b6880321f7f065406dea91ba746580b0b61688"
+    },
+    {
+      "file": "quality-matrix-390.png",
+      "sha256": "12d0795ad62ac6cd33bf295733de64a9f45986963bf6e867a68333ecc70f1b68"
+    },
+    {
+      "file": "quality-point-1440.png",
+      "sha256": "eefb2c06c88a3831c968bde6412c344c0f48e4be5d4fdcaf8b1e1fafaccb6b7b"
+    },
+    {
+      "file": "quality-point-390.png",
+      "sha256": "729e1228718792d52da9ba3c506a9e2540dd60742d64ed69d7acc6a9adf17e98"
+    },
+    {
+      "file": "radar-history-1440.png",
+      "sha256": "5277dbafd9216dd956faa4636e84d7c2e331ecb4a29f231ca059cf70b750f653"
+    },
+    {
+      "file": "radar-history-390.png",
+      "sha256": "b33dfb50d7da4c66e5e2317d179770fcc103fe869375f526b65f8d8d5b78abe7"
+    }
+  ],
+  "source_files": {
+    "frontend-ng/e2e/tests/66-showcase-quality-release-canary.spec.ts": "d96ee1bd778f0ea6f7ec35c6e726e20a3db2188ce6737a8c653e9c3b0c0a889e",
+    "frontend-ng/e2e/tests/67-observability-series-release-canary.spec.ts": "77b37cb02e25d013c13116eac157a6f999b9455f59cf9def5c4fa8e2326e013a",
+    "frontend-ng/e2e/tests/68-flow-execution-live-canary.spec.ts": "e03ee620382ebb588200d6948d197273d20053a74c84d672ae1d6457a95f2494"
+  },
+  "flags_changed": false,
+  "business_mutations": 0,
+  "remaining": [
+    "Coordinated VM reopening with rollback operator",
+    "Real tile/list/series parity for each authenticated principal",
+    "Nonempty active Run and two newly executed composites",
+    "SSE state transition, disconnect/replay and historical snapshot preservation",
+    "Revocation with charts and Flow open",
+    "No isolated System role or global platform time series exists"
+  ]
+}
