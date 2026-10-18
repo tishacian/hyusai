@@ -9,14 +9,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy import select, update
 
 from app.db.base import Base
-from app.models.activity import Activity, ActivityEvent, ActivityWorkspaceCursor
+from app.models.activity import (
+    Activity,
+    ActivityEvent,
+    ActivityWorkspaceCursor,
+    measured_columns,
+    non_negative_number,
+)
 
 SOURCES = {
     "runs": "run",
@@ -117,9 +122,7 @@ def iso(value):
 
 
 def number(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        return None
-    return value if value >= 0 else None
+    return non_negative_number(value)
 
 
 def source_row(connection, table_name: str, identifier: str, *, lock=False):
@@ -310,6 +313,7 @@ def project(connection, table_name: str, identifier: str, *, origin="observed"):
             tzinfo=None
         ),
         updated_at=now,
+        **measured_columns(snapshot),
     )
     if old:
         connection.execute(update(table).where(table.c.id == identifier).values(**values))
