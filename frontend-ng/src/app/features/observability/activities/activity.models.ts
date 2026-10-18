@@ -1,4 +1,7 @@
 export type ActivityScope = 'workspace' | 'system' | 'platform';
+/** The Operations active count and its drill-down must use the same state union. */
+export const ACTIVE_ACTIVITY_STATUSES = ['pending', 'running', 'waiting'] as const;
+export const ACTIVE_ACTIVITY_STATUS_FILTER = ACTIVE_ACTIVITY_STATUSES.join(',');
 export interface ActivityFeatures { enabled: boolean; execution_view_enabled?: boolean; activity_series_enabled?: boolean; scopes: ActivityScope[]; kinds: string[]; statuses: string[]; }
 export interface ActivityLink { rel: string; href: string; }
 export interface ActivityMeasurements {

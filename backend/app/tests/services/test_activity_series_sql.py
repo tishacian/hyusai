@@ -17,7 +17,7 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.activity_observability import series_sql
-from app.services.activity_observability.queries import VisibilityReadContext
+from app.services.activity_observability.queries import VisibilityReadContext, list_activities
 from app.services.activity_observability.series import activity_series
 from app.tests.services import test_activity_observability_postgres as pg_fixtures
 
@@ -211,6 +211,9 @@ def test_fast_aggregate_matches_native_for_mixed_rights_measurements_and_windows
         {"time_basis": "finished"},
         {"bucket": "day"},
         {"kind": "run", "status": "succeeded", "system_id": "series-system"},
+        {"kind": "run", "status": "pending,running,waiting"},
+        {"status": "pending,running,waiting"},
+        {"status": "succeeded,failed", "time_basis": "finished"},
         {"metric": "cost", "kind": "skill_invocation", "time_basis": "finished"},
         {"metric": "cost", "kind": "compute_run", "time_basis": "finished", "bucket": "day"},
     ]
@@ -235,6 +238,49 @@ def test_fast_aggregate_matches_native_for_mixed_rights_measurements_and_windows
                 native = activity_series(db, ws, user, start=START, until=UNTIL, **kwargs)
                 equal(fast, native)
             monkeypatch.setattr(series_sql, "aggregate_compat", original)
+
+
+@pytest.mark.parametrize("identity,expected_count", [("member", 3), ("owner", 6), ("platform", 6)])
+def test_active_union_sql_matches_list_and_native_with_private_runs(pg, monkeypatch, identity, expected_count):
+    seed(pg)
+    with Session(pg) as db:
+        db.add(System(id="active-system", workspace_id="pg-activity-ws", name="Active"))
+        db.flush()
+        for owner in ("member", "other"):
+            for state in ("pending", "running", "waiting_subflows", "completed", "failed"):
+                db.add(Run(
+                    id=f"active-{owner}-{state}", workspace_id="pg-activity-ws",
+                    system_id="active-system", initiated_by_user_id=owner,
+                    trigger="chat_agentic", status=state, started_at=START,
+                ))
+        db.commit()
+    with (
+        pg.connect().execution_options(isolation_level="REPEATABLE READ") as connection,
+        Session(connection) as db,
+    ):
+        ws, user = db.get(Workspace, "pg-activity-ws"), db.get(User, identity)
+        filters = dict(kind="run", system_id="active-system", status="pending,running,waiting")
+        original = series_sql.aggregate_compat
+        taken = []
+
+        def accelerated(*args, **options):
+            result = original(*args, **options)
+            taken.append(result is not None)
+            return result
+
+        monkeypatch.setattr(series_sql, "aggregate_compat", accelerated)
+        fast = activity_series(db, ws, user, start=START, until=UNTIL, **filters)
+        assert taken == [True]
+        listed = list_activities(db, ws, user, since=START, until=UNTIL, limit=1, **filters)
+        assert listed["total"] == fast["totals"]["total"] == expected_count
+        assert len(listed["items"]) == 1
+        assert listed["has_more"]
+        assert listed["aggregates"]["by_status"] == fast["totals"]["by_status"] == {
+            state: expected_count // 3 for state in ("pending", "running", "waiting")
+        }
+        monkeypatch.setattr(series_sql, "aggregate_compat", lambda *args, **kwargs: None)
+        native = activity_series(db, ws, user, start=START, until=UNTIL, **filters)
+        equal(fast, native)
 
 
 def test_unsupported_iam_and_migration_marker_use_native_path(pg):

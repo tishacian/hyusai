@@ -128,6 +128,7 @@ test('Operations live: exhaustive tiles open the corresponding Activities filter
       expect(href).toBeTruthy();
       await tiles.screenshot({path: info.outputPath(`tile-${item.tile}-origin.png`)});
       await tile.focus();
+      const destinationSeries = page.waitForResponse(response => new URL(response.url()).pathname === `${root}/activities/series`);
       await tile.press('Enter');
       await expect(page.getByTestId('activity-monitor')).toBeVisible();
       await expect(page.getByTestId('activity-monitor').locator('.listing')).toBeVisible();
@@ -144,11 +145,27 @@ test('Operations live: exhaustive tiles open the corresponding Activities filter
       // every Run is a failure even when the active count happens to be zero.
       expect.soft(observedStatus.split(',').filter(Boolean).sort(), `${item.tile}: corresponding status population`).toEqual(item.status.split(',').filter(Boolean).sort());
       expect.soft(displayedCount, `${item.tile}: destination has the same population as the tile`).toBe(item.expected);
+      await expect(page.locator('select[name="status"]'), 'The selected filter is visible, including a union').toHaveValue(item.status);
+      const chartResponse = await destinationSeries;
+      expect(chartResponse.ok(), 'The actual chart request succeeds').toBe(true);
+      const chartQuery = new URL(chartResponse.url()).searchParams;
+      expect.soft(chartQuery.get('status') || '').toBe(item.status);
+      expect.soft(chartQuery.get('kind')).toBe('run');
+      expect.soft(chartQuery.get('from')).toBe(evidence.from);
+      expect.soft(chartQuery.get('until')).toBe(evidence.until);
+      const chart: Series = await chartResponse.json();
+      expect.soft(chart.totals.total, 'The rendered chart uses the same authorized population').toBe(item.expected);
       await page.getByTestId('activity-monitor').locator('.filters').screenshot({path: info.outputPath(`tile-${item.tile}-destination.png`)});
       await page.getByTestId('activity-monitor').locator(':scope > .stats').screenshot({path: info.outputPath(`tile-${item.tile}-destination-count.png`)});
+      const reloadedSeries = page.waitForResponse(response => new URL(response.url()).pathname === `${root}/activities/series`);
       await page.reload();
       await expect(page.getByTestId('activity-monitor').locator('.listing')).toBeVisible();
       expect.soft(new URL(page.url()).searchParams.get('status') || '').toBe(observedStatus);
+      await expect(page.locator('select[name="status"]')).toHaveValue(item.status);
+      const reloadedResponse = await reloadedSeries;
+      expect(reloadedResponse.ok()).toBe(true);
+      expect.soft(new URL(reloadedResponse.url()).searchParams.get('status') || '').toBe(item.status);
+      expect.soft(((await reloadedResponse.json()) as Series).totals.total).toBe(item.expected);
       evidence.completed.push(`${item.tile}-keyboard-navigation-and-reload-observed`);
     }
     expect(evidence.blocked_business_writes).toEqual([]);

@@ -19,7 +19,8 @@ from app.services.observation_window import observation_anchor
 
 from . import queries
 from .execution_metadata import invocation_cost
-from .projection import KINDS, STATUSES, TERMINAL, iso, number
+from .filters import parse_status_filter
+from .projection import KINDS, TERMINAL, iso, number
 
 # The native reader's date parser; the typed activities.finished_at uses it too.
 _date = parse_instant
@@ -145,14 +146,13 @@ def activity_series(
     until = observation_anchor(until)
     if not timedelta(0) < until - start <= timedelta(days=30):
         raise HTTPException(422, detail="ACTIVITY_SERIES_WINDOW_INVALID")
+    statuses = parse_status_filter(status, detail="ACTIVITY_SERIES_FILTER_INVALID")
     if (
         metric not in {"activity", "cost"}
         or bucket not in {"hour", "day"}
         or time_basis not in {"created", "finished"}
         or kind is not None
         and kind not in KINDS
-        or status is not None
-        and status not in STATUSES
     ):
         raise HTTPException(422, detail="ACTIVITY_SERIES_FILTER_INVALID")
     if metric == "cost" and (
@@ -174,8 +174,8 @@ def activity_series(
         query = query.filter(Activity.system_id == system_id)
     if kind:
         query = query.filter(Activity.kind == kind)
-    if status:
-        query = query.filter(Activity.status == status)
+    if statuses is not None:
+        query = query.filter(Activity.status.in_(statuses))
     if time_basis == "created":
         query = query.filter(Activity.created_at >= start, Activity.created_at < until)
     else:
