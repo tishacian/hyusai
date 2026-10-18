@@ -1,0 +1,87 @@
+{
+  "production_revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+  "qualification": "Native invocation deep links passed for two principals; corrected complete Flow canary awaits reopening",
+  "cause": "The old canary required the projection-gated API unconditionally; the UI uses authorized native Run audit when the projection gate is closed",
+  "validation": {
+    "backend_existing_projection_api_tests_passed": 11,
+    "frontend_existing_invocation_and_execution_tests_passed": 8,
+    "strict_typescript_targeted": "passed",
+    "playwright_discovery": {
+      "tests": 5,
+      "files": 4
+    },
+    "live_native_invocation_canary_passed": 2,
+    "live_profiles": [
+      "restricted",
+      "platform_admin"
+    ],
+    "live_pairs_per_profile": 2,
+    "live_widths": [
+      1440,
+      390
+    ],
+    "flow_canary_68_live": "not run; execution view disabled",
+    "quality_66_live": "not rerun; shared invocation branch covered by canary69",
+    "global_e2e_typescript": "fails outside modified files: existing test33 types and unresolved @app aliases"
+  },
+  "production_flags_changed": false,
+  "business_mutations": 0,
+  "runtime_files_changed": false,
+  "screenshots_published": false,
+  "screenshots": [
+    {
+      "profile": "restricted",
+      "file": "native-invocation-27c0d226-8c21-4c88-a815-01ba38beecfc-1440.png",
+      "sha256": "02ec7c60c086eee3309e40ee0ee675f6a06072a290e89d9a1c7ab1fcd0484b9d"
+    },
+    {
+      "profile": "restricted",
+      "file": "native-invocation-27c0d226-8c21-4c88-a815-01ba38beecfc-390.png",
+      "sha256": "9574aeeca2e3520b9b55fdd962fc99c9d7608756c6391b0c3b25778a777bf599"
+    },
+    {
+      "profile": "restricted",
+      "file": "native-invocation-937838f5-a3a8-4f8a-8b32-af2838b9185d-1440.png",
+      "sha256": "264b9862847fa469587243fcb985b01fd135bb6b74b2b106e2fc132b1d2830a1"
+    },
+    {
+      "profile": "restricted",
+      "file": "native-invocation-937838f5-a3a8-4f8a-8b32-af2838b9185d-390.png",
+      "sha256": "02408540156ca15d9ef5423ec00b4b9cecb0045e84a46e7771b15c5a232da8b8"
+    },
+    {
+      "profile": "platform_admin",
+      "file": "native-invocation-27c0d226-8c21-4c88-a815-01ba38beecfc-1440.png",
+      "sha256": "02ec7c60c086eee3309e40ee0ee675f6a06072a290e89d9a1c7ab1fcd0484b9d"
+    },
+    {
+      "profile": "platform_admin",
+      "file": "native-invocation-27c0d226-8c21-4c88-a815-01ba38beecfc-390.png",
+      "sha256": "9574aeeca2e3520b9b55fdd962fc99c9d7608756c6391b0c3b25778a777bf599"
+    },
+    {
+      "profile": "platform_admin",
+      "file": "native-invocation-937838f5-a3a8-4f8a-8b32-af2838b9185d-1440.png",
+      "sha256": "264b9862847fa469587243fcb985b01fd135bb6b74b2b106e2fc132b1d2830a1"
+    },
+    {
+      "profile": "platform_admin",
+      "file": "native-invocation-937838f5-a3a8-4f8a-8b32-af2838b9185d-390.png",
+      "sha256": "02408540156ca15d9ef5423ec00b4b9cecb0045e84a46e7771b15c5a232da8b8"
+    }
+  ],
+  "sources": {
+    "frontend-ng/e2e/fixtures/native-invocation.ts": "c6d2c4f889eac13d3739ed3c9906ab549de0b95700a202a82fe50b1fa24364eb",
+    "frontend-ng/e2e/tests/66-showcase-quality-release-canary.spec.ts": "cf5b330722f6c09cfb7c71283a95e98309311095e36e2aff973d956adad3193e",
+    "frontend-ng/e2e/tests/68-flow-execution-live-canary.spec.ts": "69083c72d358f25583a2cfd5feb84d4d652d11a3a6e238f3ffe6a45539844e9a",
+    "frontend-ng/e2e/tests/69-native-invocation-live-canary.spec.ts": "5c4cbfcc5ec76789edb3ce6592a37bb7bd458a12fd3b34de76767274fc014d6d"
+  },
+  "remaining": [
+    "Complete Flow acceptance after coordinated reopening",
+    "Workspace owner profile",
+    "Nonempty active Run and two new composite journeys",
+    "Reconnect during state transition with durable replay",
+    "Historical snapshot after Flow version publication",
+    "Revocation with charts and Flow open"
+  ]
+}

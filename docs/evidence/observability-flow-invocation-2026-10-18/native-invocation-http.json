@@ -1,0 +1,106 @@
+{
+  "checked_at": "2026-10-18T14:04:06.067998+00:00",
+  "source": "direct_https_read_only",
+  "tls_verified": true,
+  "profiles": {
+    "restricted": {
+      "features": {
+        "http_status": 200,
+        "flags": {
+          "enabled": true,
+          "activity_series_enabled": false,
+          "execution_view_enabled": false
+        }
+      },
+      "workspaces": {
+        "http_status": 200,
+        "invocation_projection_effective": false,
+        "workspace_role": "member"
+      },
+      "invocation": {
+        "http_status": 404,
+        "detail": "Skill invocation not found"
+      },
+      "execution": {
+        "http_status": 404,
+        "detail": "EXECUTION_VIEW_DISABLED"
+      },
+      "native_runs": {
+        "519ce4f9-583e-4d70-a4b7-c3229d1749d8": {
+          "http_status": 200,
+          "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+          "invocation_count": 1,
+          "checked_invocation": {
+            "id": "27c0d226-8c21-4c88-a815-01ba38beecfc",
+            "status": "failed"
+          }
+        },
+        "666a0219-36a5-4dc2-871d-a92fe44575f2": {
+          "http_status": 200,
+          "run_id": "666a0219-36a5-4dc2-871d-a92fe44575f2",
+          "invocation_count": 16,
+          "checked_invocation": {
+            "id": "937838f5-a3a8-4f8a-8b32-af2838b9185d",
+            "status": "completed"
+          }
+        }
+      }
+    },
+    "platform_admin": {
+      "features": {
+        "http_status": 200,
+        "flags": {
+          "enabled": true,
+          "activity_series_enabled": false,
+          "execution_view_enabled": false
+        }
+      },
+      "workspaces": {
+        "http_status": 200,
+        "invocation_projection_effective": false,
+        "workspace_role": "member"
+      },
+      "invocation": {
+        "http_status": 404,
+        "detail": "Skill invocation not found"
+      },
+      "execution": {
+        "http_status": 404,
+        "detail": "EXECUTION_VIEW_DISABLED"
+      },
+      "native_runs": {
+        "519ce4f9-583e-4d70-a4b7-c3229d1749d8": {
+          "http_status": 200,
+          "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+          "invocation_count": 1,
+          "checked_invocation": {
+            "id": "27c0d226-8c21-4c88-a815-01ba38beecfc",
+            "status": "failed"
+          }
+        },
+        "666a0219-36a5-4dc2-871d-a92fe44575f2": {
+          "http_status": 200,
+          "run_id": "666a0219-36a5-4dc2-871d-a92fe44575f2",
+          "invocation_count": 16,
+          "checked_invocation": {
+            "id": "937838f5-a3a8-4f8a-8b32-af2838b9185d",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  },
+  "builds": {
+    "/api/v1/build-info": {
+      "http_status": 200,
+      "revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+      "revision_verified": true
+    },
+    "/build-info.json": {
+      "http_status": 200,
+      "revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+      "revision_verified": true
+    }
+  },
+  "native_run_audit_checked_at": "2026-10-18T14:05:17.496795+00:00"
+}
