@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-10-18T12:52:13.414750Z",
+  "source": "direct_https_read_only_response_summary",
+  "tls_verified": true,
+  "revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+  "backend_build_info": {"http_status": 200, "revision_verified": true},
+  "frontend_build_info": {"http_status": 200, "revision_verified": true},
+  "health": 200,
+  "readiness": 200,
+  "github": {
+    "demo_agentic": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+    "develop": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+    "main": "e35a93d869b8c9a77c78500b1a3421a05fe3f1d1",
+    "shared_tree": "e982412032023e04fa4bcd2c04d9c0ac348b84ad",
+    "pull_request": 16,
+    "merged": true
+  },
+  "features": {
+    "enabled": true,
+    "activity_series_enabled": false,
+    "execution_view_enabled": false
+  },
+  "active_filter_check": {
+    "checked_at": "2026-10-18T12:53:32.139769Z",
+    "window_days": 30,
+    "fixed_window_shared_by_queries": true,
+    "kind": "run",
+    "status": "pending,running,waiting",
+    "profiles": {
+      "workspace_owner": {"all_runs": 1, "active_runs": 0, "http_status": 200, "exact_authorized_set_parity": true, "invalid_status_http_status": 422},
+      "restricted": {"all_runs": 1, "active_runs": 0, "http_status": 200, "exact_authorized_set_parity": true, "invalid_status_http_status": 422},
+      "platform_admin": {"all_runs": 1, "active_runs": 0, "http_status": 200, "exact_authorized_set_parity": true, "invalid_status_http_status": 422}
+    },
+    "invalid_status": "running,invalid",
+    "nonempty_active_population_qualified": false
+  },
+  "scope": "Deployed revision and native list status filter; not open series or Flow acceptance",
+  "operator_report_only": ["Bitbucket refs", "image budgets", "Alembic head 138_activity_measures", "LiveKit recreation"],
+  "production_configuration_changed": false
+}

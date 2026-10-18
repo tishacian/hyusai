@@ -6,10 +6,13 @@ import {expectOk} from '../fixtures/api';
 // A workspace owner is never relabelled as a System owner or platform admin.
 // This canary neither changes feature flags nor stores/reuses an auth session.
 // It intentionally refuses qualification after an operator has closed R2/R4.
+// E2E_OBSERVABILITY_PROFILE selects an asserted identity, never impersonation.
+// All series stay inside the selected workspace, even for a platform admin.
 test.use({trace: 'off', video: 'off', screenshot: 'off', serviceWorkers: 'block', ignoreHTTPSErrors: false, timezoneId: 'UTC'});
 
 interface Activity {
   id: string; native_id: string; kind: string; status: string; version: number;
+  system_id: string | null;
   created_at: string; finished_at: string | null;
   measurements: {duration_ms?: number | null; cost_known?: boolean; cost_amount?: number | null;
     cost_basis?: string | null; currency?: string | null; infrastructure_cost_usd?: number | null};
@@ -24,8 +27,15 @@ interface Summary extends Aggregate {
 interface Series {from: string; until: string; totals: Summary; buckets: Array<Summary & {from: string; until: string}>;
   population: {metric: string; kind: string | null; time_basis: string}}
 interface Features {enabled: boolean; activity_series_enabled: boolean; execution_view_enabled: boolean; scopes: string[]}
+const profiles = {
+  owner: {platform_role: 'user', workspace_role: 'owner', scopes: ['workspace', 'system']},
+  restricted: {platform_role: 'user', workspace_role: 'member', scopes: ['workspace', 'system']},
+  platform_admin: {platform_role: 'admin', workspace_role: 'member', scopes: ['workspace', 'system', 'platform']},
+} as const;
+type RecipeProfile = keyof typeof profiles;
 interface Evidence {
   revision: string; workspace: string; since: string; from: string; until: string;
+  requested_profile: RecipeProfile; system_id: string; series_scope: 'workspace' | 'system';
   role_coverage: string; completed: string[]; blocked_business_writes: string[];
   suppressed_navigation_audits: number; [key: string]: unknown;
 }
@@ -39,12 +49,19 @@ async function begin(page: Page): Promise<Evidence> {
   const password = process.env['E2E_PASSWORD'];
   const revision = process.env['E2E_EXPECTED_REVISION'] || '';
   const workspace = process.env['E2E_SHOWCASE_WORKSPACE_SLUG'] || 'agentium-showcase';
+  const requestedProfile = process.env['E2E_OBSERVABILITY_PROFILE'] || 'owner';
+  expect(Object.keys(profiles), 'E2E_OBSERVABILITY_PROFILE must be owner, restricted or platform_admin').toContain(requestedProfile);
+  const expectedProfile = profiles[requestedProfile as RecipeProfile];
+  const systemId = process.env['E2E_OBSERVABILITY_SYSTEM_ID']?.trim() || '';
+  expect(!systemId || /^[a-zA-Z0-9_-]{1,100}$/.test(systemId), 'E2E_OBSERVABILITY_SYSTEM_ID must identify an existing System').toBe(true);
   expect(Boolean(username && password), 'Explicit live credentials are required').toBe(true);
   expect(revision, 'Pin the exact deployed revision').toMatch(/^[a-f0-9]{40}$/);
   const until = new Date().toISOString();
   const from = new Date(Date.parse(until) - 30 * 86400000).toISOString();
   const evidence: Evidence = {revision, workspace, since: '30d', from, until,
-    role_coverage: 'workspace owner/admin only; System owner and platform admin require separate principals',
+    requested_profile: requestedProfile as RecipeProfile, system_id: systemId, series_scope: systemId ? 'system' : 'workspace',
+    role_coverage: `${requestedProfile}: authorized activities inside the selected workspace; a System filter does not establish an isolated System role`,
+    not_qualified: ['global platform series or platform overview', 'isolated System owner', 'permission revocation'],
     completed: [], blocked_business_writes: [], suppressed_navigation_audits: 0};
   await page.route('**/*', async route => {
     const request = route.request();
@@ -74,7 +91,8 @@ async function begin(page: Page): Promise<Evidence> {
   const profile = await expectOk<{id: string; role: string; workspaces: Array<{id: string; slug: string; role: string}>}>(page, '/api/v1/auth/me');
   const membership = profile.workspaces.find(item => item.slug === workspace);
   expect(Boolean(membership), 'The current principal has actual Showcase membership').toBe(true);
-  expect(['owner', 'admin'].includes(membership!.role), 'This canary qualifies a workspace owner/admin, not a scope switch').toBe(true);
+  expect(profile.role, `${requestedProfile}: actual platform role`).toBe(expectedProfile.platform_role);
+  expect(membership!.role, `${requestedProfile}: actual native workspace membership, not a role label`).toBe(expectedProfile.workspace_role);
   evidence.principal = {id: profile.id, platform_role: profile.role, workspace_role: membership!.role, workspace_id: membership!.id};
   for (const path of ['/api/v1/build-info', '/build-info.json']) {
     const build = await expectOk<{revision: string; revision_verified: boolean}>(page, path);
@@ -83,6 +101,7 @@ async function begin(page: Page): Promise<Evidence> {
   }
   const features = await expectOk<Features>(page, `${root}/activities/features`);
   expect(features.enabled && features.activity_series_enabled && features.execution_view_enabled, 'Both options are really open for this workspace').toBe(true);
+  expect([...features.scopes].sort(), `${requestedProfile}: scopes match the authenticated principal`).toEqual([...expectedProfile.scopes].sort());
   evidence.features = features;
   evidence.completed.push('authenticated-real-workspace-role-exact-revision-and-open-options');
   return evidence;
@@ -95,8 +114,11 @@ async function saveEvidence(info: TestInfo, evidence: Evidence, basename: string
   await info.attach(basename, {contentType: 'application/json', path});
 }
 
-const pageScope = (evidence: Evidence) => new URLSearchParams({since: evidence.since, as_of: evidence.until});
-const seriesScope = (evidence: Evidence) => new URLSearchParams({from: evidence.from, until: evidence.until, bucket: 'day', metric: 'activity', time_basis: 'created'});
+const pageScope = (evidence: Evidence) => new URLSearchParams({since: evidence.since, as_of: evidence.until,
+  ...(evidence.system_id ? {systemId: evidence.system_id} : {})});
+const apiScope = (evidence: Evidence, params: Record<string, string>) => new URLSearchParams({...params,
+  ...(evidence.system_id ? {system_id: evidence.system_id} : {})});
+const seriesScope = (evidence: Evidence) => apiScope(evidence, {from: evidence.from, until: evidence.until, bucket: 'day', metric: 'activity', time_basis: 'created'});
 
 test('Operations live: exhaustive tiles open the corresponding Activities filter', async ({page}, info) => {
   test.setTimeout(180_000);
@@ -137,6 +159,8 @@ test('Operations live: exhaustive tiles open the corresponding Activities filter
       expect.soft(query.get('kind')).toBe('run');
       expect.soft(query.get('since')).toBe('30d');
       expect.soft(query.get('as_of')).toBe(evidence.until);
+      expect.soft(query.get('systemId') || '').toBe(evidence.system_id);
+      expect.soft(query.get('scope')).not.toBe('platform');
       const observedStatus = query.get('status') || '';
       const displayedCount = Number((await page.getByTestId('activity-monitor').locator(':scope > .stats article strong').first().innerText()).replace(/\s/g, ''));
       observations.push({tile: item.tile, displayed_tile_count: count, displayed_list_count: displayedCount,
@@ -153,6 +177,7 @@ test('Operations live: exhaustive tiles open the corresponding Activities filter
       expect.soft(chartQuery.get('kind')).toBe('run');
       expect.soft(chartQuery.get('from')).toBe(evidence.from);
       expect.soft(chartQuery.get('until')).toBe(evidence.until);
+      expect.soft(chartQuery.get('system_id') || '').toBe(evidence.system_id);
       const chart: Series = await chartResponse.json();
       expect.soft(chart.totals.total, 'The rendered chart uses the same authorized population').toBe(item.expected);
       await page.getByTestId('activity-monitor').locator('.filters').screenshot({path: info.outputPath(`tile-${item.tile}-destination.png`)});
@@ -161,10 +186,12 @@ test('Operations live: exhaustive tiles open the corresponding Activities filter
       await page.reload();
       await expect(page.getByTestId('activity-monitor').locator('.listing')).toBeVisible();
       expect.soft(new URL(page.url()).searchParams.get('status') || '').toBe(observedStatus);
+      expect.soft(new URL(page.url()).searchParams.get('systemId') || '').toBe(evidence.system_id);
       await expect(page.locator('select[name="status"]')).toHaveValue(item.status);
       const reloadedResponse = await reloadedSeries;
       expect(reloadedResponse.ok()).toBe(true);
       expect.soft(new URL(reloadedResponse.url()).searchParams.get('status') || '').toBe(item.status);
+      expect.soft(new URL(reloadedResponse.url()).searchParams.get('system_id') || '').toBe(evidence.system_id);
       expect.soft(((await reloadedResponse.json()) as Series).totals.total).toBe(item.expected);
       evidence.completed.push(`${item.tile}-keyboard-navigation-and-reload-observed`);
     }
@@ -180,8 +207,9 @@ async function allActivities(page: Page, evidence: Evidence): Promise<Activity[]
   // All creation dates are required: an expense can finish in this window even
   // when its activity was created earlier. Pagination is never silently cut off.
   for (let offset = 0; offset < 10000; offset += 100) {
-    const params = new URLSearchParams({until: evidence.until, limit: '100', offset: String(offset)});
+    const params = apiScope(evidence, {until: evidence.until, limit: '100', offset: String(offset)});
     const result = await expectOk<ActivityPage>(page, `${root}/activities?${params}`);
+    if (evidence.system_id) expect(result.items.every(item => item.system_id === evidence.system_id), 'Every listed activity belongs to the selected System').toBe(true);
     if (!initial) initial = result.aggregates;
     expect(result.aggregates, 'Acceptance requires a stable population during pagination; a changing snapshot is inconclusive').toEqual(initial);
     items.push(...result.items);
@@ -255,7 +283,7 @@ test('Activities live: real series equal the exhaustive list and render volume d
     for (const kind of ['skill_invocation', 'compute_run']) {
       const ended = all.filter(item => item.kind === kind && terminal.has(item.status) && item.finished_at
         && Date.parse(item.finished_at) >= start && Date.parse(item.finished_at) < end);
-      const costs = new URLSearchParams({from: evidence.from, until: evidence.until, bucket: 'day', metric: 'cost', time_basis: 'finished', kind});
+      const costs = apiScope(evidence, {from: evidence.from, until: evidence.until, bucket: 'day', metric: 'cost', time_basis: 'finished', kind});
       const series = await expectOk<Series>(page, `${root}/activities/series?${costs}`);
       costTotals[kind] = series.totals;
       compareActivity(series, ended, `${kind} finished expense population`);
