@@ -3,8 +3,10 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.activity import Activity
 from app.models.brd_document import BrdDocument
 from app.models.compute_run import ComputeRun
@@ -348,12 +350,13 @@ def test_finished_window_uses_utc_offsets_and_counts_missing_only_when_created_i
         equal(fast, activity_series(db, ws, user, start=START, until=UNTIL, time_basis="finished"))
 
 
-@pytest.mark.parametrize("population", ["historical_dates", "brd_jobs"])
+@pytest.mark.parametrize("population", ["parsed_offsets", "unparsed_dates", "brd_jobs"])
 def test_exception_bound_falls_back_for_whole_population(pg, monkeypatch, population):
-    count = 129 if population == "historical_dates" else 257
+    count = 257 if population == "brd_jobs" else 129
+    dated = population in {"parsed_offsets", "unparsed_dates"}
     with Session(pg) as db:
         ws, user = _member(db)
-        if population == "historical_dates":
+        if dated:
             db.add_all(
                 [
                     Run(
@@ -401,10 +404,16 @@ def test_exception_bound_falls_back_for_whole_population(pg, monkeypatch, popula
                 ]
             )
         db.commit()
-        if population == "historical_dates":
+        if dated:
+            # Offsets parse natively into the typed finish (fast path); text the
+            # native parser rejects stays unparsed and keeps the bounded check.
+            suffix = "+00:00" if population == "parsed_offsets" else "bad"
             for i in range(count):
                 row = db.query(Activity).filter_by(kind="run", native_id=f"bound-{i}").one()
-                row.snapshot = {**row.snapshot, "finished_at": f"2026-01-01T01:00:00.{i:06d}+00:00"}
+                row.snapshot = {
+                    **row.snapshot,
+                    "finished_at": f"2026-01-01T01:00:00.{i:06d}{suffix}",
+                }
             db.commit()
     original, taken = series_sql.aggregate_compat, []
 
@@ -420,10 +429,14 @@ def test_exception_bound_falls_back_for_whole_population(pg, monkeypatch, popula
     ):
         ws, user = db.get(Workspace, "pg-activity-ws"), db.get(User, "member")
         result = activity_series(db, ws, user, start=START, until=UNTIL, time_basis="finished")
-        assert taken == [False]
-        # Neither exceptional population is silently clipped at the fast-path
-        # safety bound; BRD authorization still reads the native document.
-        assert result["totals"]["total"] == count
+        assert taken == [population == "parsed_offsets"]
+        # No exceptional population is silently clipped at the fast-path safety
+        # bound; BRD authorization still reads the native document.
+        if population == "unparsed_dates":
+            assert result["totals"]["total"] == 0
+            assert result["coverage"]["missing_finished_at"] == count
+        else:
+            assert result["totals"]["total"] == count
         monkeypatch.setattr(series_sql, "aggregate_compat", lambda *args, **kwargs: None)
         equal(
             result, activity_series(db, ws, user, start=START, until=UNTIL, time_basis="finished")
@@ -486,3 +499,174 @@ def test_sensitive_kinds_use_native_reader_without_disabling_unrelated_populatio
             )
             assert taken[-1] is True
             assert result["totals"]["total"] == 1
+
+
+def _track(monkeypatch, original=None):
+    original, taken = original or series_sql.aggregate_compat, []
+
+    def accelerated(*args, **kwargs):
+        result = original(*args, **kwargs)
+        taken.append(result is not None)
+        return result
+
+    monkeypatch.setattr(series_sql, "aggregate_compat", accelerated)
+    return taken
+
+
+@pytest.mark.parametrize("inside", [True, False])
+def test_invocation_guard_only_considers_the_selected_population(pg, monkeypatch, inside):
+    """A malformed invocation projection forces the native reader only when the
+    request can select it; rows outside the window reach neither reader."""
+    created = START + timedelta(hours=1) if inside else START - timedelta(days=3)
+    with Session(pg) as db:
+        ws, user = _member(db)
+        for identifier in ("guard-run", "guard-other"):
+            db.add(
+                Run(
+                    id=identifier,
+                    workspace_id=ws.id,
+                    initiated_by_user_id=user.id,
+                    status="completed",
+                    started_at=created,
+                    completed_at=created + timedelta(minutes=5),
+                )
+            )
+        db.flush()
+        db.add(
+            SkillInvocation(
+                id="guard-invocation",
+                run_id="guard-run",
+                status="completed",
+                started_at=created,
+                completed_at=created + timedelta(minutes=1),
+            )
+        )
+        db.commit()
+        row = (
+            db.query(Activity)
+            .filter_by(kind="skill_invocation", native_id="guard-invocation")
+            .one()
+        )
+        row.run_id = "guard-other"  # Legacy projection that disagrees with its native Run.
+        db.commit()
+    original = series_sql.aggregate_compat
+    taken = _track(monkeypatch, original)
+    with (
+        pg.connect().execution_options(isolation_level="REPEATABLE READ") as conn,
+        Session(conn) as db,
+    ):
+        ws, user = db.get(Workspace, "pg-activity-ws"), db.get(User, "member")
+        for time_basis in ("created", "finished"):
+            fast = activity_series(db, ws, user, start=START, until=UNTIL, time_basis=time_basis)
+            assert taken[-1] is (not inside)
+            only_runs = activity_series(
+                db, ws, user, start=START, until=UNTIL, time_basis=time_basis, kind="run"
+            )
+            assert taken[-1] is True  # No invocation can enter a Run-only population.
+            monkeypatch.setattr(series_sql, "aggregate_compat", lambda *args, **kwargs: None)
+            equal(
+                fast, activity_series(db, ws, user, start=START, until=UNTIL, time_basis=time_basis)
+            )
+            equal(
+                only_runs,
+                activity_series(
+                    db, ws, user, start=START, until=UNTIL, time_basis=time_basis, kind="run"
+                ),
+            )
+            taken = _track(monkeypatch, original)
+
+
+def test_overflowing_finish_keeps_native_error_semantics(pg, monkeypatch):
+    """The typed finish stores NULL for a date Python cannot normalize; the fast
+    path then yields to the native reader, which keeps raising as before."""
+    with Session(pg) as db:
+        ws, user = _member(db)
+        db.add(
+            Run(
+                id="overflow-run",
+                workspace_id=ws.id,
+                initiated_by_user_id=user.id,
+                status="completed",
+                started_at=START + timedelta(hours=1),
+                completed_at=START + timedelta(hours=2),
+            )
+        )
+        db.commit()
+        row = db.query(Activity).filter_by(kind="run", native_id="overflow-run").one()
+        row.snapshot = {**row.snapshot, "finished_at": "0001-01-01T00:00:00+01:00"}
+        db.commit()
+        assert row.finished_at is None
+    taken = _track(monkeypatch)
+    with (
+        pg.connect().execution_options(isolation_level="REPEATABLE READ") as conn,
+        Session(conn) as db,
+    ):
+        ws, user = db.get(Workspace, "pg-activity-ws"), db.get(User, "member")
+        with pytest.raises(OverflowError):
+            activity_series(db, ws, user, start=START, until=UNTIL, time_basis="finished")
+        assert taken == [False]
+        created = activity_series(db, ws, user, start=START, until=UNTIL)
+        assert taken[-1] is True and created["totals"]["total"] == 1
+
+
+def test_orphaned_invocation_keeps_the_invocation_predicate(pg, monkeypatch):
+    """Counts skip the invocation join only when every selectable invocation has
+    its native row; a projection left behind by an out-of-band purge keeps it."""
+    with Session(pg) as db:
+        ws, user = _member(db)
+        db.add(
+            Run(
+                id="orphan-run",
+                workspace_id=ws.id,
+                initiated_by_user_id=user.id,
+                status="completed",
+                started_at=START + timedelta(hours=1),
+                completed_at=START + timedelta(hours=2),
+            )
+        )
+        db.flush()
+        for identifier in ("orphan-kept", "orphan-purged"):
+            db.add(
+                SkillInvocation(
+                    id=identifier,
+                    run_id="orphan-run",
+                    status="completed",
+                    started_at=START + timedelta(hours=1),
+                    completed_at=START + timedelta(hours=1, minutes=1),
+                )
+            )
+        db.commit()
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    def read():
+        statements.clear()
+        with (
+            pg.connect().execution_options(isolation_level="REPEATABLE READ") as conn,
+            Session(conn) as db,
+        ):
+            ws, user = db.get(Workspace, "pg-activity-ws"), db.get(User, "member")
+            fast = activity_series(db, ws, user, start=START, until=UNTIL)
+            aggregate = next(sql for sql in statements if "WITH authorized" in sql)
+            monkeypatch.setattr(series_sql, "aggregate_compat", lambda *args, **kwargs: None)
+            equal(fast, activity_series(db, ws, user, start=START, until=UNTIL))
+            monkeypatch.setattr(series_sql, "aggregate_compat", original)
+            return fast, "JOIN skill_invocations i" in aggregate
+
+    original = series_sql.aggregate_compat
+    event.listen(pg, "before_cursor_execute", record)
+    try:
+        fast, joined = read()
+        assert not joined  # Every invocation has its native row: no join.
+        assert fast["totals"]["by_kind"] == {"run": 1, "skill_invocation": 2}
+        monkeypatch.setattr(settings, "activity_observability_enabled", False)
+        with pg.begin() as connection:  # Out-of-band purge, as raw maintenance would.
+            connection.execute(text("DELETE FROM skill_invocations WHERE id = 'orphan-purged'"))
+        monkeypatch.setattr(settings, "activity_observability_enabled", True)
+        fast, joined = read()
+        assert joined
+        assert fast["totals"]["by_kind"] == {"run": 1, "skill_invocation": 1}
+    finally:
+        event.remove(pg, "before_cursor_execute", record)

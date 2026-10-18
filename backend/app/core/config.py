@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     activity_observability_enabled: bool = False
     # Independent read surfaces: closing them never stops the durable journal.
     activity_series_enabled: bool = False
+    # Per-transaction work_mem for one PostgreSQL series aggregate. The default
+    # 4MB spills its materialized rows, sorts and hashes to temporary files under
+    # concurrent reads. Peak use is a few multiples of this value per read.
+    activity_series_work_mem_mb: int = Field(default=16, ge=4, le=256)
     execution_view_enabled: bool = False
     execution_control_enabled: bool = False
     execution_durable_dispatch_enabled: bool = False

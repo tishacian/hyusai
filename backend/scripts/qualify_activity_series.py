@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 import app.models  # noqa: F401 — register all FK targets
 from app.core.config import settings
 from app.db.base import Base
-from app.models.activity import Activity
+from app.models.activity import Activity, measured_columns
 from app.models.compute_run import ComputeRun
 from app.models.run import Run, SkillInvocation
 from app.models.user import User
@@ -57,7 +57,26 @@ USERS = ("series-reader-a", "series-reader-b")
 
 def rss_bytes():
     """Current resident set, not the seed phase's historical high-water mark."""
-    return int(Path("/proc/self/statm").read_text().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    statm = Path("/proc/self/statm")
+    if statm.exists():
+        return int(statm.read_text().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    import psutil  # macOS/BSD workstations: same current-RSS meaning, no /proc
+
+    return psutil.Process().memory_info().rss
+
+
+def _first_line(path, prefix):
+    file = Path(path)
+    if not file.exists():
+        return None
+    return next((row for row in file.read_text().splitlines() if row.startswith(prefix)), None)
+
+
+def _sysctl(name):
+    try:
+        return subprocess.check_output(["sysctl", "-n", name], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def percentile(values, quantile):
@@ -82,6 +101,10 @@ def seed(engine, count):
 
     def projection(kind, index, native_id, run_index, native_owner):
         created = stamp(index)
+        snapshot = {
+            "finished_at": (created + timedelta(seconds=60)).isoformat() + "Z",
+            "measurements": {"duration_ms": (index % 1000) + 1},
+        }
         return dict(
             id=f"{kind[:2]}-{index:012d}",
             workspace_id=WORKSPACE,
@@ -94,10 +117,9 @@ def seed(engine, count):
             status="succeeded",
             native_status="completed",
             version=1,
-            snapshot={
-                "finished_at": (created + timedelta(seconds=60)).isoformat() + "Z",
-                "measurements": {"duration_ms": (index % 1000) + 1},
-            },
+            snapshot=snapshot,
+            # Core inserts bypass the ORM hook; derive like the projection does.
+            **measured_columns(snapshot),
             snapshot_digest="0" * 64,
             origin="observed",
             created_at=created,
@@ -435,14 +457,13 @@ def main():
                 platform=platform.platform(),
                 python=platform.python_version(),
                 cpu_count=os.cpu_count(),
-                affinity_count=len(os.sched_getaffinity(0)),
-                cpu_model=next(
-                    (
-                        row.split(":", 1)[1].strip()
-                        for row in Path("/proc/cpuinfo").read_text().splitlines()
-                        if row.startswith("model name")
-                    ),
-                    "unknown",
+                affinity_count=len(os.sched_getaffinity(0))
+                if hasattr(os, "sched_getaffinity")
+                else os.cpu_count(),
+                cpu_model=(
+                    (_first_line("/proc/cpuinfo", "model name") or "").split(":", 1)[-1].strip()
+                    or _sysctl("machdep.cpu.brand_string")
+                    or "unknown"
                 ),
                 cgroup_cpu_max=Path("/sys/fs/cgroup/cpu.max").read_text().strip()
                 if Path("/sys/fs/cgroup/cpu.max").exists()
@@ -451,11 +472,8 @@ def main():
                 if Path("/sys/fs/cgroup/memory.max").exists()
                 else None,
                 postgres=pg_version,
-                mem_total_kib=next(
-                    row
-                    for row in Path("/proc/meminfo").read_text().splitlines()
-                    if row.startswith("MemTotal:")
-                ),
+                mem_total_kib=_first_line("/proc/meminfo", "MemTotal:")
+                or f"hw.memsize: {int(_sysctl('hw.memsize') or 0) // 1024} kB",
             ),
             source=dict(
                 git_head=subprocess.check_output(
