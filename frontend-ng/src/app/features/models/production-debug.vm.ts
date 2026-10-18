@@ -79,6 +79,25 @@ export interface ProductionDebugView {
   };
 }
 
+/**
+ * A response the card can render, or nothing. An older backend, a proxy or a
+ * test double answering this route with something else must not break the
+ * card: the section simply stays absent.
+ */
+export function readView(value: unknown): ProductionDebugView | null {
+  const view = value as Partial<ProductionDebugView> | null | undefined;
+  if (!view || typeof view.supported !== 'boolean' || !view.limits || typeof view.limits !== 'object') {
+    return null;
+  }
+  return {
+    supported: view.supported,
+    latest: view.latest && typeof view.latest === 'object' && view.latest.counts ? view.latest : null,
+    series: Array.isArray(view.series) ? view.series : [],
+    fairness_columns: Array.isArray(view.fairness_columns) ? view.fairness_columns : [],
+    limits: view.limits,
+  };
+}
+
 export function isActive(report: ProductionReport | null | undefined): boolean {
   return report?.status === 'queued' || report?.status === 'running';
 }

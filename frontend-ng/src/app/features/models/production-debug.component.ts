@@ -43,6 +43,7 @@ import {
   gapMetricKey,
   isActive,
   productionEvidence,
+  readView,
   statusKey,
   windowText,
   type ProductionDebugView,
@@ -235,11 +236,11 @@ export class ProductionDebugComponent {
     const current = () =>
       generation === this.generation && id === this.modelId() && this.workspace.isRequestScopeCurrent(scope);
     try {
-      const view = await this.models.productionDebug(id);
+      const view = readView(await this.models.productionDebug(id));
       if (!current()) return;
       this.view.set(view);
       this.error.set('');
-      this.schedule(view);
+      if (view) this.schedule(view);
     } catch {
       if (current()) this.view.set(null);
     }
@@ -255,11 +256,11 @@ export class ProductionDebugComponent {
     this.busy.set(true);
     this.error.set('');
     try {
-      const view = await this.models.runProductionDebug(id);
+      const view = readView(await this.models.runProductionDebug(id));
       if (!current()) return;
       this.view.set(view);
       this.polls = 0;
-      this.schedule(view);
+      if (view) this.schedule(view);
     } catch (failure) {
       if (current()) this.error.set(runErrorKey(failure));
     } finally {

@@ -11,6 +11,7 @@ import {
   gapMetricKey,
   isActive,
   productionEvidence,
+  readView,
   statusKey,
   windowText,
   type ProductionDebugView,
@@ -123,4 +124,13 @@ test('the window reads as all production or as its bounds', () => {
   assert.doesNotMatch(windowText({ from: null, until: '2026-01-01T12:00:00' }, 'en', words), /since/);
   assert.equal(dateText('not a date', 'en'), '');
   assert.equal(dateText(null, 'en'), '');
+});
+
+test('anything but a production view leaves the section absent', () => {
+  assert.equal(readView({}), null);
+  assert.equal(readView(null), null);
+  assert.equal(readView({ supported: true }), null);
+  const parsed = readView({ supported: true, limits: view(null).limits, latest: {}, series: 'x' });
+  assert.deepEqual(parsed && [parsed.latest, parsed.series, parsed.fairness_columns], [null, [], []]);
+  assert.equal(readView(view(report()))?.latest?.id, 'r1');
 });
