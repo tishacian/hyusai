@@ -1,6 +1,7 @@
 import {expect, test, type Page} from '@playwright/test';
 import {writeFile} from 'node:fs/promises';
 import {expectOk} from '../fixtures/api';
+import {resolveNativeInvocation, visibleNativeInvocation} from '../fixtures/native-invocation';
 
 // Real, read-only release acceptance. Missing credentials or evidence is a failure,
 // never a skip. No traces, payload logs, stored sessions or automatic screenshots.
@@ -81,19 +82,6 @@ async function visibleProof(page: Page, selection: Selection): Promise<void> {
   {message: 'The selected claim exposes the real recorded excerpt and its source metadata'}).toBe(true);
 }
 
-async function visibleInvocation(page: Page): Promise<void> {
-  const view = page.locator('app-skill-invocation-view');
-  await expect(view).toBeVisible();
-  await expect.poll(() => view.evaluate(element => {
-    const audit = element.querySelector('[data-testid="skill-invocation-audit"] pre');
-    if (audit) {
-      try { return Object.hasOwn(JSON.parse(audit.textContent || '{}'), 'output_ref'); } catch { return false; }
-    }
-    return !!element.querySelector('[data-testid^="object360-skill_invocation-"]')
-      && !element.querySelector('[data-testid="object-perspective-loading"], [data-testid="object-perspective-error"], [data-testid="object-perspective-empty"]');
-  }), {message: 'The invocation renders its recorded audit or a loaded authorized projection'}).toBe(true);
-}
-
 test('Showcase release: point and matrix retain the real Run and proof on desktop and at 390 px', async ({page}, info) => {
   test.setTimeout(180_000);
   const username = process.env['E2E_USERNAME'];
@@ -157,11 +145,10 @@ test('Showcase release: point and matrix retain the real Run and proof on deskto
     evidence.invocation_link_available = !!excerpt.invocation_id;
     // Retrieval excerpts are valid document proofs without a Skill invocation.
     // The four proof journeys remain mandatory; invocation coverage is separate.
-    if (excerpt.invocation_id) {
-      const invocation = await expectOk<{id: string}>(page,
-        `/api/v1/runs/${encodeURIComponent(row.run_id!)}/invocations/${encodeURIComponent(excerpt.invocation_id)}`);
-      expect(invocation.id).toBe(excerpt.invocation_id);
-    }
+    const nativeInvocation = excerpt.invocation_id ? await resolveNativeInvocation(page, {
+      runId: row.run_id!, invocationId: excerpt.invocation_id, workspaceSlug,
+    }) : null;
+    if (nativeInvocation) evidence.invocation_resolution = nativeInvocation;
     const latest = await expectOk<{evaluation: EvaluationRow | null}>(page, `/api/v1/evaluation/latest?${scope}`);
     expect(Object.values(latest.evaluation?.scores || {}).some(measured), 'Radar requires measured dimensions').toBe(true);
     const ordered = [...history.evaluations].reverse();
@@ -200,13 +187,13 @@ test('Showcase release: point and matrix retain the real Run and proof on deskto
         await visibleProof(page, selection);
         await page.locator('app-run-investigation .excerpt').first().scrollIntoViewIfNeeded();
         await page.locator('app-run-investigation').screenshot({path: info.outputPath(`proof-${origin}-${width}.png`)});
-        if (excerpt.invocation_id) {
-          const invocation = page.locator(`app-run-investigation .excerpt a[href*="/invocations/${encodeURIComponent(excerpt.invocation_id)}"]`).first();
+        if (nativeInvocation) {
+          const invocation = page.locator(`app-run-investigation .excerpt a[href*="/invocations/${encodeURIComponent(nativeInvocation.invocation_id)}"]`).first();
           await invocation.click();
           await expect.poll(() => new URL(page.url()).pathname).toBe(`/runs/${row.run_id}/invocations/${excerpt.invocation_id}`);
-          await visibleInvocation(page);
+          await visibleNativeInvocation(page, nativeInvocation);
           await page.reload();
-          await visibleInvocation(page);
+          await visibleNativeInvocation(page, nativeInvocation);
           await page.goBack();
           await visibleProof(page, selection);
           completed.push(`${origin}-${width}-native-invocation-reload`);
