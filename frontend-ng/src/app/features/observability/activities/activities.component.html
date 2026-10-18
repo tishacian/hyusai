@@ -9,12 +9,12 @@
         <button type="button" [attr.aria-pressed]="scope() === item" (click)="setScope(item)">{{ label('scope', item) }}</button>
       }
     </nav>
-    @if (scope() !== 'platform' && features()?.activity_series_enabled) { <app-activity-series [systemId]="systemId" [kind]="kind" [status]="status" [since]="since" [asOf]="asOf" /> }
+    @if (scope() !== 'platform' && features()?.activity_series_enabled) { <app-activity-series [systemId]="appliedFilters().systemId" [kind]="appliedFilters().kind" [status]="appliedFilters().status" [since]="appliedFilters().since" [asOf]="appliedFilters().asOf" /> }
     @if (scope() !== 'platform') {
       <form class="filters" (ngSubmit)="applyFilters()">
         @if (scope() === 'system') { <label>{{ t('system') }}<select name="systemId" [(ngModel)]="systemId" required><option value="">{{ t('select_system') }}</option>@for (system of systems(); track system.id) {<option [value]="system.id">{{ system.name }}</option>}@if (systemId && !systemListed(systemId)) {<option [value]="systemId">{{ systemId }}</option>}</select></label> }
         <label>{{ t('kind') }}<select name="kind" [(ngModel)]="kind"><option value="">{{ t('all') }}</option>@for (item of features()!.kinds; track item) {<option [value]="item">{{ label('kind', item) }}</option>}</select></label>
-        <label>{{ t('status') }}<select name="status" [(ngModel)]="status"><option value="">{{ t('all') }}</option>@for (item of features()!.statuses; track item) {<option [value]="item">{{ label('status', item) }}</option>}</select></label>
+        <label>{{ t('status') }}<select name="status" [(ngModel)]="status"><option value="">{{ t('all') }}</option><option [value]="activeStatusFilter">{{ t('status_active') }}</option>@for (item of features()!.statuses; track item) {<option [value]="item">{{ label('status', item) }}</option>}@if (status && status !== activeStatusFilter && !features()!.statuses.includes(status)) {<option [value]="status">{{ statusFilterLabel(status) }}</option>}</select></label>
         <label>{{ t('period') }}<select name="since" [(ngModel)]="since"><option value="24h">{{ t('period_day') }}</option><option value="7d">{{ t('period_week') }}</option><option value="30d">{{ t('period_month') }}</option></select></label>
         <button type="submit" [disabled]="loading()">{{ t('filter') }}</button>
       </form>

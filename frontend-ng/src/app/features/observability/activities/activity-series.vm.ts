@@ -1,4 +1,5 @@
 import type { ChartData } from 'chart.js';
+import { ACTIVE_ACTIVITY_STATUSES } from './activity.models';
 
 export interface SeriesSummary {
   total: number;
@@ -72,7 +73,7 @@ export function runTiles(series: ActivitySeries): { total: number; succeeded: nu
   return {
     total: series.totals.total,
     succeeded: status['succeeded'] ?? 0,
-    running: (status['pending'] ?? 0) + (status['running'] ?? 0) + (status['waiting'] ?? 0),
+    running: ACTIVE_ACTIVITY_STATUSES.reduce((total, state) => total + (status[state] ?? 0), 0),
     failed: status['failed'] ?? 0,
     p95_ms: durations?.p95_ms ?? null,
     measured: durations?.measured_count ?? 0,

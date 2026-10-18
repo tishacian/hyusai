@@ -10,7 +10,7 @@ import { AuthStore } from '@app/store/auth.store';
 import { observabilityAnchor, periodCutoffMs } from '../observability-facets';
 import { ActivitySeriesComponent } from './activity-series.component';
 import { ActivityApiError, ActivityApiService } from './activity-api.service';
-import { activityLink, commandIsPending, mergeActivityEvents, type ActivityCommand, type ActivityDetail, type ActivityEvent, type ActivityFeatures, type ActivityPage, type ActivityScope, type PlatformOverview } from './activity.models';
+import { ACTIVE_ACTIVITY_STATUS_FILTER, activityLink, commandIsPending, mergeActivityEvents, type ActivityCommand, type ActivityDetail, type ActivityEvent, type ActivityFeatures, type ActivityPage, type ActivityScope, type PlatformOverview } from './activity.models';
 import type { SseFrame, StreamState } from './activity-stream';
 
 @Component({
@@ -52,7 +52,11 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
   readonly stale = computed(() => this.streamState() !== 'live');
   readonly canCancel = computed(() => !!this.detail()?.capabilities.cancel && !this.stale() && !this.submitting() && !this.commandUncertain() && !(this.command() && commandIsPending(this.command()!)));
   readonly statusCounts = computed(() => Object.entries(this.page()?.aggregates.by_status ?? {}));
+  readonly activeStatusFilter = ACTIVE_ACTIVITY_STATUS_FILTER;
   systemId = ''; kind = ''; status = ''; since = '7d'; asOf = new Date().toISOString();
+  // Form edits are drafts until submitted. Lists and charts follow the URL together,
+  // including during background refreshes, pagination and page reloads.
+  readonly appliedFilters = signal({ systemId: '', kind: '', status: '', since: '7d', asOf: this.asOf });
   private routeSubscription?: Subscription;
   private unregister?: () => void;
   private unregisterAuth?: () => void;
@@ -78,6 +82,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
       this.kind = params.get('kind') || ''; this.status = params.get('status') || '';
       this.since = ['24h', '7d', '30d'].includes(params.get('since') || '') ? params.get('since')! : '7d';
       this.asOf = observabilityAnchor(params.get('as_of'), this.asOf);
+      this.appliedFilters.set({ systemId: this.systemId, kind: this.kind, status: this.status, since: this.since, asOf: this.asOf });
       this.offset.set(Math.max(0, Number(params.get('offset')) || 0));
       this.selectedId.set(params.get('activityId') || '');
       if (this.features()?.enabled) void this.reload(true);
@@ -105,7 +110,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
     const principal = this.auth.captureRequestScope();
     try {
       const systems = await firstValueFrom(this.canonical.listSystems({ workspaceSlug: scope.workspaceSlug, propagateErrors: true }));
-      if (!this.destroyed && this.workspace.isRequestScopeCurrent(scope) && this.auth.isRequestScopeCurrent(principal)) this.systems.set(systems.map(system => ({ id: system.id, name: system.name })));
+      if (!this.destroyed && this.features()?.enabled && this.workspace.isRequestScopeCurrent(scope) && this.auth.isRequestScopeCurrent(principal)) this.systems.set(systems.map(system => ({ id: system.id, name: system.name })));
     } catch { /* An existing System deep link remains usable if discovery is unavailable. */ }
   }
 
@@ -126,9 +131,10 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
 
   async reload(reconnect = false): Promise<void> {
     if (!this.features()?.enabled || this.destroyed) return;
+    const filters = this.appliedFilters();
     clearTimeout(this.platformTimer); this.platformTimer = undefined;
     if (!this.features()!.scopes.includes(this.scope())) { this.error.set('forbidden'); this.page.set(null); this.platform.set(null); return; }
-    if (this.scope() === 'system' && !this.systemId) { this.page.set(null); this.error.set('select_system'); return; }
+    if (this.scope() === 'system' && !filters.systemId) { this.page.set(null); this.error.set('select_system'); return; }
     const generation = ++this.generation;
     this.request?.abort(); this.request = new AbortController();
     if (reconnect) { this.stream?.abort(); this.stream = undefined; this.detail.set(null); this.events.set([]); }
@@ -143,12 +149,12 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
         }
       } else {
         this.platform.set(null);
-        const days = this.since === '24h' ? 1 : this.since === '30d' ? 30 : 7;
-        const data = await this.api.list({ system_id: this.systemId || undefined, kind: this.kind || undefined, status: this.status || undefined,
-          since: new Date(periodCutoffMs(this.since, Date.parse(this.asOf))).toISOString(), until: this.asOf, limit: 25, offset: this.offset() }, this.request.signal);
+        const data = await this.api.list({ system_id: filters.systemId || undefined, kind: filters.kind || undefined, status: filters.status || undefined,
+          since: new Date(periodCutoffMs(filters.since, Date.parse(filters.asOf))).toISOString(), until: filters.asOf, limit: 25, offset: this.offset() }, this.request.signal);
         if (generation !== this.generation) return;
         this.page.set(data); this.lastSeen.set(new Date().toISOString());
         if (!this.stream) this.connect(data.snapshot_cursor);
+        if (generation !== this.generation) return;
         if (this.selectedId()) await this.loadDetail(this.selectedId());
       }
     } catch (error) { if (!this.aborted(error) && generation === this.generation) this.handleError(error); }
@@ -253,9 +259,15 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
     else this.error.set('load_error');
   }
   private revoke(): void {
+    this.generation++;
+    clearTimeout(this.refreshTimer); this.refreshTimer = undefined;
     clearTimeout(this.platformTimer); this.platformTimer = undefined;
-    this.stream?.abort(); this.stream = undefined; this.request?.abort(); this.selectedRequest?.abort();
+    this.stream?.abort(); this.stream = undefined; this.request?.abort(); this.selectedRequest?.abort(); this.discovery?.abort();
+    // The outer template guard must also destroy series and their cached data.
+    // A native permission revocation need not change the auth/workspace context.
+    this.features.set(null); this.systems.set([]); this.selectedId.set('');
     this.page.set(null); this.detail.set(null); this.platform.set(null); this.events.set([]); this.command.set(null);
+    this.loading.set(false); this.detailLoading.set(false); this.eventsLoading.set(false);
     this.commandKey = null; this.commandUncertain.set(false);
     this.error.set('forbidden'); this.streamState.set('revoked'); this.confirmCancel.set(false);
   }
@@ -281,6 +293,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
     const label = this.i18n.t(key);
     return label === key ? value : label;
   }
+  statusFilterLabel(value: string): string { return value.split(',').map(status => this.label('status', status.trim())).join(' / '); }
   t(key: string, params?: Record<string, string | number>): string { return this.i18n.t(`observability.activities.${key}`, params); }
   date(value: string | null): string { return value ? new Date(value).toLocaleString(this.i18n.locale()) : '—'; }
   number(value: unknown, suffix = ''): string { return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 }) + suffix : this.t('unknown'); }

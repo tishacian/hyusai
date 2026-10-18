@@ -50,7 +50,7 @@ def features(
 def activities(
     system_id: str | None = None,
     kind: str | None = None,
-    status: str | None = None,
+    status: str | None = Query(None, description="One status or a comma-separated union of statuses."),
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = Query(50, ge=1, le=100),
@@ -88,7 +88,7 @@ def activity_series(
     until: datetime = Query(),
     metric: str = "activity",
     kind: str | None = None,
-    status: str | None = None,
+    status: str | None = Query(None, description="One status or a comma-separated union of statuses."),
     system_id: str | None = None,
     bucket: str = "hour",
     time_basis: str = "created",
