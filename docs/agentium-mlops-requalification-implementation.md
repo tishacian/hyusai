@@ -251,8 +251,11 @@ router complet :
 - **PostgreSQL 16.2 réel** (pgserver jetable, port 55433, arrêté ensuite) :
   10 tests ciblés de la chaîne de migrations (138 admis, comparaison ORM/DDL de
   la nouvelle table, index unique partiel et contrainte de verdict, downgrade
-  refusé avec lignes puis accepté une fois vide, ré-upgrade). Chaîne complète :
-  RESULTAT_PG_COMPLET.
+  refusé avec lignes puis accepté une fois vide, ré-upgrade). Chaîne ciblée
+  complète : **73 tests réussis** (23 min 42 s), comparaison ORM/DDL des seize
+  tables du plan, downgrade jusqu'au parent puis ré-upgrade. Ce n'est pas un
+  rejeu de tout l'historique Alembic depuis une base vide ; les révisions hors
+  périmètre sont estampillées, comme pour M1 à M3.
 - **Régression ML élargie** en `-n 4`, deux lots. Premier lot (27 fichiers
   : prédiction, shadow réel, export, contrat d'artefact, gouvernance,
   entraînement, réentraînement, justesse M2, opérations M3, API ML, catalogue
