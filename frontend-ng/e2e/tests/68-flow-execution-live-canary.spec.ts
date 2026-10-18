@@ -1,6 +1,7 @@
 import {expect, test, type Page} from '@playwright/test';
 import {writeFile} from 'node:fs/promises';
 import {expectOk} from '../fixtures/api';
+import {resolveNativeInvocation, visibleNativeInvocation, type NativeInvocationEvidence} from '../fixtures/native-invocation';
 import type {RunExecutionView} from '../../src/app/features/runs/run-execution.models';
 
 // Real service, selected existing Runs only. This recipe does not create a Run,
@@ -177,13 +178,15 @@ test('existing Flow Runs: native historical graph, jobs, keyboard, reload and re
         subruns: initial.items.filter(item => item.source === 'run').length};
       runs.push(record);
       const invocation = initial.items.find(item => item.source === 'skill_invocation');
+      let nativeInvocation: NativeInvocationEvidence | null = null;
       if (invocation) {
         const expectedPath = `/runs/${encodeURIComponent(id)}/invocations/${encodeURIComponent(invocation.native_id)}`;
         expect(invocation.links.some(link => link.rel === 'invocation' && link.href === expectedPath), 'Invocation link keeps the native Run and invocation identities').toBe(true);
-        const resolved = await expectOk<{id: string; run_id: string}>(page, `/api/v1${expectedPath}`);
-        expect(resolved.id).toBe(invocation.native_id);
-        expect(resolved.run_id).toBe(id);
+        nativeInvocation = await resolveNativeInvocation(page, {
+          runId: id, invocationId: invocation.native_id, workspaceSlug,
+        });
         record.resolved_invocation = invocation.native_id;
+        record.invocation_resolution = nativeInvocation;
       }
       const projected = initial.items.find(item => item.activity_id);
       if (projected) {
@@ -200,6 +203,22 @@ test('existing Flow Runs: native historical graph, jobs, keyboard, reload and re
         await page.setViewportSize({width, height: 1000});
         await page.goto(`/runs/${encodeURIComponent(id)}?view=flow`);
         await visibleJobs(page, initial);
+        if (nativeInvocation) {
+          const expectedPath = `/runs/${encodeURIComponent(id)}/invocations/${encodeURIComponent(nativeInvocation.invocation_id)}`;
+          const card = page.getByTestId(`execution-job-${nativeInvocation.invocation_id}`);
+          const link = card.locator(`a[href="${expectedPath}"], a[href^="${expectedPath}?"]`).first();
+          await expect(link).toBeVisible();
+          await link.focus();
+          await link.press('Enter');
+          await visibleNativeInvocation(page, nativeInvocation);
+          await page.reload();
+          await visibleNativeInvocation(page, nativeInvocation);
+          await page.goBack();
+          await expect.poll(() => new URL(page.url()).pathname).toBe(`/runs/${encodeURIComponent(id)}`);
+          await expect.poll(() => new URL(page.url()).searchParams.get('view')).toBe('flow');
+          await visibleJobs(page, initial);
+          completed.push(`${id}-${width}-native-invocation-keyboard-reload-back`);
+        }
         const view = page.getByTestId('run-execution-view');
         await expect(view.locator('.execution-node')).toHaveCount(initial.graph.nodes.length);
         expect(await view.locator('.execution-node strong').allTextContents()).toEqual(initial.graph.nodes.map(node => node.label));

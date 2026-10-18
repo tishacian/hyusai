@@ -1,5 +1,10 @@
 # Observabilité : recette après déploiement de la PR #16
 
+> Suivi après fusion de la PR #17 : ouverture, recette séries réussie sur deux
+> profils, puis repli après un 404 du canari Flow. Voir le
+> [diagnostic et la correction du canari](observability-flow-invocation-acceptance-2026-10-18.md).
+> Le présent document conserve la procédure VM de réouverture et de repli.
+
 ## État vérifié, options fermées
 
 Le 18 octobre 2026 à 12:52 UTC, les deux `build-info` répondent avec
