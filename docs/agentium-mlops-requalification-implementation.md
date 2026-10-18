@@ -248,7 +248,7 @@ router complet :
     type de confiance. La requalification n'élargit pas la confiance ; ce
     modèle doit être réentraîné. C'est une limite réelle d'une montée mineure
     de scikit-learn pour les boosted trees, pas un défaut du lot.
-- **PostgreSQL 16.2 réel** (pgserver jetable, port 55433, arrêté ensuite) :
+- **PostgreSQL 16.2 réel** (pgserver jetable, arrêté ensuite) :
   10 tests ciblés de la chaîne de migrations (138 admis, comparaison ORM/DDL de
   la nouvelle table, index unique partiel et contrainte de verdict, downgrade
   refusé avec lignes puis accepté une fois vide, ré-upgrade). Chaîne ciblée
