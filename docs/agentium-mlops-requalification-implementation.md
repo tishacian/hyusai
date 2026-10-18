@@ -253,10 +253,24 @@ router complet :
   la nouvelle table, index unique partiel et contrainte de verdict, downgrade
   refusé avec lignes puis accepté une fois vide, ré-upgrade). Chaîne complète :
   RESULTAT_PG_COMPLET.
-- **Régression ML élargie** : RESULTAT_REGRESSION.
-- **Frontend** (Node 22) : 12 tests du VM et du composant, RESULTAT_FRONT.
-  TypeScript, `check:i18n` et `check:nav-links` passent ; build de production
-  RESULTAT_BUILD. `check:ui-chrome` reste rouge sur l'état préexistant de
+- **Régression ML élargie** en `-n 4`, deux lots. Premier lot (27 fichiers
+  : prédiction, shadow réel, export, contrat d'artefact, gouvernance,
+  entraînement, réentraînement, justesse M2, opérations M3, API ML, catalogue
+  de surface) : **774 réussis, 1 échec** — la liste des tâches de l'image de
+  famille, qui contient désormais `agentium.ml_runtime_requalification`. C'est
+  un changement de contrat voulu (la tâche suit la file d'entraînement de la
+  famille, qu'un consommateur `celery_ml` dédié peut détenir) ; le test est
+  mis à jour et repasse. Second lot (20 fichiers : familles, distillation,
+  registre, pilote TabICL, scoring publié, évaluation, alertes, portail) :
+  **273 réussis, 3 ignorés, 1 échec** —
+  `test_published_scoring_flow_delivers_verified_work_receipt_and_portable_bytes`,
+  qui échoue à l'identique sur `d814837b` : le sous-processus SQL de la
+  préparation de données n'a pas `deltalake` dans ce venv local. Ni ce test ni
+  ce code ne sont modifiés par le lot.
+- **Frontend** (Node 22) : 12 tests du VM et du composant ; suite complète
+  **2 353 tests réussis**. TypeScript, `check:i18n` et `check:nav-links`
+  passent ; l'unique `build:prod` réussit, avec les avertissements préexistants
+  (budgets, NG8102/NG8107/NG8113), aucun ne provenant des fichiers du lot. `check:ui-chrome` reste rouge sur l'état préexistant de
   `src/styles.scss` (7 halos, plafond 6), inchangé ; le plafond n'est pas
   relevé.
 
