@@ -23,7 +23,7 @@ Les détails, écarts et preuves propres aux lots sont dans
 `agentium-mlops-explainability-implementation.md`. M4.2 et M5 partent de
 `demo/agentic` à `d814837b`, où M1 à M4.1 sont déjà assemblés ; M4.3 est
 empilé sur M4.2. Les trois lots sont assemblés sur
-`feat/mlops-m4-m5-integration`, depuis `demo/agentic` à `14850169`.
+`feat/mlops-m4-m5-integration`, à jour de `demo/agentic` à `14850169`.
 
 Entre-temps, `demo/agentic` a pris la révision 138 (`138_activity_measures`,
 observabilité). Les migrations des lots ont donc été renumérotées à
