@@ -12,7 +12,7 @@ from math import ceil
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_
 
-from app.models.activity import Activity
+from app.models.activity import Activity, parse_instant
 from app.models.compute_run import ComputeRun
 from app.models.run import SkillInvocation
 from app.services.observation_window import observation_anchor
@@ -21,15 +21,8 @@ from . import queries
 from .execution_metadata import invocation_cost
 from .projection import KINDS, STATUSES, TERMINAL, iso, number
 
-
-def _date(value):
-    if not isinstance(value, str):
-        return None
-    try:
-        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return result.astimezone(UTC).replace(tzinfo=None) if result.tzinfo else result
-    except ValueError:
-        return None
+# The native reader's date parser; the typed activities.finished_at uses it too.
+_date = parse_instant
 
 
 def _summary():

@@ -4,6 +4,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { activityQuery, type ActivityCommand, type ActivityDetail, type ActivityEventPage, type ActivityFeatures, type ActivityFilters, type ActivityPage, type PlatformOverview } from './activity.models';
 import { followActivityStream, type StreamOptions } from './activity-stream';
+import type { ActivitySeries } from './activity-series.vm';
 
 export class ActivityApiError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -34,6 +35,7 @@ export class ActivityApiService {
     return this.json(`/activity-events?${new URLSearchParams({ activity_id: id, cursor, limit: '100' })}`, { signal });
   }
   platform(signal?: AbortSignal): Promise<PlatformOverview> { return this.json('/platform-overview', { signal }); }
+  series(query: Record<string, string>, signal?: AbortSignal): Promise<ActivitySeries> { return this.json(`/activities/series?${new URLSearchParams(query)}`, { signal }); }
   command(id: string, version: number, idempotencyKey: string, signal?: AbortSignal): Promise<ActivityCommand> {
     return this.json(`/activities/${encodeURIComponent(id)}/commands`, {
       method: 'POST', signal, headers: { 'Content-Type': 'application/json' },

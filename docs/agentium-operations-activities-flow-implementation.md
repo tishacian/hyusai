@@ -132,6 +132,26 @@ fenêtres/reçus protégés. Le [bilan complet](evidence/operations-activities-f
 conserve les mesures intermédiaires, les limites et les résultats des tests.
 Il ne ferme ni la performance de R2 ni la recette de release R5.
 
+**Suite du 17 octobre : chemin SQL allégé.** Les causes ont été identifiées :
+- une garde de cohérence qui parcourait tout l'historique du workspace ;
+- des dates et des durées relues dans le JSON du snapshot ;
+- une preuve de coût analysée deux fois par ligne ;
+- des débordements sur disque avec un `work_mem` de 4 Mo.
+
+La migration 138, la garde limitée à la population et la mémoire de lecture
+réglable (`ACTIVITY_SERIES_WORK_MEM_MB`) corrigent ces points. Les résultats
+restent identiques au lecteur natif, qui reste l'oracle des tests.
+
+En mesures entrelacées sur un même poste, le p95 baisse d'un facteur 3 à 6 :
+- à 10 lecteurs, de 10,6 s à 1,9 s pour l'activité, et de 11,4 s à 3,6 s pour
+  le coût ;
+- à 20 lecteurs, de 13,7 s à 2,9 s pour l'activité, et de 32,6 s à 6,1 s pour
+  le coût.
+
+Le poste était chargé par d'autres applications ; les valeurs absolues ne sont
+pas une qualification. Voir le [dossier du 17 octobre](evidence/activity-series-typed-2026-10-17/report.md).
+Le seuil de 2 s reste à vérifier sur la VM, dans la recette ci-dessous.
+
 ## Recette de release à déléguer
 
 Les deux nouvelles options valent `false` par défaut :
@@ -139,6 +159,7 @@ Les deux nouvelles options valent `false` par défaut :
 ```dotenv
 EXECUTION_VIEW_ENABLED=false
 ACTIVITY_SERIES_ENABLED=false
+ACTIVITY_SERIES_WORK_MEM_MB=16
 ```
 
 Elles ferment uniquement les nouvelles lectures. Ne pas fermer le journal,

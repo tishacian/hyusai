@@ -49,12 +49,15 @@ CHAIN = (
     "135_mlops_governance",
     "136_mlops_correctness",
     "137_mlops_operations",
+    "138_activity_measures",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
 # stamped rather than run. test_only_the_chain_touches_the_plane_tables proves
 # stamping them skips nothing of the slice.
-STAMP_ONLY = frozenset({"121_provider_run_costs", "133_activity_observability"})
+STAMP_ONLY = frozenset(
+    {"121_provider_run_costs", "133_activity_observability", "138_activity_measures"}
+)
 HEAD = CHAIN[-1]
 PARENT = "095_python_recipes"
 SCRATCH_DB = "agentium_p4_migration_data_plane"

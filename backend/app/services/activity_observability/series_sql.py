@@ -5,12 +5,12 @@ permission cache crosses a transaction. Compat has no shadow observations to
 emit: the candidate IAM decision is explicitly non-authoritative in that mode.
 """
 
-import json
 from datetime import timedelta
 
 from sqlalchemy import text
 
 from app.api.v1.endpoints.workspace_jobs import _can_access_job
+from app.core.config import settings
 from app.models.workspace_job import WorkspaceJob
 from app.services.chat_execution_policy import migration_059_system_id
 from app.services.iam.decision_plane import AuthorizationMode, resolve_mode
@@ -21,8 +21,87 @@ from .projection import TERMINAL, iso
 
 # Exactly the characters removed by Python str.strip(), including NBSP. A
 # plain SQL trim would broaden ownership for a tab-padded workbench surface.
-_CANONICAL_TIMESTAMP = r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,6})?Z$"
 _PYTHON_WHITESPACE = "".join(chr(value) for value in range(0x3100) if chr(value).isspace())
+
+
+# Rows a request can count before authorization. activities.finished_at and
+# duration_ms are typed copies of the snapshot made with the native parsers
+# (migration 138), so a finish is a plain range and never JSON text. A terminal
+# row without a finish counts only as missing, and only when created in the
+# window. The invocation guard and the aggregate share this predicate.
+_SELECTION = """
+  CASE WHEN :time_basis = 'created' THEN a.created_at >= :start AND a.created_at < :until
+    ELSE a.status = ANY(:terminal) AND (
+      (a.finished_at >= :start AND a.finished_at < :until)
+      OR (a.finished_at IS NULL AND a.created_at >= :start AND a.created_at < :until)) END"""
+
+
+def _joins(kind, invocations):
+    """Native rows joined for authorization (and costs), only for kinds the
+    request can select. A join a kind filter excludes would only add an empty
+    probe per row; its predicate is true for every row of the other kinds."""
+    joins, predicates = [], []
+    if invocations:
+        joins.append(
+            "LEFT JOIN skill_invocations i ON a.kind = 'skill_invocation' AND i.id = a.native_id"
+            # Parse the native metrics text once per row: each json operator
+            # re-reads the whole document. OFFSET 0 keeps the planner from
+            # duplicating the extraction into both output columns.
+            " LEFT JOIN LATERAL (SELECT parsed.e ->> 'state' AS evidence_state,"
+            " parsed.e ->> 'currency' AS evidence_currency"
+            " FROM (SELECT i.metrics -> 'cost_evidence' AS e WHERE :metric = 'cost' OFFSET 0)"
+            " parsed) evidence ON TRUE"
+        )
+        predicates.append(
+            "(a.kind <> 'skill_invocation' OR (i.id IS NOT NULL AND i.run_id = a.run_id))"
+        )
+    if kind in (None, "compute_run"):
+        joins.append(
+            "LEFT JOIN compute_runs c ON a.kind = 'compute_run' AND c.id = a.native_id"
+            " AND c.workspace_id = a.workspace_id"
+        )
+        predicates.append(
+            "(a.kind <> 'compute_run' OR (c.id IS NOT NULL AND (:admin OR c.user_id = :user_id)))"
+        )
+    if kind in (None, "workspace_job"):
+        joins.append(
+            "LEFT JOIN workspace_jobs j ON a.kind = 'workspace_job' AND j.id = a.native_id"
+            " AND j.workspace_id = a.workspace_id"
+            " LEFT JOIN sessions session ON session.id = j.session_id"
+            " AND session.workspace_id = a.workspace_id"
+        )
+        predicates.append(
+            "(a.kind <> 'workspace_job' OR (j.id IS NOT NULL AND CASE WHEN j.kind = 'brd_generation'"
+            " THEN j.id = ANY(:allowed_brd)"
+            " ELSE :admin OR j.created_by_user_id = :user_id"
+            " OR (session.user_id = :user_id AND session.status <> 'deleted') END))"
+        )
+    columns = [
+        "c.cost_usd AS compute_cost"
+        if kind in (None, "compute_run")
+        else "NULL::double precision AS compute_cost",
+    ]
+    if invocations:
+        columns += [
+            "i.cost AS invocation_cost",
+            "i.provider_cost_usd AS provider_cost",
+            "i.cost_measured",
+            "evidence.evidence_state",
+            "evidence.evidence_currency",
+        ]
+    else:
+        columns += [
+            "NULL::double precision AS invocation_cost",
+            "NULL::double precision AS provider_cost",
+            "NULL::boolean AS cost_measured",
+            "NULL::text AS evidence_state",
+            "NULL::text AS evidence_currency",
+        ]
+    return (
+        ",\n        ".join(columns),
+        "\n      ".join(joins),
+        "".join("\n        AND " + predicate for predicate in predicates),
+    )
 
 
 def _empty():
@@ -117,19 +196,6 @@ def aggregate_compat(
     if len(brd_jobs) > 256:
         return None
     allowed_brd = [row.id for row in brd_jobs if _can_access_job(db, row, user, workspace)]
-    # A malformed legacy projection must retain the native fallback semantics.
-    # Canonical invocation projections have exactly their native parent Run.
-    mismatch = db.execute(
-        text("""
-        SELECT 1 FROM activities a JOIN skill_invocations i ON i.id = a.native_id
-        WHERE a.workspace_id = :workspace AND a.kind = 'skill_invocation'
-          AND a.run_id IS DISTINCT FROM i.run_id LIMIT 1
-    """),
-        {"workspace": workspace.id},
-    ).first()
-    if mismatch:
-        return None
-
     params = dict(
         workspace=workspace.id,
         user_id=user.id,
@@ -149,13 +215,38 @@ def aggregate_compat(
         workbench=list(WORKBENCH_EXECUTION_SURFACES),
         terminal=list(TERMINAL),
         allowed_brd=allowed_brd,
-        start_prefix=(start - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
-        until_prefix=(until + timedelta(days=1, seconds=1)).strftime("%Y-%m-%dT%H:%M:%S"),
     )
-    # PostgreSQL accepts values Python rejects (24:00, leap seconds) and rounds
-    # >6 fractional digits. Normalize a bounded distinct historical population
-    # with the very same parser as the native reader; never approximate it.
-    exceptions = {}
+    # A malformed legacy projection must retain the native fallback semantics.
+    # Canonical invocation projections have exactly their native parent Run.
+    # Only rows this request can select matter: one outside its window or
+    # filters reaches neither reader. A full count keeps a hash join; the former
+    # workspace-wide EXISTS/LIMIT 1 probed every invocation when none differed.
+    orphaned = 0
+    if kind is None or kind == "skill_invocation":
+        mismatched, orphaned = db.execute(
+            text(
+                """
+            SELECT count(*) FILTER (WHERE i.id IS NOT NULL AND a.run_id IS DISTINCT FROM i.run_id),
+              count(*) FILTER (WHERE i.id IS NULL)
+            FROM activities a LEFT JOIN skill_invocations i ON i.id = a.native_id
+            WHERE a.workspace_id = :workspace AND a.kind = 'skill_invocation'
+              AND (:status IS NULL OR a.status = :status)
+              AND (:system_id IS NULL OR a.system_id = :system_id)
+              AND """
+                + _SELECTION
+            ),
+            params,
+        ).one()
+        if mismatched:
+            return None
+    # When every selectable invocation has its native row with the same Run,
+    # the per-row invocation predicate below is true for all of them; activity
+    # counts then need no join on the (largest) invocation table. Costs read
+    # the native invocation fields and always keep it.
+    invocations = kind in (None, "skill_invocation") and (metric == "cost" or orphaned > 0)
+    # A finish the native parser cannot represent (date overflow) is stored as
+    # NULL; the native reader raises on it. Check the rare unparsed strings that
+    # the native reader would select and let it keep its own error semantics.
     if time_basis == "finished":
         from .series import _date
 
@@ -168,15 +259,21 @@ def aggregate_compat(
               AND (:status IS NULL OR a.status = :status)
               AND (:system_id IS NULL OR a.system_id = :system_id)
               AND a.status = ANY(:terminal)
+              AND a.finished_at IS NULL
+              AND json_typeof(a.snapshot -> 'finished_at') = 'string'
               AND ((substr(a.snapshot ->> 'finished_at', 1, 19) >= :start_prefix
                 AND substr(a.snapshot ->> 'finished_at', 1, 19) < :until_prefix)
                 OR (a.created_at >= :start AND a.created_at < :until)
                 OR a.snapshot ->> 'finished_at' NOT LIKE '____-__-__T__:__:__%')
-              AND json_typeof(a.snapshot -> 'finished_at') = 'string'
-              AND NOT (a.snapshot ->> 'finished_at' ~ :canonical_timestamp)
             LIMIT 129
         """),
-                {**params, "canonical_timestamp": _CANONICAL_TIMESTAMP},
+                {
+                    **params,
+                    "start_prefix": (start - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    "until_prefix": (until + timedelta(days=1, seconds=1)).strftime(
+                        "%Y-%m-%dT%H:%M:%S"
+                    ),
+                },
             )
             .scalars()
             .all()
@@ -185,108 +282,98 @@ def aggregate_compat(
             return None
         for raw in raw_dates:
             try:
-                parsed = _date(raw)
+                _date(raw)
             except (OverflowError, TypeError):
                 return None  # Native error semantics remain authoritative.
-            exceptions[raw] = parsed.isoformat() if parsed is not None else None
-    params.update(canonical_timestamp=_CANONICAL_TIMESTAMP, exceptions=json.dumps(exceptions))
     # Canonical dates are UTC. A historical naive string has that same meaning;
     # explicit offsets are normalized before bucketing, as in the native path.
     db.execute(text("SET LOCAL TIME ZONE 'UTC'"))
-    statement = text("""
-    WITH authorized AS MATERIALIZED (
+    # A bounded integer setting, formatted as a literal: SET takes no parameters.
+    work_mem = int(getattr(settings, "activity_series_work_mem_mb", 16))
+    db.execute(text(f"SET LOCAL work_mem = '{work_mem}MB'"))
+    columns, joins, predicates = _joins(kind, invocations)
+    # `authorized` is read once and inlined; `measured` is materialized so each
+    # value (and the currency regex) is computed once per row, not per reference.
+    # A terminal row without a finish is carried with missing=TRUE and counted
+    # only in the coverage section.
+    statement = text(
+        """
+    WITH authorized AS (
       SELECT a.kind, a.status, a.origin, a.created_at,
-        CASE WHEN :time_basis = 'created' THEN a.created_at
-          WHEN json_typeof(a.snapshot -> 'finished_at') IS DISTINCT FROM 'string' THEN NULL
-          WHEN a.snapshot ->> 'finished_at' ~ :canonical_timestamp
-            AND pg_input_is_valid(a.snapshot ->> 'finished_at', 'timestamp with time zone')
-          THEN (a.snapshot ->> 'finished_at')::timestamptz AT TIME ZONE 'UTC'
-          ELSE (CAST(:exceptions AS jsonb) ->> (a.snapshot ->> 'finished_at'))::timestamp
-        END AS occurred,
-        CASE WHEN json_typeof(a.snapshot -> 'measurements' -> 'duration_ms') = 'number'
-          AND pg_input_is_valid(a.snapshot -> 'measurements' ->> 'duration_ms', 'double precision')
-          THEN (a.snapshot -> 'measurements' ->> 'duration_ms')::double precision
-        END AS raw_duration,
-        CASE WHEN :metric = 'cost' THEN c.cost_usd END AS compute_cost,
-        CASE WHEN :metric = 'cost' THEN i.cost END AS invocation_cost,
-        CASE WHEN :metric = 'cost' THEN i.provider_cost_usd END AS provider_cost,
-        CASE WHEN :metric = 'cost' THEN i.cost_measured END AS cost_measured,
-        CASE WHEN :metric = 'cost' THEN i.metrics -> 'cost_evidence' ->> 'state' END AS evidence_state,
-        CASE WHEN :metric = 'cost' THEN i.metrics -> 'cost_evidence' ->> 'currency' END AS evidence_currency
+        CASE WHEN :time_basis = 'created' THEN a.created_at ELSE a.finished_at END AS occurred,
+        a.duration_ms AS raw_duration,
+        """
+        + columns
+        + """
       FROM activities a
       LEFT JOIN runs r ON r.id = a.run_id AND r.workspace_id = a.workspace_id
       LEFT JOIN systems s ON s.id = a.system_id AND s.workspace_id = a.workspace_id
-      LEFT JOIN skill_invocations i ON (:kind IS NULL OR :kind = 'skill_invocation') AND a.kind = 'skill_invocation' AND i.id = a.native_id
-      LEFT JOIN compute_runs c ON (:kind IS NULL OR :kind = 'compute_run') AND a.kind = 'compute_run' AND c.id = a.native_id AND c.workspace_id = a.workspace_id
-      LEFT JOIN workspace_jobs j ON (:kind IS NULL OR :kind = 'workspace_job') AND a.kind = 'workspace_job' AND j.id = a.native_id AND j.workspace_id = a.workspace_id
-      LEFT JOIN sessions session ON (:kind IS NULL OR :kind = 'workspace_job') AND session.id = j.session_id AND session.workspace_id = a.workspace_id
+      """
+        + joins
+        + """
       WHERE a.workspace_id = :workspace
         AND (:kind IS NULL OR a.kind = :kind)
         AND (:status IS NULL OR a.status = :status)
         AND (:system_id IS NULL OR a.system_id = :system_id)
-        AND CASE WHEN :time_basis = 'created' THEN a.created_at >= :start AND a.created_at < :until
-          ELSE a.status = ANY(:terminal) AND (
-            (substr(a.snapshot ->> 'finished_at', 1, 19) >= :start_prefix
-             AND substr(a.snapshot ->> 'finished_at', 1, 19) < :until_prefix)
-            OR (a.created_at >= :start AND a.created_at < :until)
-            OR a.snapshot ->> 'finished_at' NOT LIKE '____-__-__T__:__:__%') END
+        AND """
+        + _SELECTION
+        + """
         AND CASE WHEN nullif(a.run_id, '') IS NOT NULL THEN r.id IS NOT NULL AND (
           :admin OR r.initiated_by_user_id = :user_id OR (
             NOT (lower(btrim(coalesce(r.execution_surface, ''), :whitespace)) = ANY(:workbench)
               OR lower(btrim(coalesce(r.trigger, ''), :whitespace)) = ANY(:workbench))
             AND (r.trigger IS DISTINCT FROM 'chat_agentic' OR :see_private)))
           WHEN nullif(a.system_id, '') IS NOT NULL THEN s.id IS NOT NULL
-          ELSE :admin OR a.owner_id = :user_id END
-        AND (a.kind <> 'skill_invocation' OR (i.id IS NOT NULL AND i.run_id = a.run_id))
-        AND (a.kind <> 'compute_run' OR (c.id IS NOT NULL AND (:admin OR c.user_id = :user_id)))
-        AND (a.kind <> 'workspace_job' OR (j.id IS NOT NULL AND CASE WHEN j.kind = 'brd_generation'
-          THEN j.id = ANY(:allowed_brd)
-          ELSE :admin OR j.created_by_user_id = :user_id
-            OR (session.user_id = :user_id AND session.status <> 'deleted') END))
-    ), normalized AS (
-      SELECT *,
-        CASE WHEN kind = 'compute_run' THEN compute_cost
+          ELSE :admin OR a.owner_id = :user_id END"""
+        + predicates
+        + """
+    ), measured AS MATERIALIZED (
+      SELECT occurred IS NULL AS missing,
+        date_trunc(:bucket, occurred) AS bucket, kind, status, origin,
+        CASE WHEN raw_duration >= 0 AND raw_duration < 'Infinity'::double precision THEN raw_duration END AS duration,
+        CASE WHEN :metric <> 'cost' THEN NULL
+          WHEN kind = 'compute_run' THEN
+            CASE WHEN compute_cost >= 0 AND compute_cost < 'Infinity'::double precision THEN compute_cost END
           WHEN cost_measured IS TRUE AND evidence_state IN ('measured', 'calculated')
             AND length(evidence_currency) = 3 AND evidence_currency ~ '^[A-Za-z]{3}$'
           THEN CASE WHEN evidence_state = 'measured' AND upper(evidence_currency) = 'USD'
-            THEN provider_cost ELSE invocation_cost END END AS raw_amount,
+            THEN CASE WHEN provider_cost >= 0 AND provider_cost < 'Infinity'::double precision THEN provider_cost END
+            ELSE CASE WHEN invocation_cost >= 0 AND invocation_cost < 'Infinity'::double precision THEN invocation_cost END
+          END END AS amount,
         CASE WHEN kind = 'compute_run' THEN 'USD' ELSE upper(evidence_currency) END AS currency,
         CASE WHEN kind = 'compute_run' THEN 'infrastructure_allocation'
           WHEN evidence_state = 'measured' THEN 'provider_measured'
           WHEN evidence_state = 'calculated' THEN 'catalogue_calculated' END AS basis
-      FROM authorized WHERE occurred >= :start AND occurred < :until
-    ), measured AS MATERIALIZED (
-      SELECT date_trunc(:bucket, occurred) AS bucket, kind, status, origin,
-        CASE WHEN raw_duration >= 0 AND raw_duration < 'Infinity'::double precision THEN raw_duration END AS duration,
-        CASE WHEN raw_amount >= 0 AND raw_amount < 'Infinity'::double precision THEN raw_amount END AS amount,
-        currency, basis
-      FROM normalized
+      FROM authorized
+      WHERE (occurred >= :start AND occurred < :until)
+        OR (:time_basis = 'finished' AND occurred IS NULL
+          AND created_at >= :start AND created_at < :until)
     )
     SELECT 'counts' AS section, bucket, jsonb_build_object(
       'kind', kind, 'status', status, 'total', count(*),
       'snapshot_only', count(*) FILTER (WHERE origin = 'snapshot_only')) AS payload
-    FROM measured GROUP BY GROUPING SETS ((bucket, kind, status), (kind, status))
+    FROM measured WHERE NOT missing GROUP BY GROUPING SETS ((bucket, kind, status), (kind, status))
     UNION ALL
     SELECT 'durations', bucket, jsonb_build_object(
       'kind', kind, 'eligible_count', count(*), 'measured_count', count(duration),
       'p50_ms', percentile_disc(0.5) WITHIN GROUP (ORDER BY duration),
       'p95_ms', percentile_disc(0.95) WITHIN GROUP (ORDER BY duration))
-    FROM measured WHERE status = ANY(:terminal)
+    FROM measured WHERE NOT missing AND status = ANY(:terminal)
     GROUP BY GROUPING SETS ((bucket, kind), (kind))
     UNION ALL
     SELECT 'costs', bucket, jsonb_build_object(
       'basis', CASE WHEN amount IS NULL THEN NULL ELSE basis END,
       'currency', CASE WHEN amount IS NULL THEN NULL ELSE currency END,
       'known_amount', sum(amount), 'count', count(*))
-    FROM measured WHERE :metric = 'cost'
+    FROM measured WHERE NOT missing AND :metric = 'cost'
     GROUP BY GROUPING SETS (
       (bucket, CASE WHEN amount IS NULL THEN NULL ELSE basis END, CASE WHEN amount IS NULL THEN NULL ELSE currency END),
       (CASE WHEN amount IS NULL THEN NULL ELSE basis END, CASE WHEN amount IS NULL THEN NULL ELSE currency END))
     UNION ALL
     SELECT 'missing', NULL, jsonb_build_object('total', count(*))
-    FROM authorized WHERE :time_basis = 'finished' AND occurred IS NULL
-      AND created_at >= :start AND created_at < :until
-    """)
+    FROM measured WHERE missing
+    """
+    )
     rows = db.execute(statement, params).all()
     width = timedelta(days=1) if bucket == "day" else timedelta(hours=1)
     slot = start.replace(minute=0, second=0, microsecond=0)

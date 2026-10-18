@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-10-17 · Operations tiles read the exhaustive Run series
+
+- When activity series are open, the Operations tiles (runs, completed,
+  running, failed, p95 latency) come from the same exhaustive, permission-
+  filtered Run series as the chart below them, with the same period and anchor,
+  instead of the 200-run sample. "Running" keeps the overview's native set
+  (pending, running, human or debug wait, waiting sub-flows); the p95 is the
+  exact nearest rank over measured finished runs, and a missing duration stays
+  "—". Each tile opens Activities on the matching filter. Evaluation breaches
+  keep their own source. With series closed, the sampled tiles are unchanged.
+- The tiles never re-read the series on the overview's 5–15 s poll; they follow
+  the period, anchor and System only.
+- `check:ui-chrome` passes again. The global `.ck-input` from the connector
+  catalogue painted its focus as a box-shadow halo, the seventh in
+  `styles.scss` for a budget of six; focus now uses the global
+  `:focus-visible` outline. The auth shell budgets are ratcheted down
+  (violet 6 → 3, pill 6 → 5) as the guard asked.
+
+## 2026-10-17 · Activity series read path lighter, migration 138
+
+- The invocation consistency guard of the SQL series path scanned the whole
+  workspace history with a nested loop whenever nothing differed (0.9–1.4 s per
+  read). It now counts only the rows the request can select; a row outside the
+  window reaches neither reader.
+- Migration 138 adds typed `finished_at` and `duration_ms` copies of the
+  activity snapshot, derived with the native reader's parsers and kept in step
+  by the projection and an ORM hook, plus a `(workspace_id, finished_at)` index.
+  Existing rows are back-filled in batches of 1,000. The snapshot stays the
+  source; the native reader stays the test oracle.
+- The aggregate joins only the native tables the requested kind can involve,
+  skips the invocation join for activity counts when no invocation is orphaned,
+  reads the cost evidence once per row, materializes once, and runs with
+  `SET LOCAL work_mem` from `ACTIVITY_SERIES_WORK_MEM_MB` (16 by default, 4–256)
+  instead of spilling to temporary files.
+- Interleaved local benches (100,000 activities, PostgreSQL 16 defaults, a loaded
+  workstation) cut the p95 by 3–6×. They are not a VM qualification: the 2 s
+  target stays a release check. See the
+  [evidence](docs/evidence/activity-series-typed-2026-10-17/report.md) and the
+  [opening procedure](docs/agentium-execution-operations.md#ouverture-des-séries-et-de-la-vue-du-flow).
+- Correction: production `8679a4f2` already contains R1, so Operations shows
+  the monitor again. `4a404d61` was the revision that showed the activity view
+  in that tab.
+
 ## 2026-10-15 · Connector catalogue made visible, with brand logos
 
 - The Connectors page now shows the whole catalogue as one grid: 25 data
