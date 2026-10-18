@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   CanonicalApiService,
@@ -27,6 +27,7 @@ import { AuthStore } from '@app/store/auth.store';
 import { observabilityAnchor, observabilityPeriod, observabilitySystemId } from './observability-facets';
 import { ActivityApiService } from './activities/activity-api.service';
 import { ActivitySeriesComponent } from './activities/activity-series.component';
+import { runTiles, seriesRange, type ActivitySeries } from './activities/activity-series.vm';
 type WindowKey = '24h' | '7d' | '30d';
 
 @Component({
@@ -111,14 +112,26 @@ type WindowKey = '24h' | '7d' | '30d';
           </section>
         }
 
-        <section class="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-6" data-testid="operations-tiles">
-          <ck-stat-readout variant="tile" [label]="t('runs')" [value]="summary().runs_total" icon="activity" tone="cool" />
-          <ck-stat-readout variant="tile" [label]="t('completed')" [value]="summary().runs_completed" icon="check" tone="pos" />
-          <ck-stat-readout variant="tile" [label]="t('running')" [value]="summary().runs_running" icon="play" tone="warn" />
-          <ck-stat-readout variant="tile" [label]="t('failed')" [value]="summary().runs_failed" icon="alert-triangle" tone="neg" />
-          <ck-stat-readout variant="tile" [label]="t('latency')" [value]="duration(summary().p95_latency_ms)" icon="activity" tone="cool" />
+        <section class="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-6" data-testid="operations-tiles" [attr.data-source]="runTileValues() ? 'series' : 'sample'">
+          @if (runTileValues(); as tiles) {
+            <!-- Exhaustive Run series (R2): each tile opens the matching Activities filter. -->
+            <a class="block" data-testid="operations-tile-runs" [routerLink]="observabilityUrl" [queryParams]="tileQuery()" [attr.aria-label]="t('runs') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('runs')" [value]="tiles.total" icon="activity" tone="cool" /></a>
+            <a class="block" data-testid="operations-tile-completed" [routerLink]="observabilityUrl" [queryParams]="tileQuery('succeeded')" [attr.aria-label]="t('completed') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('completed')" [value]="tiles.succeeded" icon="check" tone="pos" /></a>
+            <a class="block" data-testid="operations-tile-running" [routerLink]="observabilityUrl" [queryParams]="tileQuery()" [attr.aria-label]="t('running') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('running')" [value]="tiles.running" icon="play" tone="warn" /></a>
+            <a class="block" data-testid="operations-tile-failed" [routerLink]="observabilityUrl" [queryParams]="tileQuery('failed')" [attr.aria-label]="t('failed') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('failed')" [value]="tiles.failed" icon="alert-triangle" tone="neg" /></a>
+            <a class="block" data-testid="operations-tile-latency" [routerLink]="observabilityUrl" [queryParams]="tileQuery()" [attr.aria-label]="t('latency') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('latency')" [value]="duration(tiles.p95_ms)" icon="activity" tone="cool" /></a>
+          } @else {
+            <ck-stat-readout variant="tile" [label]="t('runs')" [value]="summary().runs_total" icon="activity" tone="cool" />
+            <ck-stat-readout variant="tile" [label]="t('completed')" [value]="summary().runs_completed" icon="check" tone="pos" />
+            <ck-stat-readout variant="tile" [label]="t('running')" [value]="summary().runs_running" icon="play" tone="warn" />
+            <ck-stat-readout variant="tile" [label]="t('failed')" [value]="summary().runs_failed" icon="alert-triangle" tone="neg" />
+            <ck-stat-readout variant="tile" [label]="t('latency')" [value]="duration(summary().p95_latency_ms)" icon="activity" tone="cool" />
+          }
           <ck-stat-readout variant="tile" [label]="t('breaches')" [value]="overview()!.evaluations.breaches" icon="shield" tone="warn" />
         </section>
+        @if (runTileValues(); as tiles) {
+          <p class="coverage-note" data-testid="operations-tiles-coverage">{{ t('tiles_series', {measured: tiles.measured, eligible: tiles.eligible}) }} · {{ runSeries()!.as_of }}</p>
+        }
 
         <section class="mb-5 rounded-md border border-emerald-400/15 bg-emerald-400/[0.035]">
           <header class="flex items-center gap-2 border-b border-emerald-400/10 px-4 py-3">
@@ -263,6 +276,18 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
   readonly asOf = signal(new Date().toISOString());
   readonly error = signal(false);
   readonly seriesEnabled = signal(false);
+  readonly runSeries = signal<ActivitySeries | null>(null);
+  readonly runTileValues = computed(() => { const series = this.runSeries(); return series ? runTiles(series) : null; });
+  private seriesRequest?: AbortController;
+  // Tiles follow the period, anchor and System only; the overview's 5–15 s poll
+  // never re-reads the exhaustive series.
+  private readonly seriesLoader = effect(onCleanup => {
+    const context = { enabled: this.seriesEnabled(), since: this.window(), anchor: this.asOf(), system: this.systemId() };
+    const request = new AbortController();
+    this.seriesRequest?.abort(); this.seriesRequest = request;
+    onCleanup(() => request.abort());
+    untracked(() => void this.loadRunSeries(context, request.signal));
+  });
   t(key: string, params?: Record<string, string | number>): string { return this.i18n.t('observability.operations.' + key, params); }
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -308,7 +333,21 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
     void this.discover();
   }
   private async discover(): Promise<void> { try { const f = await this.activityApi.features(); if (!this.destroyed) this.seriesEnabled.set(!!f.enabled && !!f.activity_series_enabled); } catch { this.seriesEnabled.set(false); } }
-  private clear(): void { this.request?.unsubscribe(); if (this.pollTimer) clearTimeout(this.pollTimer); this.overview.set(null); this.seriesEnabled.set(false); }
+  private clear(): void { this.request?.unsubscribe(); this.seriesRequest?.abort(); if (this.pollTimer) clearTimeout(this.pollTimer); this.overview.set(null); this.runSeries.set(null); this.seriesEnabled.set(false); }
+  private async loadRunSeries(context: { enabled: boolean; since: string; anchor: string; system: string }, signal: AbortSignal): Promise<void> {
+    this.runSeries.set(null);
+    if (!context.enabled) return;
+    try {
+      const query: Record<string, string> = { ...seriesRange(context.since, context.anchor), metric: 'activity', kind: 'run', time_basis: 'created' };
+      if (context.system) query['system_id'] = context.system;
+      const series = await this.activityApi.series(query, signal);
+      if (!signal.aborted && !this.destroyed) this.runSeries.set(series);
+    } catch {
+      // The sampled tiles stay in place; the chart below reports its own error.
+      if (!signal.aborted && !this.destroyed) this.runSeries.set(null);
+    }
+  }
+  tileQuery(status?: string) { return { facet: 'activities', systemId: this.systemId() || null, since: this.window(), as_of: this.asOf(), kind: 'run', status: status ?? null }; }
   ngOnDestroy(): void { this.destroyed = true; this.clear(); this.routeSub?.unsubscribe(); this.resetters.forEach(reset => reset()); }
   nativeRoute(url: string) { const tree = this.router.parseUrl(url); if (tree.root.children['primary']?.segments.map(part => part.path).join('/') === 'observability') tree.queryParams = { since: this.window(), as_of: this.asOf(), systemId: this.systemId() || undefined, ...tree.queryParams }; return tree; }
   setSystem(systemId: string): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { systemId: systemId || null }, queryParamsHandling: 'merge' }); }
