@@ -614,6 +614,8 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
             # M4.2: routed to the family's training queue, which a dedicated
             # celery_ml consumer may own (CELERY_ML_TABULAR_QUEUE).
             "agentium.ml_runtime_requalification",
+            # M4.3: the import validation runs on the same queue and reader.
+            "agentium.ml_model_import",
             "agentium.ml_deep_predict",
             "agentium.hf_validate_adapter",
             "agentium.hf_adapter_prepare_failed",

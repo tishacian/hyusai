@@ -99,6 +99,19 @@ def ml_runtime_requalification(job_id: str) -> dict:
     return run_job(job_id)
 
 
+@shared_task(name="agentium.ml_model_import", acks_late=True, reject_on_worker_lost=True)
+def ml_model_import(job_id: str) -> dict:
+    """Validate and register one imported model (M4.3).
+
+    The process executing this task is the reader whose runtime the imported
+    artifact contract records; the job lease makes redelivery harmless.
+    """
+
+    from app.services.ml_import import run_import_job
+
+    return run_import_job(job_id)
+
+
 @shared_task(name="agentium.ml_deep_predict", acks_late=False, ignore_result=False)
 def ml_deep_predict(model_id: str, rows: list[dict], *, explain=False, interval_level=None) -> dict:
     from app.services.ml.deep_serving import answer_for

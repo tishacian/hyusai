@@ -153,7 +153,9 @@ def extract_archive(path: Path, destination: Path) -> Path:
                 names.add(name)
                 declared += item.file_size
                 if declared > budget:
-                    _reject("archive_too_large", "The expanded archive exceeds the budget.", status=413)
+                    _reject(
+                        "archive_too_large", "The expanded archive exceeds the budget.", status=413
+                    )
             files = [item for item in members if not item.is_dir()]
             file_names = {item.filename for item in files}
             if "MLmodel" in file_names:
@@ -213,7 +215,9 @@ def inspect_bundle(root: Path) -> dict:
     if not isinstance(config, dict) or not isinstance(config.get("flavors"), dict):
         _reject("mlmodel_invalid", "The MLmodel file is unreadable.")
     flavors = config["flavors"]
-    pyfunc = flavors.get("python_function") if isinstance(flavors.get("python_function"), dict) else {}
+    pyfunc = (
+        flavors.get("python_function") if isinstance(flavors.get("python_function"), dict) else {}
+    )
     if "python_model" in pyfunc or pyfunc.get("loader_module") == "mlflow.pyfunc.model":
         _reject("custom_pyfunc", "Custom pyfunc models run code at load time and are refused.")
     if (
@@ -250,12 +254,20 @@ def inspect_bundle(root: Path) -> dict:
             continue
         reason = _FORBIDDEN_SUFFIXES.get(PurePosixPath(relative).suffix.lower())
         if reason:
-            _reject(reason, "The bundle carries a file this format cannot accept.", file=relative[:120])
-        allowed = relative == MODEL_FILE or relative in _METADATA_FILES or (
-            relative.startswith("metadata/") and relative[len("metadata/") :] in _METADATA_FILES
+            _reject(
+                reason, "The bundle carries a file this format cannot accept.", file=relative[:120]
+            )
+        allowed = (
+            relative == MODEL_FILE
+            or relative in _METADATA_FILES
+            or (
+                relative.startswith("metadata/") and relative[len("metadata/") :] in _METADATA_FILES
+            )
         )
         if not allowed:
-            _reject("unexpected_file", "The bundle carries an unexpected file.", file=relative[:120])
+            _reject(
+                "unexpected_file", "The bundle carries an unexpected file.", file=relative[:120]
+            )
     signature = config.get("signature")
     raw_inputs = signature.get("inputs") if isinstance(signature, dict) else None
     if not raw_inputs:
@@ -311,7 +323,14 @@ def inspect_bundle(root: Path) -> dict:
             if line.strip() and not line.strip().startswith("#")
         ][:64]
     return {
-        "inputs": [{"name": item["name"], "type": item["type"], "required": item.get("required", True) is not False} for item in inputs],
+        "inputs": [
+            {
+                "name": item["name"],
+                "type": item["type"],
+                "required": item.get("required", True) is not False,
+            }
+            for item in inputs
+        ],
         "trusted_types": sorted(actual),
         "requirements": requirements,
         "mlflow_version": str(config.get("mlflow_version") or "")[:40] or None,
@@ -340,7 +359,9 @@ def parse_validation(raw: bytes, *, task: str, inputs: list[dict]) -> dict:
     except ValueError:
         payload = None
     if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
-        _invalid_validation("format", "The validation file must be JSON with rows and expected outputs.")
+        _invalid_validation(
+            "format", "The validation file must be JSON with rows and expected outputs."
+        )
     rows = payload["rows"]
     minimum = int(settings.ml_import_min_validation_rows)
     maximum = int(settings.ml_import_max_validation_rows)
@@ -363,7 +384,11 @@ def parse_validation(raw: bytes, *, task: str, inputs: list[dict]) -> dict:
             "rows_do_not_match_signature",
             "A validation row does not match the model signature.",
             error_code=exc.code,
-            **{key: (exc.details or {}).get(key) for key in ("row", "field", "fields") if (exc.details or {}).get(key) is not None},
+            **{
+                key: (exc.details or {}).get(key)
+                for key in ("row", "field", "fields")
+                if (exc.details or {}).get(key) is not None
+            },
         )
     expected = payload.get("expected")
     if not isinstance(expected, dict):
@@ -461,7 +486,9 @@ def _align(expected: dict, observed: dict) -> dict:
     if set(aligned["classes"]) == set(observed_classes) and aligned["classes"] != observed_classes:
         order = [aligned["classes"].index(name) for name in observed_classes]
         if aligned.get("probabilities") is not None:
-            aligned["probabilities"] = [[row[index] for index in order] for row in aligned["probabilities"]]
+            aligned["probabilities"] = [
+                [row[index] for index in order] for row in aligned["probabilities"]
+            ]
         aligned["classes"] = list(observed_classes)
     return aligned
 
@@ -482,9 +509,7 @@ def _sha256(path: Path) -> str:
 def resolve_lineage(db, *, workspace_id: str, name: str, task: str, lineage_model_id: str | None):
     """A new external lineage, or a new version of an existing external one."""
     if lineage_model_id:
-        base = (
-            db.query(MLModel).filter_by(id=lineage_model_id, workspace_id=workspace_id).first()
-        )
+        base = db.query(MLModel).filter_by(id=lineage_model_id, workspace_id=workspace_id).first()
         if base is None:
             raise TabularError(
                 code="ML_MODEL_NOT_FOUND",
@@ -539,7 +564,18 @@ def audit_refusal(db, *, workspace_id: str, actor: str, error: TabularError, fac
                 **{
                     key: value
                     for key, value in (error.details or {}).items()
-                    if key in {"reason", "error_code", "rows", "min", "max", "types", "file", "metrics", "measurements"}
+                    if key
+                    in {
+                        "reason",
+                        "error_code",
+                        "rows",
+                        "min",
+                        "max",
+                        "types",
+                        "file",
+                        "metrics",
+                        "measurements",
+                    }
                 },
             },
         )
@@ -644,7 +680,16 @@ def public_job(job: WorkspaceJob) -> dict:
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         "result": {
             key: result.get(key)
-            for key in ("verdict", "model_id", "code", "reason", "error_code", "metrics", "measurements", "budgets")
+            for key in (
+                "verdict",
+                "model_id",
+                "code",
+                "reason",
+                "error_code",
+                "metrics",
+                "measurements",
+                "budgets",
+            )
             if key in result
         },
     }
@@ -688,7 +733,9 @@ def _delete_staging(job: WorkspaceJob) -> None:
 
     data = job.input_ref or {}
     for key in (data.get("archive_key"), data.get("validation_key")):
-        if isinstance(key, str) and key == staging_key(job.workspace_id, job.id, PurePosixPath(key).name):
+        if isinstance(key, str) and key == staging_key(
+            job.workspace_id, job.id, PurePosixPath(key).name
+        ):
             try:
                 get_object_store().delete_prefix(key)
             except Exception:  # noqa: BLE001 - logged; the job outcome stands
@@ -724,7 +771,9 @@ def validate_staged(job: WorkspaceJob, work: Path) -> dict:
     data = job.input_ref or {}
     store = get_object_store()
     archive = store.copy_to_local(
-        data["archive_key"], work / "archive.zip", max_bytes=int(settings.ml_import_max_mb) * 1024 * 1024
+        data["archive_key"],
+        work / "archive.zip",
+        max_bytes=int(settings.ml_import_max_mb) * 1024 * 1024,
     )
     validation = store.copy_to_local(
         data["validation_key"],
@@ -749,7 +798,9 @@ def validate_staged(job: WorkspaceJob, work: Path) -> dict:
         )
     root = extract_archive(archive, work / "bundle")
     inspection = inspect_bundle(root)
-    parsed = parse_validation(validation.read_bytes(), task=data["task"], inputs=inspection["inputs"])
+    parsed = parse_validation(
+        validation.read_bytes(), task=data["task"], inputs=inspection["inputs"]
+    )
     contract = contract_from(inspection["inputs"], parsed["rows"])
     artifact = build_artifact_contract(
         root, family=FAMILY, serialization=SERIALIZATION, trusted_types=inspection["trusted_types"]
@@ -1011,7 +1062,9 @@ def run_import_job(job_id: str) -> dict:
             )
             if job.created_by_user_id and user is None:
                 raise TabularError(
-                    code="ML_FORBIDDEN_ACTION", message="The importer no longer exists.", status_code=403
+                    code="ML_FORBIDDEN_ACTION",
+                    message="The importer no longer exists.",
+                    status_code=403,
                 )
             validated = validate_staged(job, work)
             model = register(db, job, validated, user=user)
@@ -1035,7 +1088,14 @@ def run_import_job(job_id: str) -> dict:
                 },
             }
             if exc.code != "ML_AUDIT_UNAVAILABLE":
-                audit_refusal(db, workspace_id=job.workspace_id, actor=actor, error=exc, facts=facts, ip=data.get("ip"))
+                audit_refusal(
+                    db,
+                    workspace_id=job.workspace_id,
+                    actor=actor,
+                    error=exc,
+                    facts=facts,
+                    ip=data.get("ip"),
+                )
         except Exception as exc:  # noqa: BLE001 - the job row is the error channel
             db.rollback()
             logger.exception("ml_import: job crashed", job_id=job_id)
