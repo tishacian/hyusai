@@ -947,6 +947,15 @@ def predict_rows(
     with inference_attempt(db, model=model, caller=caller) as observation:
         served = serving_version(db, model, version=version)
         observation["served_id"] = served.id
+        if explain and served.family == "external":
+            # Perturbation baselines would come from the importer's chosen
+            # validation rows, not from a population: refused, not faked.
+            raise TabularError(
+                code="ML_EXTERNAL_UNSUPPORTED",
+                message="Explanations are unavailable for an imported model.",
+                status_code=409,
+                details={"reason": "explanations"},
+            )
         _interval_band(served, interval_level)
         coerced = coerce_rows(served, rows)
         from app.services.ml_governance import admit

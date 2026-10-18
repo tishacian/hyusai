@@ -51,6 +51,7 @@ MODEL_FAMILIES = (
     "tabular_deep",
     "clustering",
     "tabular_foundation",
+    "external",
 )
 MODEL_STATUSES = ("pending", "training", "ready", "failed", "cancelled")
 MODEL_TERMINAL_STATUSES = frozenset({"ready", "failed", "cancelled"})

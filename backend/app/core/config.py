@@ -886,6 +886,23 @@ class Settings(BaseSettings):
     ml_requalify_memory_limit_mb: int = Field(default=4096, ge=1024)
     # Attempts listed on the model card (active ones are always listed).
     ml_requalify_history_limit: int = Field(default=10, ge=1, le=100)
+    # M4.3 import of external MLflow models (sklearn flavor, skops only).
+    # Off by default: an import adds code-free but foreign estimators to the
+    # in-process serving plane, so an operator turns it on deliberately.
+    ml_import_enabled: bool = False
+    # The uploaded archive; its expanded bundle is bounded by
+    # ml_train_artifact_limit_mb like every served artifact.
+    ml_import_max_mb: int = Field(default=128, ge=1, le=2048)
+    ml_import_validation_max_bytes: int = Field(default=8 * 1024 * 1024, ge=4096)
+    ml_import_min_validation_rows: int = Field(default=20, ge=1)
+    ml_import_max_validation_rows: int = Field(default=1000, ge=1, le=10_000)
+    # Serving budgets an imported model must meet in the isolated reader:
+    # it will be loaded in the API process like a tabular model.
+    ml_import_max_load_ms: float = Field(default=30_000.0, ge=100.0)
+    ml_import_max_predict_ms: float = Field(default=1_000.0, ge=1.0)
+    ml_import_max_memory_mb: int = Field(default=1024, ge=16)
+    # MLmodel and requirements.txt are parsed before anything else; bounded.
+    ml_import_max_metadata_bytes: int = Field(default=1024 * 1024, ge=1024)
     # MLflow tracking + Model Registry. There is no MLflow *server* to operate:
     # the client writes straight to a SQL backend store, which is the only store
     # that supports the registry at all (a bare ``mlruns/`` file store does not,

@@ -143,6 +143,13 @@ def supported(model):
 
 
 def _require_supported(model):
+    if model.family == "external":
+        raise TabularError(
+            code="ML_EXTERNAL_UNSUPPORTED",
+            message="An imported model has no training data: scheduled monitoring and retraining proposals are unavailable. Import a new version instead.",
+            status_code=409,
+            details={"reason": "scheduled_monitoring"},
+        )
     if model.family == "tabular_foundation":
         refuse(
             "ML_PILOT_AUTOMATION_DISABLED",

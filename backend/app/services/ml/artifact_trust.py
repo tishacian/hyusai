@@ -61,8 +61,21 @@ FORECAST_TYPES = frozenset(
         "skforecast.recursive._forecaster_recursive_multiseries.ForecasterRecursiveMultiSeries",
     }
 )
+# M4.3 imported sklearn pipelines. Beyond skops' own defaults (sklearn
+# estimators, numpy ufuncs, plain containers) only fitted *data* structures,
+# reconstructed from arrays by their own __setstate__ and never calling user
+# code: dtype descriptors and fitted tree structures. No functools.partial,
+# no builtins callable, no numpy function object, no module of the importer's.
+EXTERNAL_TYPES = frozenset(
+    {
+        "numpy.dtype",
+        "sklearn.tree._tree.Tree",
+        "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
+    }
+)
 TRUSTED_PROFILES = {
     "tabular-skops-v1": TABULAR_TYPES,
     "clustering-skops-v1": frozenset({"numpy.dtype"}),
     "forecast-skops-v1": FORECAST_TYPES,
+    "external-sklearn-skops-v1": EXTERNAL_TYPES,
 }

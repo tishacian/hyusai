@@ -18,6 +18,8 @@ MAX_ARCHIVE_ENTRIES = 100_000
 
 PROFILES = {
     ("tabular", "skops"): "tabular-skops-v1",
+    # M4.3: imported sklearn pipelines; the reader owns the type allowlist.
+    ("external", "skops"): "external-sklearn-skops-v1",
     ("clustering", "skops"): "clustering-skops-v1",
     ("tabular_deep", "cloudpickle"): "embedding-cloudpickle-v1",
     ("forecasting", "skops"): "forecast-skops-v1",

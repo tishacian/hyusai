@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, uuid5
 from app.core.iam.roles import normalize_role_template
 from app.models.workspace import WorkspaceMember
 
-SERVER_MANAGED_JOB_KINDS = frozenset({"dataops_build_sample", "tabular_dataset_purge", "brd_generation", "llm_label_dataset", "ml_shadow", "ml_monitoring", "ml_retraining", "ml_reference_capture", "ml_requalification"})
+SERVER_MANAGED_JOB_KINDS = frozenset({"dataops_build_sample", "tabular_dataset_purge", "brd_generation", "llm_label_dataset", "ml_shadow", "ml_monitoring", "ml_retraining", "ml_reference_capture", "ml_requalification", "ml_model_import"})
 
 
 def operational_job_id(kind: str, *parts: str) -> str:

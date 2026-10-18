@@ -459,6 +459,8 @@ def catalog_payload(
 
     families = []
     for family in ml_families.FAMILIES:
+        if not family.trainable:
+            continue  # Imported families are not offered for training.
         available, reason = family_availability(family, db)
         if family.key == "forecasting_deep":
             from app.services.ml.runtime import model_availability
@@ -1213,6 +1215,23 @@ def create_model(
 
         distillation = snapshot(distillation)
     slug = slugify(spec.name, fallback="model")
+    if (
+        db.query(MLModel.id)
+        .filter(
+            MLModel.workspace_id == workspace_id,
+            MLModel.slug == slug,
+            MLModel.family == "external",
+        )
+        .first()
+    ):
+        # An imported lineage only receives imported versions (M4.3): a fit
+        # here would silently mix two provenances under one champion alias.
+        raise TabularError(
+            code="ML_EXTERNAL_LINEAGE",
+            message="This name belongs to an imported model. Import a new version, or train under another name.",
+            status_code=409,
+            details={"reason": "imported_lineage"},
+        )
     # Publication is a lineage fact stored per row, so a version born after
     # it must inherit it or its card would deny what its siblings report —
     # and a later promotion would find nothing to refresh.
@@ -1604,6 +1623,9 @@ def delete_model(db: DBSession, model: MLModel) -> str:
     registered = model.mlflow_model_name
     registered_run = model.mlflow_run_id
     store = get_object_store()
+    from app.services.ml_requalification import delete_reference
+
+    delete_reference(model)
     if store.backend == "local":
         try:
             store.delete_prefix(model_prefix(model.workspace_id, model.id))

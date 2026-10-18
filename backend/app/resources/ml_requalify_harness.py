@@ -10,6 +10,12 @@ frame building and prediction:
 * ``requalify`` — every serving check except producer-runtime equality
   (hashes, sizes, trust profile, skops allowlist, MLmodel loader). Nothing is
   served from here; the parent compares the outputs and decides.
+* ``import`` (M4.3) — the strict gate over a bundle whose contract the parent
+  just built for this reader; the outputs are compared with the importer's
+  expected outputs, and the measured costs against the serving budgets.
+
+Every mode reports the load time, the single-row latency and the peak memory
+the model added, because an accepted model is loaded in the API process.
 
 The child receives the bundle the parent already downloaded, the reference
 rows (never the reference outputs), and no database, object store or provider
@@ -41,6 +47,14 @@ def _finite_list(values):
     return result
 
 
+def _peak_mb() -> float:
+    import resource
+
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Bytes on macOS, kilobytes on Linux.
+    return peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024
+
+
 def run(data):
     from app.core.config import settings
     from app.resources.ml_artifact_contract import runtime_versions
@@ -62,13 +76,15 @@ def run(data):
     artifact = (model.metrics_json or {}).get("artifact") or {}
     bundle = Path(data["bundle"])
     limit = int(data["max_artifact_bytes"])
-    if data["mode"] == "capture":
+    if data["mode"] in {"capture", "import"}:
         verify_model_bundle(bundle, artifact, family=model.family, max_bytes=limit)
     elif data["mode"] == "requalify":
         verify_requalification_candidate(bundle, artifact, family=model.family, max_bytes=limit)
     else:
         raise ValueError("unknown mode")
     reader = runtime_versions(model.family, artifact.get("serialization"))
+    # Imports are done; what the peak gains from here on is the model's.
+    baseline_mb = _peak_mb()
     started = time.monotonic()
     pipeline = _load_mlflow_model(bundle)
     load_ms = (time.monotonic() - started) * 1000
@@ -82,8 +98,13 @@ def run(data):
         coerced.extend(coerce_rows(model, rows[offset : offset + ceiling]))
     frame = build_frame(fields, coerced)
     started = time.monotonic()
-    predicted, probabilities = _predict_frame(SimpleNamespace(pipeline=pipeline), model, frame)
+    entry = SimpleNamespace(pipeline=pipeline)
+    predicted, probabilities = _predict_frame(entry, model, frame)
     predict_ms = (time.monotonic() - started) * 1000
+    # One interactive call, the shape /predict serves most.
+    started = time.monotonic()
+    _predict_frame(entry, model, frame.iloc[:1])
+    single_row_ms = (time.monotonic() - started) * 1000
     # Probability columns follow the estimator's own classes_ order; the stored
     # vocabulary is the fallback for an estimator that does not expose it.
     raw_classes = getattr(pipeline, "classes_", None)
@@ -101,12 +122,16 @@ def run(data):
         )
     elif model.task == "regression":
         outputs = {"values": [answer["prediction"] for answer in answers]}
+    final = pipeline.steps[-1][1] if hasattr(pipeline, "steps") and pipeline.steps else pipeline
     return {
         "reader_runtime": reader,
+        "estimator": type(final).__name__[:80],
         "outputs": outputs,
         "rows": len(rows),
         "load_ms": round(load_ms, 2),
         "predict_ms": round(predict_ms, 2),
+        "single_row_ms": round(single_row_ms, 2),
+        "model_memory_mb": round(max(0.0, _peak_mb() - baseline_mb), 1),
     }
 
 
