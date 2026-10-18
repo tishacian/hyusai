@@ -55,7 +55,7 @@ def case(db_session, monkeypatch):
     app.dependency_overrides[api.get_db] = lambda: db_session
     paths = []
 
-    def build(row, folder):
+    def build(row, folder, attested=()):
         paths.append(folder)
         target = folder / "fixture.zip"
         with zipfile.ZipFile(target, "w") as archive:
@@ -65,6 +65,7 @@ def case(db_session, monkeypatch):
             "archive_sha256": "a" * 64,
             "archive_bytes": target.stat().st_size,
             "model_version": row.version,
+            "attestations": sorted(item["id"] for item in attested),
         }
 
     monkeypatch.setattr(api, "build_export", build)
@@ -195,3 +196,45 @@ def test_response_cleans_temporary_archive_on_disconnected_client():
             )
         )
     assert not folder.exists()
+
+
+def test_revoked_attestation_during_copy_is_not_exported(db_session, case, monkeypatch):
+    """M4.2: the archive leaves only with the attestations still active."""
+    from datetime import datetime
+
+    from app.models.ml_requalification import MLRuntimeAttestation
+
+    client, ws, _, _, model, paths = case
+    row = MLRuntimeAttestation(
+        workspace_id=ws.id,
+        model_id=model.id,
+        artifact_fingerprint=api.artifact_fingerprint(model.metrics_json["artifact"]),
+        producer_runtime={"scikit-learn": "old"},
+        reader_runtime={"scikit-learn": "new"},
+        reader_digest="d" * 64,
+        reference_sha256="r" * 64,
+        rows_compared=1,
+        metrics={},
+        tolerances={},
+        verdict="qualified",
+        actor="admin",
+        created_at=datetime.utcnow(),
+    )
+    db_session.add(row)
+    db_session.commit()
+    original = api.build_export
+    seen = []
+
+    def revoke(row_, folder, attested=()):
+        seen.append([item["id"] for item in attested])
+        result = original(row_, folder, attested)
+        row.revoked_at = datetime.utcnow()
+        db_session.commit()
+        return result
+
+    monkeypatch.setattr(api, "build_export", revoke)
+    response = client.get(f"/ml-models/{model.id}/export")
+    assert seen == [[row.id]]
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "ML_EXPORT_SOURCE_CHANGED"
+    assert not paths[0].exists()

@@ -50,6 +50,7 @@ CHAIN = (
     "136_mlops_correctness",
     "137_mlops_operations",
     "138_activity_measures",
+    "139_mlops_requalification",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
@@ -80,7 +81,7 @@ PLANE_TABLES = (
     "ml_alerts",
     "ml_alert_deliveries",
     "ml_alert_sources",
-
+    "ml_runtime_attestations",
 )
 
 # The pre-slice tables the slice points at or reads from, reduced to the
@@ -619,3 +620,47 @@ def test_135_legacy_key_grace_and_guarded_downgrade(migrated):
         _alembic("downgrade", "134_execution_control")
     with migrated.connect() as connection:
         assert connection.exec_driver_sql("select expires_at from ml_model_api_keys where id='key-grace'").scalar_one() == expiry
+
+
+def test_138_keeps_one_active_attestation_and_refuses_a_destructive_downgrade(migrated):
+    """The partial unique index exists on PostgreSQL, and attestations are evidence."""
+    from sqlalchemy.exc import IntegrityError
+
+    insert = """
+        insert into ml_runtime_attestations (id, workspace_id, model_id, artifact_fingerprint,
+            producer_runtime, reader_runtime, reader_digest, reference_sha256, rows_compared,
+            metrics, tolerances, verdict, actor, created_at, revoked_at)
+        values ('{id}', 'ws-rq', 'm-rq', 'fp', '{{}}', '{{}}', 'reader', 'ref', 3, '{{}}', '{{}}',
+            '{verdict}', 'admin', now(), {revoked})
+    """
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("insert into workspaces (id) values ('ws-rq')")
+        connection.exec_driver_sql("""
+            insert into ml_models (id, workspace_id, name, slug, version, task, algo, target,
+                status, is_champion, created_at, updated_at)
+            values ('m-rq','ws-rq','Rq','rq',1,'classification','gb','y','ready',true,now(),now())
+        """)
+        for identifier, verdict, revoked in (
+            ("a-1", "qualified", "null"),
+            ("a-2", "failed", "null"),
+            ("a-3", "qualified", "now()"),
+        ):
+            connection.exec_driver_sql(
+                insert.format(id=identifier, verdict=verdict, revoked=revoked)
+            )
+    with pytest.raises(IntegrityError):
+        with migrated.begin() as connection:
+            connection.exec_driver_sql(insert.format(id="a-4", verdict="qualified", revoked="null"))
+    with pytest.raises(IntegrityError):
+        with migrated.begin() as connection:
+            connection.exec_driver_sql(insert.format(id="a-5", verdict="unknown", revoked="null"))
+    with pytest.raises(AssertionError, match="ML_REQUALIFICATION_DOWNGRADE_REFUSED"):
+        _alembic("downgrade", "138_activity_measures")
+    with migrated.connect() as connection:
+        remaining = connection.exec_driver_sql("select count(*) from ml_runtime_attestations")
+        assert remaining.scalar() == 3
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("delete from ml_runtime_attestations")
+    _alembic("downgrade", "138_activity_measures")
+    assert "ml_runtime_attestations" not in inspect(migrated).get_table_names()
+    _alembic("upgrade", HEAD)

@@ -10,11 +10,14 @@ production. Les branches sont empilées pour garder les lots révisables :
 | M2 | `codex/mlops-m2-correctness` | Feedback par échantillon, holdout préservé, dérive régression/multiclasse et historique |
 | M3 | `codex/mlops-m3-operations` | Endpoints, agrégats, alertes durables, livraisons reprises et tarifs explicites |
 | M4.1 | `codex/mlops-m4-export` | Export administrateur d’une version MLflow vérifiée |
+| M4.2 | `feat/mlops-m4-requalification` | Requalification d’un modèle pour un nouvel environnement d’exécution, attestée et révocable |
 
 Les détails, écarts et preuves propres aux lots sont dans
 `agentium-mlops-governance-implementation.md`,
-`agentium-mlops-correctness-implementation.md`, `agentium-mlops-operations.md`
-et `agentium-mlops-export-implementation.md`.
+`agentium-mlops-correctness-implementation.md`, `agentium-mlops-operations.md`,
+`agentium-mlops-export-implementation.md` et
+`agentium-mlops-requalification-implementation.md`. M4.2 part de
+`demo/agentic` à `d814837b`, où M1 à M4.1 sont déjà assemblés.
 
 ## Contrats d’assemblage
 
@@ -65,10 +68,41 @@ charge, les destinations SMTP/webhook et la VM n’ont pas été qualifiées ici
 Un export peut contenir l’exemple métier enregistré lors de l’entraînement ;
 la fiche modèle le signale avant le téléchargement.
 
+## Montée de version de l’image (M4.2)
+
+Une nouvelle image qui change scikit-learn, skrub, numpy, scipy, pandas, MLflow
+ou skops fait refuser par le service chaque modèle produit par l’ancienne. La
+procédure pour en garder le plus possible :
+
+1. **Avant de déployer**, avec l’image courante, enregistrer les prédictions de
+   référence des modèles qui n’en ont pas :
+   `python -m app.cli.ml_runtime_requalification capture --all-workspaces --dry-run`,
+   relire, puis la même commande avec `--apply`. C’est idempotent : un modèle
+   déjà capturé est ignoré. Les modèles entraînés depuis M4.2 sont capturés
+   automatiquement après leur entraînement.
+2. **Déployer** l’image ; appliquer la migration 139 si ce n’est pas fait.
+   L’API et le worker général doivent tourner sur la même image.
+3. **Requalifier**, avec la nouvelle image : depuis la fiche (Réglages ›
+   Environnement d’exécution, administrateurs) ou en masse,
+   `python -m app.cli.ml_runtime_requalification requalify --all-workspaces --apply`
+   (le processus de la CLI est le lecteur attesté : il doit tourner sur
+   l’image de service).
+4. **Relire les échecs** : la CLI sort en code 1 et écrit une ligne JSON par
+   modèle (`failed` avec écarts mesurés, ou `refused` avec un code). La fiche
+   affiche la dernière tentative et ses écarts.
+5. **Réentraîner les échecs** avec le réentraînement existant, puis évaluer et
+   promouvoir comme d’habitude.
+
+Un modèle **sans référence** après la montée reste refusé : sa référence ne
+peut plus être capturée (elle exige l’environnement producteur) et il doit être
+réentraîné. Il en va de même si son dataset source a disparu, et pour les
+familles non éligibles (servies hors de l’API, clustering). Une attestation se
+révoque depuis la fiche ; le service la refuse alors au prochain appel.
+
 ## Lots conservés ouverts
 
-M4.2 (requalification des environnements), M4.3 (BYOM isolé), M5 et M6 ne sont
-pas déclarés livrés. M6 reste le lot « model instance/model as a pod », conditionné
+M4.3 (BYOM isolé), M5 et M6 ne sont pas déclarés livrés. M4.2 est livré sur sa
+branche, non assemblé à `demo/agentic`. M6 reste le lot « model instance/model as a pod », conditionné
 par un besoin mesuré et D4. La dérive multivariée optionnelle, Kubernetes, Spark,
 Kafka, tout nouvel usage de Redis et la narration conservent leurs handovers
 existants. La parité d’export est prouvée pour un tabulaire sklearn/skops avec

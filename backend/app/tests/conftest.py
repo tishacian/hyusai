@@ -169,6 +169,7 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "ml_runtime_attestations",
         "ml_alert_deliveries", "ml_alert_sources", "ml_alerts", "ml_alert_states", "ml_alert_channels",
         "ml_usage_rollups", "ml_inference_usage",
         "activity_commands",

@@ -2435,6 +2435,12 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             # row this fit just wrote would otherwise be invisible to the
             # ranking query and a lineage's newest contender would never win.
             sync_challenger(db, model)
+            # M4.2: reference predictions are captured now, while the reader
+            # is by definition the producer runtime. Queued after the commit;
+            # a failure leaves the fit ready and the operator CLI can retry.
+            from app.services.ml_requalification import capture_after_training
+
+            capture_after_training(db, model)
         logger.info(
             "tabular_ml: settled",
             model_id=model_id,

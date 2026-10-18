@@ -611,6 +611,9 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
             "agentium.ml_retraining_recovery",
             "agentium.ml_shadow",
             "agentium.ml_shadow_recover",
+            # M4.2: routed to the family's training queue, which a dedicated
+            # celery_ml consumer may own (CELERY_ML_TABULAR_QUEUE).
+            "agentium.ml_runtime_requalification",
             "agentium.ml_deep_predict",
             "agentium.hf_validate_adapter",
             "agentium.hf_adapter_prepare_failed",

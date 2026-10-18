@@ -86,6 +86,19 @@ def ml_shadow_recover() -> dict:
     return recover()
 
 
+@shared_task(name="agentium.ml_runtime_requalification", acks_late=True, reject_on_worker_lost=True)
+def ml_runtime_requalification(job_id: str) -> dict:
+    """Capture reference predictions or requalify one model (M4.2).
+
+    The process executing this task is the reader being attested, so the task
+    goes to the family's own queue; the job lease makes redelivery harmless.
+    """
+
+    from app.services.ml_requalification import run_job
+
+    return run_job(job_id)
+
+
 @shared_task(name="agentium.ml_deep_predict", acks_late=False, ignore_result=False)
 def ml_deep_predict(model_id: str, rows: list[dict], *, explain=False, interval_level=None) -> dict:
     from app.services.ml.deep_serving import answer_for

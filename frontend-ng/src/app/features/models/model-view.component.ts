@@ -58,6 +58,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { MlGovernanceComponent } from './ml-governance.component';
 import { ModelExportComponent } from './model-export.component';
+import { ModelRuntimeComponent } from './model-runtime.component';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { TabularIntervalsComponent } from './tabular-intervals.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
@@ -138,6 +139,7 @@ const CHART_ASPECT = 300 / 190;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ModelExportComponent,
+    ModelRuntimeComponent,
     ClassificationEvidenceComponent,
     EvaluationEvidenceComponent,
     PreprocessingEvidenceComponent,
@@ -263,6 +265,8 @@ const CHART_ASPECT = 300 / 190;
           @if (serving()?.readiness?.action === 'retrain') {
             <p class="ck-hint mt-1">{{ i18n.t(serving()?.permissions?.['train']
               ? 'models.readiness.retrain_hint' : 'models.readiness.owner_hint') }}</p>
+          } @else if (serving()?.readiness?.action === 'requalify') {
+            <p class="ck-hint mt-1" data-testid="serving-readiness-requalify">{{ i18n.t('models.readiness.requalify_hint') }}</p>
           }
         </div>
       }
@@ -1185,6 +1189,8 @@ const CHART_ASPECT = 300 / 190;
           <ck-ml-governance [modelId]="row.id" (changed)="reloadGovernance()" />
           <ck-model-export [modelId]="row.id" [ready]="row.status === 'ready'"
             [canExport]="serving()?.permissions?.['export'] === true" />
+          <ck-model-runtime [modelId]="row.id" [ready]="row.status === 'ready'"
+            [canRequalify]="serving()?.permissions?.['requalify'] === true" />
           <div class="ck-surface rounded-md ck-h-scroll">
             <table class="w-full text-sm ck-schema">
               <tbody>

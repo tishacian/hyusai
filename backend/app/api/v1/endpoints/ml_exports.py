@@ -14,6 +14,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.ml.artifacts import artifact_fingerprint
 from app.services.ml_exports import build_export
+from app.services.ml_requalification import attested_runtimes
 from app.services.tabular_datasets import TabularError
 from app.services.tabular_ml import get_model
 
@@ -48,7 +49,9 @@ def export_model(
         require(db, "export", workspace, user)
         model = get_model(db, workspace_id=workspace.id, model_id=model_id, ready_only=True)
         temporary = tempfile.TemporaryDirectory(prefix="agentium-ml-export-")
-        archive, metadata = build_export(model, Path(temporary.name))
+        archive, metadata = build_export(
+            model, Path(temporary.name), attested=attested_runtimes(db, model)
+        )
         # Revalidate authority and exact source after the potentially slow copy.
         db.refresh(workspace)
         db.refresh(user)
@@ -66,6 +69,9 @@ def export_model(
             or current.version != metadata["model_version"]
             or artifact_fingerprint((current.metrics_json or {}).get("artifact") or {})
             != metadata["artifact_fingerprint"]
+            # A revocation during the copy must not leave with the archive.
+            or sorted(item["id"] for item in attested_runtimes(db, current))
+            != metadata.get("attestations", [])
         ):
             raise TabularError(
                 code="ML_EXPORT_SOURCE_CHANGED",
