@@ -1091,8 +1091,11 @@ def write_import_reference(model, *, rows: list[dict], outputs: dict, actor: str
     for position, row in enumerate(rows):
         keep.setdefault(row_digest(row), position)
     positions = sorted(keep.values())
+    # Per-row outputs follow the kept rows; the class order is not per row.
     picked = {
-        key: [value[index] for index in positions] if isinstance(value, list) else value
+        key: [value[index] for index in positions]
+        if key in {"labels", "values", "probabilities"} and isinstance(value, list)
+        else value
         for key, value in outputs.items()
     }
     captured_at = datetime.utcnow().isoformat()
