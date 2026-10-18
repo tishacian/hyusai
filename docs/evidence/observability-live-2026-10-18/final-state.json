@@ -1,0 +1,47 @@
+{
+  "checked_at_utc": "2026-10-18T09:37:43.419065+00:00",
+  "feature_http_status": 200,
+  "features": {
+    "enabled": true,
+    "execution_view_enabled": true,
+    "activity_series_enabled": true,
+    "scopes": [
+      "workspace",
+      "system"
+    ],
+    "kinds": [
+      "run",
+      "skill_invocation",
+      "recipe_execution",
+      "compute_run",
+      "ml_training",
+      "workspace_job",
+      "service_window",
+      "delivery_receipt"
+    ],
+    "statuses": [
+      "pending",
+      "running",
+      "waiting",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "timed_out",
+      "lost",
+      "unknown"
+    ]
+  },
+  "rollback_executed_by_agent": false,
+  "rollback_observed": false,
+  "environment_access": {
+    "http_available": true,
+    "vpn_configured": false,
+    "tcp_grants": 0
+  },
+  "build_info": {
+    "service": "backend",
+    "revision": "12cdac727b724fbf2bc0157fb38d555134d51f9d",
+    "revision_verified": true,
+    "version": "1.0.0-demo"
+  }
+}

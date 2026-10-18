@@ -1,0 +1,25 @@
+{
+  "revision": "12cdac727b724fbf2bc0157fb38d555134d51f9d",
+  "workspace": "agentium-showcase",
+  "as_of": "2026-10-18T09:33:42.737Z",
+  "coverage": "Exhaustive tiles under your permissions: current state of the runs created in the period. p95 is the exact nearest rank over 0/1 measured finished runs. Evaluations: sampled overview. · 2026-10-18T09:33:50.022776Z",
+  "tile_text": "Running\n0",
+  "href": "/observability?facet=activities&since=30d&as_of=2026-10-18T09:33:42.737Z&kind=run",
+  "activities_url": "https://agentium.papai.ai/observability?facet=activities&since=30d&as_of=2026-10-18T09:33:42.737Z&kind=run",
+  "list_request": "/api/v1/observability/activities?kind=run&since=2026-09-18T09%3A33%3A42.737Z&until=2026-10-18T09%3A33%3A42.737Z&limit=25&offset=0",
+  "list_http": 200,
+  "list_total": 1,
+  "items": [
+    {
+      "id": "de576f78-e72a-5520-bc69-c4d8e4cb1d8a",
+      "kind": "run",
+      "status": "failed"
+    }
+  ],
+  "expected_statuses": [
+    "pending",
+    "running",
+    "waiting"
+  ],
+  "outside_active_statuses": 1
+}

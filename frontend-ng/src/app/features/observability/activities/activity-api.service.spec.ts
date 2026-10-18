@@ -37,6 +37,18 @@ test('list preserves server totals, pagination and immutable workspace scope', a
   assert.equal((await api.list({ offset: 25, limit: 25, system_id: 'system-a' })).total, 3011);
 });
 
+test('list and series transport exactly the same single-state or multi-state filter', async () => {
+  const queries: URL[] = [];
+  const api = setup(async url => { queries.push(new URL(url, 'https://agentium.test')); return Response.json({}); });
+  for (const status of ['pending,running,waiting', 'failed']) {
+    await api.list({ kind: 'run', status, offset: 25 });
+    await api.series({ kind: 'run', status });
+    assert.equal(queries.at(-2)!.searchParams.get('status'), status);
+    assert.equal(queries.at(-1)!.searchParams.get('status'), status);
+    assert.equal(queries.at(-2)!.searchParams.get('offset'), '25');
+  }
+});
+
 test('a late response after workspace switch is discarded', async () => {
   const api = setup(async () => Response.json({ items: ['private-data'] }), () => false);
   await assert.rejects(api.list({}), (error: unknown) => error instanceof Error && error.name === 'AbortError');

@@ -26,6 +26,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { observabilityAnchor, observabilityPeriod, observabilitySystemId } from './observability-facets';
 import { ActivityApiService } from './activities/activity-api.service';
+import { ACTIVE_ACTIVITY_STATUS_FILTER } from './activities/activity.models';
 import { ActivitySeriesComponent } from './activities/activity-series.component';
 import { runTiles, seriesRange, type ActivitySeries } from './activities/activity-series.vm';
 type WindowKey = '24h' | '7d' | '30d';
@@ -117,7 +118,7 @@ type WindowKey = '24h' | '7d' | '30d';
             <!-- Exhaustive Run series (R2): each tile opens the matching Activities filter. -->
             <a class="block" data-testid="operations-tile-runs" [routerLink]="observabilityUrl" [queryParams]="tileQuery()" [attr.aria-label]="t('runs') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('runs')" [value]="tiles.total" icon="activity" tone="cool" /></a>
             <a class="block" data-testid="operations-tile-completed" [routerLink]="observabilityUrl" [queryParams]="tileQuery('succeeded')" [attr.aria-label]="t('completed') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('completed')" [value]="tiles.succeeded" icon="check" tone="pos" /></a>
-            <a class="block" data-testid="operations-tile-running" [routerLink]="observabilityUrl" [queryParams]="tileQuery()" [attr.aria-label]="t('running') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('running')" [value]="tiles.running" icon="play" tone="warn" /></a>
+            <a class="block" data-testid="operations-tile-running" [routerLink]="observabilityUrl" [queryParams]="tileQuery(activeStatusFilter)" [attr.aria-label]="t('running') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('running')" [value]="tiles.running" icon="play" tone="warn" /></a>
             <a class="block" data-testid="operations-tile-failed" [routerLink]="observabilityUrl" [queryParams]="tileQuery('failed')" [attr.aria-label]="t('failed') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('failed')" [value]="tiles.failed" icon="alert-triangle" tone="neg" /></a>
             <a class="block" data-testid="operations-tile-latency" [routerLink]="observabilityUrl" [queryParams]="tileQuery()" [attr.aria-label]="t('latency') + ' · ' + t('tile_open')"><ck-stat-readout variant="tile" [label]="t('latency')" [value]="duration(tiles.p95_ms)" icon="activity" tone="cool" /></a>
           } @else {
@@ -260,6 +261,7 @@ type WindowKey = '24h' | '7d' | '30d';
   `,
 })
 export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
+  readonly activeStatusFilter = ACTIVE_ACTIVITY_STATUS_FILTER;
   readonly observabilityUrl = navigationSurfaceUrl('observability');
   readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);

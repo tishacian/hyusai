@@ -102,7 +102,8 @@ export class ActivitySeriesComponent implements OnDestroy {
       const range = seriesRange(context.since, context.anchor);
       const params = new URLSearchParams({ ...range, metric: context.mode === 'activity' ? 'activity' : 'cost', time_basis: context.mode === 'activity' ? context.basis : 'finished' });
       if (context.system) params.set('system_id', context.system);
-      if (context.mode === 'activity') { if(context.kind) params.set('kind', context.kind); if(context.status) params.set('status', context.status); }
+      if (context.status) params.set('status', context.status);
+      if (context.mode === 'activity') { if(context.kind) params.set('kind', context.kind); }
       else params.set('kind', context.mode === 'skill_cost' ? 'skill_invocation' : 'compute_run');
       const response = await this.transport.fetch('/api/v1/observability/activities/series?' + params, { signal, workspaceSlug: scope.workspaceSlug });
       if(!valid()) return;

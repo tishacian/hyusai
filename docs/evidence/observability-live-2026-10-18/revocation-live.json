@@ -1,0 +1,75 @@
+{
+  "checked_at": "2026-10-18T12:03:35.323Z",
+  "revision": "12cdac727b724fbf2bc0157fb38d555134d51f9d",
+  "scope": "Activities journal with series and execution view closed; no System isolation claim",
+  "tls_verified": true,
+  "production_changes": [
+    "removed only dedicated restricted test membership",
+    "restored same test role, labels and app entitlements without email"
+  ],
+  "restored": true,
+  "accepted": true,
+  "principal_id": "db328a81-d8a6-4495-bc6b-63d8bdedbbd9",
+  "membership_before": {
+    "role_template": "workspace_contributor",
+    "custom_labels": [],
+    "app_entitlements": []
+  },
+  "before": {
+    "row_count": 2,
+    "detail_visible": true,
+    "stream": {
+      "opened": 2,
+      "frames": [
+        {
+          "event": "snapshot",
+          "revoked": false
+        },
+        {
+          "event": "heartbeat",
+          "revoked": false
+        },
+        {
+          "event": "snapshot",
+          "revoked": false
+        },
+        {
+          "event": "heartbeat",
+          "revoked": false
+        }
+      ]
+    }
+  },
+  "after": {
+    "elapsed_ms": 1132,
+    "row_count": 0,
+    "detail_count": 0,
+    "counter_count": 0,
+    "api_http_status": 403,
+    "stream": {
+      "opened": 2,
+      "frames": [
+        {
+          "event": "snapshot",
+          "revoked": false
+        },
+        {
+          "event": "heartbeat",
+          "revoked": false
+        },
+        {
+          "event": "snapshot",
+          "revoked": false
+        },
+        {
+          "event": "heartbeat",
+          "revoked": false
+        },
+        {
+          "event": "error",
+          "revoked": true
+        }
+      ]
+    }
+  }
+}

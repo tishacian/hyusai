@@ -33,8 +33,13 @@ async function releaseState(page: Page, revision: string): Promise<Features> {
   }
   const features = await expectOk<Features>(page, '/api/v1/observability/activities/features');
   expect(features.enabled, 'Existing activity supervision remains enabled').toBe(true);
-  expect(features.execution_view_enabled, 'R4 remains closed').toBe(false);
-  expect(features.activity_series_enabled, 'R2 remains closed').toBe(false);
+  const expectedFlag = (name: string): boolean => {
+    const value = process.env[name] ?? 'false';
+    expect(['true', 'false'].includes(value), `${name} must be true or false`).toBe(true);
+    return value === 'true';
+  };
+  expect(features.execution_view_enabled, 'R4 matches the declared release state').toBe(expectedFlag('E2E_EXPECT_EXECUTION_VIEW'));
+  expect(features.activity_series_enabled, 'R2 matches the declared release state').toBe(expectedFlag('E2E_EXPECT_ACTIVITY_SERIES'));
   return features;
 }
 
@@ -141,7 +146,7 @@ test('Showcase release: point and matrix retain the real Run and proof on deskto
     expect(!!workspace, 'The authenticated account must explicitly have Showcase membership').toBe(true);
     evidence.workspace_id = workspace!.id;
     evidence.features = await releaseState(page, revision!);
-    completed.push('revision-and-closed-R2-R4');
+    completed.push('revision-and-declared-R2-R4');
 
     const history = await expectOk<{evaluations: EvaluationRow[]}>(page, `/api/v1/evaluation/history?limit=20&${scope}`);
     expect(history.evaluations.length, 'A real Showcase evaluation corpus is required').toBeGreaterThan(0);

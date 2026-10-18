@@ -18,7 +18,8 @@ from app.services.huggingface.access import is_platform_admin, is_workspace_admi
 from app.services.run_access import RunReadContext, readable_runs
 from app.services.system_access import readable_systems
 
-from .projection import KINDS, STATUSES, TERMINAL, iso
+from .filters import parse_status_filter
+from .projection import KINDS, TERMINAL, iso
 
 
 def enabled():
@@ -489,7 +490,8 @@ def list_activities(
     limit=50,
     offset=0,
 ):
-    if kind is not None and kind not in KINDS or status is not None and status not in STATUSES:
+    statuses = parse_status_filter(status, detail="ACTIVITY_FILTER_INVALID")
+    if kind is not None and kind not in KINDS:
         raise HTTPException(422, detail="ACTIVITY_FILTER_INVALID")
     cursor = encode_cursor(workspace.id, highwater(db, workspace.id))
     query = db.query(Activity).filter(Activity.workspace_id == workspace.id)
@@ -497,8 +499,8 @@ def list_activities(
         query = query.filter(Activity.system_id == system_id)
     if kind:
         query = query.filter(Activity.kind == kind)
-    if status:
-        query = query.filter(Activity.status == status)
+    if statuses is not None:
+        query = query.filter(Activity.status.in_(statuses))
     if since:
         query = query.filter(Activity.created_at >= since)
     if until:

@@ -17,6 +17,7 @@ from app.services.iam.decision_plane import AuthorizationMode, resolve_mode
 from app.services.run_access import can_view_private_chat_runs
 from app.services.run_engine.execution_contract import WORKBENCH_EXECUTION_SURFACES
 
+from .filters import parse_status_filter
 from .projection import TERMINAL, iso
 
 # Exactly the characters removed by Python str.strip(), including NBSP. A
@@ -142,6 +143,7 @@ def aggregate_compat(
     bind = db.get_bind()
     if bind.dialect.name != "postgresql" or bind.dialect.server_version_info < (16,):
         return None
+    statuses = parse_status_filter(status, detail="ACTIVITY_SERIES_FILTER_INVALID")
     read_context.require_scope(db, workspace, user)
     if migration_059_system_id(workspace) is not None:
         return None
@@ -167,7 +169,7 @@ def aggregate_compat(
             SELECT 1 FROM activities a WHERE a.workspace_id = :workspace
               AND a.kind IN ('service_window', 'delivery_receipt')
               AND (:kind IS NULL OR a.kind = :kind)
-              AND (:status IS NULL OR a.status = :status)
+              AND (:all_statuses OR a.status = ANY(CAST(:statuses AS text[])))
               AND (:system_id IS NULL OR a.system_id = :system_id)
               AND (:time_basis = 'finished' OR (a.created_at >= :start AND a.created_at < :until))
             LIMIT 1
@@ -175,7 +177,8 @@ def aggregate_compat(
             dict(
                 workspace=workspace.id,
                 kind=kind,
-                status=status,
+                all_statuses=statuses is None,
+                statuses=list(statuses or ()),
                 system_id=system_id or None,
                 time_basis=time_basis,
                 start=start,
@@ -203,7 +206,8 @@ def aggregate_compat(
         until=until,
         metric=metric,
         kind=kind,
-        status=status,
+        all_statuses=statuses is None,
+        statuses=list(statuses or ()),
         system_id=system_id or None,
         bucket=bucket,
         time_basis=time_basis,
@@ -230,7 +234,7 @@ def aggregate_compat(
               count(*) FILTER (WHERE i.id IS NULL)
             FROM activities a LEFT JOIN skill_invocations i ON i.id = a.native_id
             WHERE a.workspace_id = :workspace AND a.kind = 'skill_invocation'
-              AND (:status IS NULL OR a.status = :status)
+              AND (:all_statuses OR a.status = ANY(CAST(:statuses AS text[])))
               AND (:system_id IS NULL OR a.system_id = :system_id)
               AND """
                 + _SELECTION
@@ -256,7 +260,7 @@ def aggregate_compat(
             SELECT DISTINCT a.snapshot ->> 'finished_at'
             FROM activities a WHERE a.workspace_id = :workspace
               AND (:kind IS NULL OR a.kind = :kind)
-              AND (:status IS NULL OR a.status = :status)
+              AND (:all_statuses OR a.status = ANY(CAST(:statuses AS text[])))
               AND (:system_id IS NULL OR a.system_id = :system_id)
               AND a.status = ANY(:terminal)
               AND a.finished_at IS NULL
@@ -313,7 +317,7 @@ def aggregate_compat(
         + """
       WHERE a.workspace_id = :workspace
         AND (:kind IS NULL OR a.kind = :kind)
-        AND (:status IS NULL OR a.status = :status)
+        AND (:all_statuses OR a.status = ANY(CAST(:statuses AS text[])))
         AND (:system_id IS NULL OR a.system_id = :system_id)
         AND """
         + _SELECTION
