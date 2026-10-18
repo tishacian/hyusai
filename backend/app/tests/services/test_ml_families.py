@@ -615,6 +615,11 @@ def test_the_family_image_app_registers_the_training_task_and_nothing_else():
             # celery_ml consumer may own (CELERY_ML_TABULAR_QUEUE).
             "agentium.ml_runtime_requalification",
             "agentium.ml_deep_predict",
+            # M5: TreeSHAP is answered by the ml-ts image on its RPC queue;
+            # production debugging goes, like requalification, to the tabular
+            # training queue, which a dedicated celery_ml consumer may own.
+            "agentium.ml_tree_shap",
+            "agentium.ml_production_debug",
             "agentium.hf_validate_adapter",
             "agentium.hf_adapter_prepare_failed",
             "agentium.hf_migrate_legacy",
