@@ -113,10 +113,12 @@ def test_connector_migrations_extend_the_single_head():
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "alembic"))
     script = ScriptDirectory.from_config(config)
-    head = "137_mlops_operations"
+    head = "139_mlops_prod_explanations"
     assert script.get_heads() == [head]
     assert len(head) <= 32
-    assert script.get_revision(head).down_revision == "136_mlops_correctness"
+    # M5 is chained after 137 on its branch; the integrator re-chains after 138.
+    assert script.get_revision(head).down_revision == "137_mlops_operations"
+    assert script.get_revision("137_mlops_operations").down_revision == "136_mlops_correctness"
     assert script.get_revision("136_mlops_correctness").down_revision == "135_mlops_governance"
     assert script.get_revision("135_mlops_governance").down_revision == "134_execution_control"
     assert script.get_revision("134_execution_control").down_revision == "133_activity_observability"

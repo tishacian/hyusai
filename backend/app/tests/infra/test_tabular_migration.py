@@ -49,6 +49,7 @@ CHAIN = (
     "135_mlops_governance",
     "136_mlops_correctness",
     "137_mlops_operations",
+    "139_mlops_prod_explanations",
 )
 # Revisions between two of the slice's that belong to other planes: the scratch
 # database only holds this slice's tables and their neighbours, so they are
@@ -77,7 +78,7 @@ PLANE_TABLES = (
     "ml_alerts",
     "ml_alert_deliveries",
     "ml_alert_sources",
-
+    "ml_production_explanations",
 )
 
 # The pre-slice tables the slice points at or reads from, reduced to the
@@ -616,3 +617,43 @@ def test_135_legacy_key_grace_and_guarded_downgrade(migrated):
         _alembic("downgrade", "134_execution_control")
     with migrated.connect() as connection:
         assert connection.exec_driver_sql("select expires_at from ml_model_api_keys where id='key-grace'").scalar_one() == expiry
+
+
+def test_139_reports_cascade_with_their_model_and_guard_their_downgrade(migrated):
+    """Reports are model-owned evidence; a downgrade must not silently drop them."""
+
+    inspector = inspect(migrated)
+    cascades = {
+        fk["referred_table"]: fk["options"].get("ondelete")
+        for fk in inspector.get_foreign_keys("ml_production_explanations")
+    }
+    assert cascades == {"ml_models": "CASCADE", "workspaces": "CASCADE"}
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("insert into workspaces (id) values ('ws-report')")
+        connection.exec_driver_sql(
+            """
+            insert into ml_models (id, workspace_id, name, slug, version, task, algo, target,
+                status, is_champion, created_at, updated_at)
+            values ('m-report','ws-report','Report','report',1,'classification','gb','y',
+                'ready',true,now(),now())
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            insert into ml_production_explanations (id, workspace_id, model_id, version, trigger,
+                status, labeled_count, used_count, excluded_json, metrics_json, report_json,
+                created_at)
+            values ('r-1','ws-report','m-report',1,'manual','completed',60,60,'{}','{}','{}',now())
+            """
+        )
+    with pytest.raises(AssertionError, match="ML_EXPLANATIONS_DOWNGRADE_NOT_EMPTY"):
+        _alembic("downgrade", "137_mlops_operations")
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("delete from ml_models where id = 'm-report'")
+        remaining = connection.exec_driver_sql(
+            "select count(*) from ml_production_explanations"
+        ).scalar_one()
+    assert remaining == 0
+    _alembic("downgrade", "137_mlops_operations")
+    assert "ml_production_explanations" not in inspect(migrated).get_table_names()
+    _alembic("upgrade", "139_mlops_prod_explanations")
