@@ -1,0 +1,103 @@
+{
+  "revision": "bb33ceba5250e69aa4c59109f91f981f5095d446",
+  "workspace": "agentium-showcase",
+  "profile": "restricted",
+  "checked_at": "2026-10-18T14:07:07.810Z",
+  "targets": [
+    {
+      "runId": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+      "invocationId": "27c0d226-8c21-4c88-a815-01ba38beecfc"
+    },
+    {
+      "runId": "666a0219-36a5-4dc2-871d-a92fe44575f2",
+      "invocationId": "937838f5-a3a8-4f8a-8b32-af2838b9185d"
+    }
+  ],
+  "completed": [
+    "27c0d226-8c21-4c88-a815-01ba38beecfc-1440-exact-native-view-and-reload",
+    "27c0d226-8c21-4c88-a815-01ba38beecfc-390-exact-native-view-and-reload",
+    "937838f5-a3a8-4f8a-8b32-af2838b9185d-1440-exact-native-view-and-reload",
+    "937838f5-a3a8-4f8a-8b32-af2838b9185d-390-exact-native-view-and-reload"
+  ],
+  "coverage": "Native invocation deep links and reload only; no open Flow navigation or transitions",
+  "principal_id": "db328a81-d8a6-4495-bc6b-63d8bdedbbd9",
+  "initial_features": {
+    "enabled": true,
+    "execution_view_enabled": false,
+    "activity_series_enabled": false,
+    "scopes": [
+      "workspace",
+      "system"
+    ],
+    "kinds": [
+      "run",
+      "skill_invocation",
+      "recipe_execution",
+      "compute_run",
+      "ml_training",
+      "workspace_job",
+      "service_window",
+      "delivery_receipt"
+    ],
+    "statuses": [
+      "pending",
+      "running",
+      "waiting",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "timed_out",
+      "lost",
+      "unknown"
+    ]
+  },
+  "resolved": [
+    {
+      "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+      "invocation_id": "27c0d226-8c21-4c88-a815-01ba38beecfc",
+      "workspace_slug": "agentium-showcase",
+      "projection_enabled": false,
+      "source": "run_audit"
+    },
+    {
+      "run_id": "666a0219-36a5-4dc2-871d-a92fe44575f2",
+      "invocation_id": "937838f5-a3a8-4f8a-8b32-af2838b9185d",
+      "workspace_slug": "agentium-showcase",
+      "projection_enabled": false,
+      "source": "run_audit"
+    }
+  ],
+  "final_features": {
+    "enabled": true,
+    "execution_view_enabled": false,
+    "activity_series_enabled": false,
+    "scopes": [
+      "workspace",
+      "system"
+    ],
+    "kinds": [
+      "run",
+      "skill_invocation",
+      "recipe_execution",
+      "compute_run",
+      "ml_training",
+      "workspace_job",
+      "service_window",
+      "delivery_receipt"
+    ],
+    "statuses": [
+      "pending",
+      "running",
+      "waiting",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "timed_out",
+      "lost",
+      "unknown"
+    ]
+  },
+  "accepted": true,
+  "blocked_business_writes": [],
+  "suppressed_navigation_audits": 8
+}
