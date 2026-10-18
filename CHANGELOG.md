@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-17 · Operations tiles read the exhaustive Run series
+
+- When activity series are open, the Operations tiles (runs, completed,
+  running, failed, p95 latency) come from the same exhaustive, permission-
+  filtered Run series as the chart below them, with the same period and anchor,
+  instead of the 200-run sample. "Running" keeps the overview's native set
+  (pending, running, human or debug wait, waiting sub-flows); the p95 is the
+  exact nearest rank over measured finished runs, and a missing duration stays
+  "—". Each tile opens Activities on the matching filter. Evaluation breaches
+  keep their own source. With series closed, the sampled tiles are unchanged.
+- The tiles never re-read the series on the overview's 5–15 s poll; they follow
+  the period, anchor and System only.
+- `check:ui-chrome` passes again. The global `.ck-input` from the connector
+  catalogue painted its focus as a box-shadow halo, the seventh in
+  `styles.scss` for a budget of six; focus now uses the global
+  `:focus-visible` outline. The auth shell budgets are ratcheted down
+  (violet 6 → 3, pill 6 → 5) as the guard asked.
+
 ## 2026-10-15 · Connector catalogue made visible, with brand logos
 
 - The Connectors page now shows the whole catalogue as one grid: 25 data

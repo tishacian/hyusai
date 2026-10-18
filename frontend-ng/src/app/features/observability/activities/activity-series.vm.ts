@@ -51,3 +51,31 @@ export function expenseChart(series: ActivitySeries, label: (basis: string) => s
     // Different currencies/bases are separate bars, never an apparent total.
   })) };
 }
+
+/** UTC bounds shared by the Operations tiles and the series chart (same anchor, same cutoff). */
+export function seriesRange(since: string, anchor: string, now = Date.now()): { from: string; until: string; bucket: 'hour' | 'day' } {
+  const until = new Date(anchor || now);
+  const hours = since === '24h' ? 24 : since === '30d' ? 720 : 168;
+  return { from: new Date(until.getTime() - hours * 3600000).toISOString(), until: until.toISOString(), bucket: hours > 168 ? 'day' : 'hour' };
+}
+
+/**
+ * Operations tiles from the exhaustive Run series (created basis): current state
+ * of the Runs created in the period. "Running" keeps the overview's native set
+ * (pending, running, hitl/debug pending, waiting subflows), i.e. the unified
+ * pending, running and waiting statuses. The p95 is the exact nearest rank over
+ * measured terminal Runs; absent durations stay absent.
+ */
+export function runTiles(series: ActivitySeries): { total: number; succeeded: number; running: number; failed: number; p95_ms: number | null; measured: number; eligible: number } {
+  const status = series.totals.by_status;
+  const durations = series.totals.durations['run'];
+  return {
+    total: series.totals.total,
+    succeeded: status['succeeded'] ?? 0,
+    running: (status['pending'] ?? 0) + (status['running'] ?? 0) + (status['waiting'] ?? 0),
+    failed: status['failed'] ?? 0,
+    p95_ms: durations?.p95_ms ?? null,
+    measured: durations?.measured_count ?? 0,
+    eligible: durations?.eligible_count ?? 0,
+  };
+}
