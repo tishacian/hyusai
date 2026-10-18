@@ -1,0 +1,90 @@
+[
+  {
+    "run_id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+    "http": 200,
+    "run": {
+      "id": "519ce4f9-583e-4d70-a4b7-c3229d1749d8",
+      "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+      "status": "failed",
+      "native_status": "failed",
+      "started_at": "2026-10-16T10:32:28.673616Z",
+      "finished_at": "2026-10-16T10:32:31.775661Z",
+      "flow_version_id": "0c18cb17-ee28-4cbc-acd8-aafb6bcce150",
+      "flow_sha256": "fad0507f94c836d392a5822c81aed47e482329b5f240398661c72c12b7944556",
+      "trigger": "manual"
+    },
+    "graph_node_count": 24,
+    "job_count": 9,
+    "coverage": {
+      "correlation": "partial",
+      "graph": "snapshot",
+      "timeline": "complete"
+    }
+  },
+  {
+    "run_id": "666a0219-36a5-4dc2-871d-a92fe44575f2",
+    "http": 200,
+    "run": {
+      "id": "666a0219-36a5-4dc2-871d-a92fe44575f2",
+      "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+      "status": "succeeded",
+      "native_status": "completed",
+      "started_at": "2026-10-06T22:13:21.564807Z",
+      "finished_at": "2026-10-06T22:22:03.319469Z",
+      "flow_version_id": "af9c97e6-3060-4f6f-ad1a-c062f781d867",
+      "flow_sha256": "2cc25fce82a3ba58b51944580ea35d977d9b70519681f3e6c8c9cf481d961554",
+      "trigger": "manual"
+    },
+    "graph_node_count": 13,
+    "job_count": 29,
+    "coverage": {
+      "correlation": "partial",
+      "graph": "snapshot",
+      "timeline": "complete"
+    }
+  },
+  {
+    "run_id": "30ec252a-7281-49c6-bcff-17dc9f614b9f",
+    "http": 200,
+    "run": {
+      "id": "30ec252a-7281-49c6-bcff-17dc9f614b9f",
+      "system_id": "bfae1c85-855a-4ed4-863a-f4cfa4fb0eec",
+      "status": "succeeded",
+      "native_status": "completed",
+      "started_at": "2026-10-09T09:51:25.433733Z",
+      "finished_at": "2026-10-09T09:51:54.665236Z",
+      "flow_version_id": "4c1d20d9-e8c2-4473-8c99-a19f4306ad41",
+      "flow_sha256": "8b8e604bec33e2540fced9b4f2c69eab6d23547a888f8ccf44f032b0a8f86e2c",
+      "trigger": "scheduler"
+    },
+    "graph_node_count": 6,
+    "job_count": 11,
+    "coverage": {
+      "correlation": "partial",
+      "graph": "snapshot",
+      "timeline": "partial"
+    }
+  },
+  {
+    "run_id": "c8e9d120-b76e-4405-8b5f-4e54be8ce5de",
+    "http": 200,
+    "run": {
+      "id": "c8e9d120-b76e-4405-8b5f-4e54be8ce5de",
+      "system_id": "28a35abd-b16a-4f05-8ede-057639796e62",
+      "status": "succeeded",
+      "native_status": "completed",
+      "started_at": "2026-10-05T20:32:17.638778Z",
+      "finished_at": "2026-10-05T20:32:33.550196Z",
+      "flow_version_id": null,
+      "flow_sha256": null,
+      "trigger": "chat"
+    },
+    "graph_node_count": 0,
+    "job_count": 4,
+    "coverage": {
+      "correlation": "partial",
+      "graph": "unavailable",
+      "timeline": "complete"
+    }
+  }
+]
