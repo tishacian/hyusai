@@ -295,7 +295,78 @@ pas un réglage : la recherche est combinatoire.
 
 ## Vérifications
 
-RESULTS_PLACEHOLDER
+Toutes les commandes partent de `backend/` ou `frontend-ng/` du worktree,
+avec le venv et les `node_modules` partagés (scikit-learn 1.9.0, skrub 0.11.0,
+skops 0.16.0, mlflow 3.15.2, shap 0.52.0 importable ; Node 22).
+
+**Backend**
+
+- **61 tests M5 réussis** : `test_ml_tree_explanations.py` (20),
+  `test_ml_counterfactuals.py` (17), `test_ml_production_debug.py` (21),
+  `test_ml_production_debug_schedule.py` (3). Modèles réels entraînés par le
+  harnais de production : HGB classifieur avec coupures catégorielles, forêt
+  avec champ texte (30 colonnes StringEncoder → une contribution), HGB
+  régresseur, HGB numérique comparé au lecteur natif de shap, régression
+  logistique pour le repli. Chemins de repli : image API sans `shap`
+  (simulée, puisque `shap` est importable dans le venv de test), worker sans
+  `shap`, aucun heartbeat ml-ts, délai dépassé, environnement incompatible,
+  refus explicite `shap` (409, aucun journal), méthode inconnue, défaut
+  inchangé ; confidentialité du journal. Contrefactuels : règles plantées
+  (ET et OU), minimalité, plage d'entraînement, budget, refus, admission
+  comptée une fois, droits HTTP. Débogage : zone d'erreur plantée dans les
+  réponses servies, biais de groupe et alerte unique par transition (drapeau
+  M3 actif) ou aucune (drapeau inactif), régression, exclusions, données
+  insuffisantes, isolement de version, plafond déterministe, fenêtre, raisons
+  de fairness absente, planification (limitation, idempotence, reprise d'un
+  envoi refusé), hook `monitor_cycle`, atomicité de l'audit, suppression avec
+  le modèle, historique borné, droits HTTP.
+- **Régression élargie en `-n 4` : 609 réussis, 71 ignorés** sur 24 fichiers
+  (service et API de prédiction, contrat d'artefact, gouvernance, runtime
+  deep, pack d'explication d'entraînement, alertes, réentraînement et reprise,
+  hooks de surveillance et d'opérations, justesse M2, registre, shadow réel,
+  exports, endpoints, catalogue de tête Alembic, migrations). Les 71 ignorés
+  sont les tests de migration qui exigent PostgreSQL, exécutés à part :
+- **73 tests de migration réussis sur PostgreSQL 16.2 réel** (pgserver, en
+  13 min 51 s) : chaîne ciblée 096 → 137 puis 139 pas à pas, comparaison
+  ORM/DDL de la nouvelle table (colonnes, nullabilité, index), cascade avec le
+  modèle et le workspace, refus du downgrade non vide puis downgrade et
+  ré-upgrade. Ce n'est pas un rejeu de tout l'historique Alembic.
+- Ruff : 0 constat sur les fichiers créés ; les fichiers existants touchés
+  gardent exactement leurs constats antérieurs (`ml_models.py` 34,
+  `config.py` 35, `models/__init__.py` 3, `router.py` 1,
+  `ml_explanation_extensions.py` 2, `conftest.py` 1, identiques à `d814837b`).
+  `ruff format` n'a été appliqué qu'aux fichiers nouveaux ou déjà formatés.
+- Non relancés : `test_ml_training.py` (harnais en sous-processus, sensible à
+  l'environnement local) ; le harnais n'est pas modifié et les suites M5
+  l'exécutent pour fabriquer leurs modèles.
+
+**Frontend**
+
+- **2 366 tests unitaires réussis** (dont 25 nouveaux : spécifications pures
+  des deux view-models et comportement des composants : pas de requête sans
+  champ, une seule recherche à la fois, réponses d'un autre workspace
+  ignorées, bouton d'analyse fermé sans `score`, relecture pendant l'analyse,
+  refus traduits en clés). TypeScript, `check:i18n` (12 914 clés) et
+  `check:nav-links` réussis sur l'état final.
+- `check:ui-chrome` reste rouge sur l'état préexistant de `src/styles.scss`
+  (7 halos, plafond 6) ; aucun constat ne vient de M5. Les plafonds ne sont
+  pas relevés.
+- **`build:prod` exécuté deux fois** au lieu d'une : le premier build a réussi,
+  puis les captures de l'E2E ont montré que l'arbre de production réutilisé
+  affichait « mesuré sur N lignes du test », ce qui est faux en production.
+  Après correction (`29203b97`), le second build, sur l'état final, réussit
+  avec 13 avertissements Angular, tous préexistants, aucun dans un fichier M5.
+- **E2E mocké** (Chrome, build de production servi localement) : nouveau
+  `53-models-production-explanations-mocked.spec.ts`, **6/6** en FR/sombre et
+  EN/clair (« En production », écart de fairness et arbre, lancement d'une
+  analyse, veille de fairness du Suivi, Play en `auto` avec barres TreeSHAP,
+  recherche contrefactuelle). Specs voisines relancées sur le même build :
+  `43` et `52` réussissent ; `33`, `34`, `37` et `44` donnent 18 réussites et
+  **11 échecs, identiques sur la base `d814837b`** reconstruite à part (mêmes
+  tests, mêmes signatures : bouton « Entraîner » introuvable sur la liste,
+  champ « Prédiction » du feedback désactivé faute de `permissions.feedback`
+  dans ces anciens doublons). Ils ne sont pas causés par M5 et ne sont pas
+  corrigés ici.
 
 ## Limites
 
