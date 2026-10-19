@@ -148,7 +148,60 @@ def test_child_created_after_parent_cancel_scan_never_starts(plane, kind):
     assert not db.query(ExecutionReservation).count()
 
 
-def test_ml_allocation_remains_occupied_until_registry_publication_returns(plane, monkeypatch):
+@pytest.mark.parametrize("terminal_status", ["ready", "failed", "cancelled"])
+def test_ml_allocation_remains_occupied_until_registry_publication_returns(
+    plane,
+    monkeypatch,
+    terminal_status,
+):
+    db, ws = plane
+    row = model(db, ws)
+    ml_lifecycle.register(db, row)
+    db.commit()
+    assert ml_lifecycle.start(db, row)
+    row.status = "training"
+    row.status_detail = "saving"
+    db.commit()
+    allocation = db.query(ExecutionReservation).one()
+    assert ml_lifecycle.begin_settlement(db, row, "ready", None) == ("ready", None)
+    assert allocation.released_at is None
+    after_upload = datetime.utcnow() + timedelta(seconds=45)
+
+    class Clock(datetime):
+        @classmethod
+        def utcnow(cls):
+            return after_upload
+
+    monkeypatch.setattr(ml_lifecycle, "datetime", Clock)
+    row.status = terminal_status
+    row.status_detail = None
+    row.error = None if terminal_status == "ready" else "harness stopped"
+    if terminal_status == "ready":
+        row.model_uri = "workspaces/test/ml/models/model"
+        row.metrics_json = {"primary": {"key": "roc_auc", "value": 0.91}}
+        row.runtime_json = {"fingerprint": "producer-runtime"}
+        row.trained_at = after_upload
+    assert ml_lifecycle.settle(db, row, terminal_status, row.error) == (
+        terminal_status,
+        row.error,
+    )
+    db.commit()
+    db.refresh(row)
+    assert row.status == terminal_status
+    assert row.status_detail is None
+    assert row.error == (None if terminal_status == "ready" else "harness stopped")
+    if terminal_status == "ready":
+        assert row.model_uri == "workspaces/test/ml/models/model"
+        assert row.metrics_json["primary"]["value"] == 0.91
+        assert row.runtime_json == {"fingerprint": "producer-runtime"}
+        assert row.trained_at == after_upload
+    db.refresh(allocation)
+    assert allocation.released_at == after_upload
+    assert allocation.allocated_core_hours >= 45 * allocation.cpu_cores / 3600
+
+
+@pytest.mark.parametrize("authority", ["cancelled", "lost", "deadline", "lease", "owner"])
+def test_ml_settlement_preserves_durable_fences_before_pending_success(plane, authority):
     db, ws = plane
     row = model(db, ws)
     ml_lifecycle.register(db, row)
@@ -156,21 +209,46 @@ def test_ml_allocation_remains_occupied_until_registry_publication_returns(plane
     assert ml_lifecycle.start(db, row)
     row.status = "training"
     db.commit()
-    allocation = db.query(ExecutionReservation).one()
-    assert ml_lifecycle.begin_settlement(db, row, "ready", None) == ("ready", None)
-    assert allocation.released_at is None
-    after_upload = datetime.utcnow()+timedelta(seconds=45)
-    class Clock(datetime):
-        @classmethod
-        def utcnow(cls):
-            return after_upload
-    monkeypatch.setattr(ml_lifecycle, "datetime", Clock)
-    row.status = "ready"
-    assert ml_lifecycle.settle(db, row, "ready", None) == ("ready", None)
+    token = row._native_lease_token
+    # A competing cancellation/watchdog update reaches the database before the
+    # worker settles. The worker still holds a pending success in its ORM state.
+    with SessionLocal() as other:
+        native = other.get(MLModel, row.id)
+        if authority == "cancelled":
+            native.cancel_requested = True
+        elif authority == "lost":
+            native.status, native.error = "failed", "EXECUTION_WORKER_LOST"
+        elif authority == "deadline":
+            native.deadline_at = datetime.utcnow() - timedelta(seconds=1)
+        elif authority == "lease":
+            native.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        else:
+            native.lease_token = "another-owner"
+        other.commit()
+    row.status, row.error = "ready", None
+    row.model_uri = "must-not-become-ready"
+    if authority == "owner":
+        with pytest.raises(admission.AdmissionError, match="EXECUTION_LEASE_LOST"):
+            ml_lifecycle.settle(db, row, "ready", None)
+        db.rollback()
+        db.refresh(row)
+        assert row.model_uri is None and row.status == "training"
+        assert db.query(ExecutionReservation).one().released_at is None
+        return
+    expected = (
+        ("cancelled", "EXECUTION_CANCELLED")
+        if authority == "cancelled"
+        else ("failed", "EXECUTION_WORKER_LOST")
+        if authority == "lost"
+        else ("failed", "EXECUTION_DEADLINE_EXCEEDED")
+    )
+    assert ml_lifecycle.settle(db, row, "ready", None) == expected
+    row.status, row.error = expected
     db.commit()
-    db.refresh(allocation)
-    assert allocation.released_at == after_upload
-    assert allocation.allocated_core_hours >= 45 * allocation.cpu_cores / 3600
+    db.refresh(row)
+    assert (row.status, row.error) == expected
+    allocation = db.query(ExecutionReservation).one()
+    assert allocation.lease_token == token and allocation.released_at is not None
 
 
 def test_blocking_io_keeps_lease_and_cancel_prevents_publication(plane):
