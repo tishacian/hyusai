@@ -223,6 +223,7 @@ export const RESOURCES_FR = {
 
   "connectors.pg.subtitle": "Explorer les données de {name} et préparer un dataset pour DataOps.",
   "connectors.pg.open": "Explorer PostgreSQL",
+  "connectors.pg.contact_admin": "Contactez un administrateur du workspace pour rétablir la connexion, puis réessayez.",
   "connectors.pg.loading": "Chargement de la connexion…",
   "connectors.pg.admin_required": "Un administrateur du workspace peut tester la connexion et explorer les données.",
   "connectors.pg.connection": "Connexion",
@@ -276,6 +277,7 @@ export const RESOURCES_FR = {
   "connectors.pg.imported": "{rows} lignes · {columns} colonnes. La version est prête dans DataOps.",
   "connectors.pg.open_dataset": "Ouvrir le dataset",
   "connectors.pg.error.PG_NOT_CONFIGURED": "Enregistrez une connexion complète avant d’explorer la base.",
+  "connectors.pg.error.PG_SCHEMA_NOT_LOADED": "Les tables nécessaires ne sont pas disponibles dans cette base PostgreSQL. Un administrateur doit vérifier la base configurée et la préparation des données.",
   "connectors.pg.error.PG_PERMISSION_DENIED": "Le compte PostgreSQL ne dispose pas des droits de lecture nécessaires.",
   "connectors.pg.error.PG_TIMEOUT": "La lecture a dépassé le délai autorisé. Réessayez ou choisissez une table plus petite.",
   "connectors.pg.error.PG_SOURCE_CHANGED": "La connexion ou le schéma a changé. Relancez l’exploration et vérifiez l’aperçu.",
@@ -1268,6 +1270,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
 
   "connectors.pg.subtitle": "Explore data in {name} and prepare a dataset for DataOps.",
   "connectors.pg.open": "Explore PostgreSQL",
+  "connectors.pg.contact_admin": "Contact a workspace administrator to restore the connection, then retry.",
   "connectors.pg.loading": "Loading the connection…",
   "connectors.pg.admin_required": "A workspace administrator can test the connection and explore data.",
   "connectors.pg.connection": "Connection",
@@ -1321,6 +1324,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   "connectors.pg.imported": "{rows} rows · {columns} columns. The version is ready in DataOps.",
   "connectors.pg.open_dataset": "Open dataset",
   "connectors.pg.error.PG_NOT_CONFIGURED": "Save a complete connection before exploring the database.",
+  "connectors.pg.error.PG_SCHEMA_NOT_LOADED": "The required tables are unavailable in this PostgreSQL database. An administrator must check the configured database and data preparation.",
   "connectors.pg.error.PG_PERMISSION_DENIED": "The PostgreSQL account lacks the required read permissions.",
   "connectors.pg.error.PG_TIMEOUT": "The read exceeded its time limit. Try again or choose a smaller table.",
   "connectors.pg.error.PG_SOURCE_CHANGED": "The connection or schema changed. Explore again and check the preview.",

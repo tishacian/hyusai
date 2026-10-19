@@ -6,8 +6,17 @@ export interface PgDescription { schema: string; table: string; columns: PgColum
 export interface PgPreview { schema: PgColumn[]; rows: TabularRow[]; row_count: number; has_more: boolean; captured_at: string; ordered_by: string[]; }
 export interface PgCatalog { tables: PgTable[]; checked_at: string; datasets_enabled: boolean; limits: { import_rows: number }; }
 
-/** Closed codes the explorer API returns; anything else reads as unavailable. */
+/** Older PostgreSQL readers use these codes for the same closed diagnostics. */
+const PG_ERROR_ALIASES: Readonly<Record<string, string>> = {
+  POSTGRESQL_READ_UNAVAILABLE: 'PG_UNAVAILABLE',
+  POSTGRESQL_PERMISSION_DENIED: 'PG_PERMISSION_DENIED',
+  POSTGRESQL_READ_TIMEOUT: 'PG_TIMEOUT',
+  POSTGRESQL_SCHEMA_NOT_LOADED: 'PG_SCHEMA_NOT_LOADED',
+};
+
+/** Closed codes the PostgreSQL APIs return; anything else reads as unavailable. */
 export const PG_ERROR_CODES: ReadonlySet<string> = new Set([
+  ...Object.keys(PG_ERROR_ALIASES), 'PG_SCHEMA_NOT_LOADED',
   'PG_NOT_CONFIGURED', 'PG_PERMISSION_DENIED', 'PG_TIMEOUT', 'PG_SOURCE_CHANGED', 'PG_UNAVAILABLE',
   'PG_QUERY_FAILED', 'PG_TABLE_NOT_ACCESSIBLE', 'PG_CATALOG_TOO_LARGE', 'PG_TOO_MANY_COLUMNS',
   'PG_SELECTION_INVALID', 'PG_RESULT_TOO_LARGE', 'PG_IMPORT_ROW_LIMIT', 'PG_UNSUPPORTED_VALUE',
@@ -27,19 +36,22 @@ export interface PgFailure {
 
 export interface PgTestResult { status: string; checked_at: string; detail?: unknown; }
 
+function pgErrorCode(code: unknown): string | null {
+  return typeof code === 'string' && PG_ERROR_CODES.has(code) ? PG_ERROR_ALIASES[code] ?? code : null;
+}
+
 /** Test failures are HTTP 200 outcomes; accept only the same closed diagnostics. */
 export function pgTestFailure(result: PgTestResult): PgFailure | null {
   if (result.status === 'connected') return null;
-  const code = typeof result.detail === 'string' && PG_ERROR_CODES.has(result.detail) ? result.detail
-    : result.status === 'auth_failed' ? 'PG_AUTH_FAILED'
-    : result.status === 'not_configured' ? 'PG_NOT_CONFIGURED' : 'PG_UNAVAILABLE';
+  const code = pgErrorCode(result.detail) ?? (result.status === 'auth_failed' ? 'PG_AUTH_FAILED'
+    : result.status === 'not_configured' ? 'PG_NOT_CONFIGURED' : 'PG_UNAVAILABLE');
   return { code, sqlstate: null };
 }
 
 export function pgFailure(error: unknown): PgFailure {
   // Duck-typed on HttpErrorResponse's shape so this file stays free of Angular.
   const detail = typeof error === 'object' && error ? (error as { error?: { detail?: { code?: unknown; sqlstate?: unknown } } }).error?.detail : undefined;
-  const code = typeof detail?.code === 'string' && PG_ERROR_CODES.has(detail.code) ? detail.code : 'PG_UNAVAILABLE';
+  const code = pgErrorCode(detail?.code) ?? 'PG_UNAVAILABLE';
   const sqlstate = typeof detail?.sqlstate === 'string' && /^[0-9A-Z]{5}$/.test(detail.sqlstate) ? detail.sqlstate : null;
   return { code, sqlstate };
 }
