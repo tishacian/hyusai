@@ -42,6 +42,7 @@
         <div class="pg-endpoint-id">
           <strong>{{ config()?.values?.['database'] }}</strong>
           <p class="ck-mono">{{ config()?.values?.['host'] }}:{{ config()?.values?.['port'] || '5432' }} · {{ config()?.values?.['username'] }}</p>
+          <p data-testid="pg-encryption-state">{{ i18n.t('connectors.pg.encryption') }} · {{ i18n.t(savedSslMode() === 'disable' ? 'connectors.pg.encryption_none' : savedSslMode() === 'verify-full' ? 'connectors.pg.encryption_tls' : 'connectors.pg.encryption_invalid') }}</p>
         </div>
         <span class="pg-readonly"><app-icon name="shield" [size]="13" /> {{ i18n.t('connectors.pg.read_only') }}</span>
         <div class="pg-endpoint-actions">
@@ -65,9 +66,16 @@
           <input name="pg-database" [(ngModel)]="database" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" required autocomplete="off" /></label>
         <label><span>{{ i18n.t('connectors.pg.username') }}</span>
           <input name="pg-username" [(ngModel)]="username" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" required autocomplete="off" /></label>
-        <label class="pg-wide"><span>{{ i18n.t('connectors.pg.password') }}</span>
+        <label><span>{{ i18n.t('connectors.pg.password') }}</span>
           <input name="pg-password" type="password" [(ngModel)]="password" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" autocomplete="new-password" [attr.aria-label]="i18n.t('connectors.pg.password')" aria-describedby="pg-password-help" />
           <small id="pg-password-help" class="pg-note">{{ i18n.t(config()?.secrets_set?.['password'] ? 'connectors.pg.password_keep' : 'connectors.pg.password_help') }}</small></label>
+        <label><span>{{ i18n.t('connectors.pg.encryption') }}</span>
+          <select name="pg-sslmode" [(ngModel)]="sslmode" (ngModelChange)="edited()" [disabled]="busy() || !canConfigure()" [attr.aria-label]="i18n.t('connectors.pg.encryption')" [attr.aria-describedby]="sslmode === 'disable' ? 'pg-encryption-help' : null" required>
+            <option value="verify-full">{{ i18n.t('connectors.pg.encryption_tls_recommended') }}</option>
+            <option value="disable">{{ i18n.t('connectors.pg.encryption_none') }}</option>
+          </select>
+          @if (sslmode === 'disable') { <small id="pg-encryption-help" class="pg-note">{{ i18n.t('connectors.pg.encryption_none_help') }}</small> }
+        </label>
         <div class="pg-actions pg-wide">
           <button class="ck-btn ck-btn-accent" type="submit" [disabled]="!canSave()">{{ i18n.t(saving() ? 'connectors.pg.saving' : 'connectors.pg.save') }}</button>
           @if (config()?.configured) { <button class="ck-btn ck-btn-quiet" type="button" (click)="cancelEdit()" [disabled]="busy()">{{ i18n.t('connectors.pg.cancel') }}</button> }

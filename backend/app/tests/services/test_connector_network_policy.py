@@ -85,13 +85,19 @@ def test_postgresql_pins_ip_and_verifies_original_hostname(monkeypatch):
 
 
 @pytest.mark.parametrize("consumer", ["test", "browser", "claims"])
-def test_every_postgresql_entrypoint_refuses_before_driver(monkeypatch, consumer):
+@pytest.mark.parametrize("sslmode", ["verify-full", "disable"])
+def test_every_postgresql_entrypoint_refuses_before_driver(monkeypatch, consumer, sslmode):
     import psycopg2
 
     dns(monkeypatch, PUBLIC, "169.254.169.254")
     monkeypatch.setattr(psycopg2, "connect", lambda **kw: pytest.fail("driver must not run"))
     config = {
-        "values": {"host": "db.example.test", "database": "db", "username": "reader"},
+        "values": {
+            "host": "db.example.test",
+            "database": "db",
+            "username": "reader",
+            "sslmode": sslmode,
+        },
         "secrets": {"password": SECRET},
     }
     if consumer == "test":
@@ -113,7 +119,10 @@ def test_every_postgresql_entrypoint_refuses_before_driver(monkeypatch, consumer
 
 
 @pytest.mark.parametrize("consumer", ["test", "browser", "claims"])
-def test_every_postgresql_entrypoint_pins_and_requires_tls(monkeypatch, consumer):
+@pytest.mark.parametrize("sslmode", [None, "verify-full", "disable"])
+def test_every_postgresql_entrypoint_pins_and_honours_explicit_transport(
+    monkeypatch, consumer, sslmode
+):
     import psycopg2
 
     dns(monkeypatch, PUBLIC)
@@ -128,6 +137,8 @@ def test_every_postgresql_entrypoint_pins_and_requires_tls(monkeypatch, consumer
         "values": {"host": "db.example.test", "database": "db", "username": "reader"},
         "secrets": {"password": SECRET},
     }
+    if sslmode is not None:
+        config["values"]["sslmode"] = sslmode
     if consumer == "test":
         assert service._test_postgresql(config["values"], config["secrets"]) == (
             "unreachable",
@@ -144,7 +155,54 @@ def test_every_postgresql_entrypoint_pins_and_requires_tls(monkeypatch, consumer
             postgresql_claims._read(None, (), {})
     assert captured[0]["host"] == "db.example.test"
     assert captured[0]["hostaddr"] == PUBLIC
-    assert captured[0]["sslmode"] == "verify-full"
+    assert captured[0]["sslmode"] == (sslmode or "verify-full")
+    assert len(captured) == 1
+
+
+@pytest.mark.parametrize(
+    "invalid", ["prefer", "require", "allow", "verify-ca", "", None, False, 0, {}, " disable"]
+)
+def test_invalid_postgresql_transport_is_refused_before_dns(monkeypatch, invalid):
+    monkeypatch.setattr(
+        policy.socket, "getaddrinfo", lambda *a, **k: pytest.fail("no DNS for invalid transport")
+    )
+    with pytest.raises(policy.ConnectorNetworkError, match="^PG_SSLMODE_INVALID$"):
+        policy.postgresql_connection_options("db.example.test", 5432, sslmode=invalid)
+
+
+@pytest.mark.parametrize("consumer", ["test", "browser", "claims"])
+def test_postgresql_tls_failure_does_not_retry_without_tls(monkeypatch, consumer):
+    import psycopg2
+
+    dns(monkeypatch, PUBLIC)
+    attempted = []
+
+    def refuse(**options):
+        attempted.append(options["sslmode"])
+        raise psycopg2.OperationalError(
+            "server does not support SSL, but SSL was required " + SECRET
+        )
+
+    monkeypatch.setattr(psycopg2, "connect", refuse)
+    config = {
+        "values": {"host": "db.example.test", "database": "db", "username": "reader"},
+        "secrets": {"password": SECRET},
+    }
+    if consumer == "test":
+        assert service._test_postgresql(config["values"], config["secrets"]) == (
+            "error",
+            "PG_TLS_UNAVAILABLE",
+        )
+    elif consumer == "browser":
+        monkeypatch.setattr(postgresql_browser, "get_config", lambda *a, **k: config)
+        with pytest.raises(postgresql_browser.PostgresBrowseError, match="^PG_TLS_UNAVAILABLE$"):
+            with postgresql_browser._connection(None):
+                pytest.fail("TLS must not fall back")
+    else:
+        monkeypatch.setattr(postgresql_claims, "get_config", lambda *a, **k: config)
+        with pytest.raises(postgresql_claims.ClaimReadError, match="^PG_TLS_UNAVAILABLE$"):
+            postgresql_claims._read(None, (), {})
+    assert attempted == ["verify-full"]
 
 
 def test_http_pinning_preserves_host_and_sni_without_second_dns(monkeypatch):

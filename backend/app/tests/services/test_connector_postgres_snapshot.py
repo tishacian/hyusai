@@ -26,7 +26,7 @@ def test_postgres_repeatable_read_holds_one_snapshot_across_partition_queries(mo
     monkeypatch.setattr(
         sql,
         "postgresql_connection_options",
-        lambda *a: {"host": "probe", "hostaddr": "127.0.0.1", "sslmode": "verify-full"},
+        lambda *a, **kw: {"host": "probe", "hostaddr": "127.0.0.1", "sslmode": "verify-full"},
     )
     monkeypatch.setattr(psycopg2, "connect", lambda **kwargs: connect(dsn))
     try:

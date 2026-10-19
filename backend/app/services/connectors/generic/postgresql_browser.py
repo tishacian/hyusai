@@ -27,6 +27,7 @@ from app.services.connectors.legacy_network import network_scope
 from app.services.connectors.network_policy import (
     ConnectorNetworkError,
     postgresql_connection_options,
+    validate_postgresql_sslmode,
 )
 from app.services.connectors.postgresql_diagnostics import diagnose
 
@@ -85,7 +86,9 @@ def _connection(workspace):
             raise PostgresBrowseError("PG_NOT_CONFIGURED", 409)
         with network_scope(config):
             connection = psycopg2.connect(
-                **postgresql_connection_options(values["host"], port),
+                **postgresql_connection_options(
+                    values["host"], port, sslmode=values.get("sslmode", "verify-full")
+                ),
                 dbname=values["database"],
                 user=values["username"],
                 password=secrets["password"],
@@ -225,9 +228,13 @@ def _describe(connection, config, schema: str, table: str) -> dict[str, Any]:
         raise PostgresBrowseError("PG_TOO_MANY_COLUMNS")
     # The public fingerprint binds the source identity, never a password or a
     # password-derived digest that could enable offline credential guessing.
-    fingerprint = _hash(
-        {"columns": raw, "schema": schema, "table": table, "connection": config["values"]}
-    )
+    identity = dict(config["values"])
+    sslmode = validate_postgresql_sslmode(identity.get("sslmode", "verify-full"))
+    if sslmode == "verify-full":
+        # Preserve historical secure-source fingerprints: omission and the
+        # explicit secure default identify the same transport.
+        identity.pop("sslmode", None)
+    fingerprint = _hash({"columns": raw, "schema": schema, "table": table, "connection": identity})
     columns = [
         {
             **row,
@@ -402,6 +409,7 @@ def read(
         "fingerprint": fingerprint,
         "snapshot_sha256": _hash(json_rows),
         "database": config["values"]["database"],
+        "sslmode": config["values"].get("sslmode", "verify-full"),
     }
 
 
@@ -478,6 +486,7 @@ def import_dataset(db, workspace, user, *, name: str, request_id: str, **selecti
             "request_hash": request_hash,
             "postgresql": {
                 "database": result["database"],
+                "sslmode": result["sslmode"],
                 "schema": selection["schema"],
                 "table": selection["table"],
                 "columns": selection["columns"],

@@ -99,7 +99,13 @@ def _connection(
             import psycopg2
 
             connection = psycopg2.connect(
-                **postgresql_connection_options(config["host"], config.get("port", 5432)),
+                **postgresql_connection_options(
+                    config["host"],
+                    config.get("port", 5432),
+                    sslmode=config.get("sslmode", "verify-full")
+                    if dialect == "postgresql"
+                    else "verify-full",
+                ),
                 dbname=config["database"],
                 user=config["username"],
                 password=credentials.get("password", ""),

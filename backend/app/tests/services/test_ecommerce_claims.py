@@ -191,7 +191,7 @@ def test_claim_connection_refusals_expose_only_closed_diagnostics(
             "secrets": {"password": private_detail},
         },
     )
-    monkeypatch.setattr(pg, "postgresql_connection_options", lambda *a: {})
+    monkeypatch.setattr(pg, "postgresql_connection_options", lambda *a, **kw: {})
 
     def connect(**kwargs):
         raise DriverFailure(f"{driver_message}: {private_detail}")
@@ -237,7 +237,7 @@ def test_claim_query_diagnostics_keep_legacy_codes_and_close_the_connection(
             "secrets": {"password": "private"},
         },
     )
-    monkeypatch.setattr(pg, "postgresql_connection_options", lambda *a: {})
+    monkeypatch.setattr(pg, "postgresql_connection_options", lambda *a, **kw: {})
     connection = MagicMock()
     cursor = connection.cursor.return_value.__enter__.return_value
     cursor.execute.side_effect = DriverFailure("PRIVATE_SQL_AND_DRIVER_MESSAGE")
@@ -656,7 +656,8 @@ def connector_test_dns(monkeypatch):
     from app.services.connectors import network_policy
 
     monkeypatch.setattr(
-        network_policy.socket, "getaddrinfo",
+        network_policy.socket,
+        "getaddrinfo",
         lambda host, port, **kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
         ],

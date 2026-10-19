@@ -138,7 +138,10 @@ def test_profiles_are_strict_and_not_qualification():
         {"port": 0},
         {"host": "https://db.test"},
         {"password": PLAIN},
-        {"sslmode": "disable"},
+        {"sslmode": "prefer"},
+        {"sslmode": "require"},
+        {"sslmode": "verify-ca"},
+        {"sslmode": True},
         {"on_connect": "SELECT 1"},
     ],
 )
@@ -146,6 +149,15 @@ def test_profile_refuses_coercion_unsafe_values_and_secrets(overrides):
     values = {"host": "db.example.test", "database": "erp", "username": "reader"} | overrides
     with pytest.raises(ProfileError):
         get_profile("postgresql").validate_values(values, {"password": "secret://workspace/pg"})
+
+
+def test_postgresql_profile_requires_an_explicit_unencrypted_choice():
+    profile = get_profile("postgresql")
+    values = {"host": "db.example.test", "database": "erp", "username": "reader"}
+    refs = {"password": "secret://workspace/pg"}
+    assert profile.validate_values(values, refs)["sslmode"] == "verify-full"
+    assert profile.validate_values(values | {"sslmode": "disable"}, refs)["sslmode"] == "disable"
+    assert not next(p for p in profile.parameters if p.key == "sslmode").advanced
 
 
 def test_registry_mandatory_even_for_demo(db_session, setup, monkeypatch):
@@ -407,6 +419,25 @@ def test_connection_api_flag_permission_validation_and_tenant_isolation(
     assert admin.get(f"/connections/{row_id}").status_code == 404
 
 
+def test_only_admin_can_change_postgresql_transport_and_old_test_is_invalidated(db_session, setup):
+    row = create(db_session, setup)
+    row.last_test = {"status": "succeeded"}
+    db_session.commit()
+    payload = {"revision": row.revision, "values": {**row.values, "sslmode": "disable"}}
+    member = client(db_session, setup, 1)
+    assert member.put(f"/connections/{row.id}", json=payload).status_code == 403
+    db_session.refresh(row)
+    assert row.values["sslmode"] == "verify-full" and row.last_test is not None
+    response = client(db_session, setup).put(f"/connections/{row.id}", json=payload)
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved["values"]["sslmode"] == "disable"
+    assert saved["revision"] == payload["revision"] + 1
+    assert saved["last_test"] is None
+    assert PLAIN not in response.text
+    assert db_session.query(AuditLog).filter_by(event_type="connection.updated").count() == 1
+
+
 def test_dispatch_commits_only_public_run_and_returns_pending_handle(
     db_session, setup, monkeypatch
 ):
@@ -440,8 +471,9 @@ def test_dispatch_commits_only_public_run_and_returns_pending_handle(
     assert compute_runs.get_run(db_session, setup[0].id, result["id"]).cancel_requested
 
 
+@pytest.mark.parametrize("sslmode", [None, "disable"])
 def test_legacy_dry_run_never_decrypts_or_writes_and_apply_is_idempotent(
-    db_session, setup, monkeypatch
+    db_session, setup, monkeypatch, sslmode
 ):
     from app.services.connectors.generic import service as legacy
 
@@ -450,7 +482,10 @@ def test_legacy_dry_run_never_decrypts_or_writes_and_apply_is_idempotent(
         db_session,
         ws,
         "postgresql",
-        {"host": "legacy.example.test", "database": "erp", "username": "reader", "password": PLAIN},
+        {
+            "host": "legacy.example.test", "database": "erp", "username": "reader", "password": PLAIN,
+            **({"sslmode": sslmode} if sslmode is not None else {}),
+        },
         actor=setup[2][0].id,
     )
     original_settings = copy.deepcopy(ws.settings)
@@ -464,6 +499,7 @@ def test_legacy_dry_run_never_decrypts_or_writes_and_apply_is_idempotent(
     assert migrate_workspace(db_session, ws.id, apply=True)[0]["action"] == "migrated"
     assert migrate_workspace(db_session, ws.id, apply=True)[0]["action"] == "already_migrated"
     assert db_session.query(ConnectorConnection).count() == 1
+    assert db_session.query(ConnectorConnection).one().values["sslmode"] == (sslmode or "verify-full")
     db_session.refresh(ws)
     assert ws.settings == original_settings
     assert (

@@ -54,9 +54,9 @@ def test_connection_diagnostics_are_closed_and_shared_by_test_and_explorer(
     # No external DNS/DB in classification tests; network policy has its own
     # entrypoint tests and remains mandatory in production.
     monkeypatch.setattr(
-        "app.services.connectors.network_policy.postgresql_connection_options", lambda *a: {}
+        "app.services.connectors.network_policy.postgresql_connection_options", lambda *a, **kw: {}
     )
-    monkeypatch.setattr(browser, "postgresql_connection_options", lambda *a: {})
+    monkeypatch.setattr(browser, "postgresql_connection_options", lambda *a, **kw: {})
     monkeypatch.setattr(browser, "get_config", lambda *a, **kw: config)
     outcome, detail = service._test_postgresql(config["values"], config["secrets"])
     if code == "PG_AUTH_FAILED":
@@ -95,7 +95,7 @@ def test_query_errors_are_not_misreported_as_connection_failures_and_close(monke
     connection.cursor.return_value.__enter__.return_value.execute.side_effect = TimedOut(SENSITIVE)
     monkeypatch.setattr(psycopg2, "connect", lambda **kw: connection)
     monkeypatch.setattr(
-        "app.services.connectors.network_policy.postgresql_connection_options", lambda *a: {}
+        "app.services.connectors.network_policy.postgresql_connection_options", lambda *a, **kw: {}
     )
     outcome = service._test_postgresql(
         {"host": "database.example.test", "database": "db", "username": "reader"},

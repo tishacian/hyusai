@@ -15,7 +15,9 @@ from psycopg2 import sql
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import tabular_datasets
+from app.services.connectors import network_policy
 from app.services.connectors.generic import postgresql_browser as browser
+from app.services.connectors.generic import postgresql_claims, service
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_POSTGRESQL_BROWSER_INTEGRATION") != "1",
@@ -25,6 +27,13 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture()
 def postgres(monkeypatch):
+    # This fixture owns the loopback endpoint. The production destination guard
+    # remains enforced in the dedicated transport tests, including disable.
+    def local_destination(host, port):
+        assert host == "127.0.0.1" and port == 55432
+        return network_policy.Destination(host, host, port)
+
+    monkeypatch.setattr(network_policy, "resolve_destination", local_destination)
     admin = psycopg2.connect(
         host="127.0.0.1",
         port=55432,
@@ -76,6 +85,7 @@ def postgres(monkeypatch):
             "port": "55432",
             "database": "agentium_pg_browser_test",
             "username": role,
+            "sslmode": "disable",
         },
         "secrets": {"password": "isolated-test"},
     }
@@ -98,6 +108,36 @@ def selection(schema):
         "columns": ["id", "amount", "facts", "at"],
         "fingerprint": metadata["fingerprint"],
     }
+
+
+def test_real_plain_endpoint_requires_explicit_opt_in_for_every_reader(postgres, monkeypatch):
+    schema, _, admin = postgres
+    with admin.cursor() as cursor:
+        cursor.execute("SHOW ssl")
+        assert cursor.fetchone()[0] == "off", "this test requires the owned server without TLS"
+    with browser._connection(object()) as (_, config):
+        pass
+    monkeypatch.setattr(postgresql_claims, "get_config", lambda *a, **kw: config)
+    monkeypatch.setitem(postgresql_claims.QUERIES, "transport_test", "SELECT 1 AS checked")
+    for mode in (None, "verify-full"):
+        if mode is None:
+            config["values"].pop("sslmode")
+        else:
+            config["values"]["sslmode"] = mode
+        assert service.test_connection("postgresql", config)["detail"] == "PG_TLS_UNAVAILABLE"
+        with pytest.raises(browser.PostgresBrowseError, match="^PG_TLS_UNAVAILABLE$"):
+            browser.catalog(object())
+        with pytest.raises(postgresql_claims.ClaimReadError, match="^PG_TLS_UNAVAILABLE$"):
+            postgresql_claims._read(None, ("transport_test",), {})
+    config["values"]["sslmode"] = "disable"
+    assert service.test_connection("postgresql", config)["status"] == "connected"
+    assert any(table["schema"] == schema for table in browser.catalog(object())["tables"])
+    assert browser.read(object(), **selection(schema), limit=25)["row_count"] == 2
+    result = postgresql_claims._read(None, ("transport_test",), {})
+    assert result["data"] == {"transport_test": [{"checked": 1}]}
+    assert result["provenance"]["sslmode"] == "disable"
+    with browser._connection(object()) as (connection, _):
+        assert connection.info.ssl_in_use is False
 
 
 def test_real_catalog_role_permissions_quoted_queries_and_exact_preview(postgres):
@@ -176,9 +216,9 @@ def test_real_source_snapshot_becomes_native_dataset_and_survives_source_changes
             )
         )
         cursor.execute(sql.SQL("DELETE FROM {}.claims").format(sql.Identifier(schema)))
-    assert (
-        tabular_datasets.read_frame(dataset).height == 2
-    ), "the native snapshot is independent of the live table"
+    assert tabular_datasets.read_frame(dataset).height == 2, (
+        "the native snapshot is independent of the live table"
+    )
     with pytest.raises(browser.PostgresBrowseError) as error:
         browser.read(object(), **selected, limit=25)
     assert error.value.code == "PG_SOURCE_CHANGED"

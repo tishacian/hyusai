@@ -126,7 +126,11 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
             raise ClaimReadError("POSTGRESQL_NOT_CONFIGURED", 409)
         with network_scope(config):
             connection = psycopg2.connect(
-                **postgresql_connection_options(values["host"], int(values.get("port") or 5432)),
+                **postgresql_connection_options(
+                    values["host"],
+                    int(values.get("port") or 5432),
+                    sslmode=values.get("sslmode", "verify-full"),
+                ),
                 dbname=values["database"],
                 user=values["username"],
                 password=secrets["password"],
@@ -157,6 +161,7 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
                 "source": "postgresql",
                 "connector_id": "postgresql",
                 "read_mode": "live",
+                "sslmode": values.get("sslmode", "verify-full"),
                 "isolation": "repeatable_read",
                 "captured_at": datetime.now(UTC).isoformat(),
                 "snapshot_sha256": digest(results),

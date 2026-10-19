@@ -125,11 +125,21 @@ def resolve_destination(
     return Destination(host, str(addresses[0]), port)
 
 
-def postgresql_connection_options(host: str, port: int) -> dict[str, object]:
+def validate_postgresql_sslmode(value: object) -> str:
+    """A transport choice is explicit; no opportunistic TLS or downgrade."""
+    if not isinstance(value, str) or value not in {"verify-full", "disable"}:
+        raise ConnectorNetworkError("PG_SSLMODE_INVALID")
+    return value
+
+
+def postgresql_connection_options(
+    host: str, port: int, *, sslmode: str = "verify-full"
+) -> dict[str, object]:
+    sslmode = validate_postgresql_sslmode(sslmode)
     destination = resolve_destination(host, port)
     return {
         "host": destination.host,
         "hostaddr": destination.address,
         "port": destination.port,
-        "sslmode": "verify-full",
+        "sslmode": sslmode,
     }

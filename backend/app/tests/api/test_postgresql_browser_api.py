@@ -213,6 +213,36 @@ def test_projection_must_match_discovered_columns_and_schema(setup):
     assert changed.status_code == 409 and changed.json()["detail"]["code"] == "PG_SOURCE_CHANGED"
 
 
+def test_transport_change_invalidates_selection_but_not_identical_snapshot_content(
+    setup, monkeypatch
+):
+    client, connection, _, _ = setup
+    c = client()
+    original = selection(c)
+    before = c.post("/postgresql/preview", json=original).json()
+    assert before["sslmode"] == "verify-full"
+    monkeypatch.setitem(CONFIG["values"], "sslmode", "verify-full")
+    assert selection(c)["fingerprint"] == original["fingerprint"]
+    monkeypatch.setitem(CONFIG["values"], "sslmode", "disable")
+    changed = c.post("/postgresql/preview", json=original)
+    assert changed.status_code == 409 and changed.json()["detail"]["code"] == "PG_SOURCE_CHANGED"
+    selected = selection(c)
+    assert selected["fingerprint"] != original["fingerprint"]
+    after = c.post("/postgresql/preview", json=selected).json()
+    assert after["sslmode"] == "disable" and after["snapshot_sha256"] == before["snapshot_sha256"]
+    imported = c.post(
+        "/postgresql/import",
+        json={**selected, "name": "Plain endpoint", "request_id": str(uuid4())},
+    )
+    assert imported.status_code == 200
+    provenance = imported.json()["dataset"]["lineage"]["postgresql"]
+    assert (
+        provenance["sslmode"] == "disable"
+        and provenance["schema_fingerprint"] == selected["fingerprint"]
+    )
+    assert SECRET not in imported.text
+
+
 def test_odd_identifiers_are_quoted_identifiers_not_sql(setup):
     client, connection, _, _ = setup
     name = 'amount"; DROP TABLE claims; --'
@@ -549,7 +579,8 @@ def connector_test_dns(monkeypatch):
     from app.services.connectors import network_policy
 
     monkeypatch.setattr(
-        network_policy.socket, "getaddrinfo",
+        network_policy.socket,
+        "getaddrinfo",
         lambda host, port, **kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
         ],

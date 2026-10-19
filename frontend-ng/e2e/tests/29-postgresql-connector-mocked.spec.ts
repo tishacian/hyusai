@@ -13,8 +13,10 @@ const columns = [
 const fingerprint = 'a'.repeat(64);
 const description = { schema: 'showcase_ecommerce', table: 'claims', fingerprint, columns };
 
-async function setup(page: Page, theme = 'light', locale = 'fr', options: { admin?: boolean; importError?: string; retry?: boolean; schemaChanged?: boolean; secondWorkspace?: boolean; queryFailedOnce?: boolean; testErrorOnce?: string } = {}) {
+async function setup(page: Page, theme = 'light', locale = 'fr', options: { admin?: boolean; importError?: string; retry?: boolean; schemaChanged?: boolean; secondWorkspace?: boolean; queryFailedOnce?: boolean; testErrorOnce?: string; sslmode?: string } = {}) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
+  let savedConfig = { ...config, values: { ...config.values } as Record<string, string> };
+  if (options.sslmode !== undefined) savedConfig.values['sslmode'] = options.sslmode;
   let importCount = 0;
   let previewCount = 0;
   let testCount = 0;
@@ -35,8 +37,13 @@ async function setup(page: Page, theme = 'light', locale = 'fr', options: { admi
     if (path === '/auth/workspaces/' + workspace.slug) return json(route, workspace);
     if (path === '/auth/workspaces/' + second.slug) return json(route, second);
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() });
-    if (path === '/connectors') return json(route, { can_configure: options.admin !== false, connectors: [request.headers()['x-workspace-slug'] === second.slug ? { ...config, values: { ...config.values, database: 'other-workspace-database' } } : config] });
-    if (path === '/connectors/postgresql' && request.method() === 'PUT') return json(route, { ...config, values: writes.at(-1)!.body['values'] });
+    if (path === '/connectors') return json(route, { can_configure: options.admin !== false, connectors: [request.headers()['x-workspace-slug'] === second.slug ? { ...config, values: { ...config.values, database: 'other-workspace-database' } } : savedConfig] });
+    if (path === '/connectors/postgresql' && request.method() === 'PUT') {
+      const values = { ...writes.at(-1)!.body['values'] as Record<string, string> };
+      delete values['password'];
+      savedConfig = { ...savedConfig, values };
+      return json(route, savedConfig);
+    }
     if (path === '/connectors/postgresql/test') return json(route, options.testErrorOnce && ++testCount === 1
       ? { status: 'unreachable', detail: options.testErrorOnce, checked_at: '2026-10-16T12:00:00Z' }
       : { status: 'connected', checked_at: '2026-10-16T12:00:00Z' });
@@ -68,6 +75,84 @@ async function preview(page: Page, english = false) {
 
 test.describe('PostgreSQL — isolated end-user QA', () => {
   test.skip(!enabled, 'Enable E2E_CHROME_V2_MOCKED for isolated QA');
+  for (const [theme, locale, width] of [['dark', 'fr', 1440], ['light', 'en', 390]] as const) {
+    test(`encryption ${locale}/${width}: explicit mode is saved before testing and invalidates old evidence`, async ({ page }, testInfo) => {
+      const writes = await setup(page, theme, locale);
+      const english = locale === 'en';
+      const modeName = english ? 'Encryption' : 'Chiffrement';
+      const verified = english ? 'Connection verified' : 'Connexion vérifiée';
+      const unencrypted = english ? 'Unencrypted' : 'Sans chiffrement';
+      const edit = english ? 'Edit connection' : 'Modifier la connexion';
+      const save = english ? 'Save connection' : 'Enregistrer la connexion';
+      const testConnection = english ? 'Test connection' : 'Tester la connexion';
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto('/connectors/postgresql');
+      await expect(page.getByTestId('pg-encryption-state')).toContainText(english ? 'Verified TLS' : 'TLS vérifié');
+      await page.getByRole('button', { name: testConnection, exact: true }).click();
+      await expect(page.getByTestId('pg-connection-state')).toContainText(verified);
+      await preview(page, english);
+      await page.getByRole('button', { name: edit, exact: true }).click();
+      const select = page.getByRole('combobox', { name: modeName, exact: true });
+      await expect(select).toHaveValue('verify-full');
+      await expect(page.locator('#pg-encryption-help')).toHaveCount(0);
+      await select.selectOption('disable');
+      await expect(page.getByTestId('pg-connection-state')).not.toContainText(verified);
+      await expect(page.getByTestId('pg-connection-state')).toContainText(english ? 'Unsaved changes' : 'Modifications non enregistrées');
+      await expect(page.getByTestId('pg-preview')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: english ? 'Explore tables' : 'Explorer les tables', exact: true })).toBeDisabled();
+      await expect(page.locator('#pg-encryption-help')).toContainText(english ? 'Credentials and data travel unencrypted' : 'Les identifiants et les données transitent sans chiffrement');
+      expect(writes.filter(write => write.path.endsWith('/test'))).toHaveLength(1);
+      expect((await select.boundingBox())!.height).toBeLessThanOrEqual(40);
+      expect((await new AxeBuilder({ page }).include('.pg-page').analyze()).violations).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`postgresql-encryption-${locale}-${width}.png`), fullPage: true });
+      await page.getByRole('button', { name: save, exact: true }).click();
+      await expect(page.getByTestId('pg-encryption-state')).toContainText(unencrypted);
+      await expect(page.getByTestId('pg-connection-state')).not.toContainText(verified);
+      const savedValues = writes.find(write => write.path === '/connectors/postgresql')!.body['values'] as Record<string, unknown>;
+      expect(savedValues['sslmode']).toBe('disable');
+      expect(savedValues['password']).toBeUndefined();
+      expect(writes.filter(write => write.path.endsWith('/test'))).toHaveLength(1);
+      await page.getByRole('button', { name: testConnection, exact: true }).click();
+      await expect(page.getByTestId('pg-connection-state')).toContainText(verified);
+      await expect(page.getByTestId('pg-encryption-state')).toContainText(unencrypted);
+      expect(writes.filter(write => write.path.endsWith('/test'))).toHaveLength(2);
+      await page.reload();
+      await expect(page.getByTestId('pg-encryption-state')).toContainText(unencrypted);
+      await expect(page.getByTestId('pg-connection-state')).not.toContainText(verified);
+      await page.getByRole('button', { name: edit, exact: true }).click();
+      await expect(select).toHaveValue('disable');
+      await select.selectOption('verify-full');
+      await expect(page.locator('#pg-encryption-help')).toHaveCount(0);
+      await page.getByRole('button', { name: save, exact: true }).click();
+      await expect(page.getByTestId('pg-encryption-state')).toContainText(english ? 'Verified TLS' : 'TLS vérifié');
+      expect(writes.filter(write => write.path === '/connectors/postgresql').at(-1)!.body['values']).toMatchObject({ sslmode: 'verify-full' });
+      expect(writes.filter(write => write.path.endsWith('/test'))).toHaveLength(2);
+    });
+  }
+
+  test('encryption: members see the saved transport mode without configuration actions', async ({ page }) => {
+    const writes = await setup(page, 'light', 'fr', { admin: false, sslmode: 'disable' });
+    await page.goto('/connectors/postgresql');
+    await expect(page.getByTestId('pg-encryption-state')).toContainText('Sans chiffrement');
+    await expect(page.getByRole('button', { name: 'Modifier la connexion', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Tester la connexion', exact: true })).toBeDisabled();
+    await expect(page.getByRole('combobox', { name: 'Chiffrement', exact: true })).toHaveCount(0);
+    expect(writes.filter(write => write.path.startsWith('/connectors'))).toEqual([]);
+  });
+
+  test('encryption: an unsupported stored value requires an explicit supported choice', async ({ page }) => {
+    const writes = await setup(page, 'light', 'fr', { sslmode: 'prefer' });
+    await page.goto('/connectors/postgresql');
+    await expect(page.getByTestId('pg-encryption-state')).toContainText('Mode à corriger');
+    await expect(page.getByRole('button', { name: 'Tester la connexion', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'Modifier la connexion', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Chiffrement', exact: true })).toHaveValue('');
+    await expect(page.getByRole('button', { name: 'Enregistrer la connexion', exact: true })).toBeDisabled();
+    await page.getByRole('combobox', { name: 'Chiffrement', exact: true }).selectOption('verify-full');
+    await page.getByRole('button', { name: 'Enregistrer la connexion', exact: true }).click();
+    expect(writes.find(write => write.path === '/connectors/postgresql')!.body['values']).toMatchObject({ sslmode: 'verify-full' });
+  });
   for (const [theme, locale, width] of [['dark', 'fr', 1440], ['light', 'fr', 390], ['light', 'en', 1440]] as const) {
     test(`${theme}/${locale}/${width}: saved connection, real preview contract and native dataset`, async ({ page }, testInfo) => {
       const writes = await setup(page, theme, locale);
@@ -111,6 +196,7 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
     const values = writes.find(w => w.path === '/connectors/postgresql')!.body['values'] as Record<string, unknown>;
     expect(values['password']).toBeUndefined();
     expect(values['username']).toBe('reader');
+    expect(values['sslmode']).toBe('verify-full');
   });
 
   test('an unauthorized member cannot discover, test or import', async ({ page }) => {

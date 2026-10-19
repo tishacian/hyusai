@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { groupTables, pgFailure, pgTestFailure, pgTableKey } from './postgresql.types';
+import { groupTables, pgFailure, pgSslMode, pgTestFailure, pgTableKey } from './postgresql.types';
 
 const tables = [
   { schema: 'showcase_ecommerce', name: 'claims', kind: 'table' },
   { schema: 'showcase_ecommerce', name: 'orders', kind: 'table' },
   { schema: 'finance', name: 'claims_ledger', kind: 'partitioned' },
 ];
+
+test('encryption defaults to verified TLS only when absent and accepts only the two explicit modes', () => {
+  assert.equal(pgSslMode(undefined), 'verify-full');
+  assert.equal(pgSslMode('verify-full'), 'verify-full');
+  assert.equal(pgSslMode('disable'), 'disable');
+  for (const value of ['', null, false, 'prefer', 'require', 'DISABLE', 'disable ', {}]) assert.equal(pgSslMode(value), null);
+  assert.deepEqual(pgFailure({ error: { detail: { code: 'PG_SSLMODE_INVALID' } } }), { code: 'PG_SSLMODE_INVALID', sqlstate: null });
+});
 
 test('tables group by schema in catalog order and filter on schema or name', () => {
   assert.deepEqual(groupTables(tables, '').map(g => [g.schema, g.tables.length]), [['showcase_ecommerce', 2], ['finance', 1]]);

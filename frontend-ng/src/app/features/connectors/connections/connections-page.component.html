@@ -32,10 +32,13 @@
                   @case ('secret') { <app-secret-picker [workspaceSlug]="workspace.currentSlug()" [ref]="refs[parameter.key] || null" (refChange)="refs[parameter.key] = $event || ''" scope="workspace" /> }
                   @case ('secret_file') { <app-secret-picker [workspaceSlug]="workspace.currentSlug()" [ref]="refs[parameter.key] || null" (refChange)="refs[parameter.key] = $event || ''" scope="workspace" /> }
                   @case ('boolean') { <input type="checkbox" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]" /> }
-                  @case ('enum') { <select class="ck-input w-full" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]">@for (choice of parameter.choices; track choice) { <option [value]="choice">{{ choice }}</option> }</select> }
+                  @case ('enum') { <select class="ck-input w-full" [id]="'connection-' + parameter.key" [name]="parameter.key" [attr.aria-describedby]="isPostgresqlEncryption(parameter) && fields[parameter.key] === 'disable' ? 'connection-encryption-help' : null" [(ngModel)]="fields[parameter.key]">@for (choice of parameter.choices; track choice) { <option [value]="choice">{{ parameterChoiceLabel(parameter, choice) }}</option> }</select> }
                   @case ('integer') { <input class="ck-input w-full" type="number" step="1" [id]="'connection-' + parameter.key" [name]="parameter.key" [min]="parameter.min ?? null" [max]="parameter.max ?? null" [(ngModel)]="fields[parameter.key]" /> }
                   @case ('json') { <textarea class="ck-input w-full font-mono" rows="4" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]"></textarea> }
                   @default { <input class="ck-input w-full" [id]="'connection-' + parameter.key" [name]="parameter.key" [(ngModel)]="fields[parameter.key]" /> }
+                }
+                @if (isPostgresqlEncryption(parameter) && fields[parameter.key] === 'disable') {
+                  <p id="connection-encryption-help" class="text-sm text-[color:var(--ck-signal-warn)]" role="note">{{ i18n.t('connectors.pg.encryption_none_help') }}</p>
                 }
               </div>
             }
@@ -55,6 +58,14 @@
           <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ row.name }}</h2>
             @if (canConfigure()) { <button class="ck-btn" [disabled]="busy() || activeRun()" (click)="editing.set(!editing())">{{ i18n.t('connections.edit') }}</button> }
           </div>
+          @if (row.profile_key === 'postgresql') {
+            <div class="space-y-1" data-testid="connection-saved-encryption">
+              <p class="text-sm">{{ i18n.t('connectors.pg.encryption') }} · {{ encryptionLabel(row.values['sslmode']) }}</p>
+              @if (row.values['sslmode'] === 'disable') {
+                <p class="text-sm text-[color:var(--ck-signal-warn)]" role="note">{{ i18n.t('connectors.pg.encryption_none_help') }}</p>
+              }
+            </div>
+          }
           <p class="text-sm text-gray-400">{{ i18n.t('connections.evidence_help') }}</p>
           <div class="flex flex-wrap gap-2">
             @if (canConfigure() && profile()?.key !== 'openapi') { <button class="ck-btn" [disabled]="busy() || activeRun()" (click)="startRun('test')">{{ i18n.t('connections.test') }}</button> }

@@ -1,5 +1,49 @@
 # Luma : qualification du modèle après activation du socle
 
+## Vérification après déploiement de `945013ac`
+
+Le 19 octobre, l'API et le frontend annoncent tous deux
+`945013ac52d1d1608a529c1070b1c1dfcd3b84c1`, avec révision vérifiée.
+La v5 reste en service et appelable ; aucune nouvelle version n'a été créée
+par le déploiement.
+
+Le déclenchement natif du 19 octobre à **13 h 57, heure de Paris**, a créé le Run
+`3c758903-0f2b-4923-81e3-138e61f626e1`. Sa preuve d'exécution indique aussi
+`945013ac52d1d1608a529c1070b1c1dfcd3b84c1` côté worker. La mesure est réussie,
+la branche `review` est choisie et le Run atteint **`hitl_pending`**. Le nouveau
+résultat ne contient plus `ML_SPEC_INVALID` ; l'ancien refus reste dans
+l'historique.
+
+La proposition `c555afbc-fb68-594f-8a98-af01d87ed42c` est
+`queued / awaiting_approval`, liée à la décision
+`76ee091f-1dea-4d87-93f6-3fa54efb300c`, encore `proposed` et sans confirmation
+humaine. Aucun challenger n'est créé ni promu. Le dataset figé
+`e595df71-bf0a-4305-8dfe-950418500150` est prêt, avec **4 627 lignes et huit
+colonnes** : six entrées prédictives, la cible et `language`.
+
+- 3 486 lignes d'apprentissage, dont les 64 retours synthétiques retenus ;
+- 1 141 lignes de test indépendantes préservées ;
+- langue connue pour les 1 141 lignes de test et les 3 422 autres lignes
+  d'apprentissage ; inconnue, donc nulle, pour les 64 retours ;
+- contrat d'entrée à six variables et `fairness_columns=["language"]` conservés.
+
+La fiche modèle affiche « Validation humaine attendue », les données figées et
+un lien vers le Run. Son Flow montre `schedule`, `monitor` et `route` réussis,
+avec `review` en attente humaine. L'écran de décision expose les actions
+Approuver et Refuser ; aucune de ces actions n'a été exécutée pendant la recette.
+Le gate prévoit un rejet à expiration le **21 octobre à 13 h 57, heure de Paris**.
+
+Le planning a été restauré puis relu : quotidien actif, `0 0 * * *` en UTC,
+prochain déclenchement le **20 octobre à 02 h 00, heure de Paris**. Aucun cron
+temporaire ne subsiste. Une approbation autorisera un entraînement distinct ;
+elle ne mettra pas automatiquement ce futur challenger en service.
+
+Work reçoit maintenant le diagnostic fermé `PG_TLS_UNAVAILABLE` et l'explique
+en français comme en anglais. Les actions Réessayer et Explorer PostgreSQL sont
+visibles pour l'administrateur. Les captures live à 1 440 et 390 px ne présentent
+pas de débordement horizontal. Le test du connecteur confirme toujours que
+l'endpoint ne propose pas TLS : ce déploiement ne rétablit pas sa disponibilité.
+
 ## Résultat après déploiement de `d95ba09f`
 
 Le 19 octobre, l'API et le frontend annoncent la révision complète
@@ -65,12 +109,33 @@ sur la révision déployée n'expose encore que `POSTGRESQL_READ_UNAVAILABLE`.
 Les lectures du connecteur et le diff des settings confirment que le réépinglage
 n'a pas modifié sa configuration.
 
-La reprise dépend de l'opérateur : activer TLS natif sur l'endpoint PostgreSQL,
-présenter un certificat valide pour l'hôte configuré et fournir l'autorité de
-confiance au backend et au worker. Conserver `sslmode=verify-full`.
+Sur cette révision, la reprise exige TLS natif sur l'endpoint PostgreSQL,
+un certificat valide pour l'hôte configuré et l'autorité de confiance au backend
+et au worker, avec `sslmode=verify-full`. La livraison suivante ajoute le choix
+administrateur explicite décrit ci-dessous pour les endpoints sans TLS.
 Suivre [le diagnostic PostgreSQL](postgresql-connection-diagnostics.md), puis
 vérifier connexion, catalogue et aperçu avant de relancer la file et une enquête
 Work. Aucun nouveau Run métier ne peut être déclaré réussi avant ces contrôles.
+
+### Reprise PostgreSQL sans TLS demandée le 19 octobre
+
+Une évolution générique ajoute **Chiffrement → Sans chiffrement** à la fiche
+PostgreSQL et au registre Connections. Le défaut reste **TLS vérifié** ; le
+produit ne choisit jamais automatiquement le mode non chiffré après un échec.
+Cette évolution est validée localement et reste à déployer et à recetter en
+service. Le choix n’a pas encore été appliqué à Showcase.
+
+Suivre [la procédure de déploiement et de vérification PostgreSQL](postgresql-connection-diagnostics.md#déploiement-et-vérification-du-choix-de-transport),
+y compris les workers et les runners de connecteurs concernés. Aucune migration
+ni nouveau drapeau n’est nécessaire. Dans Showcase, Work Luma utilise la fiche
+**Connecteurs → PostgreSQL** historique : modifier uniquement une connexion du
+nouveau registre ne débloquerait pas sa file.
+
+Une fois la révision en service, enregistrer ce choix explicite dans cette fiche,
+tester, explorer une table puis vérifier une lecture fraîche de la file Luma.
+Les données transitent alors sans chiffrement PostgreSQL. La recette ne doit pas
+réutiliser un ancien snapshot comme preuve de connexion. Les épingles du modèle
+v5 et la proposition de réentraînement en attente d’approbation restent inchangées.
 
 ## Reprise après livraison des correctifs de cette recette
 
