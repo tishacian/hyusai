@@ -9,7 +9,7 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
-import { pgFailure, pgTestFailure, pgTableKey, type PgCatalog as Catalog, type PgDescription as Description, type PgFailure, type PgPreview as Preview, type PgTable, type PgTestResult as TestResult } from './postgresql.types';
+import { pgFailure, pgSslMode, pgTestFailure, pgTableKey, type PgCatalog as Catalog, type PgDescription as Description, type PgFailure, type PgPreview as Preview, type PgSslMode, type PgTable, type PgTestResult as TestResult } from './postgresql.types';
 import { PgTablePickerComponent } from './pg-table-picker.component';
 import { DatasetDto } from '@app/features/data/data.service';
 
@@ -39,6 +39,7 @@ export class PostgresqlConnectorComponent {
   private importRequest: { signature: string; id: string } | null = null;
   private readonly base = '/api/v1/connectors/postgresql';
   protected readonly config = signal<Config | null>(null);
+  protected readonly savedSslMode = computed(() => pgSslMode(this.config()?.values['sslmode']));
   protected readonly canConfigure = signal(false);
   protected readonly loading = signal(false);
   protected readonly saving = signal(false);
@@ -62,7 +63,7 @@ export class PostgresqlConnectorComponent {
   protected readonly selectedKey = computed(() => this.table() ? `${this.schema()}.${this.table()}` : '');
   protected readonly supportedColumns = computed(() => this.description()?.columns.filter(c => c.supported).map(c => c.name) ?? []);
   protected readonly readable = computed(() => !!this.description() && this.selectedColumns().length > 0 && !this.dirty() && !this.busy());
-  protected readonly connectionReady = computed(() => this.hasSetup() && this.canConfigure() && !this.dirty() && !this.busy());
+  protected readonly connectionReady = computed(() => this.hasSetup() && this.savedSslMode() !== null && this.canConfigure() && !this.dirty() && !this.busy());
   protected readonly importReady = computed(() => this.readable() && !!this.preview() && !!this.catalog()?.datasets_enabled && !this.imported());
   protected readonly connectionState = computed<StepState>(() => {
     const result = this.testResult();
@@ -90,6 +91,7 @@ export class PostgresqlConnectorComponent {
   protected database = '';
   protected username = '';
   protected password = '';
+  protected sslmode: PgSslMode | '' = 'verify-full';
   protected datasetName = '';
 
   constructor() {
@@ -113,6 +115,7 @@ export class PostgresqlConnectorComponent {
     this.config.set(null); this.canConfigure.set(false); this.failure.set(null); this.saved.set(false);
     this.testResult.set(null); this.dirty.set(false); this.editOpen.set(false);
     this.host = this.database = this.username = this.password = ''; this.port = '5432';
+    this.sslmode = 'verify-full';
     this.loading.set(false); this.saving.set(false); this.testing.set(false);
   }
 
@@ -144,6 +147,7 @@ export class PostgresqlConnectorComponent {
   private applyConfig(config: Config | null): void {
     this.host = config?.values['host'] ?? ''; this.port = config?.values['port'] || '5432';
     this.database = config?.values['database'] ?? ''; this.username = config?.values['username'] ?? '';
+    this.sslmode = pgSslMode(config?.values['sslmode']) ?? '';
     this.password = ''; this.dirty.set(false);
   }
 
@@ -161,13 +165,14 @@ export class PostgresqlConnectorComponent {
   protected canSave(): boolean {
     return this.canConfigure() && !this.busy() && !!this.host.trim() && !!this.database.trim() && !!this.username.trim()
       && Number.isInteger(Number(this.port)) && Number(this.port) > 0 && Number(this.port) <= 65535
+      && pgSslMode(this.sslmode) !== null
       && (!!this.password || !!this.config()?.secrets_set['password']);
   }
 
   protected async save(): Promise<void> {
     if (!this.canSave()) return;
     const epoch = this.epoch;
-    const values: Record<string, string> = { host: this.host.trim(), port: this.port, database: this.database.trim(), username: this.username.trim() };
+    const values: Record<string, string> = { host: this.host.trim(), port: this.port, database: this.database.trim(), username: this.username.trim(), sslmode: this.sslmode };
     if (this.password) values['password'] = this.password;
     this.password = ''; this.saving.set(true); this.failure.set(null); this.testResult.set(null); this.clearExplorer();
     try {

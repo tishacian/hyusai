@@ -110,8 +110,8 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await page.goto('/work/reclamations/studio');
    const warning = page.locator('.claims-data-error');
    await expect(warning).toContainText('Les dossiers sont temporairement indisponibles.');
-   await expect(warning).toContainText('Ce serveur PostgreSQL ne prend pas en charge la connexion TLS requise.');
-   await expect(warning).toContainText('Un administrateur doit activer TLS sur le serveur.');
+   await expect(warning).toContainText('Ce serveur PostgreSQL ne prend pas en charge le TLS configuré.');
+   await expect(warning).toContainText('Un administrateur doit vérifier le mode de chiffrement adapté à cette connexion.');
    await expect(warning).not.toContainText('publication');
    await expect(page.getByText('PRIVATE_DATABASE_DIAGNOSTIC')).toHaveCount(0);
    await expect(page.locator('.work-record-item')).toHaveCount(0);

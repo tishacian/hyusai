@@ -10,6 +10,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { SecretPickerComponent } from '@app/shared/secrets/secret-picker.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { pgSslMode } from '../postgresql/postgresql.types';
 import { ConnectionGrant, ConnectionParameter, ConnectionProfile, ConnectionRow, ConnectionRun, ToolContract, TERMINAL_CONNECTION_RUNS, connectionPayload, parameterEnabled } from './connections.models';
 
 @Component({
@@ -120,7 +121,19 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
   certificationLabel(level: string): string {
     return this.i18n.t(({ certified: 'connections.certified', verified: 'connections.verified', needs_requalification: 'connections.needs_requalification', third_party: 'connections.third_party' } as Record<string, string>)[level] ?? 'connections.unverified');
   }
-  parameterLabel(p: ConnectionParameter): string { return p.key.replace(/_/g, ' '); }
+  isPostgresqlEncryption(p: ConnectionParameter): boolean { return this.profileKey() === 'postgresql' && p.key === 'sslmode'; }
+  parameterLabel(p: ConnectionParameter): string {
+    return this.isPostgresqlEncryption(p) ? this.i18n.t('connectors.pg.encryption') : p.key.replace(/_/g, ' ');
+  }
+  parameterChoiceLabel(p: ConnectionParameter, choice: string): string {
+    return this.isPostgresqlEncryption(p) ? this.encryptionLabel(choice, true) : choice;
+  }
+  encryptionLabel(value: unknown, editing = false): string {
+    const mode = pgSslMode(value);
+    return this.i18n.t(mode === 'disable' ? 'connectors.pg.encryption_none' : mode === 'verify-full'
+      ? editing ? 'connectors.pg.encryption_tls_recommended' : 'connectors.pg.encryption_tls'
+      : 'connectors.pg.encryption_invalid');
+  }
   private lines(value: string): string[] { return [...new Set(value.split('\n').map(s => s.trim()).filter(Boolean))]; }
   async save(): Promise<void> {
     if (!this.canConfigure() || this.busy() || !this.profile()) return;

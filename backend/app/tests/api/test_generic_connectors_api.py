@@ -118,7 +118,10 @@ def test_a_workspace_settings_round_trip_keeps_the_secret_and_cannot_forge_it(db
     client = _client(db_session, workspace, owner)
     assert _save_postgres(client).status_code == 200
 
-    settings = {**client.get(f"/auth/workspaces/{workspace.slug}").json()["settings"], "demo_safe": True}
+    settings = {
+        **client.get(f"/auth/workspaces/{workspace.slug}").json()["settings"],
+        "demo_safe": True,
+    }
     patched = client.patch(f"/auth/workspaces/{workspace.slug}", json={"settings": settings})
     assert patched.status_code == 200
     assert SECRET not in patched.text
@@ -148,6 +151,26 @@ def test_a_member_reads_the_state_but_cannot_write_clear_or_test(db_session):
     assert client.put("/connectors/whatsapp", json={"values": {}}).status_code == 404
 
 
+def test_only_an_admin_can_select_the_postgresql_transport(db_session):
+    workspace, owner, member = _seed(db_session)
+    admin = _client(db_session, workspace, owner)
+    assert _save_postgres(admin).status_code == 200
+    values = generic_service.get_config(workspace, "postgresql")["values"]
+    payload = {"values": {**values, "sslmode": "disable"}}
+    assert (
+        _client(db_session, workspace, member)
+        .put("/connectors/postgresql", json=payload)
+        .status_code
+        == 403
+    )
+    saved = admin.put("/connectors/postgresql", json=payload)
+    assert saved.status_code == 200 and saved.json()["values"]["sslmode"] == "disable"
+    assert saved.json()["secrets_set"] == {"password": True} and SECRET not in saved.text
+    invalid = admin.put("/connectors/postgresql", json={"values": {**values, "sslmode": "prefer"}})
+    assert invalid.status_code == 400
+    assert generic_service.get_config(workspace, "postgresql")["values"]["sslmode"] == "disable"
+
+
 def test_the_test_route_answers_from_the_server_with_the_check_time(db_session, monkeypatch):
     workspace, owner, _member = _seed(db_session)
     client = _client(db_session, workspace, owner)
@@ -157,7 +180,10 @@ def test_the_test_route_answers_from_the_server_with_the_check_time(db_session, 
     assert unsupported["checked_at"]
     assert client.post("/connectors/smtp/test").json()["status"] == "not_configured"
 
-    assert client.put("/connectors/telegram", json={"values": {"bot_token": SECRET}}).status_code == 200
+    assert (
+        client.put("/connectors/telegram", json={"values": {"bot_token": SECRET}}).status_code
+        == 200
+    )
 
     def refuse(url, timeout):
         raise urllib.error.HTTPError(url, 401, "Unauthorized", None, None)

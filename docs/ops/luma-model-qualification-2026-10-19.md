@@ -109,12 +109,33 @@ sur la révision déployée n'expose encore que `POSTGRESQL_READ_UNAVAILABLE`.
 Les lectures du connecteur et le diff des settings confirment que le réépinglage
 n'a pas modifié sa configuration.
 
-La reprise dépend de l'opérateur : activer TLS natif sur l'endpoint PostgreSQL,
-présenter un certificat valide pour l'hôte configuré et fournir l'autorité de
-confiance au backend et au worker. Conserver `sslmode=verify-full`.
+Sur cette révision, la reprise exige TLS natif sur l'endpoint PostgreSQL,
+un certificat valide pour l'hôte configuré et l'autorité de confiance au backend
+et au worker, avec `sslmode=verify-full`. La livraison suivante ajoute le choix
+administrateur explicite décrit ci-dessous pour les endpoints sans TLS.
 Suivre [le diagnostic PostgreSQL](postgresql-connection-diagnostics.md), puis
 vérifier connexion, catalogue et aperçu avant de relancer la file et une enquête
 Work. Aucun nouveau Run métier ne peut être déclaré réussi avant ces contrôles.
+
+### Reprise PostgreSQL sans TLS demandée le 19 octobre
+
+Une évolution générique ajoute **Chiffrement → Sans chiffrement** à la fiche
+PostgreSQL et au registre Connections. Le défaut reste **TLS vérifié** ; le
+produit ne choisit jamais automatiquement le mode non chiffré après un échec.
+Cette évolution est validée localement et reste à déployer et à recetter en
+service. Le choix n’a pas encore été appliqué à Showcase.
+
+Suivre [la procédure de déploiement et de vérification PostgreSQL](postgresql-connection-diagnostics.md#déploiement-et-vérification-du-choix-de-transport),
+y compris les workers et les runners de connecteurs concernés. Aucune migration
+ni nouveau drapeau n’est nécessaire. Dans Showcase, Work Luma utilise la fiche
+**Connecteurs → PostgreSQL** historique : modifier uniquement une connexion du
+nouveau registre ne débloquerait pas sa file.
+
+Une fois la révision en service, enregistrer ce choix explicite dans cette fiche,
+tester, explorer une table puis vérifier une lecture fraîche de la file Luma.
+Les données transitent alors sans chiffrement PostgreSQL. La recette ne doit pas
+réutiliser un ancien snapshot comme preuve de connexion. Les épingles du modèle
+v5 et la proposition de réentraînement en attente d’approbation restent inchangées.
 
 ## Reprise après livraison des correctifs de cette recette
 

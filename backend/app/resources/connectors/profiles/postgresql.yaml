@@ -27,8 +27,9 @@ parameters:
   type: enum
   choices:
   - verify-full
+  - disable
   default: verify-full
-  advanced: true
+  advanced: false
 capabilities:
   read: true
   read_partitioned: true

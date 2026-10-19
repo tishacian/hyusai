@@ -231,7 +231,9 @@ def test_incompatible_heterogeneous_types_fail_closed(tmp_path):
         )
 
 
-def test_postgresql_connection_uses_pinned_tls_and_read_only_transaction(monkeypatch):
+@pytest.mark.parametrize("sslmode", [None, "verify-full", "disable"])
+@pytest.mark.parametrize("read_only", [True, False])
+def test_postgresql_connection_uses_selected_transport_and_transaction(monkeypatch, sslmode, read_only):
     import socket
 
     import psycopg2
@@ -256,19 +258,65 @@ def test_postgresql_connection_uses_pinned_tls_and_read_only_transaction(monkeyp
     monkeypatch.setattr(psycopg2, "connect", lambda **kwargs: captures.append(kwargs) or connection)
     with sql._connection(
         "postgresql",
-        {"host": "db.example.test", "database": "app", "username": "reader"},
+        {
+            "host": "db.example.test", "database": "app", "username": "reader",
+            **({"sslmode": sslmode} if sslmode is not None else {}),
+        },
         {"password": "private"},
         deadline(),
+        read_only=read_only,
     ):
         pass
     assert captures[0]["hostaddr"] == "93.184.216.34"
     assert captures[0]["host"] == "db.example.test"
-    assert captures[0]["sslmode"] == "verify-full"
+    assert captures[0]["sslmode"] == (sslmode or "verify-full")
     assert sessions == [
-        {"readonly": True, "autocommit": False},
-        {"isolation_level": "REPEATABLE READ"},
+        {"readonly": read_only, "autocommit": False},
+        {"isolation_level": "REPEATABLE READ" if read_only else "SERIALIZABLE"},
     ]
     assert cursor.statements[0][0].startswith("SET LOCAL statement_timeout")
+
+
+def test_postgresql_adapter_rejects_unsupported_transport_before_opening_a_socket(monkeypatch):
+    import psycopg2
+
+    from app.services.connectors.network_policy import ConnectorNetworkError
+
+    monkeypatch.setattr(psycopg2, "connect", lambda **kw: pytest.fail("invalid mode reached the driver"))
+    with pytest.raises(ConnectorNetworkError, match="PG_SSLMODE_INVALID"):
+        with sql._connection(
+            "postgresql",
+            {"host": "db.example.test", "database": "app", "username": "reader", "sslmode": "prefer"},
+            {"password": "private"},
+            deadline(),
+        ):
+            pytest.fail("invalid mode opened a connection")
+
+
+def test_redshift_keeps_verified_tls(monkeypatch):
+    import psycopg2
+
+    from app.services.connectors import network_policy
+
+    monkeypatch.setattr(
+        network_policy,
+        "resolve_destination",
+        lambda host, port: network_policy.Destination(host, "93.184.216.34", port),
+    )
+    captures = []
+    native = SimpleNamespace(
+        cursor=lambda: Cursor(), set_session=lambda **kw: None,
+        rollback=lambda: None, close=lambda: None,
+    )
+    monkeypatch.setattr(psycopg2, "connect", lambda **kw: captures.append(kw) or native)
+    with sql._connection(
+        "redshift",
+        {"host": "warehouse.example.test", "database": "app", "username": "reader", "sslmode": "disable"},
+        {"password": "private"},
+        deadline(),
+    ):
+        pass
+    assert captures[0]["sslmode"] == "verify-full"
 
 
 def test_demo_never_counts_as_real_sql_source(monkeypatch, tmp_path):

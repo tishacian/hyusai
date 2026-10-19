@@ -18,7 +18,9 @@ SECRET = "s3cr3t-value-never-echoed"
 
 
 def _workspace(settings: dict | None = None):
-    return SimpleNamespace(id="ws-1", slug="acme", settings=settings if settings is not None else {})
+    return SimpleNamespace(
+        id="ws-1", slug="acme", settings=settings if settings is not None else {}
+    )
 
 
 @pytest.fixture()
@@ -72,13 +74,52 @@ def test_an_omitted_or_empty_secret_keeps_the_stored_one(audit):
     db = MagicMock()
     base = {"host": "db", "database": "erp", "username": "agent"}
     generic_service.set_config(db, ws, "postgresql", {**base, "password": SECRET}, actor="a")
-    generic_service.set_config(db, ws, "postgresql", {**base, "host": "db2", "password": ""}, actor="a")
+    generic_service.set_config(
+        db, ws, "postgresql", {**base, "host": "db2", "password": ""}, actor="a"
+    )
     generic_service.set_config(db, ws, "postgresql", {**base, "host": "db3"}, actor="a")
 
     config = generic_service.get_config(ws, "postgresql", include_secrets=True)
     assert config["values"]["host"] == "db3"
     assert config["secrets"] == {"password": SECRET}
     assert audit[-1]["details"]["secrets_replaced"] == []
+
+
+def test_postgresql_transport_is_explicit_and_changing_it_keeps_the_secret(audit):
+    ws, db = _workspace(), MagicMock()
+    base = {"host": "db", "database": "erp", "username": "agent"}
+    assert generic_service.get_config(ws, "postgresql")["configured"] is False
+    initial = generic_service.set_config(
+        db, ws, "postgresql", {**base, "password": SECRET}, actor="a"
+    )
+    assert "sslmode" not in initial["values"]
+    for sslmode in ("disable", "verify-full"):
+        saved = generic_service.set_config(
+            db, ws, "postgresql", {**base, "sslmode": sslmode}, actor="a"
+        )
+        assert saved["values"]["sslmode"] == sslmode
+        assert saved["secrets_set"] == {"password": True}
+        assert generic_service.get_config(ws, "postgresql", include_secrets=True)["secrets"] == {
+            "password": SECRET
+        }
+        assert audit[-1]["details"]["changed_fields"] == ["sslmode"]
+        assert audit[-1]["details"]["secrets_replaced"] == []
+        assert SECRET not in json.dumps(saved)
+    cleared = generic_service.clear_config(db, ws, "postgresql", actor="a")
+    assert cleared["configured"] is False and cleared["values"] == {}
+
+
+@pytest.mark.parametrize(
+    "sslmode", ["prefer", "allow", "require", "verify-ca", "", None, False, 0, {}, " disable"]
+)
+def test_postgresql_refuses_invalid_transport_before_storing_anything(audit, sslmode):
+    ws, db = _workspace(), MagicMock()
+    with pytest.raises(ValueError, match="^sslmode must be verify-full or disable$"):
+        generic_service.set_config(
+            db, ws, "postgresql", {"sslmode": sslmode, "password": SECRET}, actor="a"
+        )
+    assert ws.settings == {} and audit == []
+    db.commit.assert_not_called()
 
 
 def test_the_audit_names_fields_and_never_carries_a_value(audit):
@@ -215,7 +256,10 @@ def test_smtp_logs_in_over_starttls(monkeypatch):
 
 def test_smtp_refused_credentials_read_as_auth_failed(monkeypatch):
     _smtp(monkeypatch, login_error=smtplib.SMTPAuthenticationError(535, b"5.7.8 rejected"))
-    config = {"values": {"host": "smtp.example.test", "username": "agent"}, "secrets": {"password": SECRET}}
+    config = {
+        "values": {"host": "smtp.example.test", "username": "agent"},
+        "secrets": {"password": SECRET},
+    }
 
     assert generic_service.test_connection("smtp", config)["status"] == "auth_failed"
 
@@ -297,7 +341,8 @@ def connector_test_dns(monkeypatch):
     from app.services.connectors import network_policy
 
     monkeypatch.setattr(
-        network_policy.socket, "getaddrinfo",
+        network_policy.socket,
+        "getaddrinfo",
         lambda host, port, **kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
         ],

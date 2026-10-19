@@ -6,6 +6,14 @@ export interface PgDescription { schema: string; table: string; columns: PgColum
 export interface PgPreview { schema: PgColumn[]; rows: TabularRow[]; row_count: number; has_more: boolean; captured_at: string; ordered_by: string[]; }
 export interface PgCatalog { tables: PgTable[]; checked_at: string; datasets_enabled: boolean; limits: { import_rows: number }; }
 
+export type PgSslMode = 'verify-full' | 'disable';
+
+/** An omitted legacy setting keeps verified TLS; explicit invalid values do not. */
+export function pgSslMode(value: unknown): PgSslMode | null {
+  if (value === undefined) return 'verify-full';
+  return value === 'verify-full' || value === 'disable' ? value : null;
+}
+
 /** Older PostgreSQL readers use these codes for the same closed diagnostics. */
 const PG_ERROR_ALIASES: Readonly<Record<string, string>> = {
   POSTGRESQL_READ_UNAVAILABLE: 'PG_UNAVAILABLE',
@@ -22,7 +30,7 @@ export const PG_ERROR_CODES: ReadonlySet<string> = new Set([
   'PG_SELECTION_INVALID', 'PG_RESULT_TOO_LARGE', 'PG_IMPORT_ROW_LIMIT', 'PG_UNSUPPORTED_VALUE',
   'PG_DATASETS_DISABLED', 'PG_REQUEST_CONFLICT', 'PG_NAME_INVALID', 'WORKSPACE_PERMISSION_DENIED',
   'PG_AUTH_FAILED', 'PG_DATABASE_NOT_FOUND', 'PG_TLS_TRUST_REQUIRED', 'PG_TLS_VERIFICATION_FAILED',
-  'PG_TLS_UNAVAILABLE', 'PG_TLS_FAILED', 'PG_CONNECTION_REFUSED', 'PG_CONNECTION_TIMEOUT',
+  'PG_TLS_UNAVAILABLE', 'PG_TLS_FAILED', 'PG_SSLMODE_INVALID', 'PG_CONNECTION_REFUSED', 'PG_CONNECTION_TIMEOUT',
   'CONNECTOR_HOST_INVALID', 'CONNECTOR_PORT_INVALID', 'CONNECTOR_NETWORK_POLICY_INVALID',
   'CONNECTOR_DNS_FAILED', 'CONNECTOR_DESTINATION_DENIED',
 ]);

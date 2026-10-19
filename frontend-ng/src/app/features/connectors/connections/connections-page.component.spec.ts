@@ -10,7 +10,9 @@ import { WorkspaceService, type WorkspaceRequestScope, type WorkspaceContextTran
 import { ConnectionsPageComponent } from './connections-page.component';
 import type { ConnectionProfile, ConnectionRow } from './connections.models';
 
-const profile: ConnectionProfile = { key: 'postgresql', version: 1, family: 'dbapi', parameters: [], capabilities: { read: true }, certification: 'unverified', driver_status: 'runner_unchecked' };
+const profile: ConnectionProfile = { key: 'postgresql', version: 1, family: 'dbapi', parameters: [
+  { key: 'sslmode', type: 'enum', required: false, default: 'verify-full', choices: ['verify-full', 'disable'], advanced: false, when: {} },
+], capabilities: { read: true }, certification: 'unverified', driver_status: 'runner_unchecked' };
 const row: ConnectionRow = { id: 'conn-a', name: 'ERP', profile_key: 'postgresql', profile_version: 1, revision: 2, values: {}, secret_refs: {}, access: 'read', allowed_schemas: [], allowed_tables: [], certification: 'unverified' };
 class WorkspaceStub {
   epoch = 1; currentSlug = () => `workspace-${this.epoch}`; contextEpoch = () => this.epoch;
@@ -166,5 +168,41 @@ test('an untranslated profile label falls back to the profile key, never to the 
   const h = harness(); try {
     assert.equal(h.page.profileName(mcpProfile), 'mcp');
     assert.equal(h.page.profileName({ key: 'custom' }), 'custom');
+  } finally { h.close(); }
+});
+
+test('PostgreSQL encryption defaults to verified TLS and only saves an explicit unencrypted choice', async () => {
+  const h = harness(); try {
+    await h.page.load(); h.page.newConnection();
+    assert.equal(h.page.fields['sslmode'], 'verify-full');
+    h.page.select(row);
+    assert.equal(h.page.fields['sslmode'], 'verify-full');
+    assert.equal(h.page.encryptionLabel(undefined), 'connectors.pg.encryption_tls');
+    assert.equal(h.page.encryptionLabel('require'), 'connectors.pg.encryption_invalid');
+    assert.equal(h.page.encryptionLabel(null), 'connectors.pg.encryption_invalid');
+    h.page.fields['sslmode'] = 'disable';
+    assert.equal(h.page.selected()?.values['sslmode'], undefined, 'an unsaved choice must not relabel the saved connection');
+    assert.equal(h.calls.some(c => c.method !== 'GET'), false);
+    h.responses.set('/connections/conn-a', { ...row, values: { sslmode: 'disable' }, revision: 3 });
+    await h.page.save();
+    assert.equal(h.calls.find(c => c.method === 'PUT')?.body.values.sslmode, 'disable');
+    assert.equal(h.page.selected()?.values['sslmode'], 'disable');
+  } finally { h.close(); }
+});
+
+test('encryption labels are PostgreSQL-specific and do not enable member edits', async () => {
+  const h = harness(); try {
+    h.responses.set('/connections', { connections: [row], can_configure: false, can_import: false });
+    await h.page.load(); h.page.select({ ...row, values: { sslmode: 'disable' } });
+    const parameter = profile.parameters[0];
+    assert.equal(h.page.parameterLabel(parameter), 'connectors.pg.encryption');
+    assert.equal(h.page.parameterChoiceLabel(parameter, 'verify-full'), 'connectors.pg.encryption_tls_recommended');
+    assert.equal(h.page.parameterChoiceLabel(parameter, 'disable'), 'connectors.pg.encryption_none');
+    assert.equal(h.page.encryptionLabel(h.page.selected()?.values['sslmode']), 'connectors.pg.encryption_none');
+    h.page.fields['sslmode'] = 'verify-full'; await h.page.save();
+    assert.equal(h.calls.some(c => c.method !== 'GET'), false);
+    h.page.profileKey.set('mysql');
+    assert.equal(h.page.parameterLabel(parameter), 'sslmode');
+    assert.equal(h.page.parameterChoiceLabel(parameter, 'disable'), 'disable');
   } finally { h.close(); }
 });

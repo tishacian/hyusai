@@ -76,7 +76,7 @@ CONNECTORS: dict[str, ConnectorSpec] = {
     "smtp": ConnectorSpec(("host", "port", "username"), ("password",)),
     "rest_api": ConnectorSpec(("base_url", "auth_header"), ("api_key",)),
     "mqtt": ConnectorSpec(("broker_url", "topic", "client_id", "username"), ("password",)),
-    "postgresql": ConnectorSpec(("host", "port", "database", "username"), ("password",)),
+    "postgresql": ConnectorSpec(("host", "port", "database", "username", "sslmode"), ("password",)),
     "s3": ConnectorSpec(("bucket", "region", "access_key_id"), ("secret_access_key",)),
     "huggingface": ConnectorSpec(("endpoint",), ("token",)),
 }
@@ -160,6 +160,10 @@ def get_config(
     stored_values = _mapping(entry.get("values"))
     stored_secrets = _mapping(entry.get("secrets"))
     values = {key: str(stored_values[key]) for key in spec.fields if stored_values.get(key)}
+    if connector_id == "postgresql" and "sslmode" in stored_values:
+        # Preserve even malformed stored values for the strict transport guard;
+        # an empty/null value must never silently turn into the secure default.
+        values["sslmode"] = str(stored_values["sslmode"])
     secrets_set = {key: bool(stored_secrets.get(key)) for key in spec.secrets}
     config: dict[str, Any] = {
         "id": connector_id,
@@ -232,6 +236,16 @@ def set_config(
     unknown = sorted(set(values) - set(spec.fields) - set(spec.secrets))
     if unknown:
         raise ValueError(f"Unknown fields for {connector_id}: {', '.join(unknown)}")
+    if connector_id == "postgresql" and "sslmode" in values:
+        from app.services.connectors.network_policy import (
+            ConnectorNetworkError,
+            validate_postgresql_sslmode,
+        )
+
+        try:
+            validate_postgresql_sslmode(values["sslmode"])
+        except ConnectorNetworkError:
+            raise ValueError("sslmode must be verify-full or disable") from None
 
     entries = _entries(workspace)
     current = _mapping(entries.get(connector_id))
@@ -411,7 +425,9 @@ def _test_postgresql(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _
     stage = "connect"
     try:
         conn = psycopg2.connect(
-            **postgresql_connection_options(host, _port(values.get("port"), 5432)),
+            **postgresql_connection_options(
+                host, _port(values.get("port"), 5432), sslmode=values.get("sslmode", "verify-full")
+            ),
             dbname=database,
             user=username,
             password=password,

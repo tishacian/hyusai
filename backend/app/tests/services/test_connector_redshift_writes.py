@@ -158,7 +158,7 @@ def redshift(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sql,
         "postgresql_connection_options",
-        lambda *a: {
+        lambda *a, **kw: {
             "host": "redshift.example",
             "hostaddr": "93.184.216.34",
             "sslmode": "verify-full",
