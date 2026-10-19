@@ -145,11 +145,16 @@ de réentraînement n'est pas prise en charge par cette version du produit.
   et `agentium.ml_retraining_recovery` ; le worker doit consommer le shadow et
   les entraînements. L'API n'est pas une preuve que le worker fonctionne.
 - M3 ajoute les agrégats et alertes avec `ML_OPERATIONS_ENABLED` et
-  `ML_ALERTS_ENABLED`, désactivés par défaut. Configurer et tester une destination
-  réelle avant d'activer les notifications. Aucune destination n'est créée ici.
-- La rétention est une convention séparée (`ML_RETENTION_ENABLED`). Sans
-  entrées retenues, ne pas attendre de retours ni de réentraînement depuis ces
-  appels. Les coûts absents restent inconnus ; la durée ne devient pas un coût.
+  `ML_ALERTS_ENABLED`, désactivés par défaut. La boîte interne fonctionne sans
+  canal externe ; configurer et tester une destination réelle avant d'activer
+  ses notifications. Le drapeau d'alertes est global et reprend aussi les
+  livraisons existantes : relire les canaux activés et l'outbox avant ouverture.
+  Aucune destination n'est créée ici.
+- `ML_RETENTION_ENABLED` active la purge selon la durée de conservation ; ce
+  drapeau n'active pas l'enregistrement des entrées. Celui-ci dépend notamment
+  de la gouvernance `store_inputs` et de la demande de prédiction. Sans entrées
+  retenues, ne pas attendre de retours ni de réentraînement depuis ces appels.
+  Les coûts absents restent inconnus ; la durée ne devient pas un coût.
 
 ## Vérification produit du correctif Shadow
 
