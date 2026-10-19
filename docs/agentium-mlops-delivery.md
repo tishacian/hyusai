@@ -67,7 +67,10 @@ M4.3 n'ajoute pas de migration.
 4. Activer `ML_OPERATIONS_ENABLED`, puis vérifier une prédiction, un scoring,
    un refus de quota et leur agrégation après un intervalle clos de cinq minutes.
    Qualifier les scopes System, workspace et plateforme avec des comptes dédiés.
-5. Configurer et tester une destination réelle avant `ML_ALERTS_ENABLED` :
+5. `ML_ALERTS_ENABLED` peut ouvrir la boîte interne sans canal externe.
+   Ce drapeau est global et reprend aussi les livraisons existantes : vérifier
+   les canaux activés et les livraisons en attente avant son ouverture.
+   Pour les notifications externes, configurer et tester une destination :
    SMTP existant, ou références de secrets workspace pour URL HTTPS et HMAC.
    Vérifier transition, retour à la normale, indisponibilité, reprise et
    déduplication. Le destinataire doit dédupliquer l’identifiant de livraison.

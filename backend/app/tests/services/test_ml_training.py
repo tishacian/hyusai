@@ -502,6 +502,90 @@ def test_a_training_run_publishes_the_artifact_and_folds_the_evidence_into_the_r
     assert row.params_json["estimator"].endswith("HistGradientBoostingClassifier")
 
 
+@pytest.mark.parametrize("outcome", ["ready", "failed", "cancelled", "late_publication"])
+def test_controlled_training_persists_terminal_state_and_uses_the_final_fence(
+    db_session,
+    workspace,
+    dataset,
+    enabled,
+    monkeypatch,
+    store,
+    outcome,
+):
+    from datetime import datetime, timedelta
+
+    from app.models.execution_control import ExecutionReservation
+    from app.services import ml_requalification
+    from app.services.execution import ml_lifecycle
+
+    monkeypatch.setattr(settings, "execution_control_enabled", True)
+    monkeypatch.setattr(settings, "execution_canary_workspaces", "*")
+    monkeypatch.setattr(settings, "execution_durable_dispatch_enabled", False)
+    _stub_harness(
+        monkeypatch,
+        exit_code=1 if outcome == "failed" else 0,
+        status="cancelled" if outcome == "cancelled" else None,
+        progress=("fitting", "saving"),
+    )
+    after_commit = []
+    monkeypatch.setattr(tabular_ml, "sync_challenger", lambda *args: after_commit.append("alias"))
+    monkeypatch.setattr(
+        ml_requalification,
+        "capture_after_training",
+        lambda *args: after_commit.append("reference"),
+    )
+
+    def publish(row, *, publish_champion):
+        assert publish_champion is False
+        row.mlflow_run_id = "test-registry-run"
+        if outcome == "late_publication":
+            past_deadline = row.deadline_at + timedelta(seconds=1)
+
+            class Clock(datetime):
+                @classmethod
+                def utcnow(cls):
+                    return past_deadline
+
+            monkeypatch.setattr(ml_lifecycle, "datetime", Clock)
+        return "1"
+
+    def publish_alias(**kwargs):
+        from app.db.base import SessionLocal
+
+        with SessionLocal() as reader:
+            assert reader.get(MLModel, row.id).status == "ready"
+        after_commit.append("champion")
+
+    monkeypatch.setattr(tabular_ml, "_register_version", publish)
+    monkeypatch.setattr(tabular_ml.ml_registry, "set_alias", publish_alias)
+    spec = validate_training(dataset, task=None, target="churn")
+    row = tabular_ml.create_model(db_session, workspace_id=workspace.id, spec=spec)
+    ml_lifecycle.register(db_session, row)
+    db_session.commit()
+    result = run_training(row.id)
+    db_session.expire_all()
+    persisted = db_session.get(MLModel, row.id)
+    expected = "failed" if outcome == "late_publication" else outcome
+    assert result == {"id": row.id, "status": expected}
+    assert persisted.status == expected
+    assert persisted.status_detail is None
+    assert after_commit == (["champion", "alias", "reference"] if expected == "ready" else [])
+    allocation = db_session.query(ExecutionReservation).filter_by(entity_id=row.id).one()
+    assert allocation.outcome == expected and allocation.released_at is not None
+    if expected == "ready":
+        assert persisted.model_uri and persisted.artifact_bytes > 0
+        assert persisted.trained_at and persisted.runtime_json
+        assert persisted.metrics_json["primary"]["value"] == 0.91
+        assert persisted.mlflow_run_id == "test-registry-run"
+    elif outcome == "late_publication":
+        assert persisted.error == "EXECUTION_DEADLINE_EXCEEDED"
+        assert not persisted.is_champion
+        assert persisted.model_uri is None
+        assert not persisted.metrics_json and not persisted.runtime_json
+        assert persisted.trained_at is None
+        assert persisted.mlflow_run_id is None
+
+
 def test_the_first_trained_version_serves_and_a_retrain_does_not_take_over(
     db_session, workspace, dataset, enabled, monkeypatch, store
 ):

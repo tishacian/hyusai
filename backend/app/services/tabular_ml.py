@@ -2418,6 +2418,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 return {"id": model_id, "status": model.status}
             if model.cancel_requested or retraining_cancel_requested(db, model):
                 status, error = "cancelled", "ML_RETRAIN_CANCELLED"
+        registered_version: str | None = None
         if status == "ready":
             _apply_summary(model, summary)
             model.status = "ready"
@@ -2448,16 +2449,24 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 and serving is None
                 and not (model.params_json or {}).get("retraining_proposal")
             )
-            _register_version(model)
+            registered_version = _register_version(model, publish_champion=False)
         else:
             _finalize(model, status=status, error=error)
         # Registry publication may take time. Charge until its actual return,
         # then recheck the absolute fence before committing a ready pointer.
         final_status, final_error = ml_lifecycle.settle(db, model, model.status, model.error)
         if final_status != "ready":
+            # The authority is locked through commit. Drop the pending artifact,
+            # metrics and champion pointer when the final fence rejects them;
+            # keep only the durable terminal outcome on this failed attempt.
+            db.refresh(model)
             _finalize(model, status=final_status, error=final_error)
         db.commit()
-        if status == "ready":
+        if final_status == "ready":
+            if registered_version and model.is_champion:
+                ml_registry.set_alias(
+                    model_name=model.mlflow_model_name, version=registered_version
+                )
             # A retrain that did not take over is exactly what "challenger"
             # means, so the alias is settled here and not only on promotion.
             # After the commit on purpose: the session does not autoflush, so the
@@ -2473,10 +2482,10 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         logger.info(
             "tabular_ml: settled",
             model_id=model_id,
-            status=status,
+            status=final_status,
             duration_ms=model.train_duration_ms,
         )
-        return {"id": model_id, "status": status}
+        return {"id": model_id, "status": final_status}
 
 
 def _report_state_uri(model: MLModel) -> str | None:
@@ -2486,13 +2495,16 @@ def _report_state_uri(model: MLModel) -> str | None:
     return get_object_store().uri(str(key)) if key else None
 
 
-def _register_version(model: MLModel) -> None:
+def _register_version(model: MLModel, *, publish_champion: bool = True) -> str | None:
     """Mirror a ready model into the MLflow registry, and never fail over it.
 
     The bytes are already on the object store, so the version is created against
     that location rather than uploaded again — see ``ml_registry``. What this
     call adds to the row is ``mlflow_run_id``: the handle that ties our record to
     a run a foreign MLflow client can read.
+
+    Training defers its champion alias until the final authority transaction
+    commits. Other callers retain the existing immediate-alias behavior.
     """
 
     if not model.model_uri or not model.mlflow_model_name:
@@ -2549,10 +2561,11 @@ def _register_version(model: MLModel) -> None:
     if not published:
         return
     model.mlflow_run_id = published["run_id"]
-    if model.is_champion:
+    if model.is_champion and publish_champion:
         # The lineage had nothing serving, so this version is what answers —
         # the alias has to say the same thing the row does.
         ml_registry.set_alias(model_name=model.mlflow_model_name, version=published["version"])
+    return str(published["version"])
 
 
 def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:

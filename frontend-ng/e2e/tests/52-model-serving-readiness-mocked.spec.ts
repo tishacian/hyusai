@@ -21,9 +21,22 @@ const model = {
   spec: { time_column: 'observed_at', shape: 'single', horizon: 28, backtest_folds: 3, interval_level: .8, frequency: 'D' },
 };
 
-async function setup(page: Page, theme: string, canTrain: boolean) {
+const tabularFeatures = ['visits', 'amount', 'item_count', 'account_age', 'discount', 'delivery_days'];
+
+async function setup(page: Page, theme: string, canTrain: boolean, tabular = false) {
+  const currentModel = tabular ? {
+    ...model, name: 'Ticket outcome', task: 'classification', family: 'tabular',
+    target: 'outcome', features: tabularFeatures, spec: {},
+    metrics: { scores: [{ key: 'accuracy', value: 0.8 }] }, primary_metric: { key: 'accuracy', value: 0.8 },
+  } : model;
+  const currentDataset = tabular ? {
+    ...dataset, schema: [...tabularFeatures, 'region', 'outcome'].map(name => ({ name, dtype: 'Int64', kind: 'integer' })),
+    column_count: 8,
+  } : dataset;
   const workspace = { id: 'readiness-qa', slug: 'readiness-qa', name: 'Model readiness QA', role: canTrain ? 'owner' : 'viewer', role_template: canTrain ? 'workspace_owner' : 'workspace_viewer', settings: {}, mode: 'builder' };
   const writes: string[] = [];
+  const trains: Record<string, unknown>[] = [];
+  const plans: Record<string, unknown>[] = [];
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
   await page.addInitScript(({ slug, theme }) => {
     localStorage.setItem('agentium_token', 'Bearer isolated-model-readiness-qa');
@@ -39,9 +52,23 @@ async function setup(page: Page, theme: string, canTrain: boolean) {
     if (['/auth/validate', '/auth/me'].includes(path)) return json(route, user);
     if (path === '/auth/workspaces') return json(route, [workspace]);
     if (path === '/auth/workspaces/' + workspace.slug) return json(route, workspace);
+    if (path === '/ml-governance') return json(route, {
+      retention_enabled: false, permissions: { policy: false }, promotions: [],
+      policy: {
+        promotion_requires_approval: true, store_inputs: true, prediction_retention_days: 30,
+        predict_requests_per_minute: 60, predict_rows_per_minute: 1000, max_exposed_models: 10,
+      },
+    });
+    if (path === `/ml-models/${modelId}/runtime`) return json(route, {
+      model_id: modelId, version: 1, status: 'unsupported', supported: false,
+      reason: tabular ? 'legacy_artifact' : 'remote_family', producer_runtime: null, reader_runtime: null,
+      differences: [], reference: { status: 'missing' }, can_capture: false, can_requalify: false,
+      attestations: [], jobs: {},
+      tolerances: { max_label_disagreements: 0, proba_atol: 0.000001, regression_atol: 0.000001, regression_rtol: 0.000001 },
+    });
     if (path === '/ml-models/catalog') return json(route, { catalog: fixture.catalog });
     if (path === '/ml-models/' + modelId) return json(route, {
-      model, dataset, provenance: null, versions: [model], challenger_id: null, catalog: fixture.catalog,
+      model: currentModel, dataset: currentDataset, provenance: null, versions: [currentModel], challenger_id: null, catalog: fixture.catalog,
       serving: {
         enabled: true, callable: false, is_serving: true, serving_model_id: modelId, serving_version: 1,
         readiness: { training_ready: true, state: 'blocked', check: 'metadata', action: 'retrain' },
@@ -51,12 +78,33 @@ async function setup(page: Page, theme: string, canTrain: boolean) {
         endpoint: '/api/v1/ml-models/' + modelId + '/forecast', key_header: 'X-Agentium-Model-Key',
       },
     });
-    if (path === '/ml-models') return json(route, { models: [model], catalog: fixture.catalog });
-    if (path === '/ml-models/plan') return json(route, { dataset, columns: [], catalog: fixture.catalog, plan: null, refusal: null });
-    if (path === '/datasets') return json(route, { datasets: [dataset] });
+    if (path === '/ml-models' && request.method() === 'POST') {
+      trains.push(request.postDataJSON());
+      return json(route, { model: { ...currentModel, version: 2, status: 'pending', is_champion: false } });
+    }
+    if (path === '/ml-models') return json(route, { models: [currentModel], catalog: fixture.catalog });
+    if (path === '/ml-models/plan') {
+      const body = request.postDataJSON();
+      plans.push(body);
+      // The server treats an empty tabular feature list as its default columns.
+      const features = !tabular ? currentModel.features : body.features?.length ? body.features
+        : currentDataset.schema.map(column => column.name).filter(name => name !== currentModel.target);
+      return json(route, {
+        dataset: currentDataset, columns: currentDataset.schema.map(column => ({ ...column, nulls: 0, distinct: 420 })),
+        catalog: fixture.catalog, refusal: null,
+        plan: {
+          task: currentModel.task, target: currentModel.target, features,
+          algo: currentModel.algo, estimator: 'HistGradientBoostingRegressor', knobs: {},
+          family: currentModel.family, spec: currentModel.spec, name: 'Generated training name',
+          test_size: currentModel.test_size, cross_validation: currentModel.cross_validation,
+          warnings: [], rows: currentDataset.row_count,
+        },
+      });
+    }
+    if (path === '/datasets') return json(route, { datasets: [currentDataset] });
     return json(route, {});
   });
-  return writes;
+  return { writes, trains, plans };
 }
 
 test.describe('Model serving readiness — isolated UI QA', () => {
@@ -71,7 +119,7 @@ test.describe('Model serving readiness — isolated UI QA', () => {
     const name = `${variant.theme}-${variant.width}-${variant.canTrain ? 'owner' : 'viewer'}`;
     test(name + ': training completion never promises callable serving', async ({ page }, info) => {
       await page.setViewportSize({ width: variant.width, height: variant.height });
-      const writes = await setup(page, variant.theme, variant.canTrain);
+      const { writes } = await setup(page, variant.theme, variant.canTrain);
       await page.goto('/models/' + modelId);
       const banner = page.getByTestId('serving-readiness-refusal');
       await expect(banner).toBeVisible();
@@ -105,6 +153,7 @@ test.describe('Model serving readiness — isolated UI QA', () => {
         await expect(retrain).toBeEnabled();
         await retrain.click();
         await expect(page.getByRole('dialog')).toBeVisible();
+        await expect(page.getByRole('dialog').locator('#train-name')).toHaveValue(model.name);
       } else {
         await expect(retrain).toHaveCount(0);
       }
@@ -112,4 +161,35 @@ test.describe('Model serving readiness — isolated UI QA', () => {
       writeFileSync(info.outputPath(`${name}.json`), JSON.stringify({ ...variant, language: 'en', localMocked: true, headerMetrics, bannerMetrics, overflow, rawErrorVisible: false, predictCallUnavailable: true, retrainOpensDialog: variant.canTrain, writes }, null, 2));
     });
   }
+
+  test('retraining keeps the source name in the submitted lineage without manual entry', async ({ page }) => {
+    const { trains, writes } = await setup(page, 'dark', true);
+    await page.goto('/models/' + modelId);
+    await page.getByRole('button', { name: 'Retrain', exact: true }).click();
+    const studio = page.getByRole('dialog');
+    await expect(studio.locator('#train-name')).toHaveValue(model.name);
+    await expect(studio.locator('.ck-submit')).toBeEnabled();
+    await studio.locator('.ck-submit').click();
+    await expect.poll(() => trains.length).toBe(1);
+    expect(trains[0]).toMatchObject({
+      name: model.name, dataset_id: dataset.id, target: model.target,
+      task: model.task, algo: model.algo, features: model.features,
+    });
+    expect(writes.filter(path => /\/(champion|promote)$/.test(path))).toEqual([]);
+  });
+
+  test('a tabular retrain keeps its selected features in the first plan and submission', async ({ page }) => {
+    const { trains, plans } = await setup(page, 'dark', true, true);
+    await page.goto('/models/' + modelId);
+    await page.getByRole('button', { name: 'Retrain', exact: true }).click();
+    const studio = page.getByRole('dialog');
+    await expect(studio.locator('#train-name')).toHaveValue('Ticket outcome');
+    await expect.poll(() => plans.length).toBeGreaterThan(0);
+    expect(plans[0].features).toEqual(tabularFeatures);
+    await expect(studio.locator('.ck-studio__foot')).toContainText('6 features kept');
+    await expect(studio.getByText('6 of 7', { exact: true })).toBeVisible();
+    await studio.locator('.ck-submit').click();
+    await expect.poll(() => trains.length).toBe(1);
+    expect(trains[0]).toMatchObject({ name: 'Ticket outcome', features: tabularFeatures });
+  });
 });

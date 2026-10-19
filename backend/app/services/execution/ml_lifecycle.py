@@ -113,15 +113,26 @@ def settle(db, model, status, error):
     if model.execution_policy is None:
         return status, error
     token = getattr(model, "_native_lease_token", None)
-    model = db.query(MLModel).filter_by(id=model.id).with_for_update().populate_existing().one()
+    # The caller has already folded the artifact and terminal state into this
+    # ORM instance. SessionLocal disables autoflush: populate_existing() here
+    # would discard those changes and leave a completed fit stuck in training.
+    # Read and lock durable authority without overwriting pending publication,
+    # as RecipeExecution.finalize does; do not flush success before fencing it.
+    with db.no_autoflush:
+        state = (
+            db.execute(MLModel.__table__.select().where(MLModel.id == model.id).with_for_update())
+            .mappings()
+            .one()
+        )
     now = datetime.utcnow()
-    if not token or model.lease_token != token:
+    if not token or state["lease_token"] != token:
+        db.expire(model)
         raise admission.AdmissionError("EXECUTION_LEASE_LOST")
-    if model.status in {"failed", "cancelled"}:
-        status, error = model.status, model.error
-    elif model.cancel_requested:
+    if state["status"] in {"failed", "cancelled"}:
+        status, error = state["status"], state["error"]
+    elif state["cancel_requested"]:
         status, error = "cancelled", "EXECUTION_CANCELLED"
-    elif model.deadline_at <= now or model.lease_expires_at <= now:
+    elif state["deadline_at"] <= now or state["lease_expires_at"] <= now:
         status, error = "failed", "EXECUTION_DEADLINE_EXCEEDED"
     admission.settle(
         db, entity_kind="ml_training", entity_id=model.id, token=token, outcome=status, now=now

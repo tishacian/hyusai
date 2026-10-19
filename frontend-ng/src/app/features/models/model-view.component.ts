@@ -2097,6 +2097,7 @@ export class ModelViewComponent implements OnInit {
     const row = this.model();
     if (!row) return null;
     return {
+      name: row.name,
       datasetId: this.feedbackDatasetId() ?? row.dataset_id,
       target: row.target,
       task: row.task,
