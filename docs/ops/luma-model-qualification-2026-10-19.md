@@ -1,6 +1,118 @@
 # Luma : qualification du modèle après activation du socle
 
-## État observé
+## Résultat après déploiement de `d95ba09f`
+
+Le 19 octobre, l'API et le frontend annoncent la révision complète
+`d95ba09fc589af64eb6f351a54b9faeaf74503ba`. Le runtime enregistré par le nouvel
+entraînement confirme la même image côté worker.
+
+- **SLA v5** : `2e71ce6f-800f-4d02-b59e-498e40fe48eb`, entraînée en 37,5 s,
+  `ready`, appelable, puis mise en service depuis la fiche modèle. Le réglage
+  workspace existant ne demande pas de seconde approbation pour cette promotion.
+- Le dataset conserve 4 573 lignes et les six entrées prévues. AUC de test :
+  **0,820671**. L'évaluation signale trois contenus communs entre apprentissage
+  et test : ce score ne constitue pas une validation indépendante sans réserve.
+- Le contrat d'artefact, le runtime et une référence de **256 lignes** sont
+  enregistrés. Play a servi la v5 ; l'explication automatique est contrefactuelle
+  pour ce modèle calibré. Une recherche contrefactuelle séparée a abouti.
+- **Flow publié v5** : `f3fc70cd-0a51-4719-bbf3-ce30d787f4d4`, 24 nœuds et
+  25 liens. Seuls la version du modèle et son libellé changent. Le brouillon
+  utilisateur conserve ses 25 nœuds et 26 liens, révision 25.
+- **Work release 4** : `6b45b6f2-8688-4b8b-a76d-deb9508956e9`, déployée sur
+  `live`. Les trois bindings et le contrat imbriqué du triage pointent vers le
+  nouveau Flow/modèle. La publication a passé le ready-check sans blocage ni
+  avertissement ; les accès et le brouillon Work sont conservés.
+- Surveillance quotidienne activée sur v5, avec proposition de réentraînement
+  configurée pour une validation humaine. System technique :
+  `aff1a77b-f40e-4c08-b960-52a0006c36cb`, planning
+  `72943ce8-1397-41a7-9573-386ab82ccc5f`. L'ancien planning v1 est désactivé.
+
+Un déclenchement natif du scheduler a exécuté le Run
+`f3c03c6e-2130-4b87-87fe-e5918788edc0` à 09:03 UTC, en 6,53 s. La mesure et
+son historique sont enregistrés et le Flow d'exécution s'ouvre. La proposition
+de réentraînement est toutefois refusée avec **`ML_SPEC_INVALID`** : le gel du
+dataset retire la colonne auxiliaire `language`, encore déclarée dans
+`fairness_columns`. Les étapes de validation et d'entraînement sont donc
+ignorées ; ce Run terminé ne prouve pas le parcours humain complet.
+Le planning temporaire de recette a été remplacé par sa cadence quotidienne
+initiale (`0 0 * * *`, UTC), vérifiée active avec prochaine échéance le 20 octobre.
+
+La campagne a effectué **un appel de 64 lignes**, plus deux appels unitaires de
+qualification, soit trois appels et 66 lignes. Les 64 résultats synthétiques ont
+été associés aux `sample_id` réellement conservés. Le rapport
+`c754dbde-8e43-4cb4-b1cf-124fe52a568f`, terminé le 19 octobre à 08:54 UTC, utilise
+64/64 échantillons sans exclusion : **48 réponses correctes, accuracy 75 %**.
+Le résultat serveur correspond au calcul local sur les réponses effectivement
+servies. La fenêtre isole le batch `a8c9289e-69c2-4fda-865b-a0a70b3682eb`.
+
+Ce corpus équilibré est synthétique et non revu humainement. Il qualifie la
+chaîne prédiction → feedback → analyse, pas une qualité réelle en production ni
+un ROI financier. Ce ne sont pas 64 enquêtes Work. La langue n'est pas une entrée
+servie : l'équité par langue reste non mesurée dans ce rapport. TreeSHAP ne
+s'applique pas à ce modèle calibré ; le shadow reste indisponible tant que son
+challenger v2 conserve l'ancien format d'artefact.
+
+Le journal expose l'entraînement v5 comme `succeeded`. La série d'activité du
+19 octobre entre 08:00 UTC et l'heure de lecture contient un entraînement réussi
+avec une durée mesurée de 37 458,9 ms. Aucun coût financier n'en est déduit.
+
+## Blocage restant : connexion PostgreSQL de Work
+
+La recette navigateur charge la nouvelle application, mais sa file échoue.
+Le test du connecteur et le catalogue renvoient tous deux **`PG_TLS_UNAVAILABLE`** :
+le serveur PostgreSQL annonce qu'il ne prend pas en charge TLS. Le lecteur métier
+sur la révision déployée n'expose encore que `POSTGRESQL_READ_UNAVAILABLE`.
+Les lectures du connecteur et le diff des settings confirment que le réépinglage
+n'a pas modifié sa configuration.
+
+La reprise dépend de l'opérateur : activer TLS natif sur l'endpoint PostgreSQL,
+présenter un certificat valide pour l'hôte configuré et fournir l'autorité de
+confiance au backend et au worker. Conserver `sslmode=verify-full`.
+Suivre [le diagnostic PostgreSQL](postgresql-connection-diagnostics.md), puis
+vérifier connexion, catalogue et aperçu avant de relancer la file et une enquête
+Work. Aucun nouveau Run métier ne peut être déclaré réussi avant ces contrôles.
+
+## Reprise après livraison des correctifs de cette recette
+
+La préparation du réentraînement conserve maintenant les colonnes d'équité
+activées en plus des entrées prédictives et de la cible. Les groupes connus du
+dataset source et du test final sont conservés ; une métadonnée absente des
+feedbacks reste nulle. La preuve du dataset indique les valeurs présentes et
+manquantes par population. Cette correction ne mesure pas l'équité par langue
+des 64 prédictions qui n'ont pas cette métadonnée et n'élargit pas leur contrat
+d'entrée.
+
+Les limites du pack restent appliquées : le plafond existant de groupes n'est
+pas relevé, et une valeur auxiliaire qui ne peut pas être conservée fidèlement
+est refusée. Les valeurs absentes sont comptées dans la couverture ; elles ne
+sont remplacées par aucun groupe supposé.
+
+La validation locale passe **69 tests** couvrant le réentraînement, la justesse
+des partitions et les colonnes auxiliaires. Un entraînement réel du dataset
+figé vérifie la signature prédictive inchangée, les groupes du holdout d'origine
+et l'absence de promotion automatique. Les cas de groupes texte, entiers,
+booléens, partiellement absents et incompatibles sont exercés. Ces résultats
+valident le correctif ; le nouveau déclenchement en service reste à vérifier
+après déploiement.
+
+La correction Work expose le diagnostic PostgreSQL déjà disponible côté
+connecteur ; elle ne rétablit pas à elle seule la connexion. Déployer l'API et
+le frontend pour voir la cause et les actions de reprise adaptées aux droits.
+
+Pour vérifier la correction du dataset de réentraînement, mettre aussi à jour
+le worker qui exécute la surveillance et la préparation ML. Conserver la v5 en
+service et ses épingles : aucun nouvel entraînement ou changement de champion
+n'est nécessaire pour déployer le correctif. Il n'y a pas de migration ni de
+nouveau drapeau d'activation pour ces changements.
+
+Après déploiement, contrôler un nouveau Run du planning v5 : mesure persistée,
+absence de `ML_SPEC_INVALID`, puis proposition présentée pour validation
+humaine si les critères de surveillance la justifient. Une proposition ne vaut
+ni approbation ni mise en service ; conserver ces étapes et leurs preuves dans
+le produit. Le statut `completed` du Run de mesure ne suffit pas à valider ce
+parcours. Vérifier ensuite le champion et les épingles réellement utilisés.
+
+## Historique avant correctif
 
 Le 19 octobre 2026, l'opérateur rapporte la révision
 `a775f8569a02ed5a1c38890f01ee2e126cc46277` et la migration
@@ -55,7 +167,7 @@ Ces corrections sont génériques. Elles n'ajoutent aucun comportement réservé
   Ces résultats valident le code ; ils ne remplacent pas un nouvel entraînement
   et une qualification sur le déploiement corrigé.
 
-## Reprise opérateur
+## Procédure de réentraînement et de réépinglage suivie
 
 1. Déployer une révision contenant `34bc3ff6` (finalisation ML) et `d754a548`
    (réentraînement UI), avec les images cohérentes de la release.
@@ -82,7 +194,10 @@ Ces corrections sont génériques. Elles n'ajoutent aucun comportement réservé
    Un shadow demande aussi un challenger compatible : les anciennes versions
    ne sont pas converties par cette opération.
 
-## Corpus de qualification prêt, campagne encore à exécuter
+## Protocole du corpus de qualification
+
+Ce protocole a été préparé avant le réentraînement ; la campagne est maintenant
+effectuée et ses résultats sont consignés en tête de ce document.
 
 Le corpus reproductible utilise l'ancre `2026-10-09` et la graine `20261009`
 de `docs/demo-runs/showcase-ecommerce/fixtures/showcase_learning/generate.py`.
@@ -102,4 +217,4 @@ elle-même et aucune mesure ne doit être antidatée.
 
 Les snapshots et captures authentifiés restent hors du dépôt, dans le dossier
 privé de recette. Les payloads préparatoires ciblant v4 ne doivent pas être
-appliqués : reconstruire les références depuis la future version qualifiée.
+appliqués : les références utilisées ont été reconstruites depuis la v5 qualifiée.
