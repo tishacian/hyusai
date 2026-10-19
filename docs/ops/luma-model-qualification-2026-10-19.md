@@ -1,5 +1,53 @@
 # Luma : qualification du modèle après activation du socle
 
+## PostgreSQL rétabli après déploiement de `718c99bf`
+
+Le 19 octobre, l'API et le frontend annoncent la révision
+`718c99bf7e9e07fb689ff0bcd4a1ffd90fca2ece`. Le compte fourni pour la recette
+est `workspace_owner` de Showcase et reçoit `can_configure: true` ; le compte
+administrateur de recette de l'opérateur n'avait pas cette permission workspace.
+Aucun rôle n'a été modifié.
+
+Le mode **Sans chiffrement** a été sélectionné et enregistré depuis la fiche
+PostgreSQL de Showcase. Le secret existant est conservé. À **15 h 56, heure de
+Paris**, le test renvoie `connected`, le catalogue expose sept tables et l'aperçu
+relit **23 lignes et cinq colonnes** de `showcase_ecommerce.claims`, avec
+`sslmode=disable` dans la provenance. La file Work renvoie ses trois dossiers de
+présentation et RC-1042 retrouve ses six documents sources.
+
+Le recalcul déclenché depuis la Business App a créé le Run
+`9f482184-1b93-451d-a35e-be95893a72e2`, terminé en **30,38 secondes** sur cette
+révision, dans le Flow publié v5 du System Luma. Les trois appels réussissent :
+extraction PostgreSQL, transformation SQL/DataOps, scoring ML. Le résultat
+`ready` porte sur les 23 dossiers du corpus, dont trois sont présentés dans Work.
+
+- Dataset préparé : `64538d75-3042-4030-94fd-37ba1105b200`, 23 lignes.
+- Dataset scoré : `5fc56662-04c8-4d42-8b5a-7d1dd3f5e9e3`, 23 lignes.
+- Modèle : SLA v5, `2e71ce6f-800f-4d02-b59e-498e40fe48eb`.
+- Risques affichés pour les dossiers de présentation : environ 80 %, 17 % et 2 %.
+
+Ces pourcentages sont des scores sur données synthétiques, pas des gains
+financiers ni des décisions de remboursement. Le Run de surveillance ML
+`3c758903-0f2b-4923-81e3-138e61f626e1` reste en `hitl_pending` ; la validation
+de la connexion et du scoring n'approuve pas son réentraînement.
+
+Le réexamen de RC-1042, déclenché ensuite depuis Work, a créé le Run
+`612a4abf-7a54-4965-ad7d-26606d77f3e6`. Il utilise le même System, le même
+Flow publié v5 et la même révision runtime. Ses **12 appels réussissent** :
+préparation des données, transformation SQL, scoring v5, rapprochement avec le
+dossier, quatre décisions agentiques, lecture PostgreSQL, recherche des règles,
+recherche des preuves de livraison et proposition de résolution. Le Run atteint
+`hitl_pending`, sans erreur. La proposition demande une enquête transporteur en
+raison de la différence de code postal entre le bordereau et la commande.
+La vue Flow du Run s'ouvre : préparation, scoring et enquête sont réussis,
+la validation attend et l'enregistrement du reçu n'a pas démarré.
+
+Aucune approbation n'a été exécutée et aucun nouveau reçu n'a été créé. RC-1042
+possède déjà un reçu simulé historique du 2 octobre, visible à côté de la nouvelle
+proposition : ce réexamen ne doit pas être présenté comme une seconde action
+réalisée. Le parcours jusqu'à la validation humaine est vérifié ; l'exécution
+après approbation et un nouveau ROI réalisé ne sont pas qualifiés par cette passe.
+
 ## Vérification après déploiement de `945013ac`
 
 Le 19 octobre, l'API et le frontend annoncent tous deux
@@ -100,7 +148,7 @@ Le journal expose l'entraînement v5 comme `succeeded`. La série d'activité du
 19 octobre entre 08:00 UTC et l'heure de lecture contient un entraînement réussi
 avec une durée mesurée de 37 458,9 ms. Aucun coût financier n'en est déduit.
 
-## Blocage restant : connexion PostgreSQL de Work
+## Blocage PostgreSQL constaté avant `718c99bf`
 
 La recette navigateur charge la nouvelle application, mais sa file échoue.
 Le test du connecteur et le catalogue renvoient tous deux **`PG_TLS_UNAVAILABLE`** :
@@ -122,8 +170,8 @@ Work. Aucun nouveau Run métier ne peut être déclaré réussi avant ces contr�
 Une évolution générique ajoute **Chiffrement → Sans chiffrement** à la fiche
 PostgreSQL et au registre Connections. Le défaut reste **TLS vérifié** ; le
 produit ne choisit jamais automatiquement le mode non chiffré après un échec.
-Cette évolution est validée localement et reste à déployer et à recetter en
-service. Le choix n’a pas encore été appliqué à Showcase.
+Cette évolution a été déployée et le choix appliqué à Showcase ; les contrôles
+en service sont consignés en tête de ce document.
 
 Suivre [la procédure de déploiement et de vérification PostgreSQL](postgresql-connection-diagnostics.md#déploiement-et-vérification-du-choix-de-transport),
 y compris les workers et les runners de connecteurs concernés. Aucune migration
@@ -131,8 +179,8 @@ ni nouveau drapeau n’est nécessaire. Dans Showcase, Work Luma utilise la fich
 **Connecteurs → PostgreSQL** historique : modifier uniquement une connexion du
 nouveau registre ne débloquerait pas sa file.
 
-Une fois la révision en service, enregistrer ce choix explicite dans cette fiche,
-tester, explorer une table puis vérifier une lecture fraîche de la file Luma.
+La recette a enregistré ce choix explicite dans cette fiche, testé la connexion,
+exploré une table et vérifié une lecture fraîche de la file Luma.
 Les données transitent alors sans chiffrement PostgreSQL. La recette ne doit pas
 réutiliser un ancien snapshot comme preuve de connexion. Les épingles du modèle
 v5 et la proposition de réentraînement en attente d’approbation restent inchangées.

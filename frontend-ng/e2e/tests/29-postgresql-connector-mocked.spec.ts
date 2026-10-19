@@ -113,8 +113,11 @@ test.describe('PostgreSQL — isolated end-user QA', () => {
       expect(savedValues['sslmode']).toBe('disable');
       expect(savedValues['password']).toBeUndefined();
       expect(writes.filter(write => write.path.endsWith('/test'))).toHaveLength(1);
+      const savedNotice = page.getByText(english ? 'Configuration saved. The connection still needs testing.' : 'Configuration enregistrée. La connexion reste à tester.', { exact: true });
+      await expect(savedNotice).toBeVisible();
       await page.getByRole('button', { name: testConnection, exact: true }).click();
       await expect(page.getByTestId('pg-connection-state')).toContainText(verified);
+      await expect(savedNotice).toHaveCount(0);
       await expect(page.getByTestId('pg-encryption-state')).toContainText(unencrypted);
       expect(writes.filter(write => write.path.endsWith('/test'))).toHaveLength(2);
       await page.reload();
