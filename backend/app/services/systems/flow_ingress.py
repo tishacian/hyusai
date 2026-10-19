@@ -211,6 +211,7 @@ def create_published_ingress_run(
     kind: str,
     payload: Mapping[str, Any],
     initiated_by_user_id: str | None = None,
+    execution_principal: dict | None = None,
     runner_session_id: str | None = None,
     expected_published_version_id: str | None = None,
     expected_flow_sha256: str | None = None,
@@ -342,12 +343,23 @@ def create_published_ingress_run(
         "kind": kind,
         "adapter": copy.deepcopy(dict(adapter_evidence or {})),
     }
+    from app.services.run_engine.execution_principal import (
+        ExecutionPrincipalError,
+        validate_run_authority,
+    )
+
+    try:
+        validate_run_authority(execution_principal, version_id=version_id,
+                               flow_sha256=flow_sha256, execution_contract=contract)
+    except ExecutionPrincipalError as exc:
+        raise FlowIngressError(exc.code, "Delegated execution must be reviewed for this publication.", 409) from None
     run = Run(
         id=str(uuid4()),
         workspace_id=workspace.id,
         system_id=system.id,
         capability_id=system.capability_id,
         initiated_by_user_id=initiated_by_user_id,
+        execution_principal=copy.deepcopy(execution_principal),
         input_ref=accepted_payload,
         flow_snapshot=copy.deepcopy(flow),
         flow_version_id=version_id,

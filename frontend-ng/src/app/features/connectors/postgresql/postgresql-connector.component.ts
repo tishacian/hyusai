@@ -186,7 +186,7 @@ export class PostgresqlConnectorComponent {
   protected async test(): Promise<void> {
     if (!this.connectionReady()) return;
     const epoch = this.epoch;
-    this.testing.set(true); this.failure.set(null); this.testResult.set(null);
+    this.testing.set(true); this.saved.set(false); this.failure.set(null); this.testResult.set(null);
     try {
       const result = await firstValueFrom(this.http.post<TestResult>(`${this.base}/test`, {}));
       if (epoch === this.epoch) {

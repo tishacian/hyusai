@@ -31,6 +31,9 @@ class Run(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(String(36), nullable=True, index=True)
     initiated_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    # Machine-triggered execution authority, distinct from human initiation.
+    # Written only by trusted adapters and re-authorized on every protected use.
+    execution_principal = Column(JSON, nullable=True)
     # Nullable since migration 012 — chat turns without a System
     # attachment are still first-class Runs (audit/eval on workspace
     # scope). Set to the System id when chat is launched from a

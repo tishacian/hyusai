@@ -198,6 +198,8 @@ def _visible_run_or_404(
 
 
 def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
+    from app.services.run_engine.execution_principal import public_run_principal
+
     membrane_held = _membrane_egress_held(r)
     measurement_provenance = run_measurement_provenance(r, db=db)
     baseline_exclusion = baseline_run_exclusion_reason(r)
@@ -226,6 +228,8 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
         "capability_id": r.capability_id,
         "status": r.status,
         "trigger": r.trigger,
+        "initiated_by_user_id": r.initiated_by_user_id,
+        "execution_principal": public_run_principal(r),
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         "duration_ms": r.duration_ms,

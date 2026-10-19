@@ -197,7 +197,10 @@ def test_control_policy_binding_requires_same_workspace_scope_and_target(db_sess
     assert _load_control_policy(db_session, system).id == correct.id
 
 
-def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(db_session):
+@pytest.mark.parametrize("delegated", [False, True])
+def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(
+    db_session, monkeypatch, delegated
+):
     workspace = _workspace(db_session, "Canonical tenant")
     other = _workspace(db_session, "Other tenant")
     contract = {
@@ -220,6 +223,8 @@ def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(db_ses
         initiated_by_user_id=None,
         status="pending",
         input_ref={
+            "run_id": "forged-other-run",
+            "system_id": "forged-other-system",
             "workspace_id": other.id,
             "workspace_slug": other.slug,
             "user_id": "spoofed-user",
@@ -231,19 +236,57 @@ def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(db_ses
     )
     db_session.add_all([system, run])
     db_session.commit()
+    actor_id = None
+    if delegated:
+        from app.services.run_engine import execution_principal
+
+        actor_id = str(uuid.uuid4())
+        run.execution_principal = {"kind": "delegated_user", "user_id": actor_id}
+        db_session.commit()
+        monkeypatch.setattr(execution_principal, "execution_user_id", lambda db, current: actor_id)
 
     _snapshot_run_flow(db_session, run, system)
     ctx = _build_initial_ctx(db_session, run, system, None)
 
     assert run.input_ref["workspace_id"] == workspace.id
+    assert run.input_ref["run_id"] == run.id
+    assert run.input_ref["system_id"] == system.id
     assert run.input_ref["workspace_slug"] == workspace.slug
-    assert run.input_ref["user_id"] is None
+    assert run.input_ref["user_id"] == actor_id
     assert run.input_ref["retrieval_contract"] == contract
     assert ctx["workspace_slug"] == workspace.slug
-    assert ctx["user_id"] is None
+    assert ctx["user_id"] == actor_id
+    assert run.initiated_by_user_id is None
     assert ctx["retrieval_contract"] == contract
     remaining = ctx["_run_deadline_monotonic"] - time.monotonic()
     assert 11.0 < remaining <= 12.0
+
+
+def test_run_context_does_not_fallback_when_delegation_is_revoked(db_session, monkeypatch):
+    from app.services.run_engine import execution_principal
+
+    workspace = _workspace(db_session, "Delegated tenant")
+    system = System(
+        id=str(uuid.uuid4()), workspace_id=workspace.id, name="Delegated system",
+        objective="test", flow_definition={"nodes": []},
+    )
+    run = Run(
+        id=str(uuid.uuid4()), workspace_id=workspace.id, system_id=system.id,
+        status="pending", input_ref={"user_id": "forged"},
+    )
+    run.execution_principal = {"kind": "delegated_user", "user_id": "revoked"}
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    def deny(db, current):
+        raise execution_principal.ExecutionPrincipalError("EXECUTION_PRINCIPAL_REVOKED")
+
+    monkeypatch.setattr(execution_principal, "execution_user_id", deny)
+    with pytest.raises(execution_principal.ExecutionPrincipalError, match="REVOKED"):
+        _build_initial_ctx(db_session, run, system, None)
+    with pytest.raises(execution_principal.ExecutionPrincipalError, match="REVOKED"):
+        _snapshot_run_flow(db_session, run, system)
+    assert run.initiated_by_user_id is None
 
 
 @pytest.mark.parametrize(

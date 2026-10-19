@@ -62,6 +62,21 @@ def _text_hash(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _run_user_id(db, run):
+    """Resolve server-owned authority; an invalid delegation never falls back."""
+    from app.services.run_engine.execution_principal import (
+        ExecutionPrincipalError,
+        execution_user_id,
+    )
+
+    if run is None:
+        return None
+    try:
+        return execution_user_id(db, run)
+    except ExecutionPrincipalError as exc:
+        raise TypedEvaluationError(exc.code) from exc
+
+
 def _authorize(db, ctx):
     from app.models.run import Run
     from app.models.user import User
@@ -70,7 +85,15 @@ def _authorize(db, ctx):
     workspace = db.get(Workspace, ctx.get("workspace_id"), populate_existing=True)
     if workspace is None or not workspace.is_active:
         raise TypedEvaluationError("JUDGE_WORKSPACE_UNAVAILABLE")
-    user_id = ctx.get("user_id")
+    run = db.get(Run, ctx["run_id"], populate_existing=True) if ctx.get("run_id") else None
+    if ctx.get("run_id") and (run is None or run.workspace_id != workspace.id):
+        raise TypedEvaluationError("JUDGE_RUN_INVALID")
+    if run is not None and run.status in {"cancelled", "failed"}:
+        raise TypedEvaluationError("JUDGE_RUN_STOPPED")
+    delegated = run is not None and getattr(run, "execution_principal", None) is not None
+    user_id = _run_user_id(db, run) if delegated else ctx.get("user_id")
+    if delegated and not user_id:
+        raise TypedEvaluationError("JUDGE_ACTOR_REQUIRED")
     user = db.get(User, user_id, populate_existing=True) if user_id else None
     if user_id:
         member = (
@@ -80,11 +103,6 @@ def _authorize(db, ctx):
         )
         if user is None or not user.is_active or (user.role != "admin" and member is None):
             raise TypedEvaluationError("JUDGE_ACCESS_REVOKED")
-    run = db.get(Run, ctx["run_id"], populate_existing=True) if ctx.get("run_id") else None
-    if ctx.get("run_id") and (run is None or run.workspace_id != workspace.id):
-        raise TypedEvaluationError("JUDGE_RUN_INVALID")
-    if run is not None and run.status in {"cancelled", "failed"}:
-        raise TypedEvaluationError("JUDGE_RUN_STOPPED")
     if user is None and run is None:
         raise TypedEvaluationError("JUDGE_ACTOR_REQUIRED")
     return workspace, user, run
@@ -234,9 +252,10 @@ def prepare_typed_judge_context(payload, ctx, *, profile_ref=None, vision_route_
     prepared.pop("_typed_judge_context", None)
     with SessionLocal() as db:
         workspace, user, run = _authorize(db, prepared)
-        user = user or (
-            db.get(User, run.initiated_by_user_id) if run and run.initiated_by_user_id else None
-        )
+        actor_id = user.id if user else _run_user_id(db, run)
+        user = user or (db.get(User, actor_id) if actor_id else None)
+        if run is not None and getattr(run, "execution_principal", None) is not None:
+            prepared["user_id"] = actor_id
         contexts = []
         for evidence in payload.get("evidence", []):
             ref = evidence.get("asset_ref")
@@ -274,9 +293,8 @@ def _vision_route(db, spec, ctx, workspace, user, run, execution):
     from app.services import governed_assets as assets
     from app.services.service_promises import require_member
 
-    actor = user or (
-        db.get(User, run.initiated_by_user_id) if run and run.initiated_by_user_id else None
-    )
+    actor_id = user.id if user else _run_user_id(db, run)
+    actor = user or (db.get(User, actor_id) if actor_id else None)
     if actor is None:
         raise TypedEvaluationError("JUDGE_VISION_ROUTE_ACTOR_REQUIRED")
     require_member(db, workspace.id, actor.id)
@@ -662,6 +680,8 @@ async def _evaluate(db, spec, ctx):
     from app.services import window_budget
 
     workspace, user, run = _authorize(db, ctx)
+    if run is not None and getattr(run, "execution_principal", None) is not None:
+        ctx["user_id"] = user.id
     service_limits = window_budget.limits(ctx, "judge")
     timeout_s = (
         min(spec.budget.timeout_s, service_limits["max_seconds"])
@@ -697,7 +717,7 @@ async def _evaluate(db, spec, ctx):
         if ctx.get("_typed_judge_calibration_ref"):
             from app.services.evaluation.typed_calibration import bind_confidence
 
-            actor_id = user.id if user else run.initiated_by_user_id if run else None
+            actor_id = user.id if user else _run_user_id(db, run)
             bind_confidence(db, workspace.id, actor_id, ctx["_typed_judge_calibration_ref"], result)
         return result
 

@@ -67,6 +67,7 @@ export function prepInputStates(node: CanonicalFlowNode, graph: Pick<CanonicalFl
     if (!source) return {port, origin: 'unavailable'};
     const sourcePorts = source.outputs?.map(output => output.name) ?? [];
     const fromPort = edge.from_port ?? (sourcePorts.length === 1 ? sourcePorts[0] : 'out');
+    if (sourcePorts.length && !sourcePorts.includes(fromPort)) return {port, origin: 'unavailable'};
     if (!edge.from_port && isPrepNode(source) && prepDraftFromNode(source).spec.operation === 'split') return {port, origin: 'unavailable'};
     const run = runs[source.id], result = run?.data?.outputs?.[fromPort];
     const datasetId = typeof result === 'string' ? result : result?.dataset_id;

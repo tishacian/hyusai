@@ -160,3 +160,10 @@ l'absence de TLS sur l'endpoint configuré ; elle ne valide pas encore la
 confiance du certificat, l'authentification ou les droits. Ces derniers restent
 à vérifier après activation de TLS ou après le déploiement et la sélection
 explicite du mode sans chiffrement.
+
+Après déploiement de `718c99bf`, le choix explicite `disable` a été enregistré
+dans Showcase par le compte `workspace_owner`, via la fiche PostgreSQL. Le test,
+le catalogue, l'aperçu et la lecture Work réussissent. Le recalcul Luma exécute
+ensuite extraction, transformation DataOps et scoring ML dans le même Flow.
+Cette validation concerne le connecteur historique et ses consommateurs ; elle
+ne qualifie pas une connexion distincte du nouveau registre.

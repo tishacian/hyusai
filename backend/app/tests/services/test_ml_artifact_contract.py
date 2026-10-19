@@ -364,6 +364,50 @@ def test_forecast_profile_preserves_supported_calendar_frequencies(tmp_path, fre
     np.testing.assert_allclose(loaded.predict(steps=2), model.predict(steps=2))
 
 
+def test_forecast_profile_roundtrips_catalog_seasonal_naive(tmp_path):
+    pytest.importorskip("skforecast")
+    import skops.io as sio
+    from skforecast.recursive import ForecasterEquivalentDate
+    from skforecast.utils import load_forecaster, save_forecaster
+
+    from app.services.ml.artifact_trust import FORECAST_TYPES
+    from app.services.ml.artifacts import validate_model_metadata
+
+    series = pd.Series(
+        12.0 + np.arange(84) % 7,
+        index=pd.date_range("2026-01-01", periods=84, freq="D"),
+    )
+    # Exactly the catalog's seasonal_naive constructor: the default aggregator
+    # is numpy.mean, serialized alongside ForecasterEquivalentDate by skops.
+    model = ForecasterEquivalentDate(offset=7, n_offsets=1)
+    model.fit(series)
+    path = tmp_path / "forecast.skops"
+    save_forecaster(model, str(path), backend="skops", verbose=False)
+    types = sio.get_untrusted_types(file=str(path))
+    assert "numpy.mean" in types
+    assert set(types).issubset(FORECAST_TYPES)
+    loaded = load_forecaster(str(path), backend="skops", trusted=types, verbose=False)
+    np.testing.assert_allclose(loaded.predict(steps=28), model.predict(steps=28))
+
+    # The reader still refuses another NumPy callable, even when a producer
+    # records it. The forecast-only addition grants no imported-model trust.
+    (tmp_path / "MLmodel").write_text("metadata-only trust check")
+    artifact = build_artifact_contract(
+        tmp_path, family="forecasting", serialization="skops", trusted_types=types
+    )
+    validate_model_metadata(artifact, family="forecasting")
+    artifact["trusted_types"] = [*types, "numpy.load"]
+    with pytest.raises(TabularError) as error:
+        validate_model_metadata(artifact, family="forecasting")
+    assert error.value.code == "ML_ARTIFACT_UNTRUSTED_TYPES"
+    artifact.update(
+        family="external", trust_profile="external-sklearn-skops-v1", trusted_types=["numpy.mean"]
+    )
+    with pytest.raises(TabularError) as error:
+        validate_model_metadata(artifact, family="external")
+    assert error.value.code == "ML_ARTIFACT_UNTRUSTED_TYPES"
+
+
 def test_zip_entry_limit_precedes_eager_directory_allocation(tmp_path, monkeypatch):
     from app.services.ml import artifacts
 

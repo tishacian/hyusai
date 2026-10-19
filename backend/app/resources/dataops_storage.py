@@ -169,12 +169,17 @@ def profile_files(
 
 
 def delta_schema(schema):
-    """Protocol 1 timestamps carry UTC instants; timestamp_ntz needs protocol 3."""
+    """Protocol 1 timestamps carry UTC microseconds, never timestamp_ntz/nanos."""
     import pyarrow as pa
 
     def canonical(dtype):
-        if pa.types.is_timestamp(dtype) and dtype.tz is None:
-            return pa.timestamp(dtype.unit, tz="UTC")
+        if pa.types.is_timestamp(dtype):
+            # Native Delta conversion declares timestamp (microseconds), even
+            # when pandas produced nanosecond Parquet timestamps. Canonicalize
+            # before writing so the committed schema and physical parts agree.
+            # write_batch's safe cast refuses precision loss instead of silently
+            # truncating a timestamp that cannot be represented by protocol 1.
+            return pa.timestamp("us", tz="UTC")
         if pa.types.is_struct(dtype):
             return pa.struct([field.with_type(canonical(field.type)) for field in dtype])
         if pa.types.is_list(dtype) or pa.types.is_large_list(dtype):

@@ -711,6 +711,7 @@ def _create_triggered_run(
     dedup_key: str,
     *,
     published_evidence: _PublishedTriggerEvidence | None = None,
+    execution_principal: dict | None = None,
 ) -> Run:
     """Insert a REAL pending Run and its dispatch in the caller transaction."""
     workspace = (
@@ -744,6 +745,7 @@ def _create_triggered_run(
                         "dedup_key": dedup_key,
                     },
                     trigger="webhook",
+                    execution_principal=execution_principal,
                     trigger_dedup_key=dedup_key,
                 )
                 trigger_meta = _trigger_input_ref(
@@ -779,6 +781,7 @@ def _create_triggered_run(
                     ),
                     status="pending",
                     trigger="webhook",
+                    execution_principal=execution_principal,
                     trigger_dedup_key=dedup_key,
                     checkpoints=[
                         {
@@ -845,6 +848,7 @@ def _process_live(
     dedup_key: str,
     *,
     published_evidence: _PublishedTriggerEvidence | None = None,
+    execution_principal: dict | None = None,
     owns_session: bool,
 ) -> Dict[str, Any]:
     """Live guards followed by one transactional, durable Run handoff."""
@@ -866,6 +870,7 @@ def _process_live(
             payload,
             dedup_key,
             published_evidence=published_evidence,
+            execution_principal=execution_principal,
         )
     except flow_ingress.FlowIngressError as exc:
         logger.warning(
@@ -971,6 +976,7 @@ def emit_event(
     *,
     db: Optional[DBSession] = None,
     system_id: Optional[str] = None,
+    execution_principal: dict | None = None,
 ) -> List[Dict[str, Any]]:
     """Emit ``event_kind`` for ``workspace_id`` and process every target System.
 
@@ -1033,6 +1039,7 @@ def emit_event(
                     event_kind,
                     workspace_id,
                     payload,
+                    execution_principal=execution_principal,
                     owns_session=owns_session,
                 )
             )
@@ -1050,6 +1057,7 @@ def _process_target(
     payload: Dict[str, Any],
     *,
     owns_session: bool,
+    execution_principal: dict | None = None,
 ) -> Dict[str, Any]:
     """Governance → dedup → (live dispatch | dry-run journal) for one System.
 
@@ -1245,6 +1253,7 @@ def _process_target(
             payload,
             dedup_key,
             published_evidence=published_evidence,
+            execution_principal=execution_principal,
             owns_session=owns_session,
         )
 

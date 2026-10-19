@@ -74,6 +74,8 @@ def compute_next_fire_at(
 
 
 def serialize_schedule(row: RunSchedule) -> Dict[str, Any]:
+    from app.services.run_engine.execution_principal import public_identity
+
     return {
         "id": row.id,
         "workspace_id": row.workspace_id,
@@ -83,6 +85,7 @@ def serialize_schedule(row: RunSchedule) -> Dict[str, Any]:
         "timezone": row.timezone,
         "input_payload": row.input_payload or {},
         "enabled": bool(row.enabled),
+        "execution_identity": public_identity(row),
         "next_fire_at": row.next_fire_at.isoformat() if row.next_fire_at else None,
         "last_run_id": row.last_run_id,
         "last_fired_at": row.last_fired_at.isoformat() if row.last_fired_at else None,
@@ -168,6 +171,15 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> _Tick
         "timezone": sched.timezone,
         "fired_at": now.isoformat(),
     }
+    from app.services.run_engine.execution_principal import (
+        ExecutionPrincipalError,
+        principal_for_source,
+    )
+
+    try:
+        principal = principal_for_source(db, source=sched, source_type="schedule")
+    except ExecutionPrincipalError as exc:
+        return _refused(sched, now=now, reason=exc.code.lower())
     if workspace is not None and flow_publication.flow_publication_enabled(workspace):
         try:
             run = flow_ingress.create_published_ingress_run(
@@ -183,6 +195,7 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> _Tick
                 ),
                 adapter_evidence=schedule_evidence,
                 trigger="scheduler",
+                execution_principal=principal,
             )
         except flow_ingress.FlowIngressError as exc:
             logger.warning(
@@ -214,6 +227,7 @@ def _fire_schedule(db: DBSession, sched: RunSchedule, *, now: datetime) -> _Tick
             },
             status="pending",
             trigger="scheduler",
+            execution_principal=principal,
             checkpoints=[
                 {
                     "kind": "schedule_fired",

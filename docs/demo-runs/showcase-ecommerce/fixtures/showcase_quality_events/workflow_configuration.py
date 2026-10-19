@@ -7,6 +7,7 @@ The caller builds both a publishable candidate and a separate preserved draft.
 from __future__ import annotations
 
 import copy
+import re
 
 WEBHOOK = "source.claim_arrival"
 SCHEDULE = "source.queue_schedule"
@@ -82,7 +83,7 @@ def _judge_config(settings, collection_ids):
         {
             "id": "policy",
             "skill_slug": "ecommerce_policy_evidence_v1",
-            "paths": ["/results", "/references"],
+            "paths": ["/citations", "/references"],
             "required": True,
         },
         {
@@ -262,6 +263,7 @@ def build_flow(flow, *, judge_settings, collection_ids, sla_model=None):
         ):
             raise ValueError("LUMA_SLA_PIN_REQUIRED")
         params = nodes["sav.score"]["config"]["params"]
+        old_version = params.get("pinned_version")
         params.update(
             {
                 "model_id": sla_model["id"],
@@ -269,19 +271,34 @@ def build_flow(flow, *, judge_settings, collection_ids, sla_model=None):
                 "pinned_version": sla_model["version"],
             }
         )
-        nodes["sav.score"]["label"] = (
-            f"Prioriser avec le modèle SLA v{sla_model['version']}"
-        )
+        if old_version != sla_model["version"]:
+            # Preserve authored labels, only updating an existing version suffix.
+            label = nodes["sav.score"].get("label")
+            if isinstance(label, str):
+                nodes["sav.score"]["label"] = re.sub(
+                    rf"\bv{old_version}$", f"v{sla_model['version']}", label
+                )
     return graph
 
 
-def pin_work_model(pages, model):
+def pin_work_model(pages, model, *, expected_contract=None):
     """Retarget existing prediction semantics without inserting a bespoke card."""
     result = copy.deepcopy(pages)
     for page in result["pages"]:
         for component in page.get("components", []):
             contract = component.get("props", {}).get("predictionContract")
             if contract and contract.get("target") == "resolution_over_72h":
+                if expected_contract and any(
+                    contract.get(key) != expected_contract.get(key)
+                    for key in (
+                        "model_id",
+                        "model_version",
+                        "target",
+                        "task",
+                        "positive_label",
+                    )
+                ):
+                    raise ValueError("WORK_MODEL_PIN_DIVERGED")
                 contract.update(
                     {"model_id": model["id"], "model_version": model["version"]}
                 )

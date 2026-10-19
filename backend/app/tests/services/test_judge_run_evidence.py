@@ -244,7 +244,7 @@ async def test_wrapper_rejects_free_input_overriding_run_evidence(setup):
         )
 
 
-@pytest.mark.parametrize("unattended", [False, True])
+@pytest.mark.parametrize("unattended", [False, True, "delegated"])
 @pytest.mark.parametrize("revoke", [False, True])
 async def test_wrapper_runs_existing_typed_judge_with_frozen_evidence_and_real_questions(
     setup, monkeypatch, unattended, revoke
@@ -255,6 +255,13 @@ async def test_wrapper_runs_existing_typed_judge_with_frozen_evidence_and_real_q
     from app.services.skills_registry.wrappers.skills import _evaluate_v2
 
     s = setup
+    if unattended == "delegated":
+        from app.services.run_engine import execution_principal
+
+        s.run.initiated_by_user_id = None
+        s.run.execution_principal = {"kind": "delegated_user", "user_id": s.user.id}
+        s.db.commit()
+        monkeypatch.setattr(execution_principal, "execution_user_id", lambda db, run: s.user.id)
     calls = []
     collection = None
     if revoke:
@@ -350,3 +357,21 @@ async def test_wrapper_runs_existing_typed_judge_with_frozen_evidence_and_real_q
     assert persisted.metadata_["typed_evaluation"]["subject_ref"] == result["subject_ref"]
     repeat = await _evaluate_v2(request, ctx)
     assert repeat["cached"] and len(calls) == 1
+    if unattended == "delegated":
+        s.db.refresh(s.run)
+        assert s.run.initiated_by_user_id is None
+
+
+def test_evidence_capture_refuses_revoked_delegation_even_with_user_context(setup, monkeypatch):
+    from app.services.run_engine import execution_principal
+
+    s = setup
+    s.run.execution_principal = {"kind": "delegated_user", "user_id": s.user.id}
+    s.db.commit()
+
+    def deny(db, run):
+        raise execution_principal.ExecutionPrincipalError("EXECUTION_PRINCIPAL_REVOKED")
+
+    monkeypatch.setattr(execution_principal, "execution_user_id", deny)
+    with pytest.raises(TypedEvaluationError, match="EXECUTION_PRINCIPAL_REVOKED"):
+        capture(s)

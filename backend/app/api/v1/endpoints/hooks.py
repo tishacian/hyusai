@@ -15,6 +15,10 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.db.base import SessionLocal
 from app.services.run_engine import triggers
+from app.services.run_engine.execution_principal import (
+    ExecutionPrincipalError,
+    principal_for_source,
+)
 from app.services.run_engine.webhooks import SIGNATURE_HEADER, authenticate_hook
 
 router = APIRouter()
@@ -54,12 +58,17 @@ async def receive_webhook(
                 "event_type": event_kind,
             },
         }
+        try:
+            principal = principal_for_source(db, source=hook, source_type="webhook")
+        except ExecutionPrincipalError as exc:
+            raise HTTPException(403, detail={"code": exc.code}) from None
         results = triggers.emit_event(
             event_kind,
             hook.workspace_id,
             enriched,
             db=db,
             system_id=hook.system_id,
+            execution_principal=principal,
         )
         # Trigger services respect caller-owned transaction boundaries.  This
         # endpoint owns its session, so it explicitly commits the atomic

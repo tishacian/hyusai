@@ -5,6 +5,7 @@ import asyncio
 import copy
 import hashlib
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -121,6 +122,66 @@ async def test_questions_are_asked_independently_with_more_than_two_choices(payl
     assert score.composite_score is None and score.hallucination_rate is None
     assert score.metadata_["source"] == "evaluate_v2"
     Draft202012Validator(compile_typed_output_schema(payload["questions"])).validate(result)
+
+
+async def test_openai_receives_complete_strict_schema_with_typed_image_citations(
+    payload, context, monkeypatch
+):
+    from app.services.model_clients.openai_client import OpenAIClient
+
+    payload["tariff"]["model"] = "gpt-5"
+    context["_model_execution"] = ModelExecution(
+        "openai", "gpt-5", "workspace", "workspace", _api_key="mock-only"
+    )
+    requests = []
+
+    async def create(**request):
+        requests.append(request)
+        return SimpleNamespace(
+            model="gpt-5",
+            choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(answers(payload))))],
+            usage=SimpleNamespace(prompt_tokens=120, completion_tokens=80, total_tokens=200),
+        )
+
+    monkeypatch.setattr(
+        OpenAIClient, "_sdk_client",
+        lambda self: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+    )
+    result = await judge.typed_evaluate(payload, context)
+    assert result["status"] == "completed" and len(requests) == 1
+    request = requests[0]
+    assert "max_tokens" not in request and "temperature" not in request
+    assert request["max_completion_tokens"] == TypedEvaluationInput.model_validate(payload).budget.max_output_tokens
+    assert request["response_format"]["type"] == "json_schema"
+    response_format = request["response_format"]["json_schema"]
+    assert response_format["strict"] is True
+    schema = response_format["schema"]
+    assert schema == compile_question_schema(payload["questions"])
+
+    def check_schema(node):
+        # OpenAI strict schemas require typed leaves and closed, fully required objects.
+        assert "type" in node or "anyOf" in node
+        if node.get("type") == "object":
+            assert node["additionalProperties"] is False
+            assert set(node["required"]) == set(node["properties"])
+            for child in node["properties"].values():
+                check_schema(child)
+        if "items" in node:
+            check_schema(node["items"])
+        for child in node.get("anyOf", []):
+            check_schema(child)
+
+    check_schema(schema)
+    # Image citation branches remain valid and constrained even for text-only evidence.
+    for answer_schema in schema["properties"]["answers"]["properties"].values():
+        citation_schema = answer_schema["properties"]["evidence"]["items"]["anyOf"][1]
+        validator = Draft202012Validator(citation_schema)
+        citation = {"kind": "image", "evidence_id": "image-1", "image_sha256": "a" * 64,
+                    "region": None, "description": "A visible warning."}
+        assert validator.is_valid(citation)
+        assert not validator.is_valid({**citation, "kind": "text"})
+        assert not validator.is_valid({key: value for key, value in citation.items() if key != "kind"})
+        assert not validator.is_valid({**citation, "unexpected": True})
 
 
 async def test_abstention_is_not_converted_to_zero_or_second_choice(payload, context, provider):
@@ -287,6 +348,64 @@ async def test_revocation_during_call_withholds_results_but_keeps_charge(payload
     saved = db_session.get(EvaluationScore, evaluation_id).metadata_["typed_evaluation"]
     assert saved["status"] == "failed" and saved["cost"]["amount"] > 0
     assert saved["answers"]["safe"]["value"] is None
+
+
+@pytest.mark.parametrize("timing", ["before", "during"])
+async def test_delegation_revocation_never_falls_back_and_keeps_actual_cost(
+    payload, context, provider, db_session, monkeypatch, timing
+):
+    from app.services.run_engine import execution_principal
+
+    actor_id = context["user_id"]
+    run = db_session.get(Run, context["run_id"])
+    run.execution_principal = {"kind": "delegated_user", "user_id": actor_id}
+    # Even an existing human initiator is not a fallback for a revoked grant.
+    db_session.commit()
+    revoked = timing == "before"
+
+    def resolve(db, current):
+        if revoked:
+            raise execution_principal.ExecutionPrincipalError("EXECUTION_PRINCIPAL_REVOKED")
+        return actor_id
+
+    def revoke():
+        nonlocal revoked
+        revoked = True
+
+    monkeypatch.setattr(execution_principal, "execution_user_id", resolve)
+    provider.effect = revoke
+    expected = "EXECUTION_PRINCIPAL_REVOKED" if timing == "before" else "JUDGE_ACCESS_REVOKED"
+    with pytest.raises(judge.TypedEvaluationError, match=expected):
+        await judge.typed_evaluate(payload, context)
+    if timing == "before":
+        assert provider.calls == []
+    else:
+        assert len(provider.calls) == 1
+        saved = db_session.query(EvaluationScore).filter_by(run_id=run.id).one()
+        result = saved.metadata_["typed_evaluation"]
+        assert result["status"] == "failed" and result["cost"]["amount"] > 0
+        assert all(answer["value"] is None for answer in result["answers"].values())
+
+
+async def test_delegated_judge_normalizes_context_without_fabricating_initiator(
+    payload, context, provider, db_session, monkeypatch
+):
+    from app.services.run_engine import execution_principal
+
+    actor_id = context["user_id"]
+    run = db_session.get(Run, context["run_id"])
+    run.execution_principal = {"kind": "delegated_user", "user_id": actor_id}
+    run.initiated_by_user_id = None
+    db_session.commit()
+    monkeypatch.setattr(execution_principal, "execution_user_id", lambda db, current: actor_id)
+    forged = {**context, "user_id": "not-the-delegated-user"}
+    prepared = judge.prepare_typed_judge_context(payload, forged)
+    assert prepared["user_id"] == actor_id
+    result = await judge.typed_evaluate(payload, forged)
+    assert result["status"] == "completed" and forged["user_id"] == actor_id
+    assert "_provider_usage_v1" in forged  # keep measured usage on the caller's context
+    db_session.refresh(run)
+    assert run.initiated_by_user_id is None
 
 
 @pytest.mark.parametrize("mutate", [

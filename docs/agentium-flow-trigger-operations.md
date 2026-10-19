@@ -10,6 +10,73 @@ the published entry point first, check its input contract, then enable the
 configured trigger. Schedule setup accepts a time zone and a JSON input object.
 The next execution is displayed in that time zone, with a link to the last Run.
 
+## Execution identity for protected operations
+
+An unattended trigger does not imply a human initiator. For ML scoring, document
+access or same-Run Judge evidence, explicitly choose **Use my access** in the
+trigger setup. This control is unchecked at creation. API create/PATCH accepts
+`execution_identity: "current_user"` to delegate the authenticated caller's own
+current rights, or `"none"` to revoke the delegation; an omitted field preserves
+the current configuration. Arbitrary user identifiers are not accepted.
+
+The delegate must be active, still a member of this workspace and allowed to run
+this System. A global administrator without membership is not selected implicitly.
+The grant is limited to the current immutable published Flow version and execution
+contract. After a new publication, choose **Use my access** again to review and
+renew it. Legacy Systems without immutable publication cannot receive a grant.
+The new consent invalidates the old grant; previously accepted Runs that still
+use the old grant must not continue. A publication alone does not rewrite already
+accepted Runs or expand their authority.
+
+The source records the delegation; the Run records a separate
+`execution_principal` and keeps `initiated_by_user_id: null`. The signed payload
+cannot select an actor, workspace, Run or System. The Run API exposes the principal
+and its publication references for review, without the internal grant identifier.
+Rights, membership, the source and grant are checked again before each protected
+invocation, at resume and before finalization; Judge also checks after its provider
+call. Revoking the source grant, deleting the source, disabling the user or removing
+membership stops later execution. Already incurred provider usage remains recorded.
+Pausing a source stops new deliveries/ticks; it does not revoke an existing grant.
+
+Only the delegate or an effective workspace administrator may mutate or delete a
+source that carries a grant. Existing broad legacy source-editing rules cannot
+borrow another person's authority. Resource-specific document/model ACLs still
+apply. A delegated Run cannot start a subflow in this release: it fails with
+`EXECUTION_PRINCIPAL_SUBFLOW_UNSUPPORTED` before creating a child, because authority
+for another System has not been delegated.
+The optional native Temporal execution profile does not yet support delegated
+triggers: its authority check still requires a human initiator and refuses this
+case before execution. Qualification here covers the published DAG runtime;
+it is not a claim that every execution family supports delegation.
+
+### Deployment and qualification
+
+Migration `141_event_execution_principal`, after `140_mlops_prod_explanations`,
+adds nullable JSON columns on hooks, schedules and Runs. It does not backfill any
+identity or alter existing permissions. Deploy API, all execution workers and the
+frontend from the same revision. In the existing Compose stack, use its usual
+env-file and overlays, then run the candidate `agentium-migrate` service
+(`alembic upgrade head`) before starting the candidate `agentium-backend`,
+`agentium-worker-cpu` and `agentium-frontend`. Update the scheduler arrangement
+already in use: embedded beat on the CPU worker, or the separate `agentium-beat`
+service. When enabled, update
+`agentium-worker-control`, `agentium-scheduler-control` and other workers consuming
+the same application models to that revision as well. Do not run two beat schedulers.
+No new environment flag or credential is needed for delegation.
+
+Keep the new source paused through migration and version checks. Read back its
+published ingress, opt into delegation, then qualify one signed delivery or one
+bounded tick. Check the Run's machine trigger, null human initiator, explicit
+principal, publication identity and subsequent ML/Judge evidence. Test a duplicate
+delivery and a revoked grant separately; no second effect or permissive fallback
+is acceptable. Local qualification uses isolated test databases and mocked model
+providers; it does not constitute a production receipt.
+
+For recovery, pause the affected sources, revoke their grants and retain the
+recorded Runs. The migration downgrade refuses to discard any non-null grant or
+Run principal. Leave the additive columns in place when reverting application
+images; do not erase runtime evidence to make a downgrade pass.
+
 ## Published entry points
 
 Both adapters require an active System with a valid published Flow when Flow

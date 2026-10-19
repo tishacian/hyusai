@@ -13,13 +13,15 @@ const baseModel = { id: 'served-v1', name: 'Ticket outcome', slug: 'ticket-outco
   signature: { inputs: [{ name: 'visits', type: 'double' }], outputs: [{ name: 'prediction', type: 'string' }] },
 };
 
-async function setup(page: Page, locale: string, options: { forbidden?: boolean; readOnly?: boolean; unsupported?: boolean; regression?: boolean; blocked?: boolean; enabled?: boolean; challengerBlocked?: boolean } = {}) {
+async function setup(page: Page, locale: string, options: { forbidden?: boolean; readOnly?: boolean; unsupported?: boolean; regression?: boolean; blocked?: boolean; enabled?: boolean; challengerBlocked?: boolean; eligibleCandidate?: boolean } = {}) {
   const model = { ...baseModel, ...(options.unsupported ? { family: 'forecasting', task: 'forecasting' } : options.regression ? { task: 'regression' } : {}) };
   let config = { enabled: options.enabled ?? false, sample_percent: 10, timeout_s: 15 }, completed = false;
   const posts: any[] = [];
   const shadow = () => ({ supported: !options.unsupported, can_configure: !options.readOnly, config,
     readiness: { can_enable: !(options.blocked || options.challengerBlocked), reason: options.blocked || options.challengerBlocked ? 'ML_ARTIFACT_LEGACY_UNSUPPORTED' : null, ...(options.challengerBlocked ? {challenger_id: 'challenger-v2'} : {}) },
-    challenger: { id: 'challenger-v2', version: 2 }, limits: { max_rows: 64, max_pending: 100, max_attempts: 2, window: 400 }, comparison_scope: 'current_pair',
+    challenger: options.eligibleCandidate ? { id: 'candidate-v3', version: 3 } : { id: 'challenger-v2', version: 2 },
+    ...(options.eligibleCandidate ? { selection: { policy: 'best_callable_compatible', excluded: [{ id: 'challenger-v2', version: 2, reason: 'ML_ARTIFACT_LEGACY_UNSUPPORTED' }] } } : {}),
+    limits: { max_rows: 64, max_pending: 100, max_attempts: 2, window: 400 }, comparison_scope: 'current_pair',
     window: { jobs: completed ? 2 : 0, completed: completed ? 1 : 0, pending: 0, failed: completed ? 1 : 0, skipped: 0, compared_rows: completed ? 64 : 0, labeled_pairs: completed ? 1 : 0 },
     comparison: { agreement: completed ? 0 : null, mean_absolute_difference: completed ? 0 : null,
       champion_accuracy: completed ? 0 : null, challenger_accuracy: completed ? 1 : null, champion_mae: completed ? 0 : null, challenger_mae: null },
@@ -61,6 +63,21 @@ async function setup(page: Page, locale: string, options: { forbidden?: boolean;
 test.describe('Challenger shadow scoring', () => {
   test.beforeEach(async ({}, info) => { test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost', '127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.'); });
   for (const locale of ['fr', 'en']) {
+    test(`${locale}: callable shadow candidate explains why a higher-ranked version was excluded`, async ({ page }) => {
+      if (locale === 'fr') await page.setViewportSize({ width: 390, height: 844 });
+      const api = await setup(page, locale, { eligibleCandidate: true });
+      await page.goto('/models/served-v1?facet=monitor');
+      const panel = page.getByTestId('shadow-panel');
+      await expect(panel.getByRole('link', { name: 'Challenger v3' })).toBeVisible();
+      await expect(panel.getByTestId('shadow-selection-policy')).toContainText(locale === 'fr' ? 'champion restent inchangés' : 'champion stay unchanged');
+      await panel.getByTestId('shadow-exclusions').locator('summary').click();
+      await expect(panel.getByTestId('shadow-exclusions')).toContainText(locale === 'fr' ? 'ancien artefact' : 'older artifact');
+      await expect(panel.getByTestId('shadow-exclusions').getByRole('link', { name: 'v2', exact: true })).toBeVisible();
+      await page.getByTestId('shadow-enabled').check();
+      await page.getByTestId('shadow-save').click();
+      await expect.poll(() => api.posts).toEqual([{ enabled: true, sample_percent: 10, timeout_s: 15 }]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
     test(`${locale}: an unavailable model explains the block and still permits disabling shadow`, async ({ page }) => {
       const api = await setup(page, locale, { blocked: true, enabled: true });
       await page.goto('/models/served-v1?facet=monitor');

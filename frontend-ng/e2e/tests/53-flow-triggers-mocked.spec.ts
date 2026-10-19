@@ -5,6 +5,9 @@ test.use({ serviceWorkers: 'block', video: 'off', ignoreHTTPSErrors: false });
 const workspace = { id: 'trigger-qa', slug: 'trigger-qa', name: 'Trigger setup QA', role: 'owner', role_template: 'workspace_owner', settings: {}, mode: 'builder' };
 const systemId = 'trigger-system';
 const hash = '1'.repeat(64);
+const executionIdentity = {
+  kind: 'delegated_user', user_id: 'qa', display_name: 'Camille', granted_at: '2026-10-19T12:00:00Z',
+};
 const flow = {
   schema_version: 3,
   nodes: [
@@ -21,6 +24,11 @@ async function setup(page: Page, locale: string, theme: string) {
   const writes: Array<{ path: string; body: any }> = [];
   const schedules: any[] = [{ id: 'existing-schedule', name: 'Morning refresh', cron_expr: '0 9 * * 1-5', timezone: 'Europe/Paris', enabled: true, next_fire_at: '2026-10-19T07:00:00', last_run_id: 'schedule-run', input_payload: {} }];
   const hooks: any[] = [];
+  const applyIdentity = (row: any, body: any) => ({
+    ...row, ...body,
+    execution_identity: body.execution_identity === 'current_user' ? executionIdentity
+      : body.execution_identity === 'none' ? null : row.execution_identity ?? null,
+  });
   const system = { id: systemId, workspace_id: workspace.id, name: 'Unified operations', status: 'active', flow_definition: flow, flow_sha256: hash };
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
@@ -43,16 +51,23 @@ async function setup(page: Page, locale: string, theme: string) {
     if (path === `/systems/${systemId}/validate-flow`) return json(route, { valid: true, issues: [], runtime_mode: 'dag_overlay', flow_sha256: hash });
     if (path === `/systems/${systemId}/event-trigger`) return json(route, { system_id: systemId, master_enabled: true, mode: 'dry_run', disabled: false });
     if (path === `/systems/${systemId}/schedules`) {
-      if (req.method() === 'POST') { const row = { id: 'new-schedule', ...req.postDataJSON() }; schedules.push(row); return json(route, row, 201); }
+      if (req.method() === 'POST') { const row = applyIdentity({ id: 'new-schedule' }, req.postDataJSON()); schedules.push(row); return json(route, row, 201); }
       return json(route, { schedules });
     }
     if (path === `/systems/${systemId}/schedules/new-schedule` && req.method() === 'PATCH') {
-      const row = { ...schedules.at(-1), ...req.postDataJSON(), next_fire_at: '2026-10-19T07:00:00' };
+      const row = applyIdentity(schedules.at(-1), req.postDataJSON());
+      row.next_fire_at = row.enabled ? '2026-10-19T07:00:00' : null;
+      schedules[schedules.length - 1] = row;
       return json(route, row);
     }
     if (path === `/systems/${systemId}/hooks`) {
-      if (req.method() === 'POST') { const row = { id: 'new-hook', ...req.postDataJSON(), path: '/api/v1/hooks/new-hook', secret: 'fixture-signing-secret' }; hooks.push(row); return json(route, row, 201); }
+      if (req.method() === 'POST') { const row = applyIdentity({ id: 'new-hook', path: '/api/v1/hooks/new-hook', secret: 'fixture-signing-secret' }, req.postDataJSON()); hooks.push(row); return json(route, row, 201); }
       return json(route, { hooks });
+    }
+    if (path === `/systems/${systemId}/hooks/new-hook` && req.method() === 'PATCH') {
+      const row = applyIdentity(hooks.at(-1), req.postDataJSON());
+      hooks[hooks.length - 1] = row;
+      return json(route, row);
     }
     if (path === '/skills') return json(route, { skills: [] });
     if (path === '/connectors') return json(route, { connectors: [] });
@@ -81,6 +96,7 @@ test.describe('Flow trigger setup — local fixtures only', () => {
       await expect(panel).toContainText(locale === 'fr' ? '09:00' : '9:00 AM');
       await expect(panel.getByRole('link')).toHaveAttribute('href', /\/runs\/schedule-run/);
       await panel.locator('.ck-trig__setup > summary').click();
+      await expect(panel.getByRole('checkbox')).not.toBeChecked();
       await panel.getByLabel(locale === 'fr' ? 'Nom' : 'Name', { exact: true }).fill('Queue refresh');
       await panel.getByLabel(locale === 'fr' ? 'Fuseau horaire' : 'Time zone').fill('Europe/Paris');
       const input = panel.getByLabel(locale === 'fr' ? 'Données d’entrée (objet JSON)' : 'Input data (JSON object)');
@@ -93,18 +109,30 @@ test.describe('Flow trigger setup — local fixtures only', () => {
       await save.click();
       await expect.poll(() => writes.filter(w => w.path.endsWith('/schedules')).length).toBe(1);
       expect(writes.find(w => w.path.endsWith('/schedules'))!.body).toMatchObject({ enabled: false, timezone: 'Europe/Paris', input_payload: { queue: 'priority' } });
+      expect(writes.find(w => w.path.endsWith('/schedules'))!.body).not.toHaveProperty('execution_identity');
       const row = panel.locator('li').filter({ hasText: 'Queue refresh' });
       await expect(row).toContainText(locale === 'fr' ? 'En pause' : 'Paused');
       await expect(panel.locator('.ck-trig__setup')).toHaveJSProperty('open', false);
       await expect(row.getByRole('button', { name: locale === 'fr' ? 'Activer' : 'Enable', exact: true })).toBeVisible();
       const buttonSize = await row.getByRole('button').boundingBox();
       expect(buttonSize!.height).toBeLessThanOrEqual(36);
+      await row.locator('.ck-trig__identity > summary').click();
+      await row.getByRole('button', { name: locale === 'fr' ? 'Utiliser mes accès' : 'Use my access' }).click();
+      await expect(row.locator('.ck-trig__identity > summary')).toContainText('Camille');
+      expect(writes.find(w => w.body.execution_identity === 'current_user')!.body).toEqual({ execution_identity: 'current_user' });
+      const remove = row.getByRole('button', { name: locale === 'fr' ? 'Retirer la délégation' : 'Remove delegation' });
+      expect((await remove.boundingBox())!.height).toBeLessThanOrEqual(36);
+      await expect(row).toContainText(locale === 'fr' ? 'exécutions en attente' : 'pending executions');
       expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
       expect(await page.locator('#main-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
       expect((await new AxeBuilder({ page }).include('app-flow-triggers-panel').analyze()).violations).toEqual([]);
       await page.screenshot({ path: info.outputPath('schedule-setup.png'), fullPage: true });
-      await row.getByRole('button').click();
+      await remove.click();
+      await expect(row.locator('.ck-trig__identity > summary')).toContainText(locale === 'fr' ? 'Aucune délégation' : 'No delegation');
+      expect(writes.find(w => w.body.execution_identity === 'none')!.body).toEqual({ execution_identity: 'none' });
+      await row.getByRole('button', { name: locale === 'fr' ? 'Activer' : 'Enable', exact: true }).click();
       await expect.poll(() => writes.some(w => w.path.endsWith('/schedules/new-schedule') && w.body.enabled === true)).toBe(true);
+      expect(writes.find(w => w.body.enabled === true)!.body).toEqual({ enabled: true });
     });
 
     test(`${locale}/${theme}/${width}: webhook setup is scoped and explains signed delivery`, async ({ page }, info) => {
@@ -119,16 +147,24 @@ test.describe('Flow trigger setup — local fixtures only', () => {
       await expect(panel).not.toContainText('(cron)');
       await expect(panel).toContainText('HTTP 200');
       await panel.locator('.ck-trig__setup > summary').click();
+      await expect(panel.getByRole('checkbox')).not.toBeChecked();
+      await panel.getByRole('checkbox').check();
       await expect(panel).toContainText('X-Agentium-Signature');
       await panel.getByRole('textbox').fill('Claim arrival');
       await panel.getByRole('button', { name: locale === 'fr' ? 'Enregistrer en pause' : 'Save paused' }).click();
       await expect(panel.getByRole('status')).toContainText('fixture-signing-secret');
       await expect(panel.locator('.ck-trig__setup')).toHaveJSProperty('open', false);
-      expect(writes.find(w => w.path.endsWith('/hooks'))!.body).toEqual({ name: 'Claim arrival', event_type: 'webhook.received', enabled: false });
+      expect(writes.find(w => w.path.endsWith('/hooks'))!.body).toEqual({ name: 'Claim arrival', event_type: 'webhook.received', enabled: false, execution_identity: 'current_user' });
+      const row = panel.locator('li').filter({ hasText: 'Claim arrival' });
+      await expect(row.locator('.ck-trig__identity > summary')).toContainText('Camille');
+      await row.locator('.ck-trig__identity > summary').click();
       expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
       expect(await page.locator('#main-content').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
       expect((await new AxeBuilder({ page }).include('app-flow-triggers-panel').analyze()).violations).toEqual([]);
       await page.screenshot({ path: info.outputPath('webhook-setup.png'), fullPage: true });
+      await row.getByRole('button', { name: locale === 'fr' ? 'Retirer la délégation' : 'Remove delegation' }).click();
+      await expect(row.locator('.ck-trig__identity > summary')).toContainText(locale === 'fr' ? 'Aucune délégation' : 'No delegation');
+      expect(writes.find(w => w.body.execution_identity === 'none')!.body).toEqual({ execution_identity: 'none' });
     });
   }
 });

@@ -82,6 +82,7 @@ from .execution_contract import (
     resolve_flow_execution,
     resolve_run_flow_execution,
 )
+from .execution_principal import ExecutionPrincipalError
 from .secret_grants import CTX_KEY as SECRETS_CTX_KEY
 from .secret_grants import build_grants as build_secret_grants
 from .secret_grants import redact as redact_secrets
@@ -540,6 +541,8 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             duration_ms=duration_ms,
         )
         return summary
+    except ExecutionPrincipalError as exc:
+        return _fail(db, run, exc.code)
     finally:
         db.close()
 
@@ -576,6 +579,7 @@ def _build_initial_ctx(
     workspace_settings = (
         db.query(Workspace.settings).filter(Workspace.id == run.workspace_id).scalar()
     )
+    from app.services.run_engine.execution_principal import execution_user_id
     from app.services.workspace_features import workspace_family
 
     return {
@@ -593,7 +597,7 @@ def _build_initial_ctx(
         # (app.tenants), never from the slug.
         "workspace_family": workspace_family(SimpleNamespace(settings=workspace_settings)),
         "session_id": input_ref.get("session_id"),
-        "user_id": run.initiated_by_user_id,
+        "user_id": execution_user_id(db, run),
         "knowledge_scope": input_ref.get("knowledge_scope"),
         "source_policy": input_ref.get("source_policy"),
         # ``_snapshot_run_flow`` replaces caller input with the System-owned
@@ -814,12 +818,16 @@ def _snapshot_run_flow(
             raise RuntimeError("run_workspace_not_found")
         workspace_slug = workspace.slug
     # Canonical tenant and actor fields always win over caller-supplied input.
+    input_ref["run_id"] = run.id
+    input_ref["system_id"] = run.system_id
     input_ref["workspace_id"] = canonical_workspace_id
     if workspace_slug:
         input_ref["workspace_slug"] = workspace_slug
     else:
         input_ref.pop("workspace_slug", None)
-    input_ref["user_id"] = run.initiated_by_user_id
+    from app.services.run_engine.execution_principal import execution_user_id
+
+    input_ref["user_id"] = execution_user_id(db, run)
     if first_start:
         system_settings = system.settings if isinstance(system.settings, dict) else {}
         input_ref["retrieval_contract"] = deepcopy(system_settings.get("retrieval_contract") or {})
@@ -1240,9 +1248,19 @@ async def _execute_task_node(
             db.commit()
         return owned
 
+    authority_error = None
     try:
         from app.services.flow_data_sources import bound_data_sources
 
+        # A restored HITL/debug context can outlive its trigger's delegation.
+        # Revalidate each attempt before reading data, granting secrets or
+        # dispatching a provider; an invalid principal never borrows ctx.user_id.
+        from app.services.run_engine.execution_principal import execution_user_id
+
+        skill_ctx.update({
+            "run_id": run.id, "workspace_id": run.workspace_id,
+            "system_id": run.system_id, "user_id": execution_user_id(db, run),
+        })
         # Server-owned context: caller input cannot forge a source binding.
         skill_ctx["_flow_data_sources"] = bound_data_sources(run.flow_snapshot, node_id)
         skill_ctx[SECRETS_CTX_KEY] = build_secret_grants(
@@ -1329,6 +1347,8 @@ async def _execute_task_node(
         if not native_publication_owned():
             return invocation
         invocation.status = "failed"
+        if isinstance(exc, ExecutionPrincipalError):
+            authority_error = exc
         error = redact_secrets(str(exc))
         invocation.error = error[:500]
         logger.warning("run_engine: skill failed", run_id=run.id, skill=slug, error=error)
@@ -1393,6 +1413,10 @@ async def _execute_task_node(
         )
     invocation.trace = trace
     db.commit()
+    if authority_error is not None:
+        # Persist the refused attempt before terminating its enclosing walker.
+        # on_error=continue/retry cannot restore revoked execution authority.
+        raise authority_error
     return invocation
 
 
@@ -1462,6 +1486,14 @@ def _finalize_run(
                 "efficiency": run.efficiency,
             },
         }
+    if getattr(run, "execution_principal", None) is not None:
+        from app.services.run_engine.execution_principal import execution_user_id
+
+        try:
+            execution_user_id(db, run)
+        except ExecutionPrincipalError as exc:
+            run.output_ref = {}
+            return _fail(db, run, exc.code)
     failed = [i for i in invocations if i.status == "failed"]
     derived = derive_outcome(
         invocations=invocations,

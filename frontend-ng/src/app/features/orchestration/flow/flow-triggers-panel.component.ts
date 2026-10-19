@@ -22,6 +22,13 @@ import { I18nService } from '@app/core/i18n.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { scheduleInstant, schedulePayload, validScheduleTimezone } from './flow-triggers.vm';
 
+interface TriggerExecutionIdentity {
+  kind: 'delegated_user';
+  user_id: string;
+  display_name: string;
+  granted_at: string;
+}
+
 interface RunSchedule {
   id: string;
   name: string;
@@ -31,6 +38,7 @@ interface RunSchedule {
   next_fire_at?: string | null;
   last_run_id?: string | null;
   input_payload?: Record<string, unknown>;
+  execution_identity?: TriggerExecutionIdentity | null;
 }
 
 interface WebhookHook {
@@ -40,9 +48,19 @@ interface WebhookHook {
   enabled: boolean;
   path?: string;
   secret?: string;
+  execution_identity?: TriggerExecutionIdentity | null;
 }
 
 type LoadState = 'loading' | 'loaded' | 'error';
+type TriggerKind = 'schedule' | 'webhook';
+type IdentityCommand = 'current_user' | 'none';
+
+function publicationIdentityError(error: unknown): string | null {
+  const code = (error as { error?: { detail?: { code?: unknown } } } | null)?.error?.detail?.code;
+  if (code === 'EXECUTION_PRINCIPAL_PUBLICATION_CHANGED') return 'flow.triggers.identity.publication_changed';
+  if (code === 'EXECUTION_PRINCIPAL_PUBLICATION_REQUIRED') return 'flow.triggers.identity.publication_required';
+  return null;
+}
 
 @Component({
   selector: 'app-flow-triggers-panel',
@@ -92,6 +110,36 @@ type LoadState = 'loading' | 'loaded' | 'error';
                     <pre class="ck-trig__payload">{{ payloadText(s.input_payload) }}</pre>
                   </details>
                 }
+                <details class="ck-trig__identity" [attr.aria-busy]="identityPending() === s.id">
+                  <summary>
+                    {{ i18n.t('flow.triggers.identity.label') }} ·
+                    <strong>{{ s.execution_identity?.display_name || i18n.t('flow.triggers.identity.none') }}</strong>
+                  </summary>
+                  <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.note') }}</p>
+                  <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.publication_note') }}</p>
+                  <div class="ck-trig__identity-actions">
+                    <button type="button" class="ck-trig__btn ck-trig__btn--compact" [disabled]="busy()"
+                      (click)="setScheduleIdentity(s, 'current_user')">
+                      {{ i18n.t('flow.triggers.identity.use_mine') }}
+                    </button>
+                    @if (s.execution_identity) {
+                      <button type="button" class="ck-trig__btn ck-trig__btn--compact" [disabled]="busy()"
+                        [attr.title]="i18n.t('flow.triggers.identity.remove_note')"
+                        (click)="setScheduleIdentity(s, 'none')">
+                        {{ i18n.t('flow.triggers.identity.remove') }}
+                      </button>
+                    }
+                  </div>
+                  @if (s.execution_identity) {
+                    <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.remove_note') }}</p>
+                  }
+                  @if (identityPending() === s.id) {
+                    <p class="ck-trig__muted" role="status">{{ i18n.t('flow.triggers.identity.saving') }}</p>
+                  }
+                  @if (identityError()?.id === s.id) {
+                    <p class="ck-trig__error" role="alert">{{ i18n.t(identityError()!.key) }}</p>
+                  }
+                </details>
                 <button
                   type="button"
                   class="ck-trig__btn"
@@ -139,6 +187,12 @@ type LoadState = 'loading' | 'loaded' | 'error';
               <textarea class="ck-trig__input ck-trig__json" rows="3" spellcheck="false"
                 [(ngModel)]="newSchedPayload"></textarea>
             </label>
+            <label class="ck-trig__consent">
+              <input type="checkbox" [(ngModel)]="newSchedUseMyAccess" [disabled]="busy()" />
+              <span>{{ i18n.t('flow.triggers.identity.consent') }}</span>
+            </label>
+            <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.note') }}</p>
+            <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.publication_note') }}</p>
             <p class="ck-trig__muted">{{ i18n.t('flow.triggers.setup_note') }}</p>
             @if (scheduleError(); as error) {
               <p class="ck-trig__error" role="alert">{{ i18n.t(error) }}</p>
@@ -181,6 +235,36 @@ type LoadState = 'loading' | 'loaded' | 'error';
                     {{ h.enabled ? i18n.t('flow.triggers.on') : i18n.t('flow.triggers.off') }}
                   </span>
                 </div>
+                <details class="ck-trig__identity" [attr.aria-busy]="identityPending() === h.id">
+                  <summary>
+                    {{ i18n.t('flow.triggers.identity.label') }} ·
+                    <strong>{{ h.execution_identity?.display_name || i18n.t('flow.triggers.identity.none') }}</strong>
+                  </summary>
+                  <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.note') }}</p>
+                  <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.publication_note') }}</p>
+                  <div class="ck-trig__identity-actions">
+                    <button type="button" class="ck-trig__btn ck-trig__btn--compact" [disabled]="busy()"
+                      (click)="setHookIdentity(h, 'current_user')">
+                      {{ i18n.t('flow.triggers.identity.use_mine') }}
+                    </button>
+                    @if (h.execution_identity) {
+                      <button type="button" class="ck-trig__btn ck-trig__btn--compact" [disabled]="busy()"
+                        [attr.title]="i18n.t('flow.triggers.identity.remove_note')"
+                        (click)="setHookIdentity(h, 'none')">
+                        {{ i18n.t('flow.triggers.identity.remove') }}
+                      </button>
+                    }
+                  </div>
+                  @if (h.execution_identity) {
+                    <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.remove_note') }}</p>
+                  }
+                  @if (identityPending() === h.id) {
+                    <p class="ck-trig__muted" role="status">{{ i18n.t('flow.triggers.identity.saving') }}</p>
+                  }
+                  @if (identityError()?.id === h.id) {
+                    <p class="ck-trig__error" role="alert">{{ i18n.t(identityError()!.key) }}</p>
+                  }
+                </details>
                 <button
                   type="button"
                   class="ck-trig__btn"
@@ -216,6 +300,12 @@ type LoadState = 'loading' | 'loaded' | 'error';
               [(ngModel)]="newHookName"
             />
             </label>
+            <label class="ck-trig__consent">
+              <input type="checkbox" [(ngModel)]="newHookUseMyAccess" [disabled]="busy()" />
+              <span>{{ i18n.t('flow.triggers.identity.consent') }}</span>
+            </label>
+            <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.note') }}</p>
+            <p class="ck-trig__muted">{{ i18n.t('flow.triggers.identity.publication_note') }}</p>
             <p class="ck-trig__muted">{{ i18n.t('flow.triggers.webhooks.signature_note') }}</p>
             <p class="ck-trig__muted">{{ i18n.t('flow.triggers.setup_note') }}</p>
             <button
@@ -252,12 +342,16 @@ export class FlowTriggersPanelComponent {
   readonly scheduleError = signal<string | null>(null);
   readonly scheduleFormOpen = signal(false);
   readonly hookFormOpen = signal(false);
+  readonly identityPending = signal<string | null>(null);
+  readonly identityError = signal<{ id: string; key: string } | null>(null);
 
   newSchedName = '';
   newSchedCron = '0 * * * *';
   newSchedTimezone = 'UTC';
   newSchedPayload = '{}';
   newHookName = '';
+  newSchedUseMyAccess = false;
+  newHookUseMyAccess = false;
 
   constructor() {
     effect(() => {
@@ -270,6 +364,10 @@ export class FlowTriggersPanelComponent {
       this.scheduleError.set(null);
       this.scheduleFormOpen.set(false);
       this.hookFormOpen.set(false);
+      this.identityPending.set(null);
+      this.identityError.set(null);
+      this.newSchedUseMyAccess = false;
+      this.newHookUseMyAccess = false;
       if (id) {
         if (kind === 'schedule') this.fetchSchedules(id);
         else this.fetchHooks(id);
@@ -345,6 +443,7 @@ export class FlowTriggersPanelComponent {
         timezone: this.newSchedTimezone.trim(),
         enabled: false,
         input_payload: input,
+        ...(this.newSchedUseMyAccess ? { execution_identity: 'current_user' } : {}),
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -352,6 +451,7 @@ export class FlowTriggersPanelComponent {
           if (id !== this.systemId()) return;
           this.schedules.update((list) => [row, ...list]);
           this.scheduleFormOpen.set(false);
+          this.newSchedUseMyAccess = false;
           this.busy.set(false);
           this.toastr.success(
             this.i18n.t('flow.triggers.schedules.created'),
@@ -360,12 +460,13 @@ export class FlowTriggersPanelComponent {
         },
         error: (error: { status?: number }) => {
           if (id !== this.systemId()) return;
-          this.scheduleError.set(error.status === 400
+          const message = publicationIdentityError(error) ?? (error.status === 400
             ? 'flow.triggers.schedules.cron_invalid'
             : 'flow.triggers.schedules.create_failed');
+          this.scheduleError.set(message);
           this.busy.set(false);
           this.toastr.error(
-            this.i18n.t('flow.triggers.schedules.create_failed'),
+            this.i18n.t(message),
             this.i18n.t('flow.triggers.toast.title'),
           );
         },
@@ -385,11 +486,11 @@ export class FlowTriggersPanelComponent {
           this.schedules.update((list) => list.map((x) => (x.id === row.id ? row : x)));
           this.busy.set(false);
         },
-        error: () => {
+        error: (error: unknown) => {
           if (id !== this.systemId()) return;
           this.busy.set(false);
           this.toastr.error(
-            this.i18n.t('flow.triggers.schedules.update_failed'),
+            this.i18n.t(publicationIdentityError(error) ?? 'flow.triggers.schedules.update_failed'),
             this.i18n.t('flow.triggers.toast.title'),
           );
         },
@@ -405,6 +506,7 @@ export class FlowTriggersPanelComponent {
         name: this.newHookName.trim() || this.i18n.t('flow.triggers.webhooks.default_name'),
         event_type: 'webhook.received',
         enabled: false,
+        ...(this.newHookUseMyAccess ? { execution_identity: 'current_user' } : {}),
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -412,6 +514,7 @@ export class FlowTriggersPanelComponent {
           if (id !== this.systemId()) return;
           this.hooks.update((list) => [row, ...list]);
           this.hookFormOpen.set(false);
+          this.newHookUseMyAccess = false;
           this.lastSecret.set(row.secret ?? null);
           this.busy.set(false);
           this.toastr.success(
@@ -419,11 +522,11 @@ export class FlowTriggersPanelComponent {
             this.i18n.t('flow.triggers.toast.title'),
           );
         },
-        error: () => {
+        error: (error: unknown) => {
           if (id !== this.systemId()) return;
           this.busy.set(false);
           this.toastr.error(
-            this.i18n.t('flow.triggers.webhooks.create_failed'),
+            this.i18n.t(publicationIdentityError(error) ?? 'flow.triggers.webhooks.create_failed'),
             this.i18n.t('flow.triggers.toast.title'),
           );
         },
@@ -443,14 +546,56 @@ export class FlowTriggersPanelComponent {
           this.hooks.update((list) => list.map((x) => (x.id === row.id ? row : x)));
           this.busy.set(false);
         },
-        error: () => {
+        error: (error: unknown) => {
           if (id !== this.systemId()) return;
           this.busy.set(false);
           this.toastr.error(
-            this.i18n.t('flow.triggers.webhooks.update_failed'),
+            this.i18n.t(publicationIdentityError(error) ?? 'flow.triggers.webhooks.update_failed'),
             this.i18n.t('flow.triggers.toast.title'),
           );
         },
       });
+  }
+
+  setScheduleIdentity(schedule: RunSchedule, value: IdentityCommand): void {
+    this.saveExecutionIdentity('schedule', schedule.id, value);
+  }
+
+  setHookIdentity(hook: WebhookHook, value: IdentityCommand): void {
+    this.saveExecutionIdentity('webhook', hook.id, value);
+  }
+
+  private saveExecutionIdentity(kind: TriggerKind, triggerId: string, value: IdentityCommand): void {
+    const id = this.systemId();
+    if (!id || this.busy() || this.kind() !== kind) return;
+    this.busy.set(true);
+    this.identityPending.set(triggerId);
+    this.identityError.set(null);
+    const resource = kind === 'schedule' ? 'schedules' : 'hooks';
+    this.api.patch<RunSchedule | WebhookHook>(`/systems/${id}/${resource}/${triggerId}`, {
+      execution_identity: value,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (row) => {
+        if (id !== this.systemId() || kind !== this.kind()) return;
+        if (kind === 'schedule') {
+          this.schedules.update((items) => items.map((item) => item.id === triggerId ? row as RunSchedule : item));
+        } else {
+          this.hooks.update((items) => items.map((item) => item.id === triggerId ? row as WebhookHook : item));
+        }
+        this.busy.set(false);
+        this.identityPending.set(null);
+      },
+      error: (error: { status?: number }) => {
+        if (id !== this.systemId() || kind !== this.kind()) return;
+        this.busy.set(false);
+        this.identityPending.set(null);
+        this.identityError.set({
+          id: triggerId,
+          key: publicationIdentityError(error) ?? (error.status === 403
+            ? 'flow.triggers.identity.forbidden'
+            : 'flow.triggers.identity.update_failed'),
+        });
+      },
+    });
   }
 }

@@ -50,9 +50,12 @@ appelle l'API native `convert_to_deltalake` sur son répertoire local privé :
 Rust lit les footers, construit les actions et statistiques et commite les
 fichiers existants sans réencoder leurs octets. Les sorties vides utilisent
 `DeltaTable.create` et gardent un fichier vide de profil hors journal. Le writer
-partagé et le runner utilisent la même primitive. Les timestamps Arrow sans fuseau sont interprétés
-UTC au writer Delta, afin de ne pas introduire `timestamp_ntz`, incompatible
-avec le protocole retenu. Les autres dates restent typées.
+partagé et le runner utilisent la même primitive. Les timestamps Arrow sont
+normalisés en UTC avec une précision microseconde au writer Delta ; ceux sans
+fuseau sont interprétés UTC. Cela évite `timestamp_ntz` et `timestamp_nanos`,
+incompatibles avec le protocole retenu. Le cast est sûr : une valeur portant
+des nanosecondes non représentables est refusée avant publication, jamais
+tronquée silencieusement. Les autres dates restent typées.
 
 Le profil utilise DuckDB avec mémoire, spill et temps bornés et un seul thread
 pour que les groupes de grandes valeurs puissent déborder sur disque. Il compte
