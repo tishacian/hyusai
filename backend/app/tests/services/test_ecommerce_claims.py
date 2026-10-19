@@ -155,6 +155,102 @@ def test_reader_is_readonly_bounded_and_does_not_leak_driver_errors(monkeypatch)
     assert connection.close.called
 
 
+@pytest.mark.parametrize(
+    "driver_message,sqlstate,code,status",
+    [
+        ("server does not support SSL, but SSL was required", None, "PG_TLS_UNAVAILABLE", 503),
+        ("root certificate file does not exist", None, "PG_TLS_TRUST_REQUIRED", 503),
+        ("certificate verify failed", None, "PG_TLS_VERIFICATION_FAILED", 503),
+        ("password authentication failed", None, "PG_AUTH_FAILED", 403),
+        ("unfamiliar driver text", "28P01", "PG_AUTH_FAILED", 403),
+        ("unfamiliar driver text", None, "POSTGRESQL_READ_UNAVAILABLE", 503),
+    ],
+)
+def test_claim_connection_refusals_expose_only_closed_diagnostics(
+    monkeypatch,
+    caplog,
+    driver_message,
+    sqlstate,
+    code,
+    status,
+):
+    import psycopg2
+
+    private_detail = "NEVER_EXPOSE_CONNECTION_ACCOUNT_PASSWORD_OR_SERVER_TEXT"
+
+    class DriverFailure(psycopg2.OperationalError):
+        @property
+        def pgcode(self):
+            return sqlstate
+
+    monkeypatch.setattr(
+        pg,
+        "get_config",
+        lambda *a, **kw: {
+            "values": {"host": "db.example.test", "database": "test", "username": "reader"},
+            "secrets": {"password": private_detail},
+        },
+    )
+    monkeypatch.setattr(pg, "postgresql_connection_options", lambda *a: {})
+
+    def connect(**kwargs):
+        raise DriverFailure(f"{driver_message}: {private_detail}")
+
+    monkeypatch.setattr(psycopg2, "connect", connect)
+    with pytest.raises(pg.ClaimReadError) as raised:
+        pg.queue(None, ["RC-1042"])
+    assert (raised.value.code, raised.value.status_code) == (code, status)
+    assert str(raised.value) == code
+    assert raised.value.__suppress_context__ is True
+    assert private_detail not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "sqlstate,code,status",
+    [
+        ("42P01", "POSTGRESQL_SCHEMA_NOT_LOADED", 503),
+        ("42501", "POSTGRESQL_PERMISSION_DENIED", 503),
+        ("57014", "POSTGRESQL_READ_TIMEOUT", 503),
+        ("42703", "PG_SOURCE_CHANGED", 409),
+        ("42601", "PG_QUERY_FAILED", 502),
+    ],
+)
+def test_claim_query_diagnostics_keep_legacy_codes_and_close_the_connection(
+    monkeypatch,
+    caplog,
+    sqlstate,
+    code,
+    status,
+):
+    import psycopg2
+
+    class DriverFailure(psycopg2.ProgrammingError):
+        @property
+        def pgcode(self):
+            return sqlstate
+
+    monkeypatch.setattr(
+        pg,
+        "get_config",
+        lambda *a, **kw: {
+            "values": {"host": "db.example.test", "database": "test", "username": "reader"},
+            "secrets": {"password": "private"},
+        },
+    )
+    monkeypatch.setattr(pg, "postgresql_connection_options", lambda *a: {})
+    connection = MagicMock()
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.execute.side_effect = DriverFailure("PRIVATE_SQL_AND_DRIVER_MESSAGE")
+    monkeypatch.setattr(psycopg2, "connect", lambda **kw: connection)
+    with pytest.raises(pg.ClaimReadError) as raised:
+        pg.queue(None, ["RC-1042"])
+    assert (raised.value.code, raised.value.status_code) == (code, status)
+    assert str(raised.value) == code
+    assert "PRIVATE_SQL_AND_DRIVER_MESSAGE" not in caplog.text
+    connection.rollback.assert_called_once()
+    connection.close.assert_called_once()
+
+
 def test_missing_information_never_creates_action():
     with pytest.raises(ValueError, match="CLAIM_RESOLUTION_NOT_READY"):
         claims._simulate(Mock(), None, None, {}, "RC-1043", {"action": "request_information"})

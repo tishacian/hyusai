@@ -20,6 +20,7 @@ from app.services.connectors.network_policy import (
     ConnectorNetworkError,
     postgresql_connection_options,
 )
+from app.services.connectors.postgresql_diagnostics import diagnose
 
 CLAIM_ID = re.compile(r"RC-[0-9]{4,8}")
 MAX_ROWS = 100
@@ -115,6 +116,7 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
     from psycopg2.extras import RealDictCursor
 
     connection = None
+    stage = "connect"
     try:
         config = get_config(workspace, "postgresql", include_secrets=True)
         values, secrets = config.get("values") or {}, config.get("secrets") or {}
@@ -131,6 +133,7 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
                 connect_timeout=5,
                 application_name="agentium-claims-reader",
             )
+        stage = "query"
         connection.set_session(isolation_level="REPEATABLE READ", readonly=True, autocommit=False)
         results: dict[str, Any] = {}
         with connection.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -171,13 +174,25 @@ def _read(workspace, names: tuple[str, ...], params: dict[str, Any]) -> dict[str
     except ConnectorNetworkError as exc:
         raise ClaimReadError(exc.code, exc.status_code) from None
     except Exception as exc:
-        code = {
+        # Keep existing business codes for known query failures, while exposing
+        # the same closed connection diagnostic as Test and Explore. In
+        # particular, a TLS/authentication refusal must not look like an empty
+        # queue or an unexplained generic outage in Work.
+        legacy_code = {
             "42P01": "POSTGRESQL_SCHEMA_NOT_LOADED",
             "42501": "POSTGRESQL_PERMISSION_DENIED",
             "57014": "POSTGRESQL_READ_TIMEOUT",
-        }.get(getattr(exc, "pgcode", None), "POSTGRESQL_READ_UNAVAILABLE")
+        }.get(getattr(exc, "pgcode", None))
+        if legacy_code:
+            raise ClaimReadError(legacy_code) from None
+        diagnostic = diagnose(exc, stage=stage)
+        code = (
+            "POSTGRESQL_READ_UNAVAILABLE"
+            if diagnostic.code == "PG_UNAVAILABLE"
+            else diagnostic.code
+        )
         # Driver messages can contain connection credentials or SQL. Never echo.
-        raise ClaimReadError(code) from None
+        raise ClaimReadError(code, diagnostic.status) from None
     finally:
         if connection is not None:
             try:
