@@ -84,6 +84,8 @@ const PLAN_DEBOUNCE_MS = 220;
 
 /** What a retrain carries over from the version it is based on. */
 export interface TrainSeed {
+  /** Training versions are grouped by name; keep the source lineage by default. */
+  name?: string;
   datasetId?: string | null;
   target?: string;
   task?: ModelTask;
@@ -964,6 +966,7 @@ export class ModelTrainComponent implements OnInit {
 
   ngOnInit(): void {
     const seed = this.seed();
+    this.name.set(seed?.name ?? '');
     const first = this.readyDatasets()[0];
     this.datasetId.set(seed?.datasetId || first?.id || '');
     if (seed?.target) this.target.set(seed.target);
@@ -1242,10 +1245,10 @@ export class ModelTrainComponent implements OnInit {
         dataset_id: datasetId,
         ...(this.target() ? { target: this.target() } : {}),
         ...(this.taskOverride() ? { task: this.taskOverride()! } : {}),
-        // A saved segmentation already names its features before this first
-        // response supplies the schema. Let the server validate that choice.
+        // A saved model names its features before the first response supplies
+        // the schema. Preserve that choice and let the server validate it.
         ...(!this.isForecasting() && (this.isClustering() || this.featureOverride())
-          ? { features: this.isClustering() ? this.featureOverride() ?? [] : this.selectedFeatures() } : {}),
+          ? { features: this.featureOverride() ?? [] } : {}),
         ...(this.algoKey() ? { algo: this.algoKey() } : {}),
         ...(this.isClustering() ? { knobs: this.knobPayload() } : {}),
         ...(this.target() ? this.specPayload() : {}),
