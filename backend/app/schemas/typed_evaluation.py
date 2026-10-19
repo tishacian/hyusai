@@ -240,7 +240,7 @@ def compile_question_schema(questions: list[TypedQuestion | dict]) -> dict:
                                     "description",
                                 ],
                                 "properties": {
-                                    "kind": {"const": "image"},
+                                    "kind": {"type": "string", "enum": ["image"]},
                                     "evidence_id": {"type": "string"},
                                     "image_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
                                     "region": {

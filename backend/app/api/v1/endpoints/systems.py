@@ -71,6 +71,11 @@ from app.services.run_engine.execution_contract import (
     canonical_flow_sha256,
     resolve_flow_execution,
 )
+from app.services.run_engine.execution_principal import (
+    ExecutionPrincipalError,
+    authorize_source_mutation,
+    configure_identity,
+)
 from app.services.run_engine.webhooks import generate_hook_secret, serialize_hook
 from app.services.system_catalog_bindings import (
     ResolvedSystemCatalogBindings,
@@ -705,6 +710,7 @@ class RunScheduleCreate(BaseModel):
     timezone: str = Field(default="UTC", max_length=64)
     input_payload: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
+    execution_identity: Literal["current_user", "none"] | None = None
 
 
 class RunScheduleUpdate(BaseModel):
@@ -713,6 +719,7 @@ class RunScheduleUpdate(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     input_payload: Optional[dict[str, Any]] = None
     enabled: Optional[bool] = None
+    execution_identity: Literal["current_user", "none"] | None = None
 
 
 class WebhookHookCreate(BaseModel):
@@ -720,6 +727,7 @@ class WebhookHookCreate(BaseModel):
     event_type: str = Field(default="webhook.received", max_length=120)
     enabled: bool = True
     secret: Optional[str] = Field(default=None, min_length=8, max_length=256)
+    execution_identity: Literal["current_user", "none"] | None = None
 
 
 class WebhookHookUpdate(BaseModel):
@@ -727,6 +735,23 @@ class WebhookHookUpdate(BaseModel):
     event_type: Optional[str] = Field(default=None, max_length=120)
     enabled: Optional[bool] = None
     rotate_secret: bool = False
+    execution_identity: Literal["current_user", "none"] | None = None
+
+
+def _configure_trigger_identity(db, *, row, body, user, workspace, system):
+    try:
+        authorize_source_mutation(db, source=row, user=user, workspace=workspace)
+        configure_identity(db, source=row, command=body.execution_identity,
+                           user=user, workspace=workspace, system=system)
+    except ExecutionPrincipalError as exc:
+        raise HTTPException(403, detail={"code": exc.code}) from None
+
+
+def _authorize_trigger_identity_mutation(db, *, row, user, workspace):
+    try:
+        authorize_source_mutation(db, source=row, user=user, workspace=workspace)
+    except ExecutionPrincipalError as exc:
+        raise HTTPException(403, detail={"code": exc.code}) from None
 
 
 class ActiveFlowWriteOptions(BaseModel):
@@ -2411,6 +2436,7 @@ async def create_system_schedule(
         enabled=bool(body.enabled),
         next_fire_at=next_fire if body.enabled else None,
     )
+    _configure_trigger_identity(db, row=row, body=body, user=user, workspace=workspace, system=s)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -2442,11 +2468,13 @@ async def update_system_schedule(
             RunSchedule.system_id == system_id,
             RunSchedule.workspace_id == workspace.id,
         )
+        .with_for_update()
         .first()
     )
     if not row:
         raise HTTPException(404, "Schedule not found")
 
+    _configure_trigger_identity(db, row=row, body=body, user=user, workspace=workspace, system=s)
     if body.name is not None:
         row.name = body.name.strip() or row.name
     if body.input_payload is not None:
@@ -2485,10 +2513,12 @@ async def delete_system_schedule(
             RunSchedule.system_id == system_id,
             RunSchedule.workspace_id == workspace.id,
         )
+        .with_for_update()
         .first()
     )
     if not row:
         raise HTTPException(404, "Schedule not found")
+    _authorize_trigger_identity_mutation(db, row=row, user=user, workspace=workspace)
     db.delete(row)
     db.commit()
     return None
@@ -2535,6 +2565,7 @@ async def create_system_hook(
         secret=secret,
         enabled=bool(body.enabled),
     )
+    _configure_trigger_identity(db, row=row, body=body, user=user, workspace=workspace, system=s)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -2567,11 +2598,13 @@ async def update_system_hook(
             WebhookHook.system_id == system_id,
             WebhookHook.workspace_id == workspace.id,
         )
+        .with_for_update()
         .first()
     )
     if not row:
         raise HTTPException(404, "Hook not found")
 
+    _configure_trigger_identity(db, row=row, body=body, user=user, workspace=workspace, system=s)
     if body.name is not None:
         row.name = body.name.strip() or row.name
     if body.event_type is not None:
@@ -2604,10 +2637,12 @@ async def delete_system_hook(
             WebhookHook.system_id == system_id,
             WebhookHook.workspace_id == workspace.id,
         )
+        .with_for_update()
         .first()
     )
     if not row:
         raise HTTPException(404, "Hook not found")
+    _authorize_trigger_identity_mutation(db, row=row, user=user, workspace=workspace)
     db.delete(row)
     db.commit()
     return None

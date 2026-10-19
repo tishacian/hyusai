@@ -794,6 +794,17 @@ async def resume_run_dag(
         if run.status != "hitl_pending":
             return {"error": "run_not_paused", "status": run.status}
 
+        if getattr(run, "execution_principal", None) is not None:
+            from app.services.run_engine.execution_principal import (
+                ExecutionPrincipalError,
+                execution_user_id,
+            )
+
+            try:
+                execution_user_id(db, run)
+            except ExecutionPrincipalError as exc:
+                return _fail(db, run, exc.code)
+
         checkpoints = list(run.checkpoints or [])
         pause_cp = next(
             (cp for cp in reversed(checkpoints) if cp.get("kind") == "hitl_pause"),
@@ -1220,6 +1231,20 @@ async def _walk(
             for nid, pending in state.pending_counts.items()
             if pending == 0 and nid not in state.done
         ]
+
+    # An approved synthetic egress gate can resume with no ready nodes. Check
+    # authority here as well, before provenance artifacts or output publication.
+    if getattr(run, "execution_principal", None) is not None:
+        from app.services.run_engine.execution_principal import (
+            ExecutionPrincipalError,
+            execution_user_id,
+        )
+
+        try:
+            state.ctx["user_id"] = execution_user_id(db, run)
+        except ExecutionPrincipalError as exc:
+            run.output_ref = {}
+            return _fail(db, run, exc.code)
 
     # Normal termination — build the final output and finalise.
     duration_ms = state.accumulated_ms + (time.monotonic() - state.start_monotonic) * 1000
@@ -1705,6 +1730,17 @@ async def resume_run_dag_debug(
             return {"error": "run_not_found"}
         if run.status != "debug_pending":
             return {"error": "run_not_paused", "status": run.status}
+
+        if action != "stop" and getattr(run, "execution_principal", None) is not None:
+            from app.services.run_engine.execution_principal import (
+                ExecutionPrincipalError,
+                execution_user_id,
+            )
+
+            try:
+                execution_user_id(db, run)
+            except ExecutionPrincipalError as exc:
+                return _fail(db, run, exc.code)
 
         checkpoints = list(run.checkpoints or [])
         pause_cp = next(
@@ -2373,12 +2409,17 @@ async def _execute_node(
     from uuid import uuid4
 
     from app.services.run_engine.execution_correlation import passage_context, resumable_passage
+    from app.services.run_engine.execution_principal import ExecutionPrincipalError
 
     token = passage_context.set({
         "run_id": run.id, "node_id": node.id, "passage_id": resumable_passage(run, node.id) or str(uuid4()),
     })
     try:
         return await _execute_node_body(db, run, node, graph, state, control=control)
+    except ExecutionPrincipalError as exc:
+        # Task attempts persist their failed invocation before raising. This
+        # authority failure must not enter an authored retry/recovery branch.
+        return {"output": {}, "terminal_error": exc.code}
     finally:
         passage_context.reset(token)
 
@@ -2451,6 +2492,29 @@ async def _execute_node_body(
         )
         return {"output": {}, "skipped_reason": "all_inputs_dead"}
 
+    from app.services.run_engine.execution_principal import (
+        ExecutionPrincipalError,
+        execution_user_id,
+    )
+
+    try:
+        state.ctx.update({
+            "run_id": run.id, "workspace_id": run.workspace_id,
+            "system_id": run.system_id, "user_id": execution_user_id(db, run),
+        })
+        # The grant belongs to this source's System, not a child System.
+        # A derived delegation contract is required before subflows can
+        # inherit it; silently creating an actorless child is not safe.
+        if getattr(run, "execution_principal", None) is not None and node.kind == "subflow":
+            raise ExecutionPrincipalError("EXECUTION_PRINCIPAL_SUBFLOW_UNSUPPORTED")
+    except ExecutionPrincipalError as exc:
+        _append_checkpoint(db, run, {
+            "kind": "node_end", "t": datetime.utcnow().isoformat(),
+            "node_id": node.id, "node_kind": node.kind,
+            "status": "failed", "error": exc.code,
+        })
+        return {"output": {}, "terminal_error": exc.code}
+
     # Phase 2 gate (merge path): asset nodes are declarative pass-throughs whose
     # ``{collection: <slug>}`` output must only reach a consumer when the
     # authoritative-binding flag is ON. With the flag OFF we exclude asset data
@@ -2466,7 +2530,10 @@ async def _execute_node_body(
     # nodes can reference fields produced by any ancestor (e.g.
     # ``confidence`` from a task node).
     if merged_input:
-        state.ctx.update({k: v for k, v in merged_input.items() if v is not None})
+        state.ctx.update({
+            k: v for k, v in merged_input.items()
+            if v is not None and k not in {"run_id", "workspace_id", "system_id", "user_id", "workspace_slug"}
+        })
 
     # ``node`` is a real built-in namespace, but it is local to this handler.
     # Independent ready nodes execute concurrently, therefore it must never be

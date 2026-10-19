@@ -40,6 +40,8 @@ def verify_hmac_signature(secret: str, body: bytes, signature_header: Optional[s
 
 
 def serialize_hook(hook: WebhookHook, *, include_secret: bool = False) -> Dict[str, Any]:
+    from app.services.run_engine.execution_principal import public_identity
+
     payload: Dict[str, Any] = {
         "id": hook.id,
         "workspace_id": hook.workspace_id,
@@ -47,6 +49,7 @@ def serialize_hook(hook: WebhookHook, *, include_secret: bool = False) -> Dict[s
         "name": hook.name,
         "event_type": hook.event_type,
         "enabled": bool(hook.enabled),
+        "execution_identity": public_identity(hook),
         "created_at": hook.created_at.isoformat() if hook.created_at else None,
         "updated_at": hook.updated_at.isoformat() if hook.updated_at else None,
         "path": f"/api/v1/hooks/{hook.id}",

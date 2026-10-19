@@ -83,6 +83,30 @@ def test_legacy_source_exposes_readiness_refuses_enable_and_allows_disable(api, 
     assert model.is_champion
 
 
+def test_shadow_api_explains_selection_while_registry_keeps_its_score_rank(api, pair, db_session):
+    from copy import deepcopy
+
+    client, _, _ = api
+    primary, legacy = pair[1:]
+    candidate = test_ml_shadow.add_candidate(db_session, legacy)
+    metadata = deepcopy(legacy.metrics_json)
+    metadata["artifact"].pop("contract_version")
+    legacy.metrics_json = metadata
+    db_session.commit()
+    response = client.post(f"/models/{primary.id}/shadow", json={"enabled": True})
+    assert response.status_code == 200
+    block = response.json()["shadow"]
+    assert block["challenger"] == {"id": candidate.id, "version": 3}
+    assert block["selection"]["excluded"] == [
+        {"id": legacy.id, "version": 2, "reason": "ML_ARTIFACT_LEGACY_UNSUPPORTED"}
+    ]
+    assert block["readiness"]["can_enable"] is True
+    from app.services.tabular_ml import runner_up
+
+    assert runner_up(db_session, primary).id == legacy.id
+    assert primary.is_champion
+
+
 @pytest.mark.parametrize("role", ["workspace_viewer", "viewer"])
 def test_read_only_roles_cannot_configure(api, pair, db_session, role):
     client, _, member = api

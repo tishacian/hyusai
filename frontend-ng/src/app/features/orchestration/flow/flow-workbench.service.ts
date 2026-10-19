@@ -31,6 +31,7 @@ import {
   type DraftTestIngressOption,
 } from './flow-run.service';
 import { flowValidationFingerprint } from './flow-validation.service';
+import { readNodeRunData, type NodeRunSummary } from './flow-node-run.vm';
 
 export interface FlowWorkbenchPollPolicy {
   intervalMs: number;
@@ -281,6 +282,24 @@ export class FlowWorkbenchService {
   readonly runtimeMode = signal<FlowExecutionRuntimeMode | null>(null);
   readonly chatMessages = signal<FlowWorkbenchChatMessage[]>([]);
   readonly nodeResult = signal<FlowWorkbenchNodeResult | null>(null);
+  private readonly nodePreview = signal<{
+    context: ValidatedOperation;
+    summary: NodeRunSummary;
+  } | null>(null);
+  /** Dataset references from the last isolated test, never authored inputs.
+   * Check synchronously as well as in the reset effect: a consumer may read
+   * between a graph/context change and Angular's next effect flush.
+   */
+  readonly nodePreviewRuns = computed<Record<string, NodeRunSummary>>(() => {
+    const preview = this.nodePreview();
+    if (!preview || !preview.context.workspaceScope?.workspaceId) return {};
+    try {
+      this.assertCurrent(preview.context);
+      return { [preview.summary.nodeId]: preview.summary };
+    } catch {
+      return {};
+    }
+  });
   readonly goldenResults = signal<FlowWorkbenchGoldenResult[]>([]);
   readonly goldenSummary = computed<FlowWorkbenchGoldenSummary>(() => {
     const results = this.goldenResults();
@@ -429,6 +448,7 @@ export class FlowWorkbenchService {
       );
       this.assertCurrent(validated);
       this.assertInitialRun(initial, validated, 'node_preview');
+      this.assertNodePreviewEvidence(initial, normalizedNodeId);
       this.nodeResult.set({
         nodeId: normalizedNodeId,
         run: initial,
@@ -436,6 +456,7 @@ export class FlowWorkbenchService {
         successful: false,
       });
       const run = await this.pollRun(initial, validated, pollPolicy);
+      this.assertNodePreviewEvidence(run, normalizedNodeId);
       const result: FlowWorkbenchNodeResult = {
         nodeId: normalizedNodeId,
         run,
@@ -443,6 +464,16 @@ export class FlowWorkbenchService {
         successful: run.status === 'completed',
       };
       this.nodeResult.set(result);
+      if (result.successful) {
+        this.nodePreview.set({
+          context: validated,
+          summary: {
+            nodeId: normalizedNodeId,
+            status: 'completed',
+            data: readNodeRunData(result.output),
+          },
+        });
+      }
       return run;
     } catch (error: unknown) {
       this.reportOperationError(operation, error);
@@ -559,6 +590,7 @@ export class FlowWorkbenchService {
       return null;
     }
     const flow = this.store.snapshot();
+    this.nodePreview.set(null);
     const operation: OperationContext = {
       generation: ++this.generation,
       systemId,
@@ -650,6 +682,19 @@ export class FlowWorkbenchService {
     this.runtimeMode.set(mode);
   }
 
+  private assertNodePreviewEvidence(run: FlowWorkbenchRun, nodeId: string): void {
+    const execution = executionMetadata(run);
+    if (
+      execution['node_id'] !== nodeId
+      || execution['execution_surface'] !== 'node_preview'
+      || execution['source_flow_sha256'] !== run.source_flow_sha256
+      || execution['flow_sha256'] !== run.flow_sha256
+      || execution['runtime_mode'] !== run.runtime_mode
+    ) {
+      throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.evidence'));
+    }
+  }
+
   private async pollRun(
     initial: FlowWorkbenchRun,
     operation: ValidatedOperation,
@@ -663,6 +708,16 @@ export class FlowWorkbenchService {
       if (projected) {
         if (projected.id !== initial.id || projected.system_id !== operation.systemId) {
           throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.poll_identity'));
+        }
+        // A generic Run projection may omit these fields, but it must never
+        // contradict the server-owned provenance of an isolated node test.
+        if (initial.execution_surface === 'node_preview') {
+          for (const key of ['execution_surface', 'flow_sha256', 'source_flow_sha256', 'runtime_mode'] as const) {
+            const value = (projected as unknown as Record<string, unknown>)[key];
+            if (value != null && value !== initial[key]) {
+              throw new WorkbenchRejectedError(this.i18n.t('flow.workbench.error.evidence'));
+            }
+          }
         }
         const merged = {
           ...initial,
@@ -759,6 +814,7 @@ export class FlowWorkbenchService {
     this.generation += 1;
     this.cancelled.next();
     this.busy.set(false);
+    this.nodePreview.set(null);
   }
 
   private requireRealSideEffectsAcknowledgement(acknowledged: boolean): acknowledged is true {

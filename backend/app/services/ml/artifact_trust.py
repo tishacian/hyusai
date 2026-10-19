@@ -51,6 +51,10 @@ FORECAST_TYPES = frozenset(
         "builtins.dict",
         "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
         "numpy.dtype",
+        # The catalog's seasonal_naive forecaster persists its default mean
+        # aggregator. Qualify this exact function only in the producer-owned
+        # forecast profile; imported sklearn artifacts retain their own list.
+        "numpy.mean",
         "pandas._libs.tslibs.offsets.Hour",
         "pandas._libs.tslibs.offsets.Day",
         "pandas._libs.tslibs.offsets.Week",
@@ -61,6 +65,7 @@ FORECAST_TYPES = frozenset(
         "skforecast.direct._forecaster_direct.ForecasterDirect",
         "skforecast.preprocessing._calendar.CalendarFeatures",
         "skforecast.preprocessing._preprocessing.QuantileBinner",
+        "skforecast.recursive._forecaster_equivalent_date.ForecasterEquivalentDate",
         "skforecast.recursive._forecaster_recursive.ForecasterRecursive",
         "skforecast.recursive._forecaster_recursive_multiseries.ForecasterRecursiveMultiSeries",
     }

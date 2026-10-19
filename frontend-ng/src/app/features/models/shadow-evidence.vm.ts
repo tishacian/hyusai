@@ -7,6 +7,7 @@ export interface ShadowReport {
   config: ShadowConfig;
   can_configure: boolean;
   challenger: { id: string; version: number } | null;
+  selection?: { policy: 'best_callable_compatible'; excluded: Array<{ id: string; version: number; reason: string }> };
   limits: { max_rows: number; max_pending: number; max_attempts: number; window?: number };
   comparison_scope?: 'current_pair';
   window: { jobs: number; completed: number; pending: number; failed: number; skipped: number; compared_rows: number; labeled_pairs: number };

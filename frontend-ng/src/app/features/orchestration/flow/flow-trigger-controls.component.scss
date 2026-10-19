@@ -100,6 +100,11 @@
     color: var(--ck-signal-warn, #f5b84a);
     border-color: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 50%, transparent);
   }
+
+  &--compact {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
 }
 
 .ck-trig__breaker {
@@ -217,6 +222,50 @@
   gap: 4px;
   font-size: 11px;
   color: var(--ck-fg-2);
+}
+
+.ck-trig__identity {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3);
+  overflow-wrap: anywhere;
+
+  > summary {
+    cursor: pointer;
+    strong { color: var(--ck-fg-2); font-weight: 500; }
+  }
+  &[open] > * + * { margin-top: 6px; }
+  > summary:focus-visible {
+    outline: 2px solid var(--ck-signal-cool);
+    outline-offset: 2px;
+  }
+}
+
+.ck-trig__identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ck-trig__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-2);
+  cursor: pointer;
+
+  input {
+    margin: 2px 0 0;
+    flex: 0 0 auto;
+    accent-color: var(--ck-signal-cool);
+  }
+  input:focus-visible {
+    outline: 2px solid var(--ck-signal-cool);
+    outline-offset: 2px;
+  }
 }
 
 .ck-trig__row > .ck-trig__btn,

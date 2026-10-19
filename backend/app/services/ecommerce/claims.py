@@ -23,6 +23,7 @@ from app.models.run import Run, SkillInvocation
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.collection_access import require_named_collection_read
 from app.services.connectors.generic import postgresql_claims as pg
+from app.services.run_engine.execution_principal import execution_user_id
 
 SKILLS = {
     "snapshot": "postgresql_claim_snapshot_v1",
@@ -116,7 +117,7 @@ def _sources(db, workspace, run, snapshot, modes):
         require_named_collection_read(
             db,
             workspace=workspace,
-            user_id=run.initiated_by_user_id,
+            user_id=execution_user_id(db, run),
             collection_ref=collection.slug,
         )
         sources.append((ref, source, collection))
@@ -167,7 +168,7 @@ async def _evidence(db, workspace, run, config, snapshot, mode, ctx):
         retrieval_ctx = {
             **ctx,
             "workspace_slug": workspace.slug,
-            "user_id": run.initiated_by_user_id,
+            "user_id": execution_user_id(db, run),
             "retrieval_contract": {
                 "asset_binding": "authoritative",
                 "collection": collection.slug,

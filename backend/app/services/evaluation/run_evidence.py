@@ -14,7 +14,7 @@ import json
 from app.models.run import SkillInvocation
 from app.schemas.typed_evaluation import RunEvidenceSnapshot
 from app.services import governed_assets as assets
-from app.services.evaluation.typed_judge import TypedEvaluationError, _authorize
+from app.services.evaluation.typed_judge import TypedEvaluationError, _authorize, _run_user_id
 
 MAX_SOURCE_BYTES = 32_000
 MAX_SNAPSHOT_BYTES = 96_000
@@ -41,11 +41,11 @@ _SENSITIVE_FIELDS = frozenset(
 
 
 def run_evidence_context(db, ctx):
-    """Bind an unattended call to its persisted initiator for every later read."""
+    """Bind an unattended call to its persisted authority for every later read."""
     _, user, run = _authorize(db, ctx)
     if run is None:
         raise TypedEvaluationError("JUDGE_RUN_EVIDENCE_CONTEXT_REQUIRED")
-    actor_id = user.id if user else run.initiated_by_user_id
+    actor_id = user.id if user else _run_user_id(db, run)
     if not actor_id:
         raise TypedEvaluationError("JUDGE_RUN_EVIDENCE_ACTOR_REQUIRED")
     authorized = {**ctx, "user_id": actor_id}
@@ -135,7 +135,8 @@ def capture_run_evidence(db, ctx, definition, *, node_id):
     workspace, user, run = _authorize(db, ctx)
     if run is None or not isinstance(node_id, str) or not node_id:
         raise TypedEvaluationError("JUDGE_RUN_EVIDENCE_CONTEXT_REQUIRED")
-    actor = user or db.get(User, run.initiated_by_user_id)
+    actor_id = user.id if user else _run_user_id(db, run)
+    actor = user or (db.get(User, actor_id) if actor_id else None)
     if actor is None or not actor.is_active:
         raise TypedEvaluationError("JUDGE_RUN_EVIDENCE_ACTOR_REQUIRED")
     if not readable_runs(db, runs=[run], workspace=workspace, user=actor):

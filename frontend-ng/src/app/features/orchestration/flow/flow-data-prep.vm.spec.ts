@@ -31,6 +31,13 @@ test('input resolution honors pins and explicit split output; unavailable output
  assert.equal(prepInputStates(prepare,graph,runs)[0].ref?.dataset_id,'test-v1');const pinned=prepDraftFromNode(prepare);pinned.inputs={in:{dataset_id:'pinned-v9'}};const pinnedNode={...prepare,...prepNodePatch(prepare,pinned)};assert.equal(prepInputStates(pinnedNode,graph,runs)[0].origin,'pin');
  graph.edges[0].from_port=undefined;assert.equal(prepInputStates(prepare,graph,runs)[0].origin,'unavailable');
 });
+test('a dataset test cannot satisfy a connected output port the source does not declare',()=>{
+ const source={id:'sql',kind:'task',type:'skill',outputs:[{name:'out',schema:'object'}]},target=node();
+ const graph={nodes:[source,target],edges:[{from:'sql',to:target.id,from_port:'missing',to_port:'in',kind:'data'}]} as CanonicalFlow;
+ const runs={sql:{nodeId:'sql',status:'completed',data:{dataset_id:'test-v1',outputs:{missing:{dataset_id:'wrong-port'}}}}};
+ assert.equal(prepInputStates(target,graph,runs)[0].origin,'unavailable');
+ graph.edges[0].from_port='out';assert.equal(prepInputStates(target,graph,runs)[0].ref?.dataset_id,'test-v1');
+});
 test('recursive preview keeps upstream specs and selected output port and rejects cycles',()=>{
  const source=node('split'),draft=prepDraftFromNode(source);draft.inputs={in:{dataset_id:'source-v3'}};const upstream={...source,...prepNodePatch(source,draft)},target=node();
  const graph={nodes:[upstream,target],edges:[{from:upstream.id,to:target.id,to_port:'in',from_port:'test'}]} as CanonicalFlow;const resolved=prepInputStates(target,graph)[0];assert.equal(resolved.origin,'upstream');assert.equal(resolved.ref?.upstream?.output_port,'test');assert.equal(resolved.ref?.upstream?.inputs.in.dataset_id,'source-v3');assert.equal((resolved.ref?.upstream?.spec as any).output_port,undefined);

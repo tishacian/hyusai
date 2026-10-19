@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text
 
 from app.db.base import Base
 
@@ -35,6 +35,8 @@ class WebhookHook(Base):
     event_type = Column(String(120), nullable=False, default="webhook.received")
     secret = Column(Text, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
+    # Explicit self-delegation; never inferred from creator/audit text or payload.
+    execution_identity = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

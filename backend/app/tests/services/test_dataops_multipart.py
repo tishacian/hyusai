@@ -380,6 +380,38 @@ def test_protocol_one_writer_canonicalizes_naive_timestamps(tmp_path):
     assert table["at"][0].as_py().hour == 0
 
 
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+@pytest.mark.parametrize("zone", [None, "UTC", "Europe/Paris"])
+def test_protocol_one_timestamp_parts_match_committed_schema(tmp_path, unit, zone):
+    from deltalake import DeltaTable, Schema
+
+    scale = {"s": 1, "ms": 1000, "us": 1_000_000, "ns": 1_000_000_000}[unit]
+    epoch_seconds = 1_720_000_000
+    values = pa.array([epoch_seconds * scale, None], type=pa.timestamp(unit, tz=zone))
+    batch = pa.record_batch([values], names=["at"])
+    writer = PartWriter(tmp_path / "timestamp", batch.schema, target_bytes=128 * 1024**2)
+    writer.write_batch(batch)
+    writer.close()
+
+    committed = DeltaTable(writer.directory)
+    parquet_schema = Schema.from_arrow(pq.read_schema(writer.paths[0]))
+    assert json.loads(parquet_schema.to_json()) == json.loads(committed.schema().to_json())
+    table = committed.to_pyarrow_table()
+    assert table.schema.field("at").type == pa.timestamp("us", tz="UTC")
+    assert table["at"].cast(pa.int64()).to_pylist() == [epoch_seconds * 1_000_000, None]
+
+
+def test_protocol_one_writer_refuses_nanosecond_loss_before_publication(tmp_path):
+    values = pa.array([1001], type=pa.timestamp("ns", tz="UTC"))
+    batch = pa.record_batch([values], names=["at"])
+    writer = PartWriter(tmp_path / "too-precise", batch.schema, target_bytes=128 * 1024**2)
+    with pytest.raises(pa.ArrowInvalid, match="lose data"):
+        writer.write_batch(batch)
+    writer.abort()
+    assert writer.paths == []
+    assert not (writer.directory / "_delta_log").exists()
+
+
 def test_wide_sample_is_uniform_seeded_and_within_byte_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))

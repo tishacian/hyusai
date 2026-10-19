@@ -1460,8 +1460,8 @@ def request_cancel(db: DBSession, model: MLModel, *, commit: bool = True) -> MLM
     return model
 
 
-def runner_up(db: DBSession, model: MLModel) -> MLModel | None:
-    """The best ready version of this lineage that is not the one serving.
+def ranked_challengers(db: DBSession, model: MLModel) -> list[MLModel]:
+    """Ready non-champions, ranked by the serving version's primary metric.
 
     Version order would have been the cheap answer, and the wrong one: the newest
     retrain is frequently *worse*, which is precisely why an operator is asked to
@@ -1507,9 +1507,12 @@ def runner_up(db: DBSession, model: MLModel) -> MLModel | None:
         score = metrics_registry.rank_value(primary.get("key"), primary.get("value"))
         if score is not None:
             ranked.append((score, int(row.version or 0), row))
-    if not ranked:
-        return None
-    return max(ranked, key=lambda entry: (entry[0], entry[1]))[2]
+    return [entry[2] for entry in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True)]
+
+
+def runner_up(db: DBSession, model: MLModel) -> MLModel | None:
+    """The registry's score-ranked contender, independent of serving readiness."""
+    return next(iter(ranked_challengers(db, model)), None)
 
 
 def sync_challenger(db: DBSession, model: MLModel) -> str | None:

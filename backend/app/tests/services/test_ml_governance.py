@@ -418,3 +418,44 @@ def test_run_without_initiator_cannot_borrow_context_identity(db_session, subjec
         ml_permissions.require_context(
             db_session, "train", ws.id, {"run_id": run.id, "user_id": user.id}
         )
+
+
+def test_delegated_ml_uses_persisted_authority_and_still_enforces_role(
+    db_session, subject, monkeypatch
+):
+    from app.models.run import Run
+    from app.services.run_engine import execution_principal
+
+    ws, user, member, _ = subject
+    run = Run(workspace_id=ws.id, initiated_by_user_id=None)
+    run.execution_principal = {"kind": "delegated_user", "user_id": user.id}
+    db_session.add(run)
+    db_session.commit()
+    monkeypatch.setattr(execution_principal, "execution_user_id", lambda db, current: user.id)
+    ctx = {"run_id": run.id, "user_id": "caller-cannot-choose"}
+    assert ml_permissions.require_context(db_session, "score", ws.id, ctx).id == user.id
+    assert run.initiated_by_user_id is None
+    member.role_template = "workspace_viewer"
+    db_session.commit()
+    with pytest.raises(TabularError, match="ML_FORBIDDEN_ACTION"):
+        ml_permissions.require_context(db_session, "score", ws.id, ctx)
+
+
+def test_revoked_ml_delegation_never_borrows_initiator(db_session, subject, monkeypatch):
+    from app.models.run import Run
+    from app.services.run_engine import execution_principal
+
+    ws, user, _, _ = subject
+    run = Run(workspace_id=ws.id, initiated_by_user_id=user.id)
+    run.execution_principal = {"kind": "delegated_user", "user_id": "revoked"}
+    db_session.add(run)
+    db_session.commit()
+
+    def deny(db, current):
+        raise execution_principal.ExecutionPrincipalError("EXECUTION_PRINCIPAL_REVOKED")
+
+    monkeypatch.setattr(execution_principal, "execution_user_id", deny)
+    with pytest.raises(TabularError, match="EXECUTION_PRINCIPAL_REVOKED"):
+        ml_permissions.require_context(
+            db_session, "score", ws.id, {"run_id": run.id, "user_id": user.id}
+        )

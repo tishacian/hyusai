@@ -105,7 +105,19 @@ def require_context(db, action, workspace_id, context):
                 message="A matching authorized Run is required.",
                 status_code=403,
             )
-        user_id = run.initiated_by_user_id
+        from app.services.run_engine.execution_principal import (
+            ExecutionPrincipalError,
+            execution_user_id,
+        )
+
+        try:
+            user_id = execution_user_id(db, run)
+        except ExecutionPrincipalError as exc:
+            raise TabularError(
+                code=exc.code,
+                message="The Run's delegated execution authority is no longer available.",
+                status_code=403,
+            ) from exc
         # System.created_by is a display name, not an authority identifier.
         # Legacy scheduled Runs need an explicit persisted initiator before
         # invoking ML; a matching username must never grant another identity.

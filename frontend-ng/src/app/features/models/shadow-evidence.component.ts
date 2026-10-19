@@ -22,6 +22,17 @@ import { shadowConfig, shadowErrorKey, shadowValue, type ShadowReport } from './
             @if (report.challenger; as challenger) { · <a [navLink]="{leaf:'model-doc',ref:challenger.id}">{{ i18n.t('models.shadow.challenger', { version: challenger.version }) }}</a> }
             @else { · {{ i18n.t('models.shadow.error.no_challenger') }} }
           </p>
+          @if (report.selection; as selection) {
+            <p data-testid="shadow-selection-policy">{{ i18n.t('models.shadow.selection_policy') }}</p>
+            @if (selection.excluded.length) {
+              <details data-testid="shadow-exclusions">
+                <summary>{{ i18n.t('models.shadow.excluded', { count: selection.excluded.length }) }}</summary>
+                @for (candidate of selection.excluded; track candidate.id) {
+                  <p><a [navLink]="{leaf:'model-doc',ref:candidate.id}">v{{ candidate.version }}</a> · {{ i18n.t(reason(candidate.reason)) }}</p>
+                }
+              </details>
+            }
+          }
           <p data-testid="shadow-state">{{ i18n.t(report.config.enabled ? 'models.shadow.enabled' : 'models.shadow.disabled') }}</p>
           @if (report.readiness?.can_enable === false) {
             <p data-testid="shadow-readiness" role="status">

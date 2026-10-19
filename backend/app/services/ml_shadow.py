@@ -65,33 +65,89 @@ def supported(model):
     }
 
 
-def readiness(db, model):
+def _compatible(served, challenger):
+    from app.services.tabular_predict import contract_fields
+
+    try:
+        fields = {field["name"]: field.get("type") or "string" for field in contract_fields(served)}
+        required = contract_fields(challenger)
+    except TabularError:
+        return False
+    return (
+        supported(challenger)
+        and challenger.task == served.task
+        and challenger.target == served.target
+        and all(fields.get(field["name"]) == (field.get("type") or "string") for field in required)
+        and (
+            served.task != "classification"
+            or set(map(str, challenger.classes_json or []))
+            == set(map(str, served.classes_json or []))
+        )
+    )
+
+
+def select_challenger(db, model):
+    """Select the highest-ranked admissible shadow candidate, without model I/O.
+
+    The registry's score-based alias remains unchanged. Excluded versions and
+    their coded reasons are exposed, so a lower-ranked operational candidate
+    cannot be mistaken for a promotion or a rewritten training score.
+    """
+    from app.services.tabular_ml import ranked_challengers
+    from app.services.tabular_predict import serving_readiness
+
+    selection = {"policy": "best_callable_compatible", "excluded": []}
+    if not supported(model):
+        return None, selection
+    for candidate in ranked_challengers(db, model):
+        if candidate.id == model.id:
+            continue
+        if not _compatible(model, candidate):
+            reason = "ML_SHADOW_INCOMPATIBLE"
+        elif (candidate.artifact_bytes or 0) > MAX_ARTIFACT_BYTES:
+            reason = "ML_SHADOW_ARTIFACT_TOO_LARGE"
+        else:
+            state = serving_readiness(db, candidate)
+            if state["callable"]:
+                # Readiness validated the producer inventory; its byte count
+                # remains authoritative when an older row lacks artifact_bytes.
+                artifact = (candidate.metrics_json or {}).get("artifact") or {}
+                if artifact["total_bytes"] <= MAX_ARTIFACT_BYTES:
+                    return candidate, selection
+                reason = "ML_SHADOW_ARTIFACT_TOO_LARGE"
+            else:
+                reason = (state.get("refusal") or {}).get("code", "ML_SHADOW_SERVING_UNAVAILABLE")
+        selection["excluded"].append(
+            {"id": candidate.id, "version": candidate.version, "reason": reason}
+        )
+    return None, selection
+
+
+def _readiness(db, model, contender, selection):
     """Metadata readiness only; disabling never needs a working artifact."""
     if not supported(model) or model.status != "ready":
         return {"can_enable": False, "reason": "ML_SHADOW_UNSUPPORTED"}
     from app.services.tabular_predict import serving_readiness
 
     state = serving_readiness(db, model)
-    if state["callable"]:
-        from app.services.tabular_ml import runner_up
-
-        challenger = runner_up(db, model)
-        if challenger is not None and challenger.id != model.id:
-            challenger_state = serving_readiness(db, challenger)
-            if not challenger_state["callable"]:
-                return {
-                    "can_enable": False,
-                    "reason": (challenger_state.get("refusal") or {}).get(
-                        "code", "ML_SHADOW_SERVING_UNAVAILABLE"
-                    ),
-                    "challenger_id": challenger.id,
-                }
+    if state["callable"] and contender is None:
+        excluded = selection["excluded"]
+        return {
+            "can_enable": False,
+            "reason": excluded[0]["reason"] if excluded else "ML_SHADOW_NO_CHALLENGER",
+            **({"challenger_id": excluded[0]["id"]} if excluded else {}),
+        }
     return {
         "can_enable": state["callable"],
         "reason": None
         if state["callable"]
         else (state.get("refusal") or {}).get("code", "ML_SHADOW_SERVING_UNAVAILABLE"),
     }
+
+
+def readiness(db, model):
+    contender, selection = select_challenger(db, model)
+    return _readiness(db, model, contender, selection)
 
 
 def configure(db, *, model, config: ShadowConfig):
@@ -168,37 +224,20 @@ def stage(db, *, row: MLPrediction, served: MLModel):
     # Stable sampling survives a broker retry or worker redelivery.
     if int(hashlib.sha256(row.id.encode()).hexdigest()[:8], 16) % 100 >= config.sample_percent:
         return
-    from app.services.tabular_ml import runner_up
-
-    challenger = runner_up(db, served)
-    if challenger is None or challenger.id == served.id:
-        _skip(row, "ML_SHADOW_NO_CHALLENGER")
+    challenger, selection = select_challenger(db, served)
+    row.scores_json = {**(row.scores_json or {}), "shadow": {"selection": selection}}
+    if challenger is None:
+        excluded = selection["excluded"]
+        _skip(row, excluded[0]["reason"] if excluded else "ML_SHADOW_NO_CHALLENGER")
         return
     row.scores_json = {
         **(row.scores_json or {}),
-        "shadow": {"challenger_id": challenger.id, "challenger_version": challenger.version},
+        "shadow": {
+            "challenger_id": challenger.id,
+            "challenger_version": challenger.version,
+            "selection": selection,
+        },
     }
-    names = {str(field.get("name")) for field in (served.signature_json or {}).get("inputs", [])}
-    required = {
-        str(field.get("name")) for field in (challenger.signature_json or {}).get("inputs", [])
-    }
-    if (
-        not supported(challenger)
-        or challenger.task != served.task
-        or challenger.target != served.target
-        or not required
-        or not required.issubset(names)
-        or (
-            served.task == "classification"
-            and set(map(str, challenger.classes_json or []))
-            != set(map(str, served.classes_json or []))
-        )
-    ):
-        _skip(row, "ML_SHADOW_INCOMPATIBLE")
-        return
-    if (challenger.artifact_bytes or 0) > MAX_ARTIFACT_BYTES:
-        _skip(row, "ML_SHADOW_ARTIFACT_TOO_LARGE")
-        return
     if len(_json(row.payload_json).encode()) > MAX_PAYLOAD_BYTES:
         _skip(row, "ML_SHADOW_PAYLOAD_TOO_LARGE")
         return
@@ -243,6 +282,7 @@ def stage(db, *, row: MLPrediction, served: MLModel):
             "challenger_id": challenger.id,
             "challenger_version": challenger.version,
             "challenger_identity": _identity(challenger),
+            "selection": selection,
             "config": config.model_dump(),
             "rows": min(MAX_ROWS, len(row.payload_json or [])),
         },
@@ -250,7 +290,10 @@ def stage(db, *, row: MLPrediction, served: MLModel):
     )
     db.add(job)
     db.flush()
-    row.scores_json = {**(row.scores_json or {}), "shadow": {"status": "queued", "job_id": job_id}}
+    row.scores_json = {
+        **(row.scores_json or {}),
+        "shadow": {**row.scores_json["shadow"], "status": "queued", "job_id": job_id},
+    }
 
 
 def _claim(db, job_id, now):
@@ -543,11 +586,7 @@ def _number(value):
 
 
 def summary(db, *, model):
-    from app.services.tabular_ml import runner_up
-
-    contender = runner_up(db, model) if supported(model) else None
-    if contender is not None and contender.id == model.id:
-        contender = None
+    contender, selection = select_challenger(db, model)
     rows = (
         db.query(MLPrediction)
         .options(selectinload(MLPrediction.feedback_samples))
@@ -668,7 +707,8 @@ def summary(db, *, model):
         )
     return {
         "supported": supported(model),
-        "readiness": readiness(db, model),
+        "readiness": _readiness(db, model, contender, selection),
+        "selection": selection,
         "config": configuration(model).model_dump(),
         "can_configure": False,
         "challenger": {"id": contender.id, "version": contender.version} if contender else None,

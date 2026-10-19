@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   Injector,
+  runInInjectionContext,
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
@@ -34,6 +35,12 @@ import {
   FlowWorkbenchService,
 } from './flow-workbench.service';
 import { flowValidationFingerprint } from './flow-validation.service';
+import { newPrepDraft, prepNodePatch } from '@app/features/data/dataops.models';
+import { prepInputStates } from './flow-data-prep.vm';
+import { FlowDataPrepWorkshopComponent } from './flow-data-prep-workshop.component';
+import { DataOpsApi } from '@app/features/data/dataops.api';
+import { DataService } from '@app/features/data/data.service';
+import { FlowRunService } from './flow-run.service';
 
 const SOURCE_SHA = 'a'.repeat(64);
 const ISOLATED_SHA = 'b'.repeat(64);
@@ -178,6 +185,7 @@ function workbenchRun(
         flow_sha256: flowSha,
         source_flow_sha256: sourceSha,
         runtime_mode: 'dag_strict',
+        ...(surface === 'node_preview' ? { node_id: 'skill.answer' } : {}),
       },
     },
     output_ref: {},
@@ -241,6 +249,8 @@ class WorkspaceStub {
   private slug = 'andritz';
   private epoch = 1;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
+
+  surfaceFeatureEnabled(): boolean { return true; }
 
   captureRequestScope(): WorkspaceRequestScope {
     return Object.freeze({
@@ -320,7 +330,7 @@ function harness(flow = validFlow()) {
   const service = injector.get(FlowWorkbenchService);
   effects.flush();
   service.bindSystem('sys-1');
-  return { api, workspace, store, service, effects };
+  return { api, workspace, store, service, effects, injector };
 }
 
 test('chat input follows the selected ingress schema without synthetic aliases', () => {
@@ -473,6 +483,174 @@ test('isolated node execution keeps source hash evidence and projects its result
   assert.deepEqual(service.nodeResult()?.output, { prompt: 'works', score: 1 });
   assert.equal(service.nodeResult()?.run.source_flow_sha256, SOURCE_SHA);
   assert.equal(service.nodeResult()?.run.flow_sha256, ISOLATED_SHA);
+});
+
+test('a matched isolated dataset test feeds only the connected preparation input without editing the graph', async () => {
+  const flow = validFlow();
+  flow.nodes[1].outputs = [{ name: 'out', schema: 'object' }];
+  const prep = { id: 'prepare', kind: 'task' as const, type: 'skill', label: 'Prepare' };
+  const draft = newPrepDraft();
+  const target = { ...prep, ...prepNodePatch(prep, draft) };
+  flow.nodes.push(target);
+  flow.edges.push({ from: 'skill.answer', from_port: 'out', to: 'prepare', to_port: 'in', kind: 'data' });
+  const { api, service, store } = harness(flow);
+  const before = store.snapshot(), revision = store.revision();
+  api.nodeResult = workbenchRun('node_preview', 'completed', { output_ref: { dataset_id: 'dataset-test-v7', rows_out: 42 } });
+  await service.runSelectedNode('skill.answer', {}, true);
+
+  assert.deepEqual(prepInputStates(target, store.snapshot(), service.nodePreviewRuns()), [
+    { port: 'in', origin: 'test', ref: { dataset_id: 'dataset-test-v7' }, nodeId: 'skill.answer' },
+  ]);
+  const unrelated = { ...store.snapshot(), edges: flow.edges.map(edge => edge.to === 'prepare' ? { ...edge, from: 'source.request' } : edge) };
+  assert.equal(prepInputStates(target, unrelated, service.nodePreviewRuns())[0].origin, 'unavailable');
+  assert.deepEqual(store.snapshot(), before, 'testing does not pin, save or rewrite the authored Flow');
+  assert.equal(store.revision(), revision);
+});
+
+test('only completed node tests expose dataset references', async () => {
+  for (const status of ['failed', 'cancelled', 'hitl_pending', 'debug_pending'] as const) {
+    const { api, service } = harness();
+    api.nodeResult = workbenchRun('node_preview', status, { output_ref: { dataset_id: 'unconfirmed' } });
+    await service.runSelectedNode('skill.answer', {}, true);
+    assert.deepEqual(service.nodePreviewRuns(), {}, status);
+  }
+});
+
+test('node preview inputs require matching server-owned node and Flow provenance', async () => {
+  const changes: Array<[string, (run: FlowWorkbenchRun) => void]> = [
+    ['node', run => { run.input_ref!['execution']['node_id'] = 'another-node'; }],
+    ['missing metadata', run => { run.input_ref = {}; }],
+    ['source hash', run => { run.source_flow_sha256 = 'c'.repeat(64); }],
+    ['metadata source hash', run => { run.input_ref!['execution']['source_flow_sha256'] = 'c'.repeat(64); }],
+    ['metadata isolated hash', run => { run.input_ref!['execution']['flow_sha256'] = 'c'.repeat(64); }],
+    ['system', run => { run.system_id = 'another-system'; }],
+    ['surface', run => { run.input_ref!['execution']['execution_surface'] = 'builder_preview'; }],
+  ];
+  for (const [label, change] of changes) {
+    const { api, service } = harness();
+    api.nodeResult = workbenchRun('node_preview', 'completed', { output_ref: { dataset_id: 'wrong-context' } });
+    change(api.nodeResult);
+    assert.equal(await service.runSelectedNode('skill.answer', {}, true), null, label);
+    assert.deepEqual(service.nodePreviewRuns(), {}, label);
+  }
+});
+
+test('a terminal Run projection cannot replace the accepted node test provenance', async () => {
+  for (const [key, value] of [['source_flow_sha256', 'c'.repeat(64)], ['flow_sha256', 'c'.repeat(64)], ['execution_surface', 'production'], ['runtime_mode', 'dag_overlay']]) {
+    const { api, service } = harness();
+    api.runs.set(api.nodeResult.id, { ...api.nodeResult, status: 'completed', output_ref: { dataset_id: 'wrong-context' }, [key]: value });
+    assert.equal(await service.runSelectedNode('skill.answer', {}, true), null, key);
+    assert.deepEqual(service.nodePreviewRuns(), {}, key);
+  }
+});
+
+test('node preview input is fenced synchronously on graph, workspace, system, reset and new tests', async () => {
+  const contexts: Array<[string, (h: ReturnType<typeof harness>) => void]> = [
+    ['graph before effects flush', h => h.store.patchNode('skill.answer', { label: 'Changed' })],
+    ['reload', h => h.store.load(validFlow())],
+    ['workspace', h => h.workspace.switchWorkspace()],
+    ['system', h => h.service.bindSystem('sys-2')],
+    ['reset', h => h.service.reset()],
+    ['dispose', h => h.service.dispose()],
+    ['next test', h => { h.api.validationSubject = new Subject(); void h.service.runSelectedNode('skill.answer', {}, true); }],
+  ];
+  for (const [label, change] of contexts) {
+    const h = harness();
+    h.api.nodeResult = workbenchRun('node_preview', 'completed', { output_ref: { dataset_id: 'test-v1' } });
+    await h.service.runSelectedNode('skill.answer', {}, true);
+    assert.equal(h.service.nodePreviewRuns()['skill.answer'].data?.dataset_id, 'test-v1');
+    h.store.setSelection('sink.result');
+    assert.equal(h.service.nodePreviewRuns()['skill.answer'].data?.dataset_id, 'test-v1', 'opening the downstream inspector is not an edit');
+    change(h);
+    assert.deepEqual(h.service.nodePreviewRuns(), {}, label);
+    h.service.dispose();
+  }
+});
+
+test('a late node result cannot become a preparation input after an edit', async () => {
+  const { api, service, store } = harness();
+  const projection = new Subject<Run | null>();
+  api.getRun = () => { api.getRunCalls++; return projection.asObservable(); };
+  const pending = service.runSelectedNode('skill.answer', {}, true);
+  for (let spin = 0; !api.getRunCalls && spin < 20; spin++) await Promise.resolve();
+  assert.equal(api.getRunCalls, 1);
+  store.patchNode('skill.answer', { label: 'Edited while running' });
+  projection.next({ ...api.nodeResult, status: 'completed', output_ref: { dataset_id: 'too-late' } });
+  projection.complete();
+  assert.equal(await pending, null);
+  assert.deepEqual(service.nodePreviewRuns(), {});
+});
+
+async function workshopHarness() {
+  const flow = validFlow();
+  flow.nodes[1].outputs = [{ name: 'out', schema: 'object' }];
+  const base = { id: 'prepare', kind: 'task' as const, type: 'skill', label: 'Prepare' };
+  const node = { ...base, ...prepNodePatch(base, newPrepDraft()) };
+  flow.nodes.push(node);
+  flow.edges.push({ from: 'skill.answer', from_port: 'out', to: node.id, to_port: 'in', kind: 'data' });
+  const h = harness(flow);
+  h.api.nodeResult = workbenchRun('node_preview', 'completed', { output_ref: { dataset_id: 'test-v1' } });
+  await h.service.runSelectedNode('skill.answer', {}, true);
+  h.store.setSelection(node.id);
+  let resolve!: (result: any) => void;
+  const response = () => new Promise<any>(done => { resolve = done; });
+  const dataops = { catalog: async () => ({ steps: [] }), previewFlow: response, compileFlow: response, pivotValues: response };
+  const nodeInput = signal(node), nodeRuns = signal({});
+  const child = Injector.create({ parent: h.injector, providers: [
+    { provide: DataOpsApi, useValue: dataops },
+    { provide: DataService, useValue: { refresh: async () => [] } },
+    { provide: FlowRunService, useValue: { nodeRuns } },
+  ] });
+  const workshop = runInInjectionContext(child, () => new FlowDataPrepWorkshopComponent());
+  Object.defineProperty(workshop, 'node', { value: nodeInput });
+  h.effects.flush();
+  return { ...h, workshop, resolve: (result: any) => resolve(result),
+    refreshInputs: () => { nodeInput.set(structuredClone(node)); nodeRuns.set({}); },
+    close: () => child.destroy() };
+}
+
+test('equivalent reactive input refreshes neither discard a pending preview nor clear completed rows', async () => {
+  const h = await workshopHarness();
+  const sample = { rows: [{ id: 1 }], schema: [], sample: true };
+  const pending = h.workshop.preview();
+  h.refreshInputs();
+  h.resolve(sample); await pending;
+  assert.deepEqual(h.workshop.sample(), sample);
+  h.refreshInputs(); h.effects.flush();
+  assert.deepEqual(h.workshop.sample(), sample);
+  h.close();
+});
+
+test('preparation hides completed rows and SQL when the tested graph changes', async () => {
+  const h = await workshopHarness();
+  const sample = { rows: [{ id: 1 }], schema: [], sample: true };
+  const pending = h.workshop.preview(); h.resolve(sample); await pending;
+  assert.deepEqual(h.workshop.sample(), sample);
+  const compilation = { sql: 'SELECT 1' };
+  const compiled = h.workshop.compile(); h.resolve(compilation); await compiled;
+  assert.deepEqual(h.workshop.compilation(), compilation);
+  h.store.patchNode('skill.answer', { label: 'Edited after preview' });
+  h.effects.flush();
+  assert.equal(h.workshop.sample(), null);
+  assert.equal(h.workshop.compilation(), null);
+  assert.equal(h.workshop.inputStates()[0].origin, 'unavailable');
+  h.close();
+});
+
+test('late preparation previews, SQL exports and pivot suggestions cannot cross a changed test context', async () => {
+  for (const operation of ['preview', 'compile', 'convertSql', 'suggestPivot'] as const) {
+    const h = await workshopHarness();
+    const pending = operation === 'suggestPivot' ? h.workshop.suggestPivot('category') : h.workshop[operation]();
+    h.store.patchNode('skill.answer', { label: 'Edited while previewing' });
+    const before = h.store.snapshot(), revision = h.store.revision();
+    h.resolve({ rows: [{ id: 1 }], schema: [], sample: true, sql: 'SELECT 1', sql_export: 'SELECT 1', sql_export_allowed: true, values: ['old'] });
+    await pending;
+    assert.equal(h.workshop.sample(), null, operation);
+    assert.equal(h.workshop.compilation(), null, operation);
+    assert.deepEqual(h.store.snapshot(), before, operation);
+    assert.equal(h.store.revision(), revision, operation);
+    h.close();
+  }
 });
 
 test('golden batch uses server verdicts even when the local output would match differently', async () => {

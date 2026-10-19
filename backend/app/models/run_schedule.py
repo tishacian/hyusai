@@ -35,6 +35,7 @@ class RunSchedule(Base):
     timezone = Column(String(64), nullable=False, default="UTC")
     input_payload = Column(JSON, nullable=False, default=dict)
     enabled = Column(Boolean, nullable=False, default=True)
+    execution_identity = Column(JSON, nullable=True)
 
     next_fire_at = Column(DateTime, nullable=True, index=True)
     last_run_id = Column(String(36), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True)

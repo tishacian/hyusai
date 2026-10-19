@@ -295,7 +295,7 @@ def test_feedback_quality_uses_selected_sample_and_current_pair(db_session, pair
 def test_regression_quality_is_measured_mae_not_latency_as_cost(db_session, pair, monkeypatch):
     for model in pair[1:]:
         model.task, model.classes_json = "regression", []
-        model.metrics_json = {"primary": {"key": "rmse", "value": 2}}
+        model.metrics_json = {**model.metrics_json, "primary": {"key": "rmse", "value": 2}}
     db_session.commit()
     row, job = enqueue(
         db_session,
@@ -462,6 +462,140 @@ def test_known_challenger_must_be_callable_before_activation(db_session, pair, c
     assert error.value.code == reason
     shadow.configure(db_session, model=pair[1], config=shadow.ShadowConfig(enabled=False))
     assert pair[1].is_champion and not pair[2].is_champion
+
+
+def add_candidate(db, source, *, version=3, score=0.7):
+    from copy import deepcopy
+
+    candidate = MLModel(
+        id=str(uuid4()),
+        workspace_id=source.workspace_id,
+        slug=source.slug,
+        name=source.name,
+        version=version,
+        task=source.task,
+        target=source.target,
+        family=source.family,
+        algo=source.algo,
+        status="ready",
+        is_champion=False,
+        model_uri="artifact/" + str(version),
+        classes_json=deepcopy(source.classes_json),
+        signature_json=deepcopy(source.signature_json),
+        metrics_json={
+            **deepcopy(source.metrics_json),
+            "primary": {"key": "roc_auc", "value": score},
+        },
+        params_json={},
+    )
+    db.add(candidate)
+    db.commit()
+    return candidate
+
+
+def test_shadow_selects_callable_candidate_without_rewriting_registry_rank_or_primary(
+    db_session, pair, monkeypatch
+):
+    from copy import deepcopy
+
+    from app.services.tabular_ml import runner_up
+
+    primary, legacy = pair[1:]
+    candidate = add_candidate(db_session, legacy)
+    metadata = deepcopy(legacy.metrics_json)
+    metadata["artifact"].pop("contract_version")
+    legacy.metrics_json = metadata
+    db_session.commit()
+    monkeypatch.setattr(
+        tabular_predict, "_load_mlflow_model", lambda *a, **kw: pytest.fail("metadata only")
+    )
+    block = shadow.summary(db_session, model=primary)
+    expected = {
+        "policy": "best_callable_compatible",
+        "excluded": [{"id": legacy.id, "version": 2, "reason": "ML_ARTIFACT_LEGACY_UNSUPPORTED"}],
+    }
+    assert block["readiness"] == {"can_enable": True, "reason": None}
+    assert block["challenger"] == {"id": candidate.id, "version": 3}
+    assert block["selection"] == expected
+    shadow.configure(
+        db_session, model=primary, config=shadow.ShadowConfig(enabled=True, sample_percent=100)
+    )
+    row, job = enqueue(db_session, pair)
+    assert job.input_ref["challenger_id"] == candidate.id
+    assert job.input_ref["selection"] == row.scores_json["shadow"]["selection"] == expected
+    monkeypatch.setattr(shadow, "_score_isolated", fake_score)
+    assert shadow.run_shadow(job.id)["status"] == "completed"
+    db_session.expire_all()
+    assert shadow.summary(db_session, model=primary)["window"]["compared_rows"] == 1
+    assert row.output_json == [{"prediction": "a"}]
+    assert row.served_id == primary.id
+    assert primary.is_champion and not candidate.is_champion and not legacy.is_champion
+    assert runner_up(db_session, primary).id == legacy.id
+    assert legacy.metrics_json == metadata
+    assert candidate.metrics_json["primary"]["value"] == 0.7
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["field", "type", "classes", "target", "size", "inventory_size", "workspace", "metric"],
+)
+def test_shadow_eligibility_never_relaxes_input_scope_or_ranking_contract(db_session, pair, change):
+    candidate = add_candidate(db_session, pair[2], score=0.95)
+    reason = "ML_SHADOW_INCOMPATIBLE"
+    if change == "field":
+        candidate.signature_json = {"inputs": [{"name": "unknown", "type": "double"}]}
+    elif change == "type":
+        candidate.signature_json = {"inputs": [{"name": "x", "type": "string"}]}
+    elif change == "classes":
+        candidate.classes_json = ["a", "c"]
+    elif change == "target":
+        candidate.target = "other_outcome"
+    elif change == "size":
+        candidate.artifact_bytes = shadow.MAX_ARTIFACT_BYTES + 1
+        reason = "ML_SHADOW_ARTIFACT_TOO_LARGE"
+    elif change == "inventory_size":
+        artifact = {
+            **candidate.metrics_json["artifact"],
+            "total_bytes": shadow.MAX_ARTIFACT_BYTES + 1,
+            "file_sizes": {"MLmodel": shadow.MAX_ARTIFACT_BYTES + 1},
+        }
+        candidate.metrics_json = {**candidate.metrics_json, "artifact": artifact}
+        reason = "ML_SHADOW_ARTIFACT_TOO_LARGE"
+    elif change == "workspace":
+        other = Workspace(id=str(uuid4()), slug=uuid4().hex, name="Private")
+        db_session.add(other)
+        db_session.flush()
+        candidate.workspace_id = other.id
+    else:
+        candidate.metrics_json = {
+            **candidate.metrics_json,
+            "primary": {"key": "accuracy", "value": 1},
+        }
+    db_session.commit()
+    contender, selection = shadow.select_challenger(db_session, pair[1])
+    assert contender.id == pair[2].id
+    assert selection["excluded"] == (
+        []
+        if change in {"workspace", "metric"}
+        else [{"id": candidate.id, "version": 3, "reason": reason}]
+    )
+
+
+def test_shadow_without_an_admissible_candidate_refuses_activation_and_records_skip(
+    db_session, pair
+):
+    pair[2].status = "failed"
+    db_session.commit()
+    block = shadow.summary(db_session, model=pair[1])
+    assert block["challenger"] is None
+    assert block["readiness"] == {"can_enable": False, "reason": "ML_SHADOW_NO_CHALLENGER"}
+    with pytest.raises(TabularError, match="callable") as error:
+        shadow.configure(db_session, model=pair[1], config=shadow.ShadowConfig(enabled=True))
+    assert error.value.code == "ML_SHADOW_NO_CHALLENGER"
+    row, job = enqueue(db_session, pair)
+    assert job is None
+    assert row.scores_json["shadow"]["error"] == "ML_SHADOW_NO_CHALLENGER"
+    assert row.output_json == [{"prediction": "a"}]
 
 
 def test_worker_failure_is_safe_and_does_not_modify_primary(db_session, pair, monkeypatch):
