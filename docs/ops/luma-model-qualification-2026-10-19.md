@@ -1,5 +1,49 @@
 # Luma : qualification du modèle après activation du socle
 
+## Vérification après déploiement de `945013ac`
+
+Le 19 octobre, l'API et le frontend annoncent tous deux
+`945013ac52d1d1608a529c1070b1c1dfcd3b84c1`, avec révision vérifiée.
+La v5 reste en service et appelable ; aucune nouvelle version n'a été créée
+par le déploiement.
+
+Le déclenchement natif du 19 octobre à **13 h 57, heure de Paris**, a créé le Run
+`3c758903-0f2b-4923-81e3-138e61f626e1`. Sa preuve d'exécution indique aussi
+`945013ac52d1d1608a529c1070b1c1dfcd3b84c1` côté worker. La mesure est réussie,
+la branche `review` est choisie et le Run atteint **`hitl_pending`**. Le nouveau
+résultat ne contient plus `ML_SPEC_INVALID` ; l'ancien refus reste dans
+l'historique.
+
+La proposition `c555afbc-fb68-594f-8a98-af01d87ed42c` est
+`queued / awaiting_approval`, liée à la décision
+`76ee091f-1dea-4d87-93f6-3fa54efb300c`, encore `proposed` et sans confirmation
+humaine. Aucun challenger n'est créé ni promu. Le dataset figé
+`e595df71-bf0a-4305-8dfe-950418500150` est prêt, avec **4 627 lignes et huit
+colonnes** : six entrées prédictives, la cible et `language`.
+
+- 3 486 lignes d'apprentissage, dont les 64 retours synthétiques retenus ;
+- 1 141 lignes de test indépendantes préservées ;
+- langue connue pour les 1 141 lignes de test et les 3 422 autres lignes
+  d'apprentissage ; inconnue, donc nulle, pour les 64 retours ;
+- contrat d'entrée à six variables et `fairness_columns=["language"]` conservés.
+
+La fiche modèle affiche « Validation humaine attendue », les données figées et
+un lien vers le Run. Son Flow montre `schedule`, `monitor` et `route` réussis,
+avec `review` en attente humaine. L'écran de décision expose les actions
+Approuver et Refuser ; aucune de ces actions n'a été exécutée pendant la recette.
+Le gate prévoit un rejet à expiration le **21 octobre à 13 h 57, heure de Paris**.
+
+Le planning a été restauré puis relu : quotidien actif, `0 0 * * *` en UTC,
+prochain déclenchement le **20 octobre à 02 h 00, heure de Paris**. Aucun cron
+temporaire ne subsiste. Une approbation autorisera un entraînement distinct ;
+elle ne mettra pas automatiquement ce futur challenger en service.
+
+Work reçoit maintenant le diagnostic fermé `PG_TLS_UNAVAILABLE` et l'explique
+en français comme en anglais. Les actions Réessayer et Explorer PostgreSQL sont
+visibles pour l'administrateur. Les captures live à 1 440 et 390 px ne présentent
+pas de débordement horizontal. Le test du connecteur confirme toujours que
+l'endpoint ne propose pas TLS : ce déploiement ne rétablit pas sa disponibilité.
+
 ## Résultat après déploiement de `d95ba09f`
 
 Le 19 octobre, l'API et le frontend annoncent la révision complète
