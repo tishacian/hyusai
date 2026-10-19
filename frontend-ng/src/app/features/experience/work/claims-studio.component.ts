@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
@@ -10,6 +10,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { PG_ERROR_CODES, pgFailure, type PgFailure } from '@app/features/connectors/postgresql/postgresql.types';
 import { WorkActionReceiptComponent, type WorkActionReceipt } from '@app/shared/work-records/work-action-receipt.component';
 import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
@@ -25,7 +26,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -39,7 +40,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
       @if (!loading() && !error()) { <app-claims-benchmark [sources]="detail()?.sources ?? []" (caseSelected)="select($event)" (manualActive)="manualMode.set($event)" (modeReady)="benchmarkReady.set($event)" /> }
       <main class="claims-main" aria-labelledby="work-app-title">
         @if (loading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
-        @if (error()) { <div class="claims-error" role="alert"><p>{{ i18n.t('experience.claims.unavailable') }}</p><button class="xp-work-btn" (click)="load()">{{ i18n.t('experience.claims.retry') }}</button></div> }
+        @if (error()) { <div class="claims-data-error claims-data-error-queue" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
         @if (!loading() && !error()) {
           @if (machineAidsAllowed()) {
             <section class="claims-triage" aria-labelledby="claims-triage-title">
@@ -50,7 +51,9 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               @else if (triage()?.model; as model) {
                 <div class="claims-triage-path">
                   @if (triage()?.composition) {
-                    <a [navLink]="{ leaf: 'connector-postgresql' }">PostgreSQL</a><span aria-hidden="true">→</span>
+                    @if (canConfigureData()) { <a [navLink]="{ leaf: 'connector-postgresql' }">PostgreSQL</a> }
+                    @else { <span>PostgreSQL</span> }
+                    <span aria-hidden="true">→</span>
                     @if (triage()?.prepared_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.prepared') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
                   } @else if (triage()?.training_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.history') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
                   <a [navLink]="{ leaf: 'model-doc', ref: model.id }">{{ i18n.t('experience.claims.triage.model') }} <span>v{{ model.version }}</span></a>
@@ -73,7 +76,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               (selectedChange)="select($event)" />
             <p class="claims-quiet">{{ i18n.t('experience.claims.synthetic') }}</p>
           </aside>
-          @if (!detail() && !detailLoading() && actionError()) { <div class="claims-error" role="alert"><p>{{ i18n.t('experience.claims.unavailable') }}</p><button class="xp-work-btn" (click)="select(selected()!)">{{ i18n.t('experience.claims.retry') }}</button></div> }
+          @if (!detail() && !detailLoading() && actionError()) { <div class="claims-data-error" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
           @if (detail(); as dossier) {
             <section class="claims-dossier" [attr.aria-label]="i18n.t('experience.claims.dossier')">
               <div class="claims-section-title"><h2>{{ dossier.data.context[0].order_id }}</h2><span>{{ i18n.t('experience.claims.dossier') }}</span></div>
@@ -142,6 +145,17 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
           } @else if (detailLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
         }
       </main>
+      <ng-template #dataUnavailable>
+        @if (dataError(); as failure) {
+          <p class="claims-data-error-title">{{ i18n.t('experience.claims.data_unavailable') }}</p>
+          <p>{{ i18n.t('connectors.pg.error.' + failure.code) }}</p>
+          @if (!canConfigureData()) { <p class="claims-quiet">{{ i18n.t('connectors.pg.contact_admin') }}</p> }
+        } @else { <p>{{ i18n.t('experience.claims.unavailable') }}</p> }
+        <div class="claims-data-error-actions">
+          <button class="xp-work-btn claims-compact" (click)="retryData()">{{ i18n.t('experience.claims.retry') }}</button>
+          @if (dataError() && canConfigureData()) { <a class="xp-work-btn claims-compact" [navLink]="{ leaf: 'connector-postgresql' }">{{ i18n.t('connectors.pg.open') }}</a> }
+        </div>
+      </ng-template>
     </div>
   `,
 })
@@ -158,6 +172,8 @@ export class ClaimsStudioComponent {
   readonly rows = signal<ClaimRow[]>([]); readonly selected = signal<string | null>(null);
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
+  readonly dataError = signal<PgFailure | null>(null);
+  readonly canConfigureData = signal(false);
   readonly manualMode = signal(false);
   readonly benchmarkReady = signal(false);
   readonly machineAidsAllowed = computed(() => this.benchmarkReady() && !this.manualMode());
@@ -220,12 +236,14 @@ export class ClaimsStudioComponent {
     this.triageData.set(null); this.triageBusy.set(false); this.triageError.set(false); this.triageLoading.set(false);
     this.benchmarkReady.set(false);
     this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null);
-    this.error.set(false); this.loading.set(true); this.busy.set(false);
+    this.error.set(false); this.dataError.set(null); this.canConfigureData.set(false); this.actionError.set(false);
+    this.loading.set(true); this.busy.set(false);
     try {
       const release = await firstValueFrom(this.work.resolve('reclamations'));
       if (generation !== this.generation) return;
       if (release.kind !== 'ok') throw Error('Release unavailable');
       this.releasePages.set(release.body.release.pages ?? null);
+      void this.loadDataAccess(generation);
       const response = await firstValueFrom(this.api.get<{ data: { queue: ClaimRow[] } }>('/ecommerce-claims'));
       if (generation !== this.generation) return;
       this.rows.set(response.data.queue); this.loading.set(false);
@@ -233,7 +251,23 @@ export class ClaimsStudioComponent {
       const initial = response.data.queue.find(row => row.claim_id === requested) ?? response.data.queue[0];
       if (initial) { this.select(initial.claim_id, false); void this.writeRecordUrl(initial.claim_id, true); }
       void this.loadTriage(generation);
-    } catch { if (generation === this.generation) { this.error.set(true); this.loading.set(false); } }
+    } catch (error) { if (generation === this.generation) { this.dataError.set(this.readFailure(error)); this.error.set(true); this.loading.set(false); } }
+  }
+  private async loadDataAccess(generation: number): Promise<void> {
+    // Work consumers may read cases without administering their source. Use the
+    // server's capability, and never retain it across a workspace or release reload.
+    try {
+      const response = await firstValueFrom(this.api.get<{ can_configure: boolean }>('/connectors'));
+      if (generation === this.generation) this.canConfigureData.set(response.can_configure === true);
+    } catch { if (generation === this.generation) this.canConfigureData.set(false); }
+  }
+  private readFailure(error: unknown): PgFailure | null {
+    const code = (error as { error?: { detail?: { code?: unknown } } } | null)?.error?.detail?.code;
+    return typeof code === 'string' && PG_ERROR_CODES.has(code) ? pgFailure(error) : null;
+  }
+  retryData(): void {
+    if (this.error()) void this.load();
+    else if (this.selected()) this.select(this.selected()!);
   }
   private async loadTriage(generation = this.generation): Promise<void> {
     this.triageLoading.set(true);
@@ -273,7 +307,7 @@ export class ClaimsStudioComponent {
   }
   select(id: string, updateUrl = true): void {
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
-    this.selected.set(id); this.sourceDocumentId.set(null); this.actionError.set(false); this.detailLoading.set(true);
+    this.selected.set(id); this.sourceDocumentId.set(null); this.actionError.set(false); this.dataError.set(null); this.detailLoading.set(true);
     if (updateUrl) void this.writeRecordUrl(id);
     this.refreshDetail(id);
   }
@@ -281,9 +315,10 @@ export class ClaimsStudioComponent {
     return this.router.navigate([], { relativeTo: this.route, queryParams: { record: id }, queryParamsHandling: 'merge', replaceUrl });
   }
   private refreshDetail(id: string): void {
+    const generation = this.generation;
     this.detailRequest = this.api.get<ClaimSnapshot>(`/ecommerce-claims/${encodeURIComponent(id)}`).pipe(takeUntilDestroyed(this.destroy)).subscribe({
-      next: detail => { if (this.selected() === id) { this.detail.set(detail); this.detailLoading.set(false); if (detail.latest_run_id && !this.run()) this.watchRun(detail.latest_run_id, id); } },
-      error: () => { this.detailLoading.set(false); this.actionError.set(true); },
+      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detail.set(detail); this.detailLoading.set(false); if (detail.latest_run_id && !this.run()) this.watchRun(detail.latest_run_id, id); } },
+      error: error => { if (generation === this.generation && this.selected() === id) { this.dataError.set(this.readFailure(error)); this.detailLoading.set(false); this.actionError.set(true); } },
     });
   }
   async investigate(reexamine = false): Promise<void> {

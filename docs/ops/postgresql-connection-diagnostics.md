@@ -1,6 +1,7 @@
 # Diagnostiquer une connexion PostgreSQL depuis Agentium
 
-Le test et l’explorateur partagent des diagnostics fermés. Les textes libpq ne
+Le test, l’explorateur et le lecteur des réclamations partagent des diagnostics
+fermés de connexion. Les textes libpq ne
 sont jamais renvoyés ni journalisés : ils peuvent contenir le compte, l’hôte,
 des chemins de certificats ou des secrets. Un message inconnu reste
 `PG_UNAVAILABLE` ; ce code ne prouve aucune cause particulière.
@@ -15,9 +16,12 @@ des chemins de certificats ou des secrets. Un message inconnu reste
 4. Sélectionner une table et lire un aperçu. Reprendre ensuite le parcours Work
    concerné pour vérifier le lecteur métier et le worker.
 
-La lecture métier peut conserver son code métier générique : ouvrir le
-connecteur permet de diagnostiquer la même configuration sans afficher des
-détails d’infrastructure dans l’application métier.
+La lecture métier conserve ses codes historiques de schéma, permissions et
+timeout, ainsi qu'un code générique pour les causes inconnues. Pour une panne de
+connexion reconnue, elle transmet le même code fermé que le connecteur :
+l'application peut expliquer la cause sans exposer les paramètres ni le message
+du pilote. Un consommateur peut réessayer ; la configuration reste une action
+d'administration.
 
 | Code | Vérification opérateur |
 | --- | --- |
@@ -97,3 +101,9 @@ pour le catalogue et `POSTGRESQL_READ_UNAVAILABLE` dans Work. Elle **ne démontr
 pas** un défaut TLS, de réseau ou d’authentification particulier. Les tests du
 correctif reproduisent ces catégories de panne sur des pilotes simulés ; la
 cause live reste à relever après déploiement avec ce diagnostic.
+
+Le 19 octobre, après déploiement de `d95ba09f`, le test et le catalogue de Showcase
+renvoient tous deux `PG_TLS_UNAVAILABLE`. Cette nouvelle observation établit
+l'absence de TLS sur l'endpoint configuré ; elle ne valide pas encore la
+confiance du certificat, l'authentification ou les droits qui seront vérifiés
+après activation de TLS.

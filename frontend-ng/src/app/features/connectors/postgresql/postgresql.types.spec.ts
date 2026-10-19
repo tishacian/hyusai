@@ -33,3 +33,16 @@ test('a failure keeps a known code and a well-formed SQLSTATE, nothing else', ()
   assert.deepEqual(pgFailure(odd), { code: 'PG_UNAVAILABLE', sqlstate: null });
   assert.deepEqual(pgFailure(new Error('offline')), { code: 'PG_UNAVAILABLE', sqlstate: null });
 });
+
+test('older reader codes preserve schema, permission and timeout diagnoses without exposing server details', () => {
+  const cases = {
+    POSTGRESQL_SCHEMA_NOT_LOADED: 'PG_SCHEMA_NOT_LOADED',
+    POSTGRESQL_PERMISSION_DENIED: 'PG_PERMISSION_DENIED',
+    POSTGRESQL_READ_TIMEOUT: 'PG_TIMEOUT',
+    POSTGRESQL_READ_UNAVAILABLE: 'PG_UNAVAILABLE',
+  };
+  for (const [legacy, code] of Object.entries(cases)) {
+    assert.deepEqual(pgFailure({ error: { detail: { code: legacy, message: 'private driver message' } } }), { code, sqlstate: null });
+    assert.deepEqual(pgTestFailure({ status: 'error', checked_at: '', detail: legacy }), { code, sqlstate: null });
+  }
+});

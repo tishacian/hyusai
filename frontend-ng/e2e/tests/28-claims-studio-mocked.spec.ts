@@ -13,19 +13,22 @@ const source = { reference: 'refund-policy-v2', document_id: 'qa-original-doc', 
 const claimSource = { reference: 'claim-lm1042', document_id: 'qa-claim-doc', collection: 'qa-case', filename: 'reclamation-lm1042.pdf', title: 'reclamation-lm1042.pdf' };
 function detail(id: string, queue = rows) { const row = queue.find(r => r.claim_id === id)!; return { data: { context: [{ ...row, shipping_postcode: '75011', payment_status: 'paid' }], items: [{ product_name: 'Lampe Aube', quantity: 1, unit_price: row.paid_amount }], shipments: [{ status: id === 'RC-1043' ? 'lost' : 'delivered', carrier: 'ColisAzur', tracking_id: 'CA-' + id.slice(3) }], refunds: id === 'RC-1044' ? [{ refund_id: 'RF-1044', amount: '89.00', currency: 'EUR', status: 'executed' }] : [] }, provenance: { captured_at: '2026-10-02T09:00:00Z', snapshot_sha256: 'qa-snapshot', read_mode: 'live' }, sources: [source, claimSource], receipts: [], latest_run_id: null }; }
 
-async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed' } = {}) {
+async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean } = {}) {
  const posts: unknown[] = []; let run: Record<string, unknown> | null = null;
+ const activeWorkspace = options.consumer ? { ...workspace, role: 'member', role_template: 'workspace_member' } : workspace;
  const queue = options.volume ? [...rows, ...Array.from({ length: 20 }, (_, index) => ({ ...rows[index % rows.length], claim_id: `RC-${5001 + index}`, order_id: `LM-${5001 + index}`, display_name: `Client synthétique ${index + 1}`, state: index % 2 ? 'waiting_information' : 'resolved' }))] : rows;
  await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.fulfill({ status: 204, body: '' }));
  await page.addInitScript(({ slug, theme, locale }) => { localStorage.setItem('agentium_token', 'Bearer isolated-claims-qa'); localStorage.setItem('agentium_workspace_slug', slug); localStorage.setItem('agentium_theme', theme); localStorage.setItem('agentium_locale', locale); }, { slug: workspace.slug, theme, locale });
  const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
  await page.route('**/api/v1/**', async route => {
    const request = route.request(); const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
-   if (path === '/auth/validate') return json(route, { valid: true, user_id: 'qa-human', email: 'qa@example.test', role: 'admin' });
-   if (path === '/auth/workspaces') return json(route, [workspace]);
-   if (path === '/auth/workspaces/' + workspace.slug) return json(route, workspace);
-   if (path === '/auth/me') return json(route, { id: 'qa-human', email: 'qa@example.test', role: 'admin', is_active: true, workspaces: [workspace] });
+   if (path === '/auth/validate') return json(route, { valid: true, user_id: 'qa-human', email: 'qa@example.test', role: options.consumer ? 'user' : 'admin' });
+   if (path === '/auth/workspaces') return json(route, [activeWorkspace]);
+   if (path === '/auth/workspaces/' + workspace.slug) return json(route, activeWorkspace);
+   if (path === '/auth/me') return json(route, { id: 'qa-human', email: 'qa@example.test', role: options.consumer ? 'user' : 'admin', is_active: true, workspaces: [activeWorkspace] });
+   if (path === '/connectors') return json(route, options.accessUnavailable ? { detail: 'unavailable' } : { connectors: [], can_configure: options.canConfigure ?? !options.consumer }, options.accessUnavailable ? 503 : 200);
    if (path === '/work/reclamations') return json(route, { experience: { id: 'qa-experience', slug: 'reclamations', name: 'Réclamations' }, release: { id: 'qa-release' }, channel: 'live' });
+   if (path === '/ecommerce-claims' && options.dataFailure) return json(route, { detail: { code: options.dataFailure, message: 'PRIVATE_DATABASE_DIAGNOSTIC' } }, options.dataFailure === 'PG_AUTH_FAILED' ? 403 : 503);
    if (path === '/ecommerce-claims') return json(route, unavailable ? { detail: { code: 'POSTGRESQL_SCHEMA_NOT_LOADED' } } : { data: { queue } }, unavailable ? 503 : 200);
    if (path === '/ecommerce-claims/triage') return json(route, priority ? {
      status: priority === 'stale' ? 'stale' : 'ready', captured_at: new Date().toISOString(), max_age_minutes: 60,
@@ -60,6 +63,7 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
    });
    if (path === '/ecommerce-claims/benchmark') return json(route, { state: 'experiment_not_complete', hourly_eur: '40.00', planned_pairs: 10, completed_quality_pairs: 0, capacity_value_eur: null, incremental_cost_eur: null, net_benefit_eur: null, roi: null, protocol_sha256: 'qa-protocol', trials: [], protocol: { version: 'qa-isolated', pairs: [{ pair_id: 'P01', first_condition: 'manual', manual_claim_id: 'RC-5001', assisted_claim_id: 'RC-5002' }] } });
    if (/^\/ecommerce-claims\/RC-/.test(path)) {
+     if (options.detailFailure) return json(route, { detail: { code: options.detailFailure, message: 'PRIVATE_DATABASE_DIAGNOSTIC' } }, 503);
      const body = detail(path.split('/').at(-1)!, queue);
      return json(route, options.receipt ? { ...body, receipts: [{ receipt_id: 'qa-existing-receipt', status: 'simulated', claim_id: body.data.context[0].claim_id, order_id: body.data.context[0].order_id, action: 'carrier_investigation', reason: 'delivery_address_mismatch', amount: '0', currency: 'EUR', evidence_kind: 'synthetic_demo', missing_references: [], requires_human: true, citations: [] }] } : body);
    }
@@ -96,6 +100,81 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
 
 test.describe('Claims studio — isolated end-user QA', () => {
  test.skip(!enabled, 'Enable E2E_CHROME_V2_MOCKED for isolated QA');
+ for (const consumer of [false, true]) {
+  test(`PostgreSQL: TLS failure gives proportionate recovery for ${consumer ? 'a consumer' : 'an administrator'}`, async ({ page }, testInfo) => {
+   const requests: string[] = [];
+   page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/v1/connectors')) requests.push(`${request.method()} ${new URL(request.url()).pathname}`); });
+   const options = { dataFailure: 'PG_TLS_UNAVAILABLE', consumer };
+   await setup(page, consumer ? 'light' : 'dark', 'fr', false, null, options);
+   await page.setViewportSize({ width: consumer ? 390 : 1440, height: 900 });
+   await page.goto('/work/reclamations/studio');
+   const warning = page.locator('.claims-data-error');
+   await expect(warning).toContainText('Les dossiers sont temporairement indisponibles.');
+   await expect(warning).toContainText('Ce serveur PostgreSQL ne prend pas en charge la connexion TLS requise.');
+   await expect(warning).toContainText('Un administrateur doit activer TLS sur le serveur.');
+   await expect(warning).not.toContainText('publication');
+   await expect(page.getByText('PRIVATE_DATABASE_DIAGNOSTIC')).toHaveCount(0);
+   await expect(page.locator('.work-record-item')).toHaveCount(0);
+   const retry = warning.getByRole('button', { name: 'Réessayer', exact: true });
+   await expect(retry).toBeVisible();
+   expect((await retry.boundingBox())!.height).toBeLessThanOrEqual(32);
+   const explore = warning.getByRole('link', { name: 'Explorer PostgreSQL', exact: true });
+   if (consumer) {
+     await expect(explore).toHaveCount(0);
+     await expect(warning).toContainText('Contactez un administrateur du workspace pour rétablir la connexion, puis réessayez.');
+   } else {
+     await expect(explore).toHaveAttribute('href', /^\/connectors\/postgresql(?:\?|$)/);
+     expect((await explore.boundingBox())!.height).toBeLessThanOrEqual(32);
+   }
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+   expect((await new AxeBuilder({ page }).include('.claims-app').analyze()).violations).toEqual([]);
+   await page.screenshot({ path: testInfo.outputPath(`postgresql-tls-${consumer ? 'consumer' : 'administrator'}.png`), fullPage: true });
+   options.dataFailure = '';
+   await retry.click();
+   await expect(page.locator('.claims-data-error')).toHaveCount(0);
+   await expect(page.locator('.work-record-item')).toHaveCount(3);
+   expect(requests.length).toBeGreaterThan(0);
+   expect(requests.every(request => request === 'GET /api/v1/connectors')).toBe(true);
+  });
+ }
+ test('PostgreSQL: authentication failure uses the server capability, not the apparent owner role', async ({ page }) => {
+   await setup(page, 'dark', 'fr', false, null, { dataFailure: 'PG_AUTH_FAILED', canConfigure: false });
+   await page.goto('/work/reclamations/studio');
+   const warning = page.locator('.claims-data-error');
+   await expect(warning).toContainText('PostgreSQL refuse l’authentification.');
+   await expect(warning).toContainText('Contactez un administrateur du workspace');
+   await expect(page.locator('.claims-app a[href^="/connectors/postgresql"]')).toHaveCount(0);
+   await expect(page.getByText('PRIVATE_DATABASE_DIAGNOSTIC')).toHaveCount(0);
+ });
+ test('PostgreSQL: connection failure stays actionable when permissions cannot be verified', async ({ page }) => {
+   await setup(page, 'light', 'en', false, null, { dataFailure: 'PG_CONNECTION_REFUSED', accessUnavailable: true });
+   await page.goto('/work/reclamations/studio');
+   const warning = page.locator('.claims-data-error');
+   await expect(warning).toContainText('The PostgreSQL connection was refused.');
+   await expect(warning).toContainText('Contact a workspace administrator');
+   await expect(warning.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+   await expect(warning.getByRole('link')).toHaveCount(0);
+ });
+ test('PostgreSQL: an unknown reader failure remains generic and never renders server text', async ({ page }) => {
+   await setup(page, 'dark', 'en', false, null, { dataFailure: 'POSTGRESQL_READ_UNAVAILABLE', consumer: true });
+   await page.goto('/work/reclamations/studio');
+   await expect(page.locator('.claims-data-error')).toContainText('Agentium could not reach PostgreSQL.');
+   await expect(page.getByText('PRIVATE_DATABASE_DIAGNOSTIC')).toHaveCount(0);
+ });
+ test('PostgreSQL: a case-level TLS failure can be retried while the queue remains available', async ({ page }) => {
+   const options = { detailFailure: 'PG_TLS_VERIFICATION_FAILED', consumer: true };
+   await setup(page, 'dark', 'fr', false, 'ready', options);
+   await page.goto('/work/reclamations/studio?record=RC-1042');
+   const warning = page.locator('.claims-data-error');
+   await expect(warning).toContainText('Le certificat PostgreSQL n’a pas pu être validé.');
+   await expect(page.locator('.work-record-item')).toHaveCount(3);
+   await expect(page.locator('.claims-app a[href^="/connectors/postgresql"]')).toHaveCount(0);
+   await expect(page.locator('.claims-triage-path')).toContainText('PostgreSQL');
+   options.detailFailure = '';
+   await warning.getByRole('button', { name: 'Réessayer', exact: true }).click();
+   await expect(warning).toHaveCount(0);
+   await expect(page.locator('.claims-dossier')).toContainText('LM-1042');
+ });
  for (const width of [1440, 390]) {
   test(`judge: evidence-based abstention remains visible before human approval at ${width}px`, async ({ page }, testInfo) => {
     const posts = await setup(page, 'dark', 'en', false, null, {judge: 'abstained'});
@@ -356,7 +435,8 @@ test.describe('Claims studio — isolated end-user QA', () => {
  });
  test('connection failure offers recovery with no synthetic data replacement', async ({ page }, testInfo) => {
    await setup(page, 'dark', 'fr', true); await page.goto('/work/reclamations/studio');
-   await expect(page.getByRole('alert')).toContainText('Les dossiers ne sont pas disponibles');
+   await expect(page.getByRole('alert')).toContainText('Les dossiers sont temporairement indisponibles.');
+   await expect(page.getByRole('alert')).toContainText('Les tables nécessaires ne sont pas disponibles dans cette base PostgreSQL.');
    await expect(page.getByRole('button', { name: /LM-1042/ })).toHaveCount(0);
    await expect(page.getByRole('button', { name: 'Réessayer', exact: true })).toBeVisible();
  });
