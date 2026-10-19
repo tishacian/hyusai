@@ -52,7 +52,7 @@ def limits():
     )
 
 
-def read_source(dataset, columns, *, budget=None):
+def read_source(dataset, columns, *, budget=None, auxiliary_columns=()):
     """Bounded read of a source; ``budget`` lets M4.2 reuse it with its own limits."""
     import polars as pl
 
@@ -82,7 +82,16 @@ def read_source(dataset, columns, *, budget=None):
         )
     if len(frame) > rows or frame.estimated_size() > size:
         refuse("ML_RETRAIN_SOURCE_TOO_LARGE", "The decoded source exceeds the retraining budget.")
-    return frame.to_pandas()
+    result = frame.to_pandas()
+    if auxiliary_columns:
+        import pandas as pd
+
+        result.attrs["auxiliary_schema"] = {name: frame.schema[name] for name in auxiliary_columns}
+        for name in auxiliary_columns:
+            # Pandas otherwise represents nullable integers as floats before
+            # we can verify that protected values retained their exact value.
+            result[name] = pd.Series(frame[name].to_list(), dtype=object)
+    return result
 
 
 def partition_for(model, dataset, frame, *, max_bytes=None):
@@ -130,6 +139,33 @@ def _source_evidence(dataset):
     return {"dataset_id": dataset.id, "version": dataset.version, "sha256": dataset_digest(dataset)}
 
 
+def _preserve_auxiliary(frame, schema, *, records=None):
+    """Keep optional audit values typed, with real nulls rather than imputation."""
+    import pandas as pd
+    import polars as pl
+
+    try:
+        for name, dtype in schema.items():
+            raw = (
+                [record.get(name) for record in records]
+                if records is not None
+                else frame[name].tolist()
+            )
+            values = [None if pd.isna(value) else value for value in raw]
+            if dtype != pl.Boolean and any(isinstance(value, bool) for value in values):
+                raise ValueError("Boolean audit value does not match its source type")
+            # Strict construction rejects fractional integer groups and string
+            # booleans. Object dtype prevents pandas turning missing integers
+            # into floats or missing booleans into False before concatenation.
+            values = pl.Series(name, values, dtype=dtype, strict=True).to_list()
+            frame[name] = pd.Series(values, index=frame.index, dtype=object)
+    except (TypeError, ValueError, OverflowError, pl.exceptions.PolarsError):
+        refuse(
+            "ML_RETRAINING_DATA_INCOMPATIBLE",
+            "Audit values are incompatible with the source column types.",
+        )
+
+
 def materialize(db, *, model, rows, policy, features, created_by=None):
     import pandas as pd
     import polars as pl
@@ -145,10 +181,26 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
         *features,
         model.target,
     ]
-    columns = sorted(set([*features, model.target, *evaluation_columns]))
-    original_frame = read_source(original, columns)
+    spec = model.spec_json or {}
+    declared_auxiliary = set(spec.get("fairness_columns") or []) - {*features, model.target}
+    identity_columns = sorted(
+        set([*features, model.target, *evaluation_columns]) - declared_auxiliary
+    )
+    # The harness loads auxiliary fairness columns only for an enabled pack.
+    # They are not predictive inputs and must not change sample identity.
+    auxiliary_columns = sorted(declared_auxiliary) if spec.get("explain") == "pack" else []
+    columns = sorted(set([*identity_columns, *auxiliary_columns]))
+    source_columns = sorted(set([*columns, *evaluation_columns]))
+    original_frame = read_source(
+        original, source_columns, auxiliary_columns=declared_auxiliary & set(source_columns)
+    )
+    auxiliary_schema = {
+        name: original_frame.attrs["auxiliary_schema"][name] for name in auxiliary_columns
+    }
+    _preserve_auxiliary(original_frame, auxiliary_schema)
     partition, original_frame = partition_for(model, original, original_frame)
     hashes = row_ids(original_frame, partition["columns"])
+    original_frame = original_frame[columns].copy()
     clean_test = set(partition["test_ids"]) - set(partition["train_ids"])
     holdout = original_frame.loc[[key in clean_test for key in hashes]].copy()
     if holdout.empty:
@@ -169,14 +221,19 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
             .order_by(TabularDataset.version.desc(), TabularDataset.id.desc())
             .first()
         )
-    base_frame = read_source(base, columns) if base.id != original.id else original_frame
+    base_frame = (
+        read_source(base, columns, auxiliary_columns=auxiliary_columns)
+        if base.id != original.id
+        else original_frame
+    )
+    _preserve_auxiliary(base_frame, auxiliary_schema)
     base_frame = base_frame.dropna(subset=[model.target])
     base_features = row_ids(base_frame, sorted(features))
     keep = [key not in held_features for key in base_features]
     excluded_holdout += sum(not value for value in keep)
     train = base_frame.loc[keep].copy() if mode != "feedback_only" else base_frame.iloc[:0].copy()
     train = train.loc[
-        ~pd.Series(row_ids(train, columns), index=train.index).duplicated()
+        ~pd.Series(row_ids(train, identity_columns), index=train.index).duplicated()
     ].reset_index(drop=True)
     records, identifiers = [], []
     cutoff = (
@@ -188,7 +245,9 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
         for value in iter_labeled_samples(row):
             if cutoff and (value["labeled_at"] is None or value["labeled_at"] < cutoff):
                 continue
-            if not all(name in value["payload"] for name in columns if name != model.target):
+            if not all(
+                name in value["payload"] for name in identity_columns if name != model.target
+            ):
                 continue
             label = value["label"]
             if model.task == "regression":
@@ -200,19 +259,25 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
                     continue
             records.append(
                 {
-                    **{name: value["payload"][name] for name in columns if name != model.target},
+                    **{
+                        name: value["payload"][name]
+                        for name in identity_columns
+                        if name != model.target
+                    },
+                    **{name: value["payload"].get(name) for name in auxiliary_columns},
                     model.target: label,
                 }
             )
             identifiers.append(value["sample_id"])
     feedback_count = len(records)
     accepted, ids = [], []
-    seen = set(row_ids(train, columns))
+    seen = set(row_ids(train, identity_columns))
     if records and mode != "latest_dataset_version":
         incoming = pd.DataFrame(records, columns=columns)
+        _preserve_auxiliary(incoming, auxiliary_schema, records=records)
         # Preserve source target dtype: class labels are transported as strings.
         try:
-            for column in columns:
+            for column in identity_columns:
                 dtype = original_frame[column].dtype
                 if (
                     column in features
@@ -229,7 +294,7 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
                 "ML_RETRAINING_DATA_INCOMPATIBLE",
                 "Feedback is incompatible with the source schema.",
             )
-        content = row_ids(incoming, columns)
+        content = row_ids(incoming, identity_columns)
         identities = row_ids(incoming, sorted(features))
         for index, (key, identity) in enumerate(zip(content, identities, strict=True)):
             if identity in held_features:
@@ -251,7 +316,9 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
                 len(train) * policy.max_feedback_fraction / (1 - policy.max_feedback_fraction)
             )
             accepted, ids = accepted[:maximum], ids[:maximum]
-        train = pd.concat([train, pd.DataFrame(accepted, columns=columns)], ignore_index=True)
+        accepted_frame = pd.DataFrame(accepted, columns=columns)
+        _preserve_auxiliary(accepted_frame, auxiliary_schema, records=accepted)
+        train = pd.concat([train, accepted_frame], ignore_index=True)
     elif mode != "latest_dataset_version":
         refuse("ML_RETRAIN_FEEDBACK_INSUFFICIENT", "No retained labelled samples are available.")
     if len(train) < int(settings.ml_train_min_rows):
@@ -269,7 +336,17 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
             )
     combined = pd.concat([train, holdout], ignore_index=True)
     maximum, size = limits()
-    frame = pl.from_pandas(combined)
+    try:
+        frame = pl.from_pandas(combined)
+        if auxiliary_columns and row_ids(combined, auxiliary_columns) != row_ids(
+            frame.to_pandas(), auxiliary_columns
+        ):
+            raise ValueError("Audit values changed during serialization")
+    except (TypeError, ValueError, OverflowError, pl.exceptions.PolarsError):
+        refuse(
+            "ML_RETRAINING_DATA_INCOMPATIBLE",
+            "Audit values cannot be retained without changing their representation.",
+        )
     if len(frame) > maximum or frame.estimated_size() > size:
         refuse("ML_RETRAIN_SOURCE_TOO_LARGE", "The combined dataset exceeds the retraining budget.")
     frozen_partition = {
@@ -285,7 +362,7 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
         "policy": policy.model_dump(),
         "sources": [_source_evidence(original)],
         "evaluation_sha256": model.metrics_json["evaluation"]["sha256"],
-        "holdout_fingerprint": fingerprint(row_ids(holdout, columns)),
+        "holdout_fingerprint": fingerprint(row_ids(holdout, identity_columns)),
         "holdout_rows": len(holdout),
         "train_rows": len(train),
         "feedback_available": feedback_count,
@@ -297,6 +374,23 @@ def materialize(db, *, model, rows, policy, features, created_by=None):
         if model.task == "classification"
         else None,
     }
+    if auxiliary_columns:
+        feedback = train.tail(len(ids)) if ids else train.iloc[:0]
+        evidence["auxiliary_coverage"] = {
+            name: {
+                population: {
+                    "known": int(values[name].notna().sum()),
+                    "missing": int(values[name].isna().sum()),
+                }
+                for population, values in (
+                    ("source", original_frame),
+                    ("training", train),
+                    ("feedback", feedback),
+                    ("holdout", holdout),
+                )
+            }
+            for name in auxiliary_columns
+        }
     if base.id != original.id:
         evidence["sources"].append(_source_evidence(base))
     dataset = register_frame(
