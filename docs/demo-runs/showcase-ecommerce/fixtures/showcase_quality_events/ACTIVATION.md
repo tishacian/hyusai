@@ -1,11 +1,13 @@
 # Étendre le parcours Luma avec qualité, événements et suivi du modèle
 
-Configuration préparée le **17 octobre 2026**. Le [plan concret](reviewed_plan.json)
-et sa [revue](reviewed_plan.review.json) portent `applied=false` et
-`activation_ready=false`. **Ils ne sont pas un reçu d'activation.** Le candidat SLA
-v3 est encore en entraînement dans le snapshot ; aucune inférence de qualification
-n'est inventée. L'accès PostgreSQL était également indisponible pendant la lecture
-live, et le site exécutait encore `f4329db3`.
+Procédure mise à jour le **19 octobre 2026**. Le [plan historique](reviewed_plan.json)
+et sa [revue](reviewed_plan.review.json) datent du 17 octobre, portent
+`applied=false` et `activation_ready=false` et sont **obsolètes pour l'application**.
+Ils ne sont pas un reçu d'activation. Reconstruire depuis les lectures fraîches :
+la publication Luma v5, le brouillon Flow r25 et la release Work 4 ont depuis été
+alignés sur le modèle SLA v5, avec une inférence épinglée réussie. La lecture
+PostgreSQL est également rétablie. Le plan reconstruit reste un candidat pour
+revue jusqu'aux reçus de publication et d'exécution.
 
 ## Parcours métier et limites
 
@@ -31,18 +33,40 @@ Une erreur technique de capture ou d'appel arrête le Run avant l'action : corri
 la cause et reprendre une enquête contrôlée, sans fabriquer une revue réussie.
 
 Le tarif déclaré est **OpenAI GPT-5, 1,25 USD / million de tokens entrants et
-10 USD / million sortants**, contrôlé le 17 octobre sur la
+10 USD / million sortants**, contrôlé le 19 octobre sur la
 [fiche officielle](https://developers.openai.com/api/docs/models/gpt-5).
 La remise de cache n'est pas incluse dans cette estimation. Le budget est borné
-à un appel, 10 000 tokens, 2 048 tokens de sortie, 0,05 USD, 45 secondes et
+à un appel, 40 000 tokens, 2 048 tokens de sortie, 0,07 USD, 45 secondes et
 32 000 octets de prompt ; un dépassement doit être refusé. La route réellement
 résolue doit correspondre au tarif, sans fallback silencieux. Aucun profil de
 calibration ni qualification du fournisseur sur le corpus Luma n'est annoncé.
 Le score de qualité ne constitue pas une confiance calibrée.
 
-La boucle MLOps conserve les versions et leurs artefacts. Le modèle candidat
-`cd2d0692-7586-4e19-b541-8363118e031c` v3 est **une épingle proposée**, pas une
-promotion. Monitoring, shadow, feedback et proposition de réentraînement utilisent
+La projection de politique utilise `/citations` et `/references` : les passages,
+identifiants de document, page, fragment et empreinte sont conservés sans les
+métadonnées de recherche redondantes de `/results`. Le plafond par source reste
+32 000 octets. Sur le Run contrôlé le 19 octobre, le prompt reconstruit représente
+28 407 octets ; la réservation conservatrice, qui inclut aussi le schéma de sortie,
+la marge technique et les 2 048 tokens de sortie, représente 37 931 tokens et
+0,06533375 USD. Cette réservation n'est ni une consommation mesurée ni une facture.
+Le registre d'invocations reste la source des tokens effectivement rapportés et
+des coûts associés ; les coûts inconnus restent inconnus. Ces bornes autorisent
+l'essai contrôlé, sans établir de calibration ou de qualité acquise.
+
+Qualification du 19 octobre : une enquête ayant passé ces bornes atteint la
+validation humaine, mais le Judge rend `failed / JUDGE_PROVIDER_UNAVAILABLE`
+avec zéro réponse sur cinq après un `BadRequestError`. Une invocation terminée
+ne constitue donc pas une évaluation réussie. Le schéma compilé a été corrigé
+pour déclarer explicitement le type et l'énumération de la citation image,
+conformément au [sous-ensemble Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+relu le 19 octobre. Le mode strict et la validation locale des valeurs et des
+citations restent actifs. Le corps de la réponse HTTP 400 n'étant pas conservé,
+la correction de ce défaut de contrat doit encore être requalifiée en live ;
+aucun résultat positif ni cinq réponses valides ne sont présumés.
+
+La boucle MLOps conserve les versions et leurs artefacts. Cette extension garde
+l'épingle SLA actuelle : elle refuse un autre modèle ou une autre version, même
+si son inférence réussit. Monitoring, shadow, feedback et proposition de réentraînement utilisent
 les fonctions produit de Model Center, décrites dans le
 [guide d'activation MLOps](../../../../agentium-mlops-activation.md).
 Chronos reste hors du réentraînement automatique ; aucune observation future
@@ -53,11 +77,11 @@ ni clôture humaine n'est ajoutée pour alimenter artificiellement les courbes.
 1. Déployer la livraison finale sur API, workers et frontend ; comparer leurs
    révisions et réconcilier le catalogue. Vérifier `evaluate_v2`, les sources
    webhook/schedule et le snapshot de preuves. La livraison précédente seule
-   ne contient pas ce raccordement.
-2. Rétablir la lecture PostgreSQL avec le compte limité déjà configuré. Vérifier
+   ne constitue pas un reçu de configuration de ce parcours.
+2. Vérifier la lecture PostgreSQL avec le compte limité déjà configuré, pour
    un dossier et la file. Conserver les réglages TLS et les credentials existants.
-3. Attendre le résultat réel du fit SLA v3. Inspecter son artefact/serving, puis
-   effectuer une inférence **épinglée v3**, contrôler `served.model_id`,
+3. Inspecter l'artefact/serving du modèle SLA actuellement épinglé, puis
+   effectuer une inférence **épinglée à cette version**, contrôler `served.model_id`,
    `served.version`, les colonnes, le label positif `1` et `prediction_id`.
    `status=ready` seul ne suffit pas. Ne pas promouvoir pour passer ce contrôle.
 4. Faire de nouvelles lectures autorisées et enregistrer les snapshots suivants
@@ -68,11 +92,12 @@ ni clôture humaine n'est ajoutée pour alimenter artificiellement les courbes.
    | `flow-state.json` | `/systems/{system_id}/flow-state` |
    | `work-live.json` | `/work/reclamations` |
    | `experience.json` | `/experiences/4c93ae4b-f2de-438d-b781-bb69a4cb962c` |
+   | `work-release.json` | élément dont l'ID correspond à `/work` dans `/experiences/{experience_id}/releases` ; conserver le snapshot complet |
    | `binding-investigate.json` | `/system-bindings/showcase.claims.investigate` |
    | `binding-queue.json` | `/system-bindings/showcase.claims.refresh_queue` |
    | `binding-forecast.json` | `/system-bindings/showcase.claims.forecast` |
    | `collections.json` | `/documents/collections` |
-   | `model-sla.json` | `/ml-models/{candidate_id}` |
+   | `model-sla.json` | `/ml-models/{current_pinned_model_id}` |
    | `model-sla-prediction.json` | réponse de l'inférence épinglée réellement exécutée |
    | `triage-settings.json` | projection `{triage: settings.ecommerce_claims.triage}` de la lecture workspace |
 
@@ -90,10 +115,14 @@ ni clôture humaine n'est ajoutée pour alimenter artificiellement les courbes.
      --output /tmp/luma-quality-events-plan.json
    ```
 
-   Le constructeur refuse une route/un tarif/un budget incomplet, un modèle
+   Le constructeur refuse une déclaration de fournisseur/tarif/budget incomplète, un modèle
    incompatible, une inférence absente ou provenant d'une autre version, une
    dérive des bindings/triage, une politique de contrôle de draft non publiée
-   ou des modifications Work non revues. `--allow-blocked` produit uniquement
+   ou une divergence d'accès/métadonnées entre Experience et release Work.
+   Il conserve séparément les modifications de pages du brouillon Work et les
+   nœuds, positions et libellés du brouillon Flow. Il refuse un autre modèle,
+   une autre épingle dans un brouillon ou l'écrasement d'un fichier de plan existant.
+   `--allow-blocked` produit uniquement
    un candidat annoté pour revue lorsque le serving ou son essai manque ; il
    ne permet pas l'activation. La revue hors ligne ne dispense pas des contrôles
    PostgreSQL, fournisseur, autorisations, catalogue et workers ci-dessus.
@@ -104,13 +133,24 @@ Ne pas rejouer `activate_ecommerce_composition` ni l'ancien plan du 9 octobre :
 ils créent des bindings qui existent déjà et retirent les anciens Systems.
 Ici aucun autre System métier n'est créé ou retiré.
 
-L'état lu est publication v4 `0c18cb17-ee28-4cbc-acd8-aafb6bcce150`, hash
-`fad0507f94c836d392a5822c81aed47e482329b5f240398661c72c12b7944556`, draft r23
-`0b27d39d316cf1264186a00354a95217e8499562cbf330048293041e88e5c0c7`.
-Le draft contient le node non publié `flow.mv95zi21.1` (Prepare).
+L'état lu le 19 octobre est la publication v5
+`f3fc70cd-0a51-4719-bbf3-ce30d787f4d4`, le brouillon Flow r25 et la release Work 4
+`6b45b6f2-8688-4b8b-a76d-deb9508956e9`. Ces identifiants sont un repère de
+lecture, jamais des valeurs à forcer lors d'une exécution ultérieure.
+Le brouillon Flow contient le nœud non publié `flow.mv95zi21.1` (Prepare).
 `backup.flow_draft` conserve son contenu ; `preserved_draft_candidate` lui ajoute
 la même extension sans le supprimer. Seul `publication_candidate`, construit
-depuis la publication, est destiné à être publié.
+depuis la publication, est destiné à être publié. De même, `work_pages` reprend
+la release live et `preserved_work_draft_pages` conserve le brouillon distinct,
+avec ses propres `preserved_work_draft_binding_keys`.
+
+Les templates de requêtes sont dans `request_templates` ; les références
+`$response.*` doivent être remplacées par les réponses réelles, jamais envoyées
+telles quelles. Si d'autres compléments revus sont composés sur ce plan
+(préparation visuelle ou prévision, par exemple), les appliquer aux deux graphes
+et aux pages concernées **avant** de valider le graphe final, recalculer les
+empreintes et reconstruire les templates. L'empreinte d'un candidat intermédiaire
+n'est pas celle du graphe final.
 
 Utiliser les endpoints produit ci-dessous avec la session autorisée de
 l'opérateur, tous préfixés `/api/v1`. Les étapes de Flow/Work sont distinctes :
@@ -132,7 +172,7 @@ en pause pendant l'intervention et éviter les éditions concurrentes.
    l'extension. Vérifier le `published.flow_sha256` contre `target_flow_sha256`.
    Ne pas publier une empreinte différente pour poursuivre la recette.
 4. `PUT /systems/{id}/flow-draft` avec
-   `{flow_definition: plan.preserved_draft_candidate, expected_revision: <révision retournée par publish>}`.
+   `{flow_definition: plan.preserved_draft_candidate, expected_revision: <response.flow_publish.draft.revision>}`.
    Le contenu utilisateur est conservé dans un draft actualisé, avec son node
    Prepare toujours non publié. Relire ce draft et comparer son contenu au plan.
    Si l'étape 3 échoue, restaurer `backup.flow_draft.flow_definition` via PUT
@@ -140,31 +180,48 @@ en pause pendant l'intervention et éviter les éditions concurrentes.
    écraser une édition survenue entre-temps.
 5. Pour chacun des trois bindings, relire et comparer au snapshot avant
    `PATCH /system-bindings/{key}` avec
-   `{published_flow_version_id: <nouvelle version>, ingress_id: <entrée préservée>, confirmation_policy: "confirm", on_unavailable: "unavailable"}`.
+   `{published_flow_version_id: <nouvelle version>}`. Garder les autres champs
+   inchangés, notamment les politiques de confirmation et d'indisponibilité.
    Les trois actions restent sur la même publication. L'API de binding ne porte
    pas de champ CAS ; la relecture et l'absence d'édition concurrente sont donc
    nécessaires pendant cette étape. Vérifier les trois résolutions après écriture.
-6. Mettre à jour **seulement** `settings.ecommerce_claims.triage` dans une
-   transaction opérateur : verrouiller la ligne workspace, comparer ce sous-objet
-   à `plan.preconditions.triage`, vérifier que le System courant pointe sur la
-   nouvelle version et son hash, puis copier `triage_after_publication` en
-   remplaçant `$published.version_id` par l'ID retourné. Réassigner une copie
-   des settings existants, sans remplacer les autres sous-objets et sans lire
-   ou écrire de secret dans un fichier. Émettre l'audit de configuration.
-   Un simple PATCH avec le seul fragment `triage` ne convient pas : l'endpoint
-   workspace remplace les settings fournis. Cette liaison est nécessaire pour
-   que la file et son contrat de prédiction suivent la publication.
+6. Mettre à jour **seulement** `settings.ecommerce_claims.triage`. La voie API
+   actuelle est `PATCH /auth/workspaces/{slug}` et ne possède pas de CAS pour
+   les settings. Juste avant l'écriture, relire les réglages publics complets
+   en mémoire, comparer le triage à `plan.preconditions.triage`, puis copier
+   ces réglages et remplacer ce seul sous-objet par `triage_after_publication`.
+   Résoudre `$response.flow_publish.published.version_id`, contrôler strictement
+   les seuls chemins modifiés et vérifier la publication courante/version/hash.
+   Envoyer les settings publics complets, puis relire et comparer le résultat.
+   Ne pas envoyer le seul fragment `triage` : cela remplacerait les autres
+   réglages publics. Ne jamais mettre les settings complets, tokens ou secrets
+   dans les fichiers de préparation. Le serveur conserve les secrets masqués.
+   Cette séquence exige une fenêtre sans autre édition de settings ; la relecture
+   ne fournit pas de protection atomique contre un autre client concurrent.
+   Une transaction opérateur ciblée peut fournir cette protection si elle est
+   disponible, mais n'est pas un prérequis de la voie produit API.
 7. `PUT /experiences/{experience_id}/draft` avec `pages: plan.work_pages`,
    `binding_keys: plan.work_binding_keys` et la révision Work attendue du plan.
-   La navigation et les composants existants sont conservés ; la carte de
-   prédiction référence la nouvelle épingle. Lire `/ready-check`, exiger aucun
-   blocker, relire l'expérience puis créer une release avec
+   La navigation et les composants publiés sont conservés, de même que leur
+   épingle SLA. Lire `/ready-check`, exiger `ready=true` et aucun blocker,
+   examiner les warnings et créer une release avec
    `expected_draft_revision`, `expected_content_sha256`,
    `expected_experience_updated_at` et `expected_bindings_sha256` issus de ces
-   lectures. `POST /experiences/{id}/deployments` utilise `channel: "live"`, l'ID
+   lectures. `expected_experience_updated_at` reste celui de l'Experience revue
+   dans le plan ; ne pas adopter une valeur concurrente pour forcer la création.
+8. Restaurer le brouillon Work distinct avec
+   `PUT /experiences/{id}/draft`, `pages: plan.preserved_work_draft_pages`,
+   `binding_keys: plan.preserved_work_draft_binding_keys` et
+   `expected_revision: <response.work_draft_save.revision>`. La création de
+   release ne change pas cette révision. Ne pas prendre une révision plus récente
+   pour écraser une modification utilisateur. La release est immuable : cette
+   restauration ne change pas son contenu.
+9. `POST /experiences/{id}/deployments` utilise `channel: "live"`, l'ID
    de cette release, `expected_current_release_id` et
    `expected_deployment_updated_at` de `preconditions.deployment`, avec son
    audience conservée. Le reçu doit identifier la release et ses trois bindings.
+   Relire Work, les trois bindings, le triage, la publication et les deux brouillons
+   avant de mettre les déclencheurs en service.
 
 Un échec intermédiaire se diagnostique avec les réponses conservées. Tant que
 la publication, les bindings, le triage et la release ne sont pas cohérents,
@@ -180,7 +237,14 @@ par le serveur ; le cron n'accepte que `{}`. Il n'y a qu'une source HTTP et une
 source schedule, conformément à la sélection actuelle des adapters.
 
 1. Vérifier les cinq entrées via `/systems/{id}/ingresses`. Créer le hook en
-   pause, installer son secret uniquement chez l'émetteur. Activer l'opt-in
+   pause, installer son secret uniquement chez l'émetteur. Après déploiement
+   de la migration `141_event_execution_principal` et du worker correspondant,
+   choisir explicitement « Utiliser mes accès » sur le hook et le planning.
+   Les droits portent sur la publication revue ; refaire ce consentement si
+   cette publication change avant l'essai. Sans identité déléguée, le scoring
+   ML et la capture de preuves Judge refusent les Runs automatiques. Ne pas
+   recopier l'identité d'un ancien Run dans le payload pour contourner ce refus.
+   Activer l'opt-in
    événementiel du workspace et régler le System en mode `live`. Activer le
    hook après ces contrôles.
 2. Envoyer un dossier autorisé avec HMAC SHA-256 sur les octets JSON exacts.
@@ -191,22 +255,32 @@ source schedule, conformément à la sélection actuelle des adapters.
    cinq réponses/citations/abstentions dans Work et la porte humaine. Une
    signature valide ne prouve ni succès de l'enquête ni autorisation d'un paiement.
 4. Créer le schedule en pause avec sa zone `Europe/Paris` et `{}`. Pour la
-   qualification, choisir une échéance proche explicite, observer **un** tick
-   réel puis désactiver le schedule. Le cron n'est pas arrêté par le mode
+   qualification, utiliser un cron borné au jour et au mois de l'essai
+   (`minute heure jour mois *`), avec timezone explicite et échéance encore future,
+   plutôt qu'une cadence chaque minute. Il n'existe pas de champ produit `run_at`.
+   Vérifier `next_fire_at`, puis observer **un** tick réel et le changement de
+   `last_run_id`/`last_fired_at`. Désactiver immédiatement le schedule avant de
+   suivre l'achèvement du Run ; une exécution lente ne déclenchera pas une suite
+   de ticks de qualification. Relire la pause, puis restaurer la cadence finale
+   revue ou laisser en pause. Les PATCH de schedule n'ont pas de CAS : comparer
+   la configuration avant et après, sans édition concurrente.
+   Le cron n'est pas arrêté par le mode
    `dry_run` ou le coupe-circuit des événements. Son dernier Run doit produire
    la file scorée visible dans Work, sans enquête ni reçu. Ne pas laisser une
    récurrence tourner tant que PostgreSQL ou le modèle échoue.
 
 ## Fermer la boucle MLOps avec des preuves
 
-Activer d'abord le monitoring du modèle effectivement épinglé, à 60 minutes,
-sans proposition de réentraînement. Observer son System technique, ses Runs et
-ses erreurs dans Model Center. Cela ne crée pas un second System métier Luma.
+Le helper Judge/événements ne configure ni monitoring, ni shadow, ni promotion.
+Au 19 octobre, le SLA v5 possède déjà un monitoring quotidien et une proposition
+de réentraînement en attente humaine : les conserver, notamment la cadence et
+`propose_retraining`. Ne pas rejouer les anciens exemples à 60 minutes du plan
+historique. Observer son System technique, ses Runs et ses erreurs dans Model
+Center ; il ne constitue pas un second System métier Luma.
 
 Identifier ensuite le challenger réellement compatible et qualifié par
-inférence. La version v3 proposée dans le plan ne doit pas devenir implicitement
-le champion du registre : conserver le choix existant et expliciter toute
-décision ultérieure. Activer shadow seulement quand cette paire est valide,
+inférence. Conserver le champion existant et expliciter toute décision ultérieure.
+Activer shadow seulement quand cette paire est valide,
 avec échantillonnage borné à 10 % et timeout de 15 secondes. Des appels effectifs
 doivent créer des comparaisons ; montrer effectifs, erreurs et couverture des
 labels avant de parler d'amélioration. Shadow ne modifie pas la réponse servie.
@@ -240,6 +314,7 @@ consommateurs. Les observations de prévision attendent leurs dates éligibles.
   Les coûts du modèle et du Judge restent traçables ; le scénario financier
   demeure 8 min / 2 min / 40 €/h / 0,50 € par dossier, sans ROI humain observé.
 
-Tests locaux : 8 tests de transformation/contrat dans ce dossier, plus tests
-backend de routage immuable et trajet réel cron → préparation/scoring → Work.
+Tests locaux : transformations/contrats, séparation des drafts et protections
+des publications dans ce dossier, plus tests backend de routage immuable et
+trajet réel cron → préparation/scoring → Work.
 Ces tests ne remplacent pas les reçus de publication et de recette live.

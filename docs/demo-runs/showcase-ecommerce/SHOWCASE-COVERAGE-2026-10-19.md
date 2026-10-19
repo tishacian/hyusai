@@ -4,6 +4,11 @@
 Cette passe est une analyse : elle ne publie pas de Flow, ne déclenche pas
 d'entraînement et n'approuve aucune décision.
 
+La mise en œuvre autorisée ensuite est décrite dans le
+[compte rendu d'activation des quatre lots](../../ops/luma-four-lots-activation-2026-10-19.md).
+Le présent document conserve l'état initial de l'analyse ; les versions, preuves
+de recette et limites de déploiement actualisées se trouvent dans ce compte rendu.
+
 ## Conclusion
 
 Conserver **un System métier et une Business App Luma**. Le récit est celui
