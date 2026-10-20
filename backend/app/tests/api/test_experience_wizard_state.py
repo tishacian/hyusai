@@ -39,6 +39,8 @@ def test_wizard_progress_survives_a_reload_without_creating_bindings(db_session)
     assert wizard["staged_bindings"] == [STAGED]
     assert wizard["audience"] == {"roles": ["workspace_viewer"], "groups": [], "whole_workspace": False}
     assert db_session.query(SystemBinding).count() == 0
+    listed = client.get("/experiences").json()["experiences"]
+    assert [(row["id"], row["wizard_step"]) for row in listed] == [(experience["id"], 2)]
     # The wizard's own write does not move the application's concurrency stamp.
     assert client.get(f"/experiences/{experience['id']}").json()["updated_at"] == experience["updated_at"]
 

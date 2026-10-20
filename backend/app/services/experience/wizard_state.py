@@ -130,3 +130,12 @@ def clear(db: DBSession, *, experience_id: str) -> None:
     if row is not None:
         db.delete(row)
         db.flush()
+
+
+def steps_by_experience(db: DBSession, *, workspace_id: str) -> dict[str, int]:
+    rows = (
+        db.query(ExperienceWizardState.experience_id, ExperienceWizardState.step)
+        .filter(ExperienceWizardState.workspace_id == workspace_id)
+        .all()
+    )
+    return {experience_id: step for experience_id, step in rows}

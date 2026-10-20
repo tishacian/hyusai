@@ -349,6 +349,7 @@ async def list_experiences(
         db, workspace_id=workspace.id
     )
     extras = experience_service.inventory_index(db, workspace_id=workspace.id)
+    wizard_steps = wizard_service.steps_by_experience(db, workspace_id=workspace.id)
     by_id: dict[str, list] = {}
     for item in deployments:
         by_id.setdefault(item.experience_id, []).append(item)
@@ -362,6 +363,8 @@ async def list_experiences(
             "draft_revision": None,
             "latest_release_number": None,
         }))
+        # An unfinished creation wizard resumes at this step; null otherwise.
+        payload["wizard_step"] = wizard_steps.get(row.id)
         listed.append(payload)
     return {"experiences": listed}
 
