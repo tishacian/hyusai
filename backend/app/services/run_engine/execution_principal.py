@@ -202,7 +202,10 @@ def _published_authority(db, *, workspace, system_id):
         db.query(System)
         .filter_by(id=system_id, workspace_id=workspace.id)
         .populate_existing()
-        .with_for_update()
+        # System eagerly joins its optional Capability. PostgreSQL cannot lock
+        # the nullable side of that join; only the publication owner needs
+        # locking while consent is bound to its immutable version.
+        .with_for_update(of=System)
         .first()
     )
     if system is None:

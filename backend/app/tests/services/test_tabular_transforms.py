@@ -253,6 +253,53 @@ def test_sources_resolve_from_upstream_payload_and_declared_pins(
     assert len(deduped) == 1
 
 
+@pytest.mark.parametrize("model_slug", ["missing-model-lineage", "usage-monthly"])
+def test_model_metadata_is_not_an_implicit_dataset_source(
+    db_session, workspace, customers, usage, model_slug
+):
+    # ML dataset envelopes also describe the model. Its slug is not a table,
+    # even when a dataset happens to use that same slug.
+    sources = resolve_sources(
+        db_session,
+        workspace_id=workspace.id,
+        payload={
+            "dataset_id": customers.id,
+            "model": {
+                "model_id": str(uuid4()),
+                "slug": model_slug,
+                "version": 2,
+                "task": "forecasting",
+            },
+        },
+    )
+    assert [source.dataset.id for source in sources] == [customers.id]
+
+
+def test_legacy_slug_sources_and_explicit_dataset_refs_still_resolve(
+    db_session, workspace, customers, usage
+):
+    sources = resolve_sources(
+        db_session,
+        workspace_id=workspace.id,
+        payload={
+            "previous": {"slug": customers.slug},
+            # The field name is not a type discriminator.
+            "model": {"dataset_id": usage.id},
+        },
+    )
+    assert [source.dataset.id for source in sources] == [customers.id, usage.id]
+
+
+def test_missing_explicit_dataset_is_not_silently_ignored(db_session, workspace):
+    with pytest.raises(TabularError) as error:
+        resolve_sources(
+            db_session,
+            workspace_id=workspace.id,
+            payload={"source": {"dataset_id": str(uuid4())}},
+        )
+    assert error.value.code == "DATASET_NOT_FOUND"
+
+
 def test_a_transform_with_no_input_refuses_before_touching_the_engine(
     db_session, workspace
 ):

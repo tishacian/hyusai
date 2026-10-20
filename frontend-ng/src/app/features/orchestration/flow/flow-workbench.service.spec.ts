@@ -39,7 +39,7 @@ import { newPrepDraft, prepNodePatch } from '@app/features/data/dataops.models';
 import { prepInputStates } from './flow-data-prep.vm';
 import { FlowDataPrepWorkshopComponent } from './flow-data-prep-workshop.component';
 import { DataOpsApi } from '@app/features/data/dataops.api';
-import { DataService } from '@app/features/data/data.service';
+import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { FlowRunService } from './flow-run.service';
 
 const SOURCE_SHA = 'a'.repeat(64);
@@ -581,7 +581,7 @@ test('a late node result cannot become a preparation input after an edit', async
   assert.deepEqual(service.nodePreviewRuns(), {});
 });
 
-async function workshopHarness() {
+async function workshopHarness(datasets: DatasetDto[] = []) {
   const flow = validFlow();
   flow.nodes[1].outputs = [{ name: 'out', schema: 'object' }];
   const base = { id: 'prepare', kind: 'task' as const, type: 'skill', label: 'Prepare' };
@@ -598,7 +598,7 @@ async function workshopHarness() {
   const nodeInput = signal(node), nodeRuns = signal({});
   const child = Injector.create({ parent: h.injector, providers: [
     { provide: DataOpsApi, useValue: dataops },
-    { provide: DataService, useValue: { refresh: async () => [] } },
+    { provide: DataService, useValue: { refresh: async () => datasets } },
     { provide: FlowRunService, useValue: { nodeRuns } },
   ] });
   const workshop = runInInjectionContext(child, () => new FlowDataPrepWorkshopComponent());
@@ -608,6 +608,65 @@ async function workshopHarness() {
     refreshInputs: () => { nodeInput.set(structuredClone(node)); nodeRuns.set({}); },
     close: () => child.destroy() };
 }
+
+const previewDataset = {
+  id: 'published-dataset-v9', name: 'Published facts', slug: 'facts', version: 9,
+  status: 'ready', source: 'postgresql', schema: [], parent_ids: [],
+  run_id: 'published-run', node_id: 'source.reader',
+} as DatasetDto;
+
+test('a temporary dataset feeds preview and SQL without editing the Flow or becoming an export pin', async () => {
+  const h = await workshopHarness([previewDataset]);
+  await Promise.resolve();
+  h.service.reset();
+  const before = h.store.snapshot(), revision = h.store.revision();
+  assert.equal(h.workshop.inputsReady(), false);
+  h.workshop.choosePreviewInput('in', previewDataset.id);
+  assert.equal(h.workshop.inputsReady(), true);
+  assert.equal(h.workshop.inputStates()[0].origin, 'preview');
+  assert.equal(h.workshop.origin('in'), 'unavailable', 'authored source remains distinct');
+  const sample = { rows: [{ id: 9 }], schema: [], sample: true };
+  const pending = h.workshop.preview(); h.resolve(sample); await pending;
+  assert.deepEqual(h.workshop.sample(), sample);
+  const compilation = { sql: 'SELECT 9' };
+  const compiled = h.workshop.compile(); h.resolve(compilation); await compiled;
+  assert.deepEqual(h.workshop.compilation(), compilation);
+  await h.workshop.convertSql();
+  h.workshop.flush();
+  assert.deepEqual(h.store.snapshot(), before);
+  assert.equal(h.store.revision(), revision);
+  h.workshop.choosePreviewInput('in', '');
+  assert.equal(h.workshop.inputsReady(), false);
+  assert.equal(h.workshop.sample(), null);
+  assert.equal(h.workshop.compilation(), null);
+  h.close();
+});
+
+test('temporary dataset choices and late results cannot cross workspace or System contexts', async () => {
+  for (const context of ['workspace', 'system'] as const) {
+    const h = await workshopHarness([previewDataset]);
+    await Promise.resolve();
+    h.service.reset();
+    h.workshop.choosePreviewInput('in', previewDataset.id);
+    assert.equal(h.workshop.inputsReady(), true);
+    const before = h.store.snapshot(), revision = h.store.revision();
+    const pending = h.workshop.preview();
+    if (context === 'workspace') h.workspace.switchWorkspace();
+    else h.service.bindSystem('other-system');
+    assert.equal(h.workshop.inputsReady(), false, context);
+    h.effects.flush();
+    h.resolve({ rows: [{ id: 'late-cross-context' }], schema: [], sample: true });
+    await pending;
+    assert.equal(h.workshop.sample(), null, context);
+    assert.deepEqual(h.workshop.previewChoices(), {}, context);
+    assert.deepEqual(h.workshop.datasets(), [], context);
+    h.workshop.choosePreviewInput('in', previewDataset.id);
+    assert.deepEqual(h.workshop.previewChoices(), {}, 'stale workshop cannot restore a choice');
+    assert.deepEqual(h.store.snapshot(), before, context);
+    assert.equal(h.store.revision(), revision, context);
+    h.close();
+  }
+});
 
 test('equivalent reactive input refreshes neither discard a pending preview nor clear completed rows', async () => {
   const h = await workshopHarness();

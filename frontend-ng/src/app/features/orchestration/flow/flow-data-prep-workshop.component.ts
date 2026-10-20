@@ -1,6 +1,6 @@
 import { prepSplitConditionOutputs } from '@app/features/data/prep-fields';
 import type { PrepStepDefinition } from '@app/features/data/prep-fields';
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 import { I18nService } from '@app/core/i18n.service';
@@ -13,13 +13,14 @@ import { PrepParamsComponent } from '@app/features/data/prep-params.component';
 import { PrepOperationComponent } from '@app/features/data/prep-operation.component';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import { CodeEditorComponent } from '@app/shared/ui/code-editor.component';
+import { NavLinkDirective } from '@app/shared/cockpit/nav-link.directive';
 import { FlowStore } from './flow.store';
 import { FlowRunService } from './flow-run.service';
 import { FlowWorkbenchService } from './flow-workbench.service';
-import { editablePrepDraft, newPrepStep, PREP_STEP_GROUPS, PREP_WRITE_DEBOUNCE, PrepHistory, prepError, prepInputStates, prepPinnedEdges, prepPreviewOutputRows, saltedPrep, type PrepInputState } from './flow-data-prep.vm';
+import { editablePrepDraft, newPrepStep, PREP_STEP_GROUPS, PREP_WRITE_DEBOUNCE, PrepHistory, prepError, prepInputStates, prepPinnedEdges, prepPreviewInputs, prepPreviewOutputRows, saltedPrep, type PrepInputState } from './flow-data-prep.vm';
 
 @Component({selector:'app-flow-data-prep-workshop',standalone:true,changeDetection:ChangeDetectionStrategy.OnPush,
-  imports:[A11yModule,DragDropModule,PrepParamsComponent,PrepOperationComponent,DataTableComponent,CodeEditorComponent],
+  imports:[A11yModule,DragDropModule,PrepParamsComponent,PrepOperationComponent,DataTableComponent,CodeEditorComponent,NavLinkDirective],
   styleUrls:['../../data/dataops-editor.scss','./flow-data-prep-workshop.component.scss'],template:`
   <div class="dp-workshop" role="dialog" aria-modal="true" [attr.aria-label]="i18n.t('dataops.workshop')" cdkTrapFocus [cdkTrapFocusAutoCapture]="true" (keydown.escape)="finish()">
     <header class="dp-workshop-head"><div><h2>{{i18n.t('dataops.operation.'+draft().spec.operation)}}</h2><span>{{node().label}}</span></div><div class="dp-row">
@@ -29,6 +30,27 @@ import { editablePrepDraft, newPrepStep, PREP_STEP_GROUPS, PREP_WRITE_DEBOUNCE, 
       @if(draft().spec.operation === 'union' && ports().length > 2){<button class="dp-button" (click)="removeInput(port)" [disabled]="connectedInput(port)||port!==ports()[ports().length-1]">{{i18n.t('dataops.remove')}}</button>}}
       @if(draft().spec.operation === 'union'){<button class="dp-button" data-testid="prep-add-input" [disabled]="ports().length>=16" (click)="addInput()">{{i18n.t('dataops.add_input')}}</button>}
     </section>
+    <details class="dp-preview-inputs" [open]="!flowInputsReady()||hasPreviewChoices()" data-testid="prep-preview-sources">
+      <summary>{{i18n.t('dataops.preview_sources')}}</summary>
+      <p class="dp-note">{{i18n.t('dataops.preview_sources_hint')}}</p>
+      <div class="dp-preview-inputs-row">@for(port of ports();track port){
+        <div class="dp-preview-source">
+          <label class="dp-field"><span>{{i18n.t('dataops.preview_source',{port})}}</span>
+            <select class="dp-input" [attr.data-testid]="'prep-preview-input-'+port" [value]="previewChoices()[port]??''" (change)="choosePreviewInput(port,val($event))">
+              <option value="">{{i18n.t('dataops.preview_source_flow')}}</option>
+              @for(ds of datasets();track ds.id){@if(ds.status==='ready'){<option [value]="ds.id">{{ds.name}} · v{{ds.version}}</option>}}
+            </select>
+          </label>
+          @if(previewDataset(port);as dataset){
+            <p class="dp-note" data-testid="prep-preview-provenance">{{i18n.t('dataops.preview_source_selected',{name:dataset.name,version:dataset.version})}}
+              @if(dataset.run_id){ · <a [navLink]="{type:'run',ref:dataset.run_id}">{{i18n.t('dataops.preview_source_run',{run:dataset.run_id.slice(0,8)})}}</a>}
+              @if(dataset.node_id){ · {{dataset.node_id}}}
+            </p>
+          }
+          <small class="dp-note" [class.dp-error]="!inputReady(port)">{{i18n.t(inputReady(port)?'dataops.preview_source_ready':'dataops.preview_source_missing')}}</small>
+        </div>
+      }</div>
+    </details>
     @if(error();as failure){<p class="dp-error dp-workshop-error" role="alert" data-testid="prep-error">{{errorText(failure.code)}}</p>}
     <div class="dp-workshop-body">
       <aside class="dp-workshop-left">
@@ -45,7 +67,7 @@ import { editablePrepDraft, newPrepStep, PREP_STEP_GROUPS, PREP_WRITE_DEBOUNCE, 
         }
       </aside>
       <main class="dp-workshop-center">
-        <div class="dp-row"><button class="dp-button" data-testid="prep-preview" [disabled]="busy()" (click)="preview()">{{i18n.t('dataops.preview')}}</button><button class="dp-button" [disabled]="busy()" (click)="preview(true)">{{i18n.t('dataops.preview_all')}}</button>@if(selectedStep()){<span class="dp-note">{{i18n.t('dataops.preview_step',{step:selectedIndex()+1})}}</span>}</div>
+        <div class="dp-row"><button class="dp-button" data-testid="prep-preview" [disabled]="busy()||!inputsReady()" (click)="preview()">{{i18n.t('dataops.preview')}}</button><button class="dp-button" [disabled]="busy()||!inputsReady()" (click)="preview(true)">{{i18n.t('dataops.preview_all')}}</button>@if(selectedStep()){<span class="dp-note">{{i18n.t('dataops.preview_step',{step:selectedIndex()+1})}}</span>}</div>
         @if(sample();as result){
           <p class="dp-note" data-testid="prep-sample-notice">{{i18n.t('dataops.sample_rows',{rows:sampleRows(result)})}}</p>
           @if(result.sample_info?.of_rows!=null){<p class="dp-note">{{i18n.t('dataops.sample_of',{rows:result.sample_info!.of_rows})}}</p>}
@@ -67,31 +89,52 @@ import { editablePrepDraft, newPrepStep, PREP_STEP_GROUPS, PREP_WRITE_DEBOUNCE, 
         @if(draft().spec.operation==='sample'||draft().spec.operation==='split'){<label class="dp-field"><span>{{i18n.t('dataops.seed')}}</span><input class="dp-input" type="number" min="0" max="2147483647" [value]="draft().spec.seed" (input)="seed(val($event))" /></label>}
       </aside>
     </div>
-    <footer class="dp-workshop-foot">@if(draft().spec.operation==='split'){<label class="dp-field"><span>{{i18n.t('dataops.port')}}</span><select class="dp-input" [value]="sqlPort()||draft().spec.outputs[0].port" (change)="selectOutputPort(val($event))">@for(out of draft().spec.outputs;track out.port){<option [value]="out.port">{{out.port}}</option>}</select></label>}<span class="dp-note">{{i18n.t('dataops.sample_notice')}} {{i18n.t('dataops.sql_conversion_notice')}}</span><button class="dp-button" data-testid="prep-sql" [disabled]="busy()" (click)="compile()">{{i18n.t('dataops.sql')}}</button><button class="dp-button" data-testid="prep-convert-sql" [disabled]="busy()||salted()" [title]="salted()?i18n.t('dataops.salted_no_sql'):''" (click)="convertSql()">{{i18n.t('dataops.convert_sql')}}</button></footer>
-    @if(compilation();as compiled){<section class="dp-sql" data-testid="prep-sql-result"><ck-code-editor language="sql" [readOnly]="true" [value]="compiled.sql" [ariaLabel]="i18n.t('dataops.sql')" /><button class="dp-button" (click)="compilation.set(null)">{{i18n.t('common.close')}}</button></section>}
+    <footer class="dp-workshop-foot">@if(draft().spec.operation==='split'){<label class="dp-field"><span>{{i18n.t('dataops.port')}}</span><select class="dp-input" [value]="sqlPort()||draft().spec.outputs[0].port" (change)="selectOutputPort(val($event))">@for(out of draft().spec.outputs;track out.port){<option [value]="out.port">{{out.port}}</option>}</select></label>}<span class="dp-note">{{i18n.t('dataops.sample_notice')}} {{i18n.t(hasPreviewChoices()?'dataops.preview_source_no_conversion':'dataops.sql_conversion_notice')}}</span><button #sqlTrigger class="dp-button" data-testid="prep-sql" [disabled]="busy()||!inputsReady()" (click)="compile()">{{i18n.t('dataops.sql')}}</button><button class="dp-button" data-testid="prep-convert-sql" [disabled]="busy()||salted()||hasPreviewChoices()||!inputsReady()" [title]="salted()?i18n.t('dataops.salted_no_sql'):hasPreviewChoices()?i18n.t('dataops.preview_source_no_conversion'):''" (click)="convertSql()">{{i18n.t('dataops.convert_sql')}}</button></footer>
+    @if(compilation();as compiled){
+      <div class="dp-sql-backdrop">
+        <section class="dp-sql" data-testid="prep-sql-result" role="dialog" aria-modal="true" aria-labelledby="prep-sql-title" cdkTrapFocus [cdkTrapFocusAutoCapture]="true" (keydown.escape)="closeSql($event)">
+          <header class="dp-sql-head">
+            <div><h2 id="prep-sql-title">{{i18n.t('dataops.sql')}}</h2><span class="dp-note">{{i18n.t('dataops.sql_readonly')}}</span></div>
+            <button class="dp-button" cdkFocusInitial (click)="closeSql()">{{i18n.t('common.close')}}</button>
+          </header>
+          <div class="dp-sql-body"><ck-code-editor language="sql" [readOnly]="true" [value]="compiled.sql" [ariaLabel]="i18n.t('dataops.sql')" /></div>
+        </section>
+      </div>
+    }
   </div>`})
 export class FlowDataPrepWorkshopComponent {
   readonly node=input.required<CanonicalFlowNode>(); readonly close=output<void>(); readonly i18n=inject(I18nService);
+  private readonly injector=inject(Injector); private readonly sqlTrigger=viewChild<ElementRef<HTMLButtonElement>>('sqlTrigger');
   private readonly api=inject(DataOpsApi); private readonly data=inject(DataService); private readonly store=inject(FlowStore); private readonly run=inject(FlowRunService); private readonly workbench=inject(FlowWorkbenchService); private readonly workspace=inject(WorkspaceService); private readonly scope=this.workspace.captureRequestScope();
   readonly draft=signal<PrepDraft>(editablePrepDraft(prepDraftFromNode(this.store.selectedNode()!))); readonly datasets=signal<DatasetDto[]>([]); readonly sqlPort=signal(''); readonly search=signal(''); readonly selectedStep=signal<string|null>(null); readonly selectedColumns=signal<string[]>([]);
   readonly sample=signal<PrepPreview|null>(null); readonly compilation=signal<PrepCompilation|null>(null); readonly error=signal<{code:string;stepId?:string}|null>(null); readonly busy=signal(false);
+  private readonly previewSystemId=this.workbench.systemId(); private readonly previewNodeId=this.store.selectedNode()?.id;
+  readonly previewChoices=signal<Partial<Record<string,string>>>({});
+  readonly hasPreviewChoices=computed(()=>this.ports().some(port=>!!this.previewChoices()[port]));
   readonly definitions=signal<PrepStepDefinition[]>([]);readonly functions=signal<string[]>([]);readonly available=signal<PrepAction[]>([]); readonly groups=Object.keys(PREP_STEP_GROUPS); readonly columnActions:PrepAction[]=['drop_columns','rename_columns','cast','filter_rows','text_transform'];
   private readonly history=new PrepHistory(); readonly historyRevision=signal(0); private pending:ReturnType<typeof setTimeout>|undefined; private saved=structuredClone(this.draft()); private revision=0; private destroyed=false;
   readonly canUndo=computed(()=>{this.historyRevision();return this.history.canUndo||JSON.stringify(this.saved)!==JSON.stringify(this.draft());}); readonly canRedo=computed(()=>{this.historyRevision();return this.history.canRedo;});
   readonly ports=computed(()=>prepDraftPorts(this.draft())); readonly selectedIndex=computed(()=>this.draft().spec.steps.findIndex(step=>step.id===this.selectedStep())); readonly selected=computed(()=>this.draft().spec.steps[this.selectedIndex()]??null);
   readonly portColumns=computed(()=>Object.fromEntries(this.ports().map(port=>{const ref=this.inputStates().find(state=>state.port===port)?.ref;const dataset=this.datasets().find(ds=>ds.id===ref?.dataset_id);return [port,dataset?.schema.map(col=>col.name)??[]];})));
   readonly columns=computed(()=>this.portColumns()[this.draft().spec.operation==='join'?'left':this.ports()[0]]??[]);
-  readonly stepSchema=computed(()=>{const index=this.selectedIndex();return this.sample()?.step_schemas?.find(s=>s.index===index-1)?.schema??(index===0?this.datasets().find(ds=>ds.id===this.draft().inputs['in']?.dataset_id)?.schema??[]:[]);});
+  readonly stepSchema=computed(()=>{const index=this.selectedIndex();return this.sample()?.step_schemas?.find(s=>s.index===index-1)?.schema??(index===0?this.datasets().find(ds=>ds.id===this.inputStates().find(input=>input.port==='in')?.ref?.dataset_id)?.schema??[]:[]);});
   readonly stepColumns=computed(()=>this.stepSchema().length?this.stepSchema().map(c=>c.name):prepColumnsBefore(this.draft(),this.columns(),[],this.selectedIndex())); readonly salted=computed(()=>saltedPrep(this.draft()));
   // Preview results are as ephemeral as their input test. A graph, workspace
   // or test change must hide old rows/SQL, including a late HTTP response.
   private readonly previewContext=computed(()=>JSON.stringify({systemId:this.workbench.systemId(),revision:this.store.revision(),scope:this.workspace.captureRequestScope(),inputs:this.inputStates(),draft:this.draft()}));
   private sampleContext:string|null=null; private compilationContext:string|null=null;
-  constructor(){effect(()=>{const context=this.previewContext();if(this.sampleContext&&this.sampleContext!==context)this.sample.set(null);if(this.compilationContext&&this.compilationContext!==context)this.compilation.set(null);});inject(DestroyRef).onDestroy(()=>{this.flush();this.destroyed=true;clearTimeout(this.pending);});void this.load();}
-  private async load():Promise<void>{try{const [datasets,catalog]=await Promise.all([this.data.refresh(),this.api.catalog()]);if(!this.destroyed&&this.workspace.isRequestScopeCurrent(this.scope)){this.datasets.set(datasets);this.available.set(catalog.steps);this.definitions.set(catalog.step_definitions??[]);this.functions.set((catalog.functions??[]).map(row=>row.name));}}catch(error){if(!this.destroyed)this.error.set(prepError(error));}}
+  constructor(){effect(()=>{const context=this.previewContext();if(!this.previewScopeCurrent()){if(Object.keys(this.previewChoices()).length)this.previewChoices.set({});if(this.datasets().length)this.datasets.set([]);}if(this.sampleContext&&this.sampleContext!==context)this.sample.set(null);if(this.compilationContext&&this.compilationContext!==context)this.compilation.set(null);});inject(DestroyRef).onDestroy(()=>{this.flush();this.destroyed=true;clearTimeout(this.pending);});void this.load();}
+  private async load():Promise<void>{try{const [datasets,catalog]=await Promise.all([this.data.refresh(),this.api.catalog()]);if(!this.destroyed&&this.previewScopeCurrent()){this.datasets.set(datasets);this.available.set(catalog.steps);this.definitions.set(catalog.step_definitions??[]);this.functions.set((catalog.functions??[]).map(row=>row.name));}}catch(error){if(!this.destroyed)this.error.set(prepError(error));}}
   val(e:Event):string{return(e.target as HTMLInputElement).value;} checked(e:Event):boolean{return(e.target as HTMLInputElement).checked;}
-  inputStates():PrepInputState[]{try{const node={...this.node(),...prepNodePatch(this.node(),this.draft())};return prepInputStates(node,{nodes:this.store.nodes(),edges:this.store.edges()},{...this.run.nodeRuns(),...this.workbench.nodePreviewRuns()});}catch{return this.ports().map(port=>({port,origin:'unavailable'}));}}
-  origin(port:string):string{return this.inputStates().find(s=>s.port===port)?.origin??'unavailable';}
+  flowInputStates():PrepInputState[]{try{const node={...this.node(),...prepNodePatch(this.node(),this.draft())};return prepInputStates(node,{nodes:this.store.nodes(),edges:this.store.edges()},{...this.run.nodeRuns(),...this.workbench.nodePreviewRuns()});}catch{return this.ports().map(port=>({port,origin:'unavailable'}));}}
+  private previewScopeCurrent():boolean{return this.workspace.isRequestScopeCurrent(this.scope)&&this.workbench.systemId()===this.previewSystemId&&this.node().id===this.previewNodeId;}
+  inputStates():PrepInputState[]{if(!this.previewScopeCurrent())return this.ports().map(port=>({port,origin:'unavailable'}));return prepPreviewInputs(this.flowInputStates(),this.previewChoices(),this.datasets());}
+  origin(port:string):string{return this.flowInputStates().find(s=>s.port===port)?.origin??'unavailable';}
+  flowInputsReady():boolean{return this.flowInputStates().every(input=>!!input.ref);}
+  inputsReady():boolean{return this.inputStates().every(input=>!!input.ref);}
+  inputReady(port:string):boolean{return !!this.inputStates().find(input=>input.port===port)?.ref;}
+  previewDataset(port:string):DatasetDto|undefined{return this.previewScopeCurrent()?this.datasets().find(dataset=>dataset.id===this.previewChoices()[port]&&dataset.status==='ready'):undefined;}
+  choosePreviewInput(port:string,id:string):void{if(!this.previewScopeCurrent()||!this.ports().includes(port)||id&&!this.datasets().some(dataset=>dataset.id===id&&dataset.status==='ready'))return;this.previewChoices.update(current=>({...current,[port]:id}));this.revision++;this.sample.set(null);this.compilation.set(null);this.error.set(null);}
   stepLabel(kind:string):string{return this.i18n.t(this.stepDefinition(kind)?.label_key??'dataops.step.'+kind);}
   stepDefinition(kind:string):PrepStepDefinition|null{return this.definitions().find(definition=>definition.kind===kind)??null;}
   groupActions(group:string):PrepAction[]{const query=this.search().trim().toLocaleLowerCase();return PREP_STEP_GROUPS[group].filter(action=>this.available().includes(action)&&(!query||this.stepLabel(action).toLocaleLowerCase().includes(query)));}
@@ -102,6 +145,13 @@ export class FlowDataPrepWorkshopComponent {
   undo():void{this.flush();this.draft.set(this.history.undo(this.draft()));this.persist();this.saved=structuredClone(this.draft());this.historyRevision.update(n=>n+1);this.revision++;this.sample.set(null);this.compilation.set(null);}
   redo():void{this.flush();this.draft.set(this.history.redo(this.draft()));this.persist();this.saved=structuredClone(this.draft());this.historyRevision.update(n=>n+1);this.revision++;this.sample.set(null);this.compilation.set(null);}
   finish():void{this.flush();this.close.emit();}
+  closeSql(event?:Event):void{
+    event?.stopPropagation();this.compilation.set(null);
+    // Compilation temporarily disables its trigger, which can move browser
+    // focus to the body before the dialog captures it. Restore explicitly
+    // after the nested focus trap has been removed.
+    afterNextRender(()=>{if(!this.destroyed&&this.previewScopeCurrent()&&!this.compilation())this.sqlTrigger()?.nativeElement.focus();},{injector:this.injector});
+  }
   addStep(action:PrepAction,column?:string):void{if(this.draft().spec.steps.length>=200)return;const step=newPrepStep(action,column);if(action==='select_columns')step.params['columns']=this.columns();this.change(d=>d.spec.steps.push(step),true);this.selectedStep.set(step.id!);}
   selectStep(id:string):void{this.selectedStep.set(id);}
   stepParams(params:Record<string,unknown>):void{this.change(d=>{d.spec.steps[this.selectedIndex()].params=params;});}
@@ -125,7 +175,7 @@ export class FlowDataPrepWorkshopComponent {
   async preview(all=false):Promise<void>{this.flush();const revision=this.revision;await this.action(async()=>{const context=this.previewContext();const result=await this.api.previewFlow(this.draft(),this.resolved(),all?undefined:this.selectedStep()??undefined,this.draft().spec.operation==='split'?(this.selectedOutputPort()):undefined);if(!this.destroyed&&revision===this.revision&&context===this.previewContext()){this.sampleContext=context;this.sample.set(result);}});}
   async compile():Promise<void>{this.flush();await this.action(async()=>{const revision=this.revision,context=this.previewContext();const result=await this.api.compileFlow(this.draft(),this.resolved());if(!this.destroyed&&revision===this.revision&&context===this.previewContext()){this.compilationContext=context;this.compilation.set(result);}});}
   async suggestPivot(column:string):Promise<void>{await this.action(async()=>{const context=this.previewContext();const result=await this.api.pivotValues(this.draft(),this.resolved(),column);if(this.destroyed||context!==this.previewContext())return;this.change(d=>{d.spec.params['pivot']={...d.spec.params['pivot'] as object,values:result.values.slice(0,200)};});});}
-  async convertSql():Promise<void>{if(this.salted())return;this.flush();const revision=this.revision;await this.action(async()=>{const selected=this.selectedOutputPort();if(this.draft().spec.outputs.some(out=>out.port!==selected&&this.connectedOutput(out.port)))throw new Error('DATAPREP_SQL_MULTIPLE_OUTPUTS');const context=this.previewContext();const inputs=this.resolved();const compiled=await this.api.compileFlow(this.draft(),inputs);const sources=compiled.sources??Object.entries(inputs).flatMap(([port,ref])=>ref.dataset_id?[{port,dataset_id:ref.dataset_id}]:[]);if(!sources.length)throw new Error('DATAPREP_INPUT_UNAVAILABLE');if(this.destroyed||revision!==this.revision||context!==this.previewContext())return;const sql=this.draft().spec.operation==='split'?compiled.sql_export_by_port?.[selected]:compiled.sql_export;if(compiled.sql_export_allowed!==true||!sql)throw new Error('DATAPREP_SALTED_SQL');const graph=this.store.snapshot();graph.nodes=graph.nodes.map(node=>node.id===this.node().id?{...node,config:{skill_slug:'sql_transform_v1',params:{sql,sources:sources.map(ref=>({view:ref.port==='in'?'input':ref.port,dataset_id:ref.dataset_id})),output_name:this.draft().spec.outputs.find(out=>out.port===selected)!.name}},outputs:[{name:'out',schema:'object'}]}:node);graph.edges=graph.edges.map(edge=>edge.from===this.node().id?{...edge,from_port:'out'}:edge);this.store.replaceAsEdit(graph);this.store.setSelection(this.node().id);this.close.emit();});}
+  async convertSql():Promise<void>{if(this.salted()||this.hasPreviewChoices()||!this.inputsReady())return;this.flush();const revision=this.revision;await this.action(async()=>{const selected=this.selectedOutputPort();if(this.draft().spec.outputs.some(out=>out.port!==selected&&this.connectedOutput(out.port)))throw new Error('DATAPREP_SQL_MULTIPLE_OUTPUTS');const context=this.previewContext();const inputs=this.resolved();const compiled=await this.api.compileFlow(this.draft(),inputs);const sources=compiled.sources??Object.entries(inputs).flatMap(([port,ref])=>ref.dataset_id?[{port,dataset_id:ref.dataset_id}]:[]);if(!sources.length)throw new Error('DATAPREP_INPUT_UNAVAILABLE');if(this.destroyed||revision!==this.revision||context!==this.previewContext())return;const sql=this.draft().spec.operation==='split'?compiled.sql_export_by_port?.[selected]:compiled.sql_export;if(compiled.sql_export_allowed!==true||!sql)throw new Error('DATAPREP_SALTED_SQL');const graph=this.store.snapshot();graph.nodes=graph.nodes.map(node=>node.id===this.node().id?{...node,config:{skill_slug:'sql_transform_v1',params:{sql,sources:sources.map(ref=>({view:ref.port==='in'?'input':ref.port,dataset_id:ref.dataset_id})),output_name:this.draft().spec.outputs.find(out=>out.port===selected)!.name}},outputs:[{name:'out',schema:'object'}]}:node);graph.edges=graph.edges.map(edge=>edge.from===this.node().id?{...edge,from_port:'out'}:edge);this.store.replaceAsEdit(graph);this.store.setSelection(this.node().id);this.close.emit();});}
   private async action(work:()=>Promise<void>):Promise<void>{if(this.busy()||!this.workspace.surfaceFeatureEnabled('data-preparation'))return;this.busy.set(true);this.error.set(null);const revision=this.revision;try{await work();}catch(error){if(!this.destroyed&&revision===this.revision)this.error.set(prepError(error));}finally{if(!this.destroyed)this.busy.set(false);}}
   warningCode(value:string|{code:string}):string{return typeof value==='string'?value:value.code;}
   errorText(code:string):string{const key='dataops.error.'+code;const text=this.i18n.t(key);return text===key?this.i18n.t('dataops.error.request')+' · '+code:text;}

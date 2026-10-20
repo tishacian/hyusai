@@ -53,7 +53,25 @@ export class PrepHistory {
   undo(current: PrepDraft): PrepDraft { const last = this.past.pop(); if (!last) return current; this.future.push(structuredClone(current)); return last; }
   redo(current: PrepDraft): PrepDraft { const next = this.future.pop(); if (!next) return current; this.past.push(structuredClone(current)); return next; }
 }
-export interface PrepInputState { port: string; origin: 'pin'|'test'|'upstream'|'unavailable'; ref?: DatasetRef; nodeId?: string; }
+export interface PrepInputState { port: string; origin: 'pin'|'test'|'upstream'|'preview'|'unavailable'; ref?: DatasetRef; nodeId?: string; }
+/** Explicit preview choices never become node pins or inferred Run evidence.
+ * A removed/not-ready choice fails closed instead of falling back to another
+ * dataset. Authorization remains with the workspace-scoped DataOps API.
+ */
+export function prepPreviewInputs(
+  inputs: PrepInputState[],
+  choices: Partial<Record<string, string>>,
+  datasets: ReadonlyArray<{id:string;status:string}>,
+): PrepInputState[] {
+  return inputs.map(input => {
+    const id = choices[input.port];
+    if (!id) return input;
+    const dataset = datasets.find(row => row.id === id && row.status === 'ready');
+    return dataset
+      ? {port: input.port, origin: 'preview', ref: {dataset_id: dataset.id}}
+      : {port: input.port, origin: 'unavailable'};
+  });
+}
 /** Resolve the explicitly selected output of every edge; never pick split's first output. */
 export function prepInputStates(node: CanonicalFlowNode, graph: Pick<CanonicalFlow, 'nodes'|'edges'>, runs: Record<string, NodeRunSummary> = {}, seen: string[] = []): PrepInputState[] {
   if (seen.includes(node.id) || seen.length >= 10) throw new Error('DATAPREP_UPSTREAM_DEPTH');

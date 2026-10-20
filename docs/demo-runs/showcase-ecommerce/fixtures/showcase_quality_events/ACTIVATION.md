@@ -1,6 +1,6 @@
 # Étendre le parcours Luma avec qualité, événements et suivi du modèle
 
-Procédure mise à jour le **19 octobre 2026**. Le [plan historique](reviewed_plan.json)
+Procédure mise à jour le **20 octobre 2026**. Le [plan historique](reviewed_plan.json)
 et sa [revue](reviewed_plan.review.json) datent du 17 octobre, portent
 `applied=false` et `activation_ready=false` et sont **obsolètes pour l'application**.
 Ils ne sont pas un reçu d'activation. Reconstruire depuis les lectures fraîches :
@@ -36,7 +36,7 @@ Le tarif déclaré est **OpenAI GPT-5, 1,25 USD / million de tokens entrants et
 10 USD / million sortants**, contrôlé le 19 octobre sur la
 [fiche officielle](https://developers.openai.com/api/docs/models/gpt-5).
 La remise de cache n'est pas incluse dans cette estimation. Le budget est borné
-à un appel, 40 000 tokens, 2 048 tokens de sortie, 0,07 USD, 45 secondes et
+à un appel, 48 000 tokens, 8 192 tokens de sortie, 0,14 USD, 90 secondes et
 32 000 octets de prompt ; un dépassement doit être refusé. La route réellement
 résolue doit correspondre au tarif, sans fallback silencieux. Aucun profil de
 calibration ni qualification du fournisseur sur le corpus Luma n'est annoncé.
@@ -52,6 +52,42 @@ la marge technique et les 2 048 tokens de sortie, représente 37 931 tokens et
 Le registre d'invocations reste la source des tokens effectivement rapportés et
 des coûts associés ; les coûts inconnus restent inconnus. Ces bornes autorisent
 l'essai contrôlé, sans établir de calibration ou de qualité acquise.
+
+Le Run du 20 octobre `834365dd-ea11-4d9a-9db8-18d6bd1b700c` contient un
+prompt de 30 681 octets : sa réservation de 40 290 tokens dépasse l'ancien
+plafond de 40 000. L'appel est refusé avant envoi au fournisseur, avec
+`JUDGE_BUDGET_EXHAUSTED` ; son coût réservé aurait été de 0,0682825 USD.
+La première correction de configuration passe à 42 000, couvrant
+jusqu'au prompt maximal déclaré : 41 609 tokens de réservation et
+0,06993125 USD, avec le schéma actuel. Aucun passage n'est tronqué et les
+autres bornes restent inchangées. La cohérence entre la taille maximale du
+prompt, le schéma et les deux plafonds est vérifiée par les tests de configuration.
+Cette correction est publiée dans la v9 : le Run
+`e5152367-2b8d-4241-851e-be460ca4cfdd` obtient une réponse du fournisseur,
+mais échoue avec `JUDGE_RESPONSE_INVALID`. Le fournisseur rapporte
+8 706 tokens entrants et exactement 2 048 sortants, soit la limite de sortie,
+en environ 20,5 secondes ; le coût au tarif déclaré est de 0,0313625 USD.
+Le motif d'arrêt fournisseur n'étant pas conservé par cette révision, ces
+mesures suggèrent une sortie tronquée sans l'établir formellement.
+
+La configuration proposée suivante augmente le plafond de sortie à 8 192,
+avec 48 000 tokens réservables, 0,14 USD et 90 secondes. Pour le prompt
+maximal de 32 000 octets et le schéma actuel, la réservation maximale devient
+47 753 tokens et 0,13137125 USD. Les cinq questions et leurs preuves restent
+intactes. Les tokens de sortie du fournisseur peuvent inclure du raisonnement :
+ce budget ne garantit pas à lui seul cinq réponses valides. La nouvelle
+recette doit vérifier les réponses, citations, consommation et arrêt humain ;
+ce fichier ne vaut pas reçu de publication ou de réussite.
+
+La recette v10, Run `ebb99328-f345-4650-8cd6-5ddd0e465e21`, échoue encore avec
+`JUDGE_RESPONSE_INVALID`, après 8 706 tokens entrants et 5 517 sortants, pour
+0,0660525 USD au tarif déclaré. Cette consommation inférieure au plafond de
+8 192 ne justifie pas une nouvelle hausse ni une conclusion de troncature.
+La cause précise n'est pas conservée par la révision en service. Le
+[diagnostic produit borné](../../../../ops/typed-judge-qualification.md#diagnostiquer-un-résultat-inexploitable)
+doit être déployé avant une nouvelle recette ; aucun assouplissement des
+citations, réparation automatique ou résultat favorable n'est introduit.
+Le Judge reste non qualifié pour ce parcours.
 
 Qualification du 19 octobre : une enquête ayant passé ces bornes atteint la
 validation humaine, mais le Judge rend `failed / JUDGE_PROVIDER_UNAVAILABLE`

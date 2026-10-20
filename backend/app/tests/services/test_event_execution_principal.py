@@ -201,6 +201,48 @@ def test_reapplying_same_identity_preserves_grant_and_unrelated_schedule(delegat
     assert source.enabled is True
 
 
+@pytest.mark.parametrize("source_kind", ["hooks", "schedules"])
+def test_existing_source_can_delegate_without_locking_nullable_capability(delegated, source_kind):
+    """The real authorization query must also be executable on PostgreSQL."""
+    from sqlalchemy import event
+    from sqlalchemy.dialects import postgresql
+
+    s = delegated
+    body = {"name": "Initially paused", "enabled": False}
+    if source_kind == "schedules":
+        body.update(cron_expr="0 8 * * 1-5", timezone="Europe/Paris")
+    created = s.client.post(f"/systems/{s.system.id}/{source_kind}", json=body)
+    assert created.status_code == 201, created.text
+    source_id = created.json()["id"]
+    flow_before = dict(s.system.flow_definition)
+    version_before = s.system.published_flow_version_id
+    locks = []
+
+    def capture_lock(state):
+        if state.is_select and getattr(state.statement, "_for_update_arg", None) is not None:
+            locks.append(str(state.statement.compile(dialect=postgresql.dialect())))
+
+    # SQLite ignores FOR UPDATE. Compile the query the endpoint actually
+    # executes, including System.capability's implicit LEFT OUTER JOIN.
+    event.listen(s.db, "do_orm_execute", capture_lock)
+    try:
+        response = s.client.patch(
+            f"/systems/{s.system.id}/{source_kind}/{source_id}",
+            json={"execution_identity": "current_user"},
+        )
+    finally:
+        event.remove(s.db, "do_orm_execute", capture_lock)
+    assert response.status_code == 200, response.text
+    assert response.json()["execution_identity"]["user_id"] == s.user.id
+    assert response.json()["enabled"] is False
+    authority_queries = [sql for sql in locks if "LEFT OUTER JOIN capabilities" in sql]
+    assert authority_queries
+    assert all(sql.rstrip().endswith("FOR UPDATE OF systems") for sql in authority_queries)
+    s.db.refresh(s.system)
+    assert s.system.flow_definition == flow_before
+    assert s.system.published_flow_version_id == version_before
+
+
 def test_native_schedule_records_principal_and_preserves_machine_initiation(delegated, monkeypatch):
     s = delegated
     response = s.client.post(

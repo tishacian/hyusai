@@ -60,21 +60,31 @@ Run. Dans l'éditeur, **Ouvrir l'atelier** du nœud **Préparer le dataset et le
 contrôles SAV** montre les quatre étapes et leurs commentaires. Les résultats
 d'un Run Work ne sont pas automatiquement chargés comme entrées de cet atelier.
 
-Après déploiement du raccord générique du banc d'essai, sélectionner
-`sav.features`, ouvrir **Exploiter → Banc d'essai → Nœud**, garder l'entrée `{}`,
-puis lancer **Exécuter le nœud sélectionné** avec l'accusé des effets réels.
-Cela effectue une extraction PostgreSQL et produit un dataset de test.
-Une fois le test terminé, fermer le banc d'essai, sélectionner `sav.prepare`
-et ouvrir l'atelier. L'entrée reste **Utiliser la sortie amont**, avec l'origine
-**Sortie du dernier test**. Demander l'aperçu, inspecter les deux colonnes de
-contrôle et consulter le SQL compilé. Aucune épingle ni sauvegarde de brouillon
-n'est nécessaire ; le nœud utilisateur isolé reste intact.
+Après déploiement du sélecteur générique d'entrée d'aperçu, sélectionner
+`sav.prepare` et ouvrir l'atelier. Dans **Données pour cet aperçu**, choisir
+la version **Luma — Faits SAV PostgreSQL** produite par le Run Work terminé :
+vérifier le nom, la version et le lien vers le Run, dont le nœud producteur est
+`sav.features`. La source du Flow reste **Utiliser la sortie amont** ; le choix
+du jeu est limité à cette ouverture de l'atelier. Demander l'aperçu, inspecter
+les deux colonnes de contrôle et consulter le SQL compilé. Aucune épingle ni
+sauvegarde de brouillon n'est nécessaire ; le nœud utilisateur isolé reste
+intact. La conversion en nœud SQL est désactivée tant qu'une entrée temporaire
+est choisie, pour ne pas transformer ce choix d'exploration en dépendance du Flow.
 
-Cette entrée est éphémère, liée au workspace, au System, au nœud testé et à
-l'empreinte exacte du Flow. Une modification, un rechargement, un changement
-de contexte ou un nouveau test la rend indisponible ; les aperçus et le SQL
-périmés sont effacés. Relancer alors le test amont. Le résultat n'est jamais
-promu automatiquement en source permanente ou en preuve d'exécution publiée.
+Ce parcours ne prétend pas que les étapes éditées ont été exécutées dans le
+Run d'origine. Celui-ci prouve la provenance du dataset choisi ; l'aperçu
+évalue les étapes courantes sur un échantillon de cette version. Les contrôles
+d'accès aux datasets du workspace restent ceux des API DataOps.
+Un changement d'entrée ou de préparation efface les résultats périmés ; une
+fermeture, un rechargement ou un changement de contexte perd le choix temporaire.
+
+Le raccord **Exploiter → Atelier d'essai → Nœud** reste utilisable pour les Skills
+qui acceptent une exécution isolée. Il ne convient pas à `sav.features` : la
+recette live du 20 octobre sur `1b36e8a1` a obtenu
+`CLAIMS_COMPOSITION_FLOW_REQUIRED`, car la projection isolée ne porte pas le
+contrat de composition et le point d'entrée qui déterminent le périmètre SAV.
+Ne pas inférer une opération « file » depuis `{}`, supprimer les contrôles,
+ni modifier le brouillon utilisateur pour contourner cette condition.
 
 Ouvrir ensuite le dataset publié depuis l'inspecteur, puis le dataset scoré et
 le modèle SLA. Revenir à la file Work et poursuivre le même dossier. Ne pas

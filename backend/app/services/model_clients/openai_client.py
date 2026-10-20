@@ -63,6 +63,9 @@ class OpenAIClient(ModelClient):
             return {
                 "content": response.choices[0].message.content,
                 "model": response.model,
+                # Keep a bounded diagnostic; token counts alone do not prove
+                # truncation, including when reasoning consumes the output cap.
+                "output_truncated": getattr(response.choices[0], "finish_reason", None) == "length",
                 **({"usage": {
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
