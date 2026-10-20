@@ -20,6 +20,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import type { PendingChangesSummary } from '@app/core/workspace-switch.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { accessReasonFromError, accessStateUrl } from '@app/features/access-state/access-state.model';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from '../experience-access';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { workPageHref } from '../work/work-catalog';
@@ -3106,9 +3107,18 @@ export class ExperienceEditorComponent implements OnDestroy {
         if (generation === this.loadGeneration && this.id() === id) this.hydrate(row);
       },
       error: (err) => {
-        if (generation === this.loadGeneration && this.id() === id) {
+        if (generation !== this.loadGeneration || this.id() !== id) return;
+        // Absent, hidden (403 reads as not found) or switched off: the page
+        // says why instead of an editor with nothing in it.
+        const access = accessReasonFromError(err);
+        if (access.reason === 'unverifiable') {
           this.error.set(studioError(this.i18n, err, 'experience.editor.load_error'));
+          return;
         }
+        void this.router.navigateByUrl(
+          accessStateUrl(this.router, access.reason, { from: this.router.url, feature: access.feature }),
+          { replaceUrl: true },
+        );
       },
     });
     this.trackRoute(request);

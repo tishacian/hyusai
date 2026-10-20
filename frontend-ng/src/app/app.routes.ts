@@ -13,6 +13,7 @@ import { workspaceSwitchGuard } from './core/workspace-switch.guard';
 import { WorkspaceService } from './core/workspace.service';
 import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
 import { experienceV1Guard } from './features/experience/experience.guard';
+import { accessStateUrl } from './features/access-state/access-state.model';
 
 function workspaceSettingsRedirect() {
   const workspace = inject(WorkspaceService);
@@ -69,6 +70,16 @@ export const routes: Routes = [
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [
       { path: '', pathMatch: 'full', loadComponent: () => import('./features/layout/home-entry.component').then(m => m.HomeEntryComponent) },
+      {
+        // Why a destination is closed: feature off, role, not found, or
+        // access not verifiable (plan lot 4, PL02). Guards lead here instead
+        // of silently sending the user to /systems, /work or the home page.
+        path: 'unavailable',
+        loadComponent: () =>
+          import('./features/access-state/access-state.component').then(
+            (m) => m.AccessStateComponent,
+          ),
+      },
       {
         path: 'workspace-app-unavailable',
         loadComponent: () =>
@@ -241,5 +252,14 @@ export const routes: Routes = [
       },
     ],
   },
-  { path: '**', redirectTo: '' },
+  {
+    // An unknown address explains itself instead of landing on the home page.
+    path: '**',
+    redirectTo: ({ url }) => {
+      const router = inject(Router);
+      return accessStateUrl(router, 'not_found', {
+        from: '/' + url.map((segment) => segment.path).join('/'),
+      });
+    },
+  },
 ];
