@@ -1,5 +1,9 @@
 # Luma — préparation, Judge, événements et ML, 19 octobre 2026
 
+La [recette après déploiement du 20 octobre](luma-four-lots-qualification-2026-10-20.md)
+décrit l'état actuel, les publications suivantes et les blocages observés.
+Les résultats ci-dessous sont le relevé historique du 19 octobre.
+
 Cette activation conserve le System `f3ea83de-df89-45ec-8a85-c00d676b2713`
 et l'application `reclamations`. Les changements métier sont de la configuration
 des fonctions produit ; les corrections de stockage, de sélection shadow et

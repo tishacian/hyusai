@@ -119,10 +119,37 @@ def test_judge_receives_document_passages_and_explicit_unknown_calibration(
     assert policy["paths"] == ["/citations", "/references"]
     assert judge["tariff"]["model"] == "gpt-5"
     assert judge["budget"]["max_calls"] == 1
-    assert judge["budget"]["max_tokens"] == 40000
-    assert judge["budget"]["max_cost_usd"] == 0.07
-    assert judge["budget"]["max_output_tokens"] == 2048
+    assert judge["budget"]["max_tokens"] == 48000
+    assert judge["budget"]["max_cost_usd"] == 0.14
+    assert judge["budget"]["max_output_tokens"] == 8192
+    assert judge["budget"]["timeout_s"] == 90
     assert judge["budget"]["max_prompt_bytes"] == 32000
+
+
+def test_declared_budget_covers_the_whole_allowed_text_prompt(base, options):
+    """A prompt inside the declared byte limit must fit the initial reservation."""
+    from decimal import Decimal
+
+    from app.schemas.typed_evaluation import JudgeTariff, compile_question_schema
+    from app.services.evaluation.typed_judge import _json, _price
+
+    graph = build_flow(base["flow_definition"], **options)
+    judge = next(
+        node["config"]["typed_evaluation"]
+        for node in graph["nodes"]
+        if node["id"] == JUDGE
+    )
+    budget = judge["budget"]
+    schema = compile_question_schema(judge["questions"])
+    input_allowance = (
+        budget["max_prompt_bytes"] + len(_json(schema).encode()) + 1024
+    )
+    assert input_allowance + budget["max_output_tokens"] <= budget["max_tokens"]
+    assert _price(
+        JudgeTariff.model_validate(judge["tariff"]),
+        input_allowance,
+        budget["max_output_tokens"],
+    ) <= Decimal(str(budget["max_cost_usd"]))
 
 
 def test_preserved_draft_keeps_operator_changes_out_of_publication(base, options):

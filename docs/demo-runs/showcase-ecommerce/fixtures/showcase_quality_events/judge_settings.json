@@ -1,10 +1,10 @@
 {
   "budget": {
     "max_calls": 1,
-    "max_tokens": 40000,
-    "max_cost_usd": 0.07,
-    "max_output_tokens": 2048,
-    "timeout_s": 45,
+    "max_tokens": 48000,
+    "max_cost_usd": 0.14,
+    "max_output_tokens": 8192,
+    "timeout_s": 90,
     "max_prompt_bytes": 32000
   },
   "tariff": {

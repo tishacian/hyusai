@@ -18,7 +18,7 @@ function upstreamTestGraph(){
   task('user.draft','Préparation utilisateur inachevée',430,390,'data_prep_v1',{spec:{version:1,operation:'prepare',params:{steps:[]}},outputs:[{port:'out',name:'User draft'}],sources:[],placement:'local'}),
  ],edges:[{id:'source-to-prep',from:'sav.features',from_port:'out',to:'sav.prepare',to_port:'in',kind:'data'}]};
 }
-async function setup(page:Page,locale:'fr'|'en',options:{upstreamNodeTest?:boolean}={}){
+async function setup(page:Page,locale:'fr'|'en',options:{upstreamNodeTest?:boolean;compiledSql?:string}={}){
  let graph:any={version:3,runtime_mode:'dag_overlay',nodes:[{id:'sql-train',kind:'task',type:'skill',label:'SQL train',position:{x:700,y:70},config:{skill_slug:'sql_transform_v1',params:{sql:'SELECT * FROM input',sources:[],output_name:'Train SQL'}},inputs:[{name:'in',schema:'object'}],outputs:[{name:'out',schema:'object'}]},{id:'sql-test',kind:'task',type:'skill',label:'SQL test',position:{x:700,y:330},config:{skill_slug:'sql_transform_v1',params:{sql:'SELECT * FROM input',sources:[],output_name:'Test SQL'}},inputs:[{name:'in',schema:'object'}],outputs:[{name:'out',schema:'object'}]}],edges:[]};
  if(options.upstreamNodeTest)graph=upstreamTestGraph();
  const published=structuredClone(graph);let revision=1;const writes:Array<{path:string;body:any}>=[];
@@ -45,11 +45,11 @@ async function setup(page:Page,locale:'fr'|'en',options:{upstreamNodeTest?:boole
   if(path==='/runs/source-preview-run')return json(route,{...nodeRun,status:'completed',output_ref:{dataset_id:'source-test-dataset',row_count:23,column_count:3}});
   if(path==='/skills')return json(route,{skills:[{id:'prep-skill',slug:'data_prep_v1',name:'Data preparation',version:'1',type:'workflow',category:'Data',runtime_status:'bound',description:'Prepare datasets',input_schema:{type:'object',properties:{}},output_schema:{type:'object',properties:{out:{type:'object'}}},visibility:{visible:true,reason:'visible',capabilities:[]}}]});
   if(path==='/connectors')return json(route,{can_configure:true,connectors:[]});if(path==='/documents/collections')return json(route,{collections:[]});if(path==='/ml-models')return json(route,{models:[]});
-  if(path==='/datasets')return json(route,{datasets:options.upstreamNodeTest?[...datasets,{...datasets[0],id:'source-test-dataset',name:'Source test',row_count:23}]:datasets,feature:{enabled:true,upload_max_bytes:1<<26}});
+  if(path==='/datasets')return json(route,{datasets:options.upstreamNodeTest?[...datasets,{...datasets[0],id:'source-test-dataset',name:'Source test',version:9,row_count:23,source:'postgresql',run_id:'published-run-123',node_id:'source.reader',system_id:systemId}]:datasets,feature:{enabled:true,upload_max_bytes:1<<26}});
   if(path==='/dataops/catalog')return json(route,JSON.parse(readFileSync('e2e/fixtures/dataops-catalog.json','utf8')));
   if(path==='/dataops/validate-expression')return json(route,{valid:true,dtype:'DOUBLE',sql:request.postDataJSON().expression});
   if(path==='/dataops/preview'){const body=request.postDataJSON();return json(route,{rows:[{id:1,name:'Alice',amount:12,amount_twice:24}],schema:[...columns,{name:'amount_twice',dtype:'DOUBLE',kind:'float'}],stats:{},sample:true,sample_info:{rows:10000,of_rows:2000000,version:{in:'sample-v3'}},step_schemas:(body.spec.params.steps??[]).map((step:any,index:number)=>({id:step.id,index,enabled:step.enabled,schema:columns,schema_diff:{added:step.kind==='formula'?['amount_twice']:[],removed:[],changed:[]}})),warnings:[],counters:{inputs:{in:10000},outputs:{out:9250}},duration_ms:14});}
-  if(path==='/dataops/compile')return json(route,{sql:'SELECT * FROM "in"',sql_export:'SELECT * FROM input',sql_export_allowed:true,fingerprint:hash,schema:columns,columns:columns.map(col=>col.name),ports:['in']});
+  if(path==='/dataops/compile')return json(route,{sql:options.compiledSql??'SELECT * FROM "in"',sql_export:'SELECT * FROM input',sql_export_allowed:true,fingerprint:hash,schema:columns,columns:columns.map(col=>col.name),ports:['in']});
   return json(route,{});
  });
  return {writes,graph:()=>graph,node:(operation:string)=>graph.nodes.find((node:any)=>node.config?.params?.spec?.operation===operation)};
@@ -61,6 +61,104 @@ async function connect(page:Page,sourceId:string,sourcePort:string,targetId:stri
 }
 test.describe('Data preparation workshops — isolated mocked QA',()=>{
  test.beforeEach(async({},info)=>{test.skip(process.env['E2E_CHROME_V2_MOCKED']!=='1'||!['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname),'Local mocked QA only.');});
+ for(const locale of ['fr','en'] as const)test(`${locale}: compiled SQL fills an opaque scrollable dialog above table headers`,async({page},info)=>{
+  await page.setViewportSize({width:1440,height:1000});
+  const sql=['-- '+Array(80).fill('wide SQL expression').join(' '),...Array.from({length:80},(_,i)=>`SELECT ${i} AS step FROM "in"${i<79?' UNION ALL':';'}`)].join('\n');
+  const api=await setup(page,locale,{upstreamNodeTest:true,compiledSql:sql}),original=structuredClone(api.graph());
+  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await expect(page.locator('app-flow-node')).toHaveCount(3);
+  await page.locator('app-flow-node').filter({hasText:'Préparation SAV'}).click();
+  await page.getByTestId('open-prep-workshop').click();
+  const workshop=page.locator('app-flow-data-prep-workshop');
+  await workshop.getByTestId('prep-preview-input-in').selectOption('source-test-dataset');
+  await workshop.getByTestId('prep-preview').click();
+  await expect(workshop.locator('ck-data-table')).toContainText('Alice');
+  await workshop.getByTestId('prep-sql').click();
+  const dialog=workshop.getByTestId('prep-sql-result'),close=dialog.getByRole('button',{name:locale==='fr'?'Fermer':'Close',exact:true});
+  await expect(dialog).toHaveAttribute('role','dialog');
+  await expect(dialog.getByRole('heading',{name:locale==='fr'?'SQL compilé':'Compiled SQL',exact:true})).toBeVisible();
+  await expect(dialog.locator('.cm-content')).toHaveAttribute('contenteditable','false');
+  const boxes=await dialog.evaluate(el=>{
+   const box=(target:Element)=>{const b=target.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height};};
+   return {dialog:box(el),editor:box(el.querySelector('ck-code-editor')!),close:box(el.querySelector('button')!)};
+  });
+  expect(boxes.editor.height).toBeGreaterThan(500);
+  expect(boxes.editor.height/boxes.dialog.height).toBeGreaterThan(.8);
+  expect(boxes.close.x).toBeGreaterThan(boxes.dialog.x+boxes.dialog.width-120);
+  expect(boxes.close.y).toBeLessThan(boxes.dialog.y+70);
+  const tableHeader=workshop.locator('ck-data-table th').nth(1);
+  const covered=await tableHeader.evaluate(el=>{
+   const b=el.getBoundingClientRect();
+   return !!document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)?.closest('[data-testid="prep-sql-result"]');
+  });
+  expect(covered,'table header must not paint or receive pointer events above the dialog').toBe(true);
+  const scroller=dialog.locator('.cm-scroller');
+  await expect.poll(()=>scroller.evaluate(el=>el.scrollHeight>el.clientHeight&&el.scrollWidth>el.clientWidth)).toBe(true);
+  await scroller.evaluate(el=>{el.scrollTop=250;el.scrollLeft=250;});
+  expect(await scroller.evaluate(el=>el.scrollTop)).toBeGreaterThan(0);
+  expect(await scroller.evaluate(el=>el.scrollLeft)).toBeGreaterThan(0);
+  await scroller.evaluate(el=>{el.scrollTop=0;el.scrollLeft=0;});
+  await workshop.screenshot({path:info.outputPath(`compiled-sql-${locale}.png`)});
+  await close.focus();await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(workshop).toBeVisible();
+  await expect(workshop.getByTestId('prep-sql')).toBeFocused();
+  await workshop.getByTestId('close-prep-workshop').click();
+  await page.waitForTimeout(1500);
+  expect(api.graph()).toEqual(original);
+  expect(api.writes.filter(write=>/\/flow-draft$|\/publish$|\/node-runs$|\/executions$/.test(write.path))).toHaveLength(0);
+ });
+ for(const locale of ['fr','en'] as const)test(`${locale}: preview an existing Run dataset without changing the Flow or its pins`,async({page},info)=>{
+  await page.setViewportSize({width:1440,height:1000});
+  const api=await setup(page,locale,{upstreamNodeTest:true}),original=structuredClone(api.graph());
+  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await expect(page.locator('app-flow-node')).toHaveCount(3);
+  await page.locator('app-flow-node').filter({hasText:'Préparation SAV'}).click();
+  await page.getByTestId('open-prep-workshop').click();
+  const workshop=page.locator('app-flow-data-prep-workshop'),select=workshop.getByTestId('prep-preview-input-in');
+  await expect(workshop.getByTestId('prep-preview')).toBeDisabled();
+  await expect(workshop.getByTestId('prep-sql')).toBeDisabled();
+  await expect(workshop.getByTestId('prep-preview-sources')).toHaveAttribute('open','');
+  await select.selectOption('source-test-dataset');
+  await expect(workshop.getByTestId('prep-preview-provenance')).toContainText('Source test · v9');
+  await expect(workshop.getByTestId('prep-preview-provenance').getByRole('link')).toHaveAttribute('href',/\/runs\/published-run-123/);
+  await expect(workshop.getByTestId('prep-input-in')).toHaveValue('');
+  await expect(workshop.getByTestId('prep-convert-sql')).toBeDisabled();
+  await workshop.getByTestId('prep-preview').click();
+  await expect(workshop.locator('ck-data-table')).toContainText('Alice');
+  expect(api.writes.find(write=>write.path==='/dataops/preview')!.body.inputs).toEqual({in:{dataset_id:'source-test-dataset'}});
+  await workshop.getByTestId('prep-sql').click();
+  await expect(workshop.getByTestId('prep-sql-result')).toBeVisible();
+  expect(api.writes.find(write=>write.path==='/dataops/compile')!.body.inputs).toEqual({in:{dataset_id:'source-test-dataset'}});
+  await workshop.getByTestId('prep-sql-result').getByRole('button',{name:locale==='fr'?'Fermer':'Close',exact:true}).click();
+  await workshop.screenshot({path:info.outputPath(`temporary-preview-${locale}.png`)});
+  // A changed sample source invalidates rows and SQL immediately. A response
+  // from the former source must not repopulate the new selection.
+  await select.selectOption('customers-v3');
+  await expect(workshop.locator('ck-data-table')).toHaveCount(0);
+  let release!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  let observed!:()=>void;
+  const received=new Promise<void>(resolve=>{observed=resolve;});
+  await page.route('**/api/v1/dataops/preview',async route=>{
+   observed();await gate;
+   await route.fulfill({contentType:'application/json',body:JSON.stringify({rows:[{name:'stale row'}],schema:columns,sample:true})});
+  });
+  await workshop.getByTestId('prep-preview').click();await received;
+  await select.selectOption('segments-v2');release();
+  await expect(workshop.getByTestId('prep-preview')).toBeEnabled();
+  await expect(workshop.locator('ck-data-table')).toHaveCount(0);
+  await select.selectOption('');
+  await expect(workshop.getByTestId('prep-preview')).toBeDisabled();
+  await workshop.getByTestId('close-prep-workshop').click();
+  await page.getByTestId('open-prep-workshop').click();
+  await expect(select).toHaveValue('');
+  await expect(workshop.getByTestId('prep-input-in')).toHaveValue('');
+  await workshop.getByTestId('close-prep-workshop').click();
+  await page.waitForTimeout(1500);
+  expect(api.graph()).toEqual(original);
+  expect(api.writes.filter(write=>/\/flow-draft$|\/publish$|\/node-runs$|\/executions$/.test(write.path))).toHaveLength(0);
+ });
  for(const locale of ['fr','en'] as const)test(`${locale}: isolated source test feeds the visual workshop without pinning or saving the user draft`,async({page},info)=>{
   await page.setViewportSize({width:1600,height:1100});
   const api=await setup(page,locale,{upstreamNodeTest:true}),original=structuredClone(api.graph());
@@ -116,9 +214,8 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
    await workshop.locator('.dp-step-name').first().click();
    await workshop.getByTestId('prep-step-comment').fill('Modification volontaire après le test');
    await expect(workshop.locator('ck-data-table')).toHaveCount(0);
-   await expect(workshop.locator('.dp-workshop-inputs')).toContainText('Entrée indisponible');
-   await workshop.getByTestId('prep-preview').click();
-   await expect(workshop.getByTestId('prep-error')).toBeVisible();
+   await expect(workshop.locator('.dp-workshop-inputs')).toContainText('Entrée du Flow indisponible');
+   await expect(workshop.getByTestId('prep-preview')).toBeDisabled();
    expect(api.writes.filter(write=>write.path==='/dataops/preview')).toHaveLength(count);
    expect(api.writes.filter(write=>/\/flow-draft$|\/publish$/.test(write.path))).toHaveLength(0);
   }

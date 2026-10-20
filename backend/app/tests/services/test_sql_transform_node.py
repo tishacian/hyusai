@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -147,6 +148,82 @@ async def test_the_wrapper_settles_a_transform_and_returns_a_dataset_envelope(
     row = db_session.query(TabularDataset).filter_by(id=result["dataset_id"]).one()
     assert row.run_id == "run-7" and row.node_id == "node-sql"
     assert row.parent_ids == [upstream.id]
+
+
+@pytest.mark.asyncio
+async def test_forecast_envelope_combines_with_history_without_reading_model_as_dataset(
+    db_session, workspace, store
+):
+    from app.services.tabular_datasets import dataset_reference, read_frame, register_frame
+
+    anchor = datetime(2026, 1, 1, tzinfo=UTC)
+    history = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Demand history",
+        frame=pl.DataFrame({
+            "observed_at": [anchor + timedelta(days=day) for day in range(50)],
+            "demand": [20.0 + day % 7 for day in range(50)],
+        }),
+        source="upload",
+    )
+    forecast = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Demand forecast",
+        frame=pl.DataFrame({
+            "timestamp": [anchor + timedelta(days=day) for day in range(50, 78)],
+            "pred": [22.0] * 28,
+            "lower_bound": [18.0] * 28,
+            "upper_bound": [26.0] * 28,
+        }),
+        source="upload",
+    )
+    db_session.commit()
+    result = await _sql_transform_v1(
+        {
+            **dataset_reference(forecast),
+            "model": {
+                "model_id": str(uuid4()),
+                "slug": "demand-forecast-model",
+                "version": 2,
+                "task": "forecasting",
+                "algo": "linear",
+                "target": "demand",
+            },
+            "forecast": {"horizon": 28, "frequency": "D", "series": 1},
+            "_transform": {
+                "sql": """
+                    WITH recent AS (
+                        SELECT observed_at AS timestamp, demand AS actual
+                        FROM input_1 ORDER BY observed_at DESC LIMIT 42
+                    ), timeline AS (
+                        SELECT timestamp, actual, NULL::DOUBLE AS pred,
+                               NULL::DOUBLE AS lower_bound, NULL::DOUBLE AS upper_bound
+                        FROM recent
+                        UNION ALL
+                        SELECT timestamp, NULL::DOUBLE, pred, lower_bound, upper_bound
+                        FROM input_2
+                    )
+                    SELECT * FROM timeline ORDER BY timestamp
+                """,
+                "output_name": "Demand timeline",
+                "sources": [{"view": "history", "dataset_id": history.id}],
+                "node_id": "forecast.timeline",
+            },
+        },
+        {"workspace_id": workspace.id, "run_id": "forecast-to-sql"},
+    )
+    output = db_session.query(TabularDataset).filter_by(id=result["dataset_id"]).one()
+    assert output.parent_ids == [history.id, forecast.id]
+    frame = read_frame(output)
+    assert frame.height == result["rows"] == 70
+    assert frame["actual"].count() == 42
+    assert frame["pred"].count() == 28
+    assert frame["lower_bound"].drop_nulls().to_list() == [18.0] * 28
+    assert frame["upper_bound"].drop_nulls().to_list() == [26.0] * 28
+    assert frame["timestamp"][0] == anchor + timedelta(days=8)
+    assert frame["timestamp"][-1] == anchor + timedelta(days=77)
 
 
 @pytest.mark.asyncio

@@ -48,6 +48,18 @@ class TypedEvaluationError(ValueError):
         super().__init__(code)
 
 
+class _ResponseValidationError(TypedEvaluationError):
+    """Only fixed failure categories and positions in the declared rubric."""
+
+    def __init__(self, category, *, question_index=None, citation_index=None):
+        super().__init__("JUDGE_RESPONSE_INVALID")
+        self.diagnostic = {"category": category}
+        if question_index is not None:
+            self.diagnostic["question_index"] = question_index
+        if citation_index is not None:
+            self.diagnostic["citation_index"] = citation_index
+
+
 def _json(value: Any) -> str:
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
@@ -433,30 +445,45 @@ def _parse(completion, spec, schema):
         return value
 
     if not isinstance(completion, str) or len(completion.encode()) > 128000:
-        raise TypedEvaluationError("JUDGE_RESPONSE_INVALID")
+        raise _ResponseValidationError("response_size_or_type")
     try:
         parsed = json.loads(
             completion, parse_constant=reject_constant, object_pairs_hook=distinct_pairs
         )
-        Draft202012Validator(schema).validate(parsed)
+    except (ValueError, TypeError, RecursionError):
+        raise _ResponseValidationError("json") from None
+    try:
+        schema_error = next(Draft202012Validator(schema).iter_errors(parsed), None)
+        if schema_error is not None:
+            # A validator path/message can contain provider-controlled keys or
+            # values. Never copy it; retain only an index in the frozen rubric.
+            path = list(schema_error.absolute_path)
+            question_index = None
+            if len(path) >= 2 and path[0] == "answers":
+                question_index = next(
+                    (index for index, question in enumerate(spec.questions) if question.key == path[1]),
+                    None,
+                )
+            raise _ResponseValidationError("schema", question_index=question_index)
         evidence = {item.id: item for item in spec.evidence}
-        for question in spec.questions:
+        for question_index, question in enumerate(spec.questions):
             answer = parsed["answers"][question.key]
             if answer["status"] == "abstained":
                 if answer["value"] is not None or answer["reason"] is None:
-                    raise ValueError("Invalid abstention")
+                    raise _ResponseValidationError("abstention", question_index=question_index)
             elif answer["value"] is None or answer["reason"] is not None:
-                raise ValueError("Invalid answer")
+                raise _ResponseValidationError("answer_state", question_index=question_index)
             if (
                 question.requires_evidence
                 and answer["status"] == "answered"
                 and not answer["evidence"]
             ):
-                raise ValueError("Missing evidence")
-            for citation in answer["evidence"]:
+                raise _ResponseValidationError("evidence_required", question_index=question_index)
+            for citation_index, citation in enumerate(answer["evidence"]):
+                position = {"question_index": question_index, "citation_index": citation_index}
                 source = evidence.get(citation["evidence_id"])
                 if source is None:
-                    raise ValueError("Evidence outside authorized scope")
+                    raise _ResponseValidationError("evidence_scope", **position)
                 if citation.get("kind") == "image":
                     region = citation["region"]
                     if (
@@ -465,22 +492,22 @@ def _parse(completion, spec, schema):
                         or region is not None
                         and not (region[0] < region[2] and region[1] < region[3])
                     ):
-                        raise ValueError("Invalid image citation")
+                        raise _ResponseValidationError("image_citation", **position)
                     continue
                 if source.kind != "text":
-                    raise ValueError("Invalid text citation")
+                    raise _ResponseValidationError("evidence_kind", **position)
                 start, end = citation["start"], citation["end"]
-                if (
-                    not 0 <= start < end <= len(source.text)
-                    or source.text[start:end] != citation["quote"]
-                ):
-                    raise ValueError("Invalid evidence span")
+                if not 0 <= start < end <= len(source.text):
+                    raise _ResponseValidationError("evidence_span", **position)
+                if source.text[start:end] != citation["quote"]:
+                    raise _ResponseValidationError("evidence_quote", **position)
             answer["confidence"] = None
         return parsed["answers"]
-    except Exception as exc:
-        # Never persist a provider's raw completion or validator message; those
-        # can contain sensitive excerpts. The fixed code suffices for recovery.
-        raise TypedEvaluationError("JUDGE_RESPONSE_INVALID") from exc
+    except _ResponseValidationError:
+        raise
+    except Exception:
+        # Never persist a provider's raw completion or validator message.
+        raise _ResponseValidationError("validation") from None
 
 
 def _quality(spec, answers):
@@ -859,6 +886,7 @@ async def _evaluate(db, spec, ctx):
 
     local_ctx["_model_before_dispatch"] = reserve
     reason = None
+    response_diagnostic = None
     cancelled = False
     try:
         output = await asyncio.wait_for(
@@ -881,6 +909,8 @@ async def _evaluate(db, spec, ctx):
             raise TypedEvaluationError("JUDGE_VISION_RETURNED_MODEL_UNMEASURED")
         if route and output.get("model") != route["returned_model"]:
             raise TypedEvaluationError("JUDGE_VISION_RETURNED_MODEL_CHANGED")
+        if output.get("output_truncated") is True:
+            raise TypedEvaluationError("JUDGE_OUTPUT_TRUNCATED")
         answers = _parse(output.get("completion"), spec, schema)
         status = (
             "completed" if all(a["status"] == "answered" for a in answers.values()) else "partial"
@@ -889,6 +919,8 @@ async def _evaluate(db, spec, ctx):
         cancelled, reason, status = True, "JUDGE_CANCELLED", "failed"
         answers = _unanswered(spec, reason, invalid=True)
     except Exception as exc:
+        if isinstance(exc, _ResponseValidationError):
+            response_diagnostic = exc.diagnostic
         reason = (
             exc.code
             if isinstance(exc, (TypedEvaluationError, window_budget.GovernanceError))
@@ -916,6 +948,8 @@ async def _evaluate(db, spec, ctx):
         model=local_ctx.get("_model_execution_evidence", execution.public()),
         examined=len(spec.evidence) if status != "failed" else 0,
     )
+    if response_diagnostic is not None:
+        result["response_diagnostic"] = response_diagnostic
     # A late revocation prevents returning content but never rolls back usage.
     authorization_error = None
     try:

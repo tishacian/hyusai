@@ -23,6 +23,33 @@ exige des documents, deux annotateurs indépendants (et un troisième en cas de
 désaccord) et une connexion réellement configurée. Les chemins OpenAI/Azure
 testés ne démontrent pas la compatibilité ou la qualification Gemini/OpenRouter.
 
+## Diagnostiquer un résultat inexploitable
+
+Une invocation terminée peut contenir une évaluation `failed`, avec zéro
+question évaluée. Contrôler le résultat métier, sa couverture et son coût avant
+de présenter le Judge comme qualifié.
+
+`JUDGE_OUTPUT_TRUNCATED` signifie que le transport OpenAI/Azure a reçu
+explicitement `finish_reason=length`. Atteindre le plafond numérique de tokens
+ne suffit pas à produire ce diagnostic. Les compteurs et le coût connus restent
+enregistrés ; une sortie partielle n'est pas acceptée même si son JSON paraît
+valide.
+
+`JUDGE_RESPONSE_INVALID` conserve ce code compatible et ajoute un
+`response_diagnostic` borné à une catégorie : `response_size_or_type`, `json`,
+`schema`, `abstention`, `answer_state`, `evidence_required`, `evidence_scope`,
+`image_citation`, `evidence_kind`, `evidence_span`, `evidence_quote` ou
+`validation`. Quand le contrôle connaît leur position, `question_index` et
+`citation_index` désignent des indices à partir de zéro dans la rubrique et
+les citations de la réponse. Aucun chemin dynamique, identifiant renvoyé par
+le fournisseur, extrait, réponse brute ou message du validateur n'est conservé
+dans ce diagnostic.
+
+Une citation hors périmètre, un intervalle invalide ou un extrait différent
+du texte autorisé reste refusé. Le diagnostic ne répare pas la réponse et ne
+change pas les règles de validation. Les échecs anciens, enregistrés avant ce
+diagnostic, ne permettent pas de reconstruire leur réponse fournisseur.
+
 ## Preuves A1 et découpage
 
 Chaque unité est un actif immuable autorisé du workspace. Son manifeste porte

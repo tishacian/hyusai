@@ -33,9 +33,10 @@ import re
 import tempfile
 import threading
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -246,7 +247,13 @@ def _dataset_refs_in(payload: Any) -> list[Any]:
             if key.startswith("_"):
                 continue
             if isinstance(value, dict) and (
-                value.get("dataset_id") or value.get("slug") or value.get("dataset_slug")
+                value.get("dataset_id")
+                or value.get("dataset_slug")
+                # Forecast/scoring envelopes include model provenance alongside
+                # the dataset. Its slug names a model, not another SQL source.
+                # Keep legacy slug-only dataset references and do not infer the
+                # type from the caller's chosen field name.
+                or (value.get("slug") and not value.get("model_id"))
             ):
                 refs.append(value)
             elif isinstance(value, list):

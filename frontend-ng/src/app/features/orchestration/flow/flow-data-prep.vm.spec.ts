@@ -3,11 +3,25 @@ import { test } from 'node:test';
 import type { CanonicalFlow, CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { Skill } from '@app/core/canonical-api.service';
 import { newPrepDraft, prepDraftFromNode, prepNodePatch, canonicalPrepParams } from '@app/features/data/dataops.models';
-import { editablePrepDraft, newPrepStep, PrepHistory, prepInputStates, saltedPrep, prepPinnedEdges, prepPreviewOutputRows, prepOperationParams } from './flow-data-prep.vm';
+import { editablePrepDraft, newPrepStep, PrepHistory, prepInputStates, prepPreviewInputs, saltedPrep, prepPinnedEdges, prepPreviewOutputRows, prepOperationParams, type PrepInputState } from './flow-data-prep.vm';
 import { skillToPaletteItems, paletteItemToNode } from './flow.types';
 import { readNodeRunData } from './flow-node-run.vm';
 const skill={id:'dp',slug:'data_prep_v1',name:'Prepare data',runtime_status:'bound',input_schema:{},output_schema:{type:'object',properties:{out:{type:'object'}}}} as unknown as Skill;
 function node(operation='prepare'):CanonicalFlowNode{return {...paletteItemToNode(skillToPaletteItems(skill).find(item=>item.key==='data_prep_v1#'+operation)!),id:operation} as CanonicalFlowNode;}
+
+test('temporary preview datasets are explicit, ready, scoped to known datasets and never mutate pins',()=>{
+ const inputs:PrepInputState[]=[{port:'left',origin:'pin',ref:{dataset_id:'authored-v2'}},{port:'right',origin:'unavailable'}];
+ const original=structuredClone(inputs),datasets=[{id:'run-v9',status:'ready'},{id:'pending',status:'pending'}];
+ assert.deepEqual(prepPreviewInputs(inputs,{right:'run-v9'},datasets),[original[0],{port:'right',origin:'preview',ref:{dataset_id:'run-v9'}}]);
+ assert.deepEqual(inputs,original);
+ for(const id of ['pending','unknown','other-workspace']){
+  assert.deepEqual(prepPreviewInputs(inputs,{left:id},datasets)[0],{port:'left',origin:'unavailable'});
+ }
+ // Clearing the temporary choice restores the authored source; it is never
+ // promoted to a pin, even if a formerly valid choice has disappeared.
+ assert.deepEqual(prepPreviewInputs(inputs,{},datasets),original);
+ assert.deepEqual(prepPreviewInputs(inputs,{right:'run-v9'},[])[1],{port:'right',origin:'unavailable'});
+});
 
 test('one skill yields seven distinct palette identities and correct persisted ports',()=>{
  const items=skillToPaletteItems(skill);assert.equal(items.length,7);assert.equal(new Set(items.map(item=>item.key)).size,7);assert.ok(!items.some(item=>item.key?.endsWith('#pivot')));

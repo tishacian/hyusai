@@ -586,6 +586,11 @@ async def _complete_once(
         "completion": completion,
         "model": returned_model,
         "returned_model_reported": returned_model_reported,
+        **(
+            {"output_truncated": True}
+            if isinstance(result, dict) and result.get("output_truncated") is True
+            else {}
+        ),
         **({"streamed": True} if callable(sink) else {}),
     }
 

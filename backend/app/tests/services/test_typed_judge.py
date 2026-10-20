@@ -193,25 +193,124 @@ async def test_abstention_is_not_converted_to_zero_or_second_choice(payload, con
     assert result["status"] == "partial" and result["coverage"]["questions_answered"] == 4
 
 
-@pytest.mark.parametrize("change", [
-    lambda answer: answer.update(value="invented"),
-    lambda answer: answer.update(evidence=[]),
-    lambda answer: answer["evidence"][0].update(evidence_id="another-workspace"),
-    lambda answer: answer["evidence"][0].update(quote="Fabricated quote"),
-    lambda answer: answer.update(status="abstained", reason=None),
+@pytest.mark.parametrize("finish_reason", ["length", "stop", None])
+async def test_provider_truncation_is_explicit_and_retains_cost_and_usage(
+    payload, context, monkeypatch, db_session, finish_reason
+):
+    from app.services.model_clients.openai_client import OpenAIClient
+
+    context["_model_execution"] = ModelExecution(
+        "openai", "judge-test", "workspace", "workspace", _api_key="mock-only"
+    )
+    requests = []
+    output_limit = TypedEvaluationInput.model_validate(payload).budget.max_output_tokens
+
+    async def create(**request):
+        requests.append(request)
+        # Even a syntactically valid partial object is not a complete judgment
+        # when the provider explicitly reports truncation.
+        return SimpleNamespace(
+            model="judge-test",
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=json.dumps(answers(payload))),
+                finish_reason=finish_reason,
+            )],
+            usage=SimpleNamespace(
+                prompt_tokens=120,
+                completion_tokens=output_limit,
+                total_tokens=120 + output_limit,
+            ),
+        )
+
+    monkeypatch.setattr(
+        OpenAIClient, "_sdk_client",
+        lambda self: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+    )
+    result = await judge.typed_evaluate(payload, context)
+    assert len(requests) == 1
+    assert result["usage"]["total_tokens"] == 120 + output_limit
+    assert result["usage"]["provider_calls"] == 1
+    assert result["cost"]["amount"] == pytest.approx((120 + 2 * output_limit) / 1_000_000)
+    assert result["disposition"] == "review"
+    assert job(db_session).result["charged_tokens"] == 120 + output_limit
+    if finish_reason == "length":
+        assert result["status"] == "failed"
+        assert result["reason"] == "JUDGE_OUTPUT_TRUNCATED"
+        assert result["coverage"]["questions_answered"] == 0
+        assert all(answer["value"] is None for answer in result["answers"].values())
+    else:
+        # Reaching the numerical cap does not imply truncation without the
+        # provider's signal. Existing answer/citation validation still applies.
+        assert result["status"] == "completed"
+        assert result["coverage"]["questions_answered"] == len(payload["questions"])
+
+
+@pytest.mark.parametrize("change, diagnostic", [
+    (lambda answer: answer.update(value="invented"),
+     {"category": "schema", "question_index": 1}),
+    (lambda answer: answer.update(evidence=[]),
+     {"category": "evidence_required", "question_index": 1}),
+    (lambda answer: answer["evidence"][0].update(evidence_id="another-workspace"),
+     {"category": "evidence_scope", "question_index": 1, "citation_index": 0}),
+    (lambda answer: answer["evidence"][0].update(quote="Fabricated quote"),
+     {"category": "evidence_quote", "question_index": 1, "citation_index": 0}),
+    (lambda answer: answer["evidence"][0].update(end=10000),
+     {"category": "evidence_span", "question_index": 1, "citation_index": 0}),
+    (lambda answer: answer.update(status="abstained", reason=None),
+     {"category": "abstention", "question_index": 1}),
 ])
-async def test_invalid_answers_and_fabricated_evidence_never_route(payload, context, provider, change):
+async def test_invalid_answers_and_fabricated_evidence_never_route(
+    payload, context, provider, change, diagnostic, db_session
+):
     change(provider.response["answers"]["category"])
     result = await judge.typed_evaluate(payload, context)
     assert result["status"] == "failed" and result["reason"] == "JUDGE_RESPONSE_INVALID"
+    assert result["response_diagnostic"] == diagnostic
     assert all(answer["value"] is None for answer in result["answers"].values())
     assert result["disposition"] == "review" and result["cost"]["amount"] > 0
+    assert result["usage"]["total_tokens"] == 200
+    assert result["coverage"]["questions_answered"] == 0
+    score = db_session.get(EvaluationScore, result["evaluation_id"])
+    assert score.metadata_["typed_evaluation"]["response_diagnostic"] == diagnostic
+    assert all(
+        marker not in json.dumps(result)
+        for marker in ("invented", "another-workspace", "Fabricated quote")
+    )
 
 
 async def test_json_duplicate_keys_and_nonfinite_values_fail(payload, context, provider):
     provider.response = '{"answers": {}, "answers": {"x": NaN}}'
     result = await judge.typed_evaluate(payload, context)
     assert result["status"] == "failed" and result["reason"] == "JUDGE_RESPONSE_INVALID"
+    assert result["response_diagnostic"] == {"category": "json"}
+
+
+async def test_deep_json_below_response_size_limit_fails_as_invalid_json(
+    payload, context, provider
+):
+    provider.response = "[" * 10000 + "0" + "]" * 10000
+    assert len(provider.response.encode()) < 128000
+    result = await judge.typed_evaluate(payload, context)
+    assert result["status"] == "failed" and result["reason"] == "JUDGE_RESPONSE_INVALID"
+    assert result["response_diagnostic"] == {"category": "json"}
+    assert result["coverage"]["questions_answered"] == 0
+    assert result["usage"]["provider_calls"] == 1
+    assert result["cost"]["amount"] == pytest.approx(.00028)
+
+
+async def test_schema_diagnostic_does_not_retain_provider_keys_or_validator_text(
+    payload, context, provider, db_session
+):
+    marker = "provider-private-key-with-sensitive-value"
+    provider.response["answers"][marker] = {"private": marker}
+    result = await judge.typed_evaluate(payload, context)
+    assert result["status"] == "failed" and result["reason"] == "JUDGE_RESPONSE_INVALID"
+    assert result["response_diagnostic"] == {"category": "schema"}
+    assert marker not in json.dumps(result)
+    score = db_session.get(EvaluationScore, result["evaluation_id"])
+    assert marker not in json.dumps(score.metadata_)
+    assert result["usage"]["provider_calls"] == 1
+    assert result["cost"]["amount"] == pytest.approx(.00028)
 
 
 async def test_retry_reuses_result_without_double_counting_usage(payload, context, provider, db_session):
