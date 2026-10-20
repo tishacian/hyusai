@@ -124,27 +124,39 @@ async def test_questions_are_asked_independently_with_more_than_two_choices(payl
     Draft202012Validator(compile_typed_output_schema(payload["questions"])).validate(result)
 
 
+@pytest.mark.parametrize(
+    ("provider_name", "model", "api_version", "effort"),
+    [
+        ("openai", "gpt-5", None, "minimal"),
+        ("openai", "gpt-5-2025-08-07", None, "low"),
+        ("azure_openai", "gpt-5-mini", "2025-04-01-preview", "minimal"),
+    ],
+)
 async def test_openai_receives_complete_strict_schema_with_typed_image_citations(
-    payload, context, monkeypatch
+    payload, context, monkeypatch, db_session, provider_name, model, api_version, effort
 ):
+    from app.core.config import settings
+    from app.services.model_clients.azure_openai_client import AzureOpenAIClient
     from app.services.model_clients.openai_client import OpenAIClient
 
-    payload["tariff"]["model"] = "gpt-5"
+    monkeypatch.setattr(settings, "openai_reasoning_effort", effort)
+    payload["tariff"].update(provider=provider_name, model=model)
     context["_model_execution"] = ModelExecution(
-        "openai", "gpt-5", "workspace", "workspace", _api_key="mock-only"
+        provider_name, model, "workspace", "workspace", _api_key="mock-only",
+        _api_version=api_version, _endpoint="https://mock.openai.azure.com",
     )
     requests = []
 
     async def create(**request):
         requests.append(request)
         return SimpleNamespace(
-            model="gpt-5",
+            model=model,
             choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(answers(payload))))],
             usage=SimpleNamespace(prompt_tokens=120, completion_tokens=80, total_tokens=200),
         )
 
     monkeypatch.setattr(
-        OpenAIClient, "_sdk_client",
+        AzureOpenAIClient if provider_name == "azure_openai" else OpenAIClient, "_sdk_client",
         lambda self: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
     )
     result = await judge.typed_evaluate(payload, context)
@@ -152,6 +164,16 @@ async def test_openai_receives_complete_strict_schema_with_typed_image_citations
     request = requests[0]
     assert "max_tokens" not in request and "temperature" not in request
     assert request["max_completion_tokens"] == TypedEvaluationInput.model_validate(payload).budget.max_output_tokens
+    assert request["reasoning_effort"] == effort
+    assert result["generation_contract"]["parameters"] == {
+        "max_tokens": request["max_completion_tokens"], "reasoning_effort": effort,
+    }
+    assert result["generation_contract"]["prompt_sha256"] == hashlib.sha256(
+        request["messages"][0]["content"].encode()
+    ).hexdigest()
+    assert db_session.get(EvaluationScore, result["evaluation_id"]).metadata_[
+        "typed_evaluation"
+    ]["generation_contract"] == result["generation_contract"]
     assert request["response_format"]["type"] == "json_schema"
     response_format = request["response_format"]["json_schema"]
     assert response_format["strict"] is True
@@ -182,6 +204,76 @@ async def test_openai_receives_complete_strict_schema_with_typed_image_citations
         assert not validator.is_valid({**citation, "kind": "text"})
         assert not validator.is_valid({key: value for key, value in citation.items() if key != "kind"})
         assert not validator.is_valid({**citation, "unexpected": True})
+
+
+@pytest.mark.parametrize(
+    ("provider_name", "model", "api_version", "supported"),
+    [
+        ("openai", "gpt-5-nano", None, True),
+        ("openai", "gpt-5-mini-2025-08-07", None, True),
+        ("openai", "gpt-5-chat-latest", None, False),
+        ("openai", "gpt-4o", None, False),
+        ("openai", "o3", None, False),
+        ("openai", "gpt-5-pro", None, False),
+        ("azure_openai", "judge-production", "2025-04-01-preview", False),
+        ("azure_openai", "gpt-5", "2024-02-01", False),
+        ("azure_openai", "gpt-5", None, False),
+        ("azure_openai", "gpt-5", "unknown", False),
+        ("azure_openai", "gpt-5-2025-08-07", "2025-04-01-preview", True),
+        ("ollama", "gpt-5", None, False),
+        ("huggingface", "gpt-5", None, False),
+    ],
+)
+def test_reasoning_effort_requires_recognized_model_and_transport(
+    payload, monkeypatch, provider_name, model, api_version, supported
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "high")
+    parameters = judge._generation_parameters(
+        ModelExecution(provider_name, model, "workspace", "workspace", _api_version=api_version),
+        TypedEvaluationInput.model_validate(payload),
+    )
+    assert parameters["max_tokens"] == 2048
+    assert parameters.get("reasoning_effort") == ("high" if supported else None)
+
+
+async def test_invalid_supported_reasoning_setting_refuses_before_a_call(
+    payload, context, provider, monkeypatch, db_session
+):
+    from app.core.config import settings
+
+    payload["tariff"]["model"] = "gpt-5"
+    context["_model_execution"] = ModelExecution("openai", "gpt-5", "workspace", "workspace")
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "private-invalid-config-value")
+    with pytest.raises(judge.TypedEvaluationError) as caught:
+        await judge.typed_evaluate(payload, context)
+    assert str(caught.value) == "JUDGE_GENERATION_SETTINGS_INVALID"
+    assert not provider.calls
+    assert db_session.query(EvaluationScore).count() == 0
+
+
+async def test_generation_trace_is_fixed_before_dispatch_even_when_reply_is_invalid(
+    payload, context, provider, monkeypatch, db_session
+):
+    from app.core.config import settings
+
+    payload["tariff"]["model"] = "gpt-5"
+    context["_model_execution"] = ModelExecution("openai", "gpt-5", "workspace", "workspace")
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "minimal")
+    context["_model_before_dispatch"] = lambda *_: monkeypatch.setattr(
+        settings, "openai_reasoning_effort", "high"
+    )
+    provider.response = "invalid-provider-response"
+    result = await judge.typed_evaluate(payload, context)
+    assert result["reason"] == "JUDGE_RESPONSE_INVALID"
+    assert provider.calls[0]["options"]["reasoning_effort"] == "minimal"
+    assert result["generation_contract"]["parameters"]["reasoning_effort"] == "minimal"
+    assert result["usage"]["provider_calls"] == 1
+    assert result["cost"]["amount"] == pytest.approx(.00028)
+    assert db_session.get(EvaluationScore, result["evaluation_id"]).metadata_[
+        "typed_evaluation"
+    ]["generation_contract"] == result["generation_contract"]
 
 
 async def test_abstention_is_not_converted_to_zero_or_second_choice(payload, context, provider):
@@ -326,6 +418,48 @@ async def test_idempotency_key_cannot_change_question(payload, context, provider
     await judge.typed_evaluate(payload, context)
     payload["questions"][0]["question"] = "Different task"
     with pytest.raises(judge.TypedEvaluationError, match="REQUEST_KEY_CONFLICT"):
+        await judge.typed_evaluate(payload, context)
+    assert len(provider.calls) == 1
+
+
+async def test_idempotency_key_cannot_change_effective_reasoning_setting(
+    payload, context, provider, monkeypatch
+):
+    from app.core.config import settings
+
+    payload["tariff"]["model"] = "gpt-5"
+    context["_model_execution"] = ModelExecution("openai", "gpt-5", "workspace", "workspace")
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "minimal")
+    first = await judge.typed_evaluate(payload, context)
+    cached = await judge.typed_evaluate(payload, context)
+    assert cached["cached"] and cached["generation_contract"] == first["generation_contract"]
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "low")
+    with pytest.raises(judge.TypedEvaluationError, match="JUDGE_REQUEST_KEY_CONFLICT"):
+        await judge.typed_evaluate(payload, context)
+    assert len(provider.calls) == 1
+
+
+async def test_irrelevant_reasoning_setting_does_not_invalidate_cache(
+    payload, context, provider, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "minimal")
+    await judge.typed_evaluate(payload, context)
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "low")
+    result = await judge.typed_evaluate(payload, context)
+    assert result["cached"] and len(provider.calls) == 1
+    assert "reasoning_effort" not in result["generation_contract"]["parameters"]
+    assert "reasoning_effort" not in provider.calls[0]["options"]
+
+
+async def test_idempotency_key_cannot_reuse_result_after_prompt_protocol_changes(
+    payload, context, provider, monkeypatch
+):
+    await judge.typed_evaluate(payload, context)
+    original_prompt = judge._prompt
+    monkeypatch.setattr(judge, "_prompt", lambda spec: original_prompt(spec) + "\nNew instruction.")
+    with pytest.raises(judge.TypedEvaluationError, match="JUDGE_REQUEST_KEY_CONFLICT"):
         await judge.typed_evaluate(payload, context)
     assert len(provider.calls) == 1
 

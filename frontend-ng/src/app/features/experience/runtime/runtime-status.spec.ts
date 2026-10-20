@@ -2,7 +2,7 @@ import '@angular/compiler';
 import { Injector, runInInjectionContext, signal } from '@angular/core';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { of, throwError } from 'rxjs';
+import { Subject, lastValueFrom, of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
@@ -142,4 +142,159 @@ test('rejecting a new invocation preserves history without attaching the previou
   assert.equal(runtime.lastError(CONTEXT.stateKey), 'http_403');
   assert.equal(runtime.run(CONTEXT.stateKey), null);
   assert.equal(runtime.state(CONTEXT.stateKey).history[0].id, 'previous-run');
+});
+
+const ACTION_CONTEXT: RuntimeNodeContext = {
+  ...CONTEXT, componentId: 'forecast-action', stateKey: 'forecast-action',
+  releaseId: 'published-release',
+};
+const COMPLETED: Run = { id: 'stored-run', system_id: 'system', status: 'completed', output_ref: { dataset_id: 'produced-dataset' } };
+
+function restorationSetup(options: { lookup?: () => any; canonical?: () => any } = {}) {
+  const reads: Array<{ path: string; query: unknown }> = [], runs: string[] = [], writes: string[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: ApiService, useValue: {
+      get: (path: string, query: unknown) => { reads.push({ path, query }); return options.lookup?.() ?? of({ run: { id: COMPLETED.id } }); },
+      post: (path: string) => { writes.push(path); return of({ id: 'new-click', system_id: 'system', status: 'pending' }); },
+    } },
+    { provide: CanonicalApiService, useValue: { getRun: (id: string) => { runs.push(id); return options.canonical?.() ?? of(COMPLETED); } } },
+  ] });
+  const runtime = runInInjectionContext(injector, () => new ExperienceRuntimeService());
+  return { runtime, reads, runs, writes };
+}
+
+test('a fresh runtime recovers the authorised released action without submitting or enabling retry', () => {
+  for (let reload = 0; reload < 2; reload++) {
+    const { runtime, reads, runs, writes } = restorationSetup();
+    runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+    assert.deepEqual(reads, [{
+      path: '/work/service/bindings/forecast/runs/latest',
+      query: { page_id: 'forecast', component_id: 'forecast-action', release_id: 'published-release' },
+    }]);
+    assert.deepEqual(runs, ['stored-run']);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(runtime.run('forecast-action'), COMPLETED);
+    assert.equal(runtime.phase('forecast-action'), 'idle');
+    assert.equal(runtime.state('forecast-action').lastInvoke, null);
+    runtime.retry(ACTION_CONTEXT).subscribe();
+    assert.deepEqual(writes, []);
+  }
+});
+
+test('restoration is a read and never says an action is running while locating its result', () => {
+  const pending = new Subject<{ run: null }>();
+  const { runtime } = restorationSetup({ lookup: () => pending });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.phase('forecast-action'), 'restoring');
+  const { block, phase, run, error } = setup();
+  phase.set('restoring'); run.set(null); error.set(null);
+  assert.equal(block.label(), 'Loading the last result');
+  pending.next({ run: null }); pending.complete();
+  assert.equal(runtime.phase('forecast-action'), 'idle');
+  assert.equal(runtime.run('forecast-action'), null);
+});
+
+test('late lookup cannot overwrite a new action or start polling an older result', () => {
+  const pending = new Subject<{ run: { id: string } }>();
+  const { runtime, runs, writes } = restorationSetup({ lookup: () => pending });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  runtime.invoke(ACTION_CONTEXT, 'forecast', {}).subscribe();
+  pending.next({ run: { id: 'stored-run' } }); pending.complete();
+  assert.equal(runtime.run('forecast-action')?.id, 'new-click');
+  assert.deepEqual(runs, []);
+  assert.equal(writes.length, 1);
+});
+
+test('workspace reset fences both a pending lookup and a pending canonical read', () => {
+  for (const stage of ['lookup', 'canonical']) {
+    const pending = new Subject<any>();
+    const { runtime } = restorationSetup(stage === 'lookup' ? { lookup: () => pending } : { canonical: () => pending });
+    runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+    runtime.reset();
+    pending.next(stage === 'lookup' ? { run: { id: 'stored-run' } } : COMPLETED);
+    pending.complete();
+    assert.equal(runtime.run('forecast-action'), null);
+    assert.equal(runtime.phase('forecast-action'), 'idle');
+    assert.deepEqual(runtime.runs(), []);
+  }
+});
+
+test('a newer restore for the same component rejects an older release response', () => {
+  const pending = new Subject<any>();
+  let lookup = 0;
+  const { runtime, runs } = restorationSetup({ lookup: () => ++lookup === 1 ? pending : of({ run: null }) });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  runtime.restore({ ...ACTION_CONTEXT, releaseId: 'next-release' }, 'forecast').subscribe();
+  pending.next({ run: { id: 'old-release-run' } }); pending.complete();
+  assert.equal(runtime.run('forecast-action'), null);
+  assert.deepEqual(runs, []);
+});
+
+test('reauthorisation clears cached history when the current release has no readable result', () => {
+  let found = true;
+  const { runtime } = restorationSetup({ lookup: () => of({ run: found ? { id: 'stored-run' } : null }) });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.state('forecast-action').history.length, 1);
+  found = false;
+  runtime.restore({ ...ACTION_CONTEXT, releaseId: 'next-release' }, 'forecast').subscribe();
+  assert.deepEqual(runtime.state('forecast-action').history, []);
+  assert.deepEqual(runtime.runs(), []);
+});
+
+test('in-progress restoration polls the existing Run to completion without replaying the action', async () => {
+  let called = 0;
+  const { runtime, writes, runs } = restorationSetup({
+    canonical: () => of(++called === 1 ? { ...COMPLETED, status: 'running' } : COMPLETED),
+  });
+  await lastValueFrom(runtime.restore(ACTION_CONTEXT, 'forecast'));
+  assert.deepEqual(runs, ['stored-run', 'stored-run']);
+  assert.deepEqual(writes, []);
+  assert.equal(runtime.run('forecast-action')?.status, 'completed');
+});
+
+test('restoring a failed Run preserves its failure instead of selecting an older success', () => {
+  const { runtime, writes } = restorationSetup({ canonical: () => of({ ...COMPLETED, status: 'failed', error: ERROR }) });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.phase('forecast-action'), 'error');
+  assert.equal(runtime.lastError('forecast-action'), ERROR);
+  assert.deepEqual(writes, []);
+});
+
+test('lookup failures and revoked canonical access never look like no prior activity', () => {
+  for (const options of [
+    { lookup: () => throwError(() => new HttpErrorResponse({ status: 503 })) },
+    { lookup: () => throwError(() => new HttpErrorResponse({ status: 409 })) },
+    { canonical: () => of(null) },
+  ]) {
+    const { runtime, writes } = restorationSetup(options);
+    runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+    assert.equal(runtime.phase('forecast-action'), 'error');
+    assert.equal(runtime.lastError('forecast-action'), 'network');
+    assert.equal(runtime.run('forecast-action'), null);
+    assert.deepEqual(writes, []);
+  }
+});
+
+test('a changed published release asks for reload and blocks even a pending confirmation or remount', () => {
+  const { runtime, reads, writes } = restorationSetup({
+    lookup: () => throwError(() => new HttpErrorResponse({ status: 409, error: { detail: { code: 'WORK_RELEASE_CHANGED' } } })),
+  });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.lastError('forecast-action'), 'release_changed');
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(reads.length, 1, 'remounting the obsolete release does not clear its block');
+  runtime.invoke(ACTION_CONTEXT, 'forecast', {}, true).subscribe();
+  assert.deepEqual(writes, []);
+  assert.equal(runtimeFailureKind(runtime.lastError('forecast-action')), 'release_changed');
+  const { block, run, error, phase } = setup();
+  run.set(null); error.set('release_changed'); phase.set('error');
+  assert.match(block.failureDescription(), /Reload the page/);
+  assert.match(EXPERIENCE_FR['experience.runtime.failure.release_changed'], /Rechargez la page/);
+});
+
+test('previews and hosts without an immutable release never restore live activity', () => {
+  const { runtime, reads } = restorationSetup();
+  runtime.restore({ ...ACTION_CONTEXT, mode: 'preview' }, 'forecast').subscribe();
+  runtime.restore({ ...ACTION_CONTEXT, releaseId: undefined }, 'forecast').subscribe();
+  assert.deepEqual(reads, []);
 });

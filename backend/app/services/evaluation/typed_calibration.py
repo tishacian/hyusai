@@ -8,6 +8,7 @@ bound for the declared source/language/model/rubric, not a guarantee per answer.
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 
 from jsonschema import Draft202012Validator
@@ -323,6 +324,35 @@ def _model_identity(result):
     return {key: model.get(key) for key in ("provider", "model", "returned_model")}
 
 
+def _generation_basis(result):
+    """Generation identity across cases, excluding the concrete evidence prompt."""
+    contract = result.get("generation_contract")
+    if not isinstance(contract, dict) or contract.get("schema_version") != 1:
+        raise Error("CALIBRATION_GENERATION_UNKNOWN")
+    parameters = contract.get("parameters")
+    if (
+        not isinstance(parameters, dict)
+        or not isinstance(parameters.get("max_tokens"), int)
+        or isinstance(parameters["max_tokens"], bool)
+        or parameters["max_tokens"] <= 0
+        or set(parameters) - {"max_tokens", "reasoning_effort"}
+        or "reasoning_effort" in parameters
+        and parameters["reasoning_effort"] not in {"minimal", "low", "medium", "high"}
+        or any(
+            not isinstance(contract.get(key), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", contract[key])
+            for key in ("prompt_protocol_sha256", "response_schema_sha256")
+        )
+    ):
+        raise Error("CALIBRATION_GENERATION_UNKNOWN")
+    return {
+        "schema_version": contract["schema_version"],
+        "parameters": dict(parameters),
+        "prompt_protocol_sha256": contract["prompt_protocol_sha256"],
+        "response_schema_sha256": contract["response_schema_sha256"],
+    }
+
+
 def attach_prediction(db, workspace_id, user_id, corpus_id, data):
     row = corpus(db, workspace_id, corpus_id, user_id)
     db.query(AssetVersion).filter_by(id=row.id).with_for_update().one()
@@ -337,6 +367,7 @@ def attach_prediction(db, workspace_id, user_id, corpus_id, data):
     result = (score.metadata_ or {}).get("typed_evaluation") if score else None
     if not isinstance(result, dict) or score.metadata_.get("source") != "evaluate_v2":
         raise Error("CALIBRATION_PREDICTION_NOT_CANONICAL", 404)
+    generation_basis = _generation_basis(result)
     from app.models.workspace_job import WorkspaceJob
 
     jobs = (
@@ -433,6 +464,7 @@ def attach_prediction(db, workspace_id, user_id, corpus_id, data):
             "answers": result["answers"],
             "evaluation_created_at": score.created_at.isoformat(),
             "model": _model_identity(result),
+            "generation_basis": generation_basis,
             "evaluation_context": result["evaluation_context"],
         },
         [unit["asset_ref"], *[assets.asset_ref(a) for a in annotations]],
@@ -577,6 +609,25 @@ def report(db, workspace_id, user_id, corpus_id):
     annotations = _rows(db, workspace_id, "annotation", row.id)
     predictions = _rows(db, workspace_id, "prediction", row.id)
     reasons, partitions, partition_records = [], {}, {}
+    qualification_units = {
+        unit["key"] for unit in spec["units"] if unit["partition"] in {"calibration", "test"}
+    }
+    qualification_predictions = [
+        prediction
+        for prediction in predictions
+        if prediction.manifest_json["unit_key"] in qualification_units
+    ]
+    generation_bases = {
+        assets.content_digest(prediction.manifest_json.get("generation_basis"))
+        for prediction in qualification_predictions
+    }
+    if any(
+        not prediction.manifest_json.get("generation_basis")
+        for prediction in qualification_predictions
+    ):
+        reasons.append("CALIBRATION_GENERATION_UNKNOWN")
+    if len(generation_bases) > 1:
+        reasons.append("CALIBRATION_GENERATION_CHANGED")
     for partition in ("calibration", "test"):
         records = []
         for unit in spec["units"]:
@@ -671,7 +722,12 @@ def report(db, workspace_id, user_id, corpus_id):
         "reasons": sorted(set(reasons)),
         "partitions": partitions,
         "method": "family_all_correct_wilson_95_lower",
-        "confidence_scope": "Empirical bound on held-out document families within this exact model, rubric, source and language. No per-answer guarantee.",
+        "confidence_scope": "Empirical bound on held-out document families within this exact model, generation protocol, rubric, source and language. No per-answer guarantee.",
+        "generation_basis": (
+            qualification_predictions[0].manifest_json.get("generation_basis")
+            if qualification_predictions and len(generation_bases) == 1
+            else None
+        ),
     }
 
 
@@ -699,6 +755,7 @@ def qualify(db, workspace_id, user_id, corpus_id):
             "corpus_id": row.id,
             "report": result,
             "model": spec["model"],
+            "generation_basis": result["generation_basis"],
             "context": spec["context"],
             "rubric_id": spec["rubric_id"],
             "rubric_version": spec["rubric_version"],
@@ -742,6 +799,7 @@ def bind_confidence(db, workspace_id, user_id, profile_ref, result):
             != assets.content_digest(manifest.get("report"))
             or manifest.get("report", {}).get("qualified") is not True
             or manifest["model"] != _model_identity(result)
+            or manifest.get("generation_basis") != _generation_basis(result)
             or (result.get("model_execution") or {}).get("returned_model_reported") is not True
             or manifest["context"] != result.get("evaluation_context")
             or manifest["rubric_sha256"] != result["rubric_sha256"]

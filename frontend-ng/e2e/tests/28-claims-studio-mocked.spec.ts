@@ -13,7 +13,20 @@ const source = { reference: 'refund-policy-v2', document_id: 'qa-original-doc', 
 const claimSource = { reference: 'claim-lm1042', document_id: 'qa-claim-doc', collection: 'qa-case', filename: 'reclamation-lm1042.pdf', title: 'reclamation-lm1042.pdf' };
 function detail(id: string, queue = rows) { const row = queue.find(r => r.claim_id === id)!; return { data: { context: [{ ...row, shipping_postcode: '75011', payment_status: 'paid' }], items: [{ product_name: 'Lampe Aube', quantity: 1, unit_price: row.paid_amount }], shipments: [{ status: id === 'RC-1043' ? 'lost' : 'delivered', carrier: 'ColisAzur', tracking_id: 'CA-' + id.slice(3) }], refunds: id === 'RC-1044' ? [{ refund_id: 'RF-1044', amount: '89.00', currency: 'EUR', status: 'executed' }] : [] }, provenance: { captured_at: '2026-10-02T09:00:00Z', snapshot_sha256: 'qa-snapshot', read_mode: 'live' }, sources: [source, claimSource], receipts: [], latest_run_id: null }; }
 
-async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean } = {}) {
+function judgeOutput(locale: string, truncated: boolean) {
+ const questions = [{key: 'policy', question: locale === 'fr' ? 'Les preuves permettent-elles cette résolution ?' : 'Does the evidence support this resolution?'}];
+ if (truncated) for (let n = 2; n <= 5; n++) questions.push({key: 'question' + n, question: locale === 'fr' ? `Question ${n} du contrôle` : `Review question ${n}`});
+ return {
+   schema_version: 2, evaluation_id: 'qa-evaluation', status: truncated ? 'failed' : 'partial', quality_status: 'unassessed', disposition: 'review', confidence: null,
+   reason: truncated ? 'JUDGE_OUTPUT_TRUNCATED' : null, questions,
+   answers: Object.fromEntries(questions.map(question => [question.key, {status: truncated ? 'invalid' : 'abstained', value: null, reason: truncated ? 'JUDGE_OUTPUT_TRUNCATED' : 'insufficient_evidence',
+     explanation: truncated ? 'Evaluation unavailable; human review is required.' : locale === 'fr' ? 'La preuve transporteur manque.' : 'Carrier evidence is missing.', evidence: [], confidence: null}])),
+   coverage: {questions_answered: 0, questions_total: questions.length, evidence_examined: truncated ? 0 : 2, evidence_total: 2, images_examined: 0, images_total: 0},
+   cost: {amount: null, currency: 'USD', measurement_coverage: 'unavailable'},
+ };
+}
+
+async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'|'truncated'; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean } = {}) {
  const posts: unknown[] = []; let run: Record<string, unknown> | null = null;
  const activeWorkspace = options.consumer ? { ...workspace, role: 'member', role_template: 'workspace_member' } : workspace;
  const queue = options.volume ? [...rows, ...Array.from({ length: 20 }, (_, index) => ({ ...rows[index % rows.length], claim_id: `RC-${5001 + index}`, order_id: `LM-${5001 + index}`, display_name: `Client synthétique ${index + 1}`, state: index % 2 ? 'waiting_information' : 'resolved' }))] : rows;
@@ -78,13 +91,7 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
      if (options.judge) (run['skill_invocations'] as unknown[]).push({
        id: 'qa-judge', skill_slug: 'evaluate_v2', status: options.judge === 'failed' ? 'failed' : 'completed',
        error: options.judge === 'failed' ? 'PRIVATE_PROVIDER_DIAGNOSTIC' : null,
-       output_ref: options.judge === 'failed' ? {} : {
-         schema_version: 2, evaluation_id: 'qa-evaluation', status: 'partial', quality_status: 'unassessed', disposition: 'review', confidence: null,
-         questions: [{key: 'policy', question: locale === 'fr' ? 'Les preuves permettent-elles cette résolution ?' : 'Does the evidence support this resolution?'}],
-         answers: {policy: {status: 'abstained', value: null, reason: 'insufficient_evidence', explanation: locale === 'fr' ? 'La preuve transporteur manque.' : 'Carrier evidence is missing.', evidence: [], confidence: null}},
-         coverage: {questions_answered: 0, questions_total: 1, evidence_examined: 2, evidence_total: 2, images_examined: 0, images_total: 0},
-         cost: {amount: null, currency: 'USD', measurement_coverage: 'unavailable'},
-       },
+       output_ref: options.judge === 'failed' ? {} : judgeOutput(locale, options.judge === 'truncated'),
      });
      return json(route, { id: 'qa-native-run', status: 'pending' }, 201);
    }
@@ -209,6 +216,32 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await expect(page.getByText('PRIVATE_PROVIDER_DIAGNOSTIC')).toHaveCount(0);
    await expect(page.getByRole('button', {name: 'Valider la proposition', exact: true})).toBeVisible();
  });
+ for (const locale of ['fr', 'en']) {
+  test(`judge: interrupted evaluation keeps five questions without repeating failures in ${locale}`, async ({page}, info) => {
+   const posts = await setup(page, locale === 'fr' ? 'dark' : 'light', locale, false, null, {judge: 'truncated'});
+   await page.setViewportSize({width: locale === 'fr' ? 1440 : 390, height: 900});
+   await page.goto('/work/reclamations/studio?record=RC-1042');
+   await page.getByRole('button', {name: locale === 'fr' ? 'Lancer l’enquête' : 'Start investigation', exact: true}).click();
+   const review = page.getByTestId('typed-judge-result'), failure = review.getByTestId('judge-failure');
+   await expect(failure).toHaveCount(1);
+   await expect(failure).toContainText(locale === 'fr' ? 'La réponse du juge est incomplète.' : 'The judge response is incomplete.');
+   await expect(page.locator('.claims-steps li').last()).toHaveAttribute('data-state', 'failed');
+   await expect(page.locator('.claims-steps li').last()).toContainText(locale === 'fr' ? 'Évaluation interrompue' : 'Evaluation interrupted');
+   await expect(review).not.toContainText('Evaluation unavailable; human review is required.');
+   await expect(review.locator('.dp-answer')).toHaveCount(0);
+   const questions = review.getByTestId('judge-failed-questions');
+   await expect(questions).not.toHaveAttribute('open');
+   await questions.locator('summary').focus(); await page.keyboard.press('Enter');
+   await expect(questions).toHaveAttribute('open', '');
+   await expect(questions.locator('li')).toHaveCount(5);
+   await expect(questions).toContainText(locale === 'fr' ? 'Les preuves permettent-elles cette résolution ?' : 'Does the evidence support this resolution?');
+   await questions.locator('summary').press('Enter');
+   expect(posts).toHaveLength(1);
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+   expect((await new AxeBuilder({page}).include('.claims-app').analyze()).violations).toEqual([]);
+   await review.screenshot({path: info.outputPath(`judge-work-${locale}-truncated.png`)});
+  });
+ }
  for (const theme of ['dark', 'light']) {
   test(`${theme}: model scores prioritize cases, expose lineage and rescore through the pinned Flow`, async ({ page }, testInfo) => {
     const posts = await setup(page, theme, 'fr', false, 'ready');

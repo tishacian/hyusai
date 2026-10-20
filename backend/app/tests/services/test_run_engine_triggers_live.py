@@ -5,8 +5,10 @@ rate limit, circuit breaker (+ proposed Decision), the dry-run no-op and the
 governance allowlist still holding on the live path. ``_dispatch_live_run`` is
 monkeypatched so no flow is actually executed.
 """
+
 from __future__ import annotations
 
+import copy
 import uuid
 from datetime import datetime, timedelta
 
@@ -84,7 +86,7 @@ def _make_system(db, *, workspace_id: str, flow: dict, mode: str = "live") -> Sy
     return system
 
 
-def _published_event_system(db):
+def _published_event_system(db, *, input_schema=None):
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Published trigger WS",
@@ -101,7 +103,8 @@ def _published_event_system(db):
                 "type": "source.deposit_promoted",
                 "config": {
                     "ingress_kind": "event",
-                    "input_schema": {
+                    "input_schema": input_schema
+                    or {
                         "type": "object",
                         "additionalProperties": True,
                     },
@@ -201,6 +204,250 @@ def test_live_dispatches_exactly_one_run(db_session, dispatched):
     event = db_session.query(RunDispatchOutbox).filter_by(run_id=runs[0].id).one()
     assert event.event_type == "trigger_run"
     assert event.source_id == runs[0].trigger_dedup_key
+
+
+@pytest.mark.parametrize("mode, expected", [("live", "queued"), ("dry_run", "simulated")])
+@pytest.mark.parametrize(
+    "previous_key, incoming_key",
+    [(None, None), ("old", None), (None, "new"), ("old", "new")],
+)
+def test_uncorrelated_delivery_starts_its_own_run_without_resuming_an_old_gate(
+    db_session, dispatched, mode, expected, previous_key, incoming_key
+):
+    from app.models.run_inbox import RunInbox
+    from app.models.system_memory import SystemMemory
+
+    workspace, system, version, _flow = _published_event_system(db_session)
+    system.settings = {"event_trigger": {"mode": mode}}
+    old = _seed_triggered_run(db_session, system, status="hitl_pending")
+    old.input_ref = {"correlation_key": previous_key} if previous_key else {}
+    old.checkpoints = [{"kind": "hitl_pause", "node_id": "gate"}]
+    db_session.commit()
+    payload = {"file_id": "new-case"}
+    if incoming_key:
+        payload["correlation_key"] = incoming_key
+
+    result = triggers.emit_event(
+        triggers.EVENT_DEPOSIT_PROMOTED, workspace.id, payload, db=db_session
+    )[0]
+
+    assert result["status"] == expected
+    assert result["run_id"] != old.id
+    created = db_session.get(Run, result["run_id"])
+    assert created.status == ("pending" if mode == "live" else "simulated")
+    if mode == "live":
+        assert created.published_flow_version_id == version.id
+    db_session.refresh(old)
+    assert old.status == "hitl_pending"
+    assert old.checkpoints == [{"kind": "hitl_pause", "node_id": "gate"}]
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    assert dispatched == []
+
+
+@pytest.mark.parametrize(
+    "extra, expected_reason",
+    [
+        ({"unexpected": "blocked"}, "ingress_payload_invalid"),
+        ({"_debug": {}}, "run_debug_surface_forbidden"),
+    ],
+)
+def test_correlated_inbox_cannot_bypass_published_ingress_validation(
+    db_session, dispatched, extra, expected_reason
+):
+    from app.models.run_inbox import RunInbox
+    from app.models.system_memory import SystemMemory
+    from app.models.trigger_event_claim import TriggerEventClaim
+
+    workspace, system, _version, _flow = _published_event_system(
+        db_session,
+        input_schema={
+            "type": "object",
+            "required": ["correlation_key", "file_id"],
+            "properties": {"correlation_key": {"type": "string"}, "file_id": {"type": "string"}},
+            "additionalProperties": False,
+        },
+    )
+    old = _seed_triggered_run(db_session, system, status="hitl_pending")
+    old.input_ref = {"correlation_key": "case-1"}
+    db_session.commit()
+
+    result = triggers.emit_event(
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        workspace.id,
+        {"correlation_key": "case-1", "file_id": "new-evidence", **extra},
+        db=db_session,
+    )[0]
+
+    assert result["status"] == "rejected"
+    assert result["reason"] == expected_reason
+    assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    assert db_session.query(TriggerEventClaim).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(RunDispatchOutbox).count() == 0
+    db_session.refresh(old)
+    assert old.status == "hitl_pending"
+
+
+def test_correlated_valid_published_delivery_buffers_without_approving_gate(db_session, dispatched):
+    from app.models.run_inbox import RunInbox
+
+    workspace, system, _version, _flow = _published_event_system(
+        db_session,
+        input_schema={
+            "type": "object",
+            "required": ["correlation_key"],
+            "properties": {"correlation_key": {"type": "string"}},
+            "additionalProperties": False,
+        },
+    )
+    old = triggers.flow_ingress.create_published_ingress_run(
+        db_session,
+        system_id=system.id,
+        workspace=workspace,
+        ingress_id=None,
+        kind="event",
+        payload={"correlation_key": "case-1"},
+    )
+    old.status = "hitl_pending"
+    db_session.commit()
+    result = triggers.emit_event(
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        workspace.id,
+        {"correlation_key": "case-1"},
+        db=db_session,
+    )[0]
+    assert result["status"] == "buffered"
+    assert result["run_id"] == old.id
+    assert db_session.query(RunInbox).filter_by(run_id=old.id).count() == 1
+    db_session.refresh(old)
+    assert old.status == "hitl_pending"
+    assert db_session.query(RunDispatchOutbox).count() == 0
+
+
+@pytest.mark.parametrize(
+    "missing_or_changed, reason",
+    [
+        ("snapshot", "inbox_target_publication_mismatch"),
+        ("flow_hash", "inbox_target_publication_mismatch"),
+        ("contract", "inbox_target_publication_mismatch"),
+        ("ingress", "inbox_target_ingress_mismatch"),
+    ],
+)
+def test_correlated_inbox_refuses_missing_or_incompatible_target_authority(
+    db_session, dispatched, missing_or_changed, reason
+):
+    from app.models.run_inbox import RunInbox
+    from app.models.system_memory import SystemMemory
+    from app.models.trigger_event_claim import TriggerEventClaim
+
+    workspace, system, _version, _flow = _published_event_system(db_session)
+    old = triggers.flow_ingress.create_published_ingress_run(
+        db_session,
+        system_id=system.id,
+        workspace=workspace,
+        ingress_id=None,
+        kind="event",
+        payload={"correlation_key": "case-1"},
+    )
+    old.status = "hitl_pending"
+    if missing_or_changed == "snapshot":
+        old.published_flow_version_id = None
+        old.execution_contract = None
+    elif missing_or_changed == "flow_hash":
+        old.flow_sha256 = "different-frozen-flow"
+    elif missing_or_changed == "contract":
+        old.execution_contract = {**old.execution_contract, "runtime_mode": "another-mode"}
+    else:
+        old.input_ref = {
+            **old.input_ref,
+            "_ingress": {"ingress_id": "manual-entry", "kind": "manual"},
+        }
+    db_session.commit()
+
+    result = triggers.emit_event(
+        triggers.EVENT_DEPOSIT_PROMOTED,
+        workspace.id,
+        {"correlation_key": "case-1"},
+        db=db_session,
+    )[0]
+
+    assert result["status"] == "rejected"
+    assert result["reason"] == reason
+    assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
+    assert db_session.query(RunInbox).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(SystemMemory).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(TriggerEventClaim).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(RunDispatchOutbox).count() == 0
+    db_session.refresh(old)
+    assert old.status == "hitl_pending"
+
+
+def test_new_publication_cannot_feed_an_old_correlated_run_or_consume_delivery(
+    db_session, dispatched
+):
+    from app.models.run_inbox import RunInbox
+    from app.models.system_memory import SystemMemory
+    from app.models.trigger_event_claim import TriggerEventClaim
+
+    workspace, system, version_v1, flow_v1 = _published_event_system(db_session)
+    payload = {"correlation_key": "case-1", "file_id": "additional-evidence"}
+    old = triggers.flow_ingress.create_published_ingress_run(
+        db_session,
+        system_id=system.id,
+        workspace=workspace,
+        ingress_id=None,
+        kind="event",
+        payload=payload,
+    )
+    old.status = "hitl_pending"
+    before_checkpoints = copy.deepcopy(old.checkpoints)
+    db_session.commit()
+    flow_v2 = copy.deepcopy(flow_v1)
+    flow_v2["nodes"][0]["config"]["input_schema"] = {
+        "type": "object",
+        "required": ["correlation_key", "file_id"],
+        "properties": {"correlation_key": {"type": "string"}, "file_id": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    contract_v2 = flow_publication.compile_execution_contract(
+        db_session, flow_v2, workspace, system=system
+    )
+    version_v2 = SystemVersion(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        version_number=2,
+        flow_definition=flow_v2,
+        flow_sha256=canonical_flow_sha256(flow_v2),
+        release_kind="publish",
+        draft_revision=2,
+        execution_contract=contract_v2,
+        message="New published input contract",
+        created_by="test",
+    )
+    db_session.add(version_v2)
+    db_session.flush()
+    system.flow_definition = flow_v2
+    system.published_flow_version_id = version_v2.id
+    db_session.commit()
+
+    for _attempt in range(2):
+        result = triggers.emit_event(
+            triggers.EVENT_DEPOSIT_PROMOTED, workspace.id, payload, db=db_session
+        )[0]
+        assert result["status"] == "rejected"
+        assert result["reason"] == "inbox_target_publication_mismatch"
+    db_session.refresh(old)
+    assert old.status == "hitl_pending"
+    assert old.published_flow_version_id == version_v1.id
+    assert old.checkpoints == before_checkpoints
+    assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
+    assert db_session.query(RunInbox).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(SystemMemory).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(TriggerEventClaim).filter_by(system_id=system.id).count() == 0
+    assert db_session.query(RunDispatchOutbox).count() == 0
 
 
 def test_live_dedup_suppresses_second(db_session, dispatched):

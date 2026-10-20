@@ -65,6 +65,8 @@ export type RuntimeMode = 'live' | 'preview';
 
 export interface RuntimeNodeContext {
   experienceSlug: string;
+  /** Immutable release displayed by Work; absent in previews and legacy hosts. */
+  releaseId?: string;
   pageId: string;
   componentId: string;
   stateKey: string;

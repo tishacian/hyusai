@@ -6,19 +6,19 @@ Correlation strategy
    registry match, etc.).
 2. Optional correlation key extracted from the event payload, in order:
    ``correlation_key``, ``correlation_id``, ``transaction_id``.
-3. A paused Run matches when ``status == hitl_pending`` and
-   ``system_id`` equals the event target. If the event carries a correlation
-   key, prefer Runs whose own correlation (from ``input_ref`` or the HITL
-   pause checkpoint) equals that key; otherwise fall back to the latest
-   paused Run that has no correlation (open buffer) or an exact key match.
-4. When a match exists, the event is **buffered** into ``run_inbox`` (and
+3. A paused or running AgentLoop Run matches only with the same explicit
+   correlation key and the target System's workspace. An absent key or a
+   different key never selects an unrelated waiting Run.
+4. When exactly one match exists, the event is **buffered** into ``run_inbox`` (and
    merged into ``system_memory``) instead of dispatching a new Run —
    “collect transactions while the gate waits”.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -26,11 +26,18 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run_inbox import RunInbox
+from app.models.system import System
 from app.models.system_memory import SystemMemory
 
 logger = get_logger(__name__)
 
-_DEFAULT_CORRELATION = "_default"
+_LEGACY_DEFAULT_CORRELATION = "_default"
+
+
+class InboxRoutingError(ValueError):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
 
 
 def extract_correlation_key(payload: Any) -> Optional[str]:
@@ -76,24 +83,29 @@ def find_running_agent_loop_runs(
     *,
     system_id: str,
     correlation_key: Optional[str] = None,
-) -> List[Run]:
+) -> list[Run]:
     """Running AgentLoop runs that can absorb a mid-flight steer / event."""
 
     from app.services.run_engine.agent_loop import run_has_agent_loop
 
+    system = db.get(System, system_id)
+    if not correlation_key or system is None:
+        return []
     running = (
         db.query(Run)
-        .filter(Run.system_id == system_id, Run.status == "running")
+        .filter(
+            Run.system_id == system_id,
+            Run.workspace_id == system.workspace_id,
+            Run.status == "running",
+        )
         .order_by(Run.started_at.desc())
         .all()
     )
-    matched = [row for row in running if run_has_agent_loop(row)]
-    if not matched:
-        return []
-    if not correlation_key:
-        return matched[:1]
-    exact = [row for row in matched if run_correlation_key(row) == correlation_key]
-    return exact[:1] if exact else []
+    return [
+        row
+        for row in running
+        if run_has_agent_loop(row) and run_correlation_key(row) == correlation_key
+    ]
 
 
 def find_paused_runs_for_event(
@@ -101,25 +113,22 @@ def find_paused_runs_for_event(
     *,
     system_id: str,
     correlation_key: Optional[str] = None,
-) -> List[Run]:
+) -> list[Run]:
     """Return ``hitl_pending`` Runs that should buffer this event."""
+    system = db.get(System, system_id)
+    if not correlation_key or system is None:
+        return []
     paused = (
         db.query(Run)
-        .filter(Run.system_id == system_id, Run.status == "hitl_pending")
+        .filter(
+            Run.system_id == system_id,
+            Run.workspace_id == system.workspace_id,
+            Run.status == "hitl_pending",
+        )
         .order_by(Run.started_at.desc())
         .all()
     )
-    if not paused:
-        return []
-    if not correlation_key:
-        return paused[:1]
-
-    exact = [r for r in paused if run_correlation_key(r) == correlation_key]
-    if exact:
-        return exact
-    # Open buffers (no key on the paused run) accept correlated traffic.
-    open_buffers = [r for r in paused if run_correlation_key(r) is None]
-    return open_buffers[:1]
+    return [row for row in paused if run_correlation_key(row) == correlation_key]
 
 
 def upsert_system_memory(
@@ -129,7 +138,7 @@ def upsert_system_memory(
     system_id: str,
     correlation_key: str,
     event_kind: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
 ) -> Optional[SystemMemory]:
     """Merge an inbound event into durable SystemMemory state."""
     if not workspace_id or not system_id or not correlation_key:
@@ -187,12 +196,15 @@ def buffer_event_for_paused_run(
     run: Run,
     *,
     event_kind: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     correlation_key: Optional[str] = None,
 ) -> RunInbox:
     """Persist one inbox row and update SystemMemory for the paused Run."""
     corr = correlation_key or extract_correlation_key(payload) or run_correlation_key(run)
-    memory_key = corr or _DEFAULT_CORRELATION
+    if not corr:
+        raise InboxRoutingError("INBOX_CORRELATION_REQUIRED")
+    if corr == _LEGACY_DEFAULT_CORRELATION:
+        raise InboxRoutingError("INBOX_CORRELATION_RESERVED")
     row = RunInbox(
         id=str(uuid4()),
         run_id=run.id,
@@ -208,7 +220,7 @@ def buffer_event_for_paused_run(
         db,
         workspace_id=run.workspace_id,
         system_id=str(run.system_id or ""),
-        correlation_key=memory_key,
+        correlation_key=corr,
         event_kind=event_kind,
         payload=payload if isinstance(payload, dict) else {"value": payload},
     )
@@ -242,21 +254,33 @@ def try_buffer_event(
     *,
     system_id: str,
     event_kind: str,
-    payload: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    payload: dict[str, Any],
+    workspace_id: str | None = None,
+    before_buffer: Callable[[Run], None] | None = None,
+) -> Optional[dict[str, Any]]:
     """If a matching paused run exists, buffer and return a result dict.
 
     Returns ``None`` when no paused run matches (caller should dispatch normally).
     """
     corr = extract_correlation_key(payload)
-    paused = find_paused_runs_for_event(db, system_id=system_id, correlation_key=corr)
-    if not paused:
-        paused = find_running_agent_loop_runs(
-            db, system_id=system_id, correlation_key=corr
-        )
-    if not paused:
+    if not corr:
         return None
-    target = paused[0]
+    if corr == _LEGACY_DEFAULT_CORRELATION:
+        raise InboxRoutingError("INBOX_CORRELATION_RESERVED")
+    system = db.get(System, system_id)
+    if system is None or (workspace_id is not None and system.workspace_id != workspace_id):
+        raise InboxRoutingError("INBOX_WORKSPACE_MISMATCH")
+    matched = [
+        *find_paused_runs_for_event(db, system_id=system_id, correlation_key=corr),
+        *find_running_agent_loop_runs(db, system_id=system_id, correlation_key=corr),
+    ]
+    if not matched:
+        return None
+    if len(matched) != 1:
+        raise InboxRoutingError("INBOX_CORRELATION_AMBIGUOUS")
+    target = matched[0]
+    if before_buffer is not None:
+        before_buffer(target)
     row = buffer_event_for_paused_run(
         db,
         target,
@@ -281,7 +305,11 @@ def load_memory_for_run(db: DBSession, run: Run) -> Optional[SystemMemory]:
     """Latest SystemMemory row for this run's correlation context."""
     if not run.system_id or not run.workspace_id:
         return None
-    corr = run_correlation_key(run) or _DEFAULT_CORRELATION
+    corr = run_correlation_key(run)
+    if not corr or corr == _LEGACY_DEFAULT_CORRELATION:
+        # Historical "_default" rows remain auditable, but cannot silently
+        # become context for another uncorrelated case.
+        return None
     return (
         db.query(SystemMemory)
         .filter(
@@ -293,7 +321,7 @@ def load_memory_for_run(db: DBSession, run: Run) -> Optional[SystemMemory]:
     )
 
 
-def memory_pool_payload(memory: Optional[SystemMemory]) -> Dict[str, Any]:
+def memory_pool_payload(memory: Optional[SystemMemory]) -> dict[str, Any]:
     """Shape injected into the walker pool as the ``memory`` namespace."""
     if memory is None:
         return {}
@@ -309,7 +337,7 @@ def memory_pool_payload(memory: Optional[SystemMemory]) -> Dict[str, Any]:
     }
 
 
-def reinject_memory_into_state(db: DBSession, run: Run, state) -> Optional[Dict[str, Any]]:
+def reinject_memory_into_state(db: DBSession, run: Run, state) -> Optional[dict[str, Any]]:
     """Merge latest SystemMemory into ``state.pool`` / ``state.ctx`` on resume."""
     memory = load_memory_for_run(db, run)
     payload = memory_pool_payload(memory)

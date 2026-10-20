@@ -66,6 +66,9 @@ export class ExperienceRuntimeHostComponent {
   readonly document = input.required<ExperienceDocument>();
   readonly pageId = input<string | null>(null);
   readonly experienceSlug = input('');
+  // Work passes the current release to every renderer. The frozen 0.1 renderer
+  // accepts it without opting into newer action-restoration behavior.
+  readonly releaseId = input<string | null>(null);
   readonly mode = input<RuntimeMode>('preview');
 
   readonly visiblePages = computed(() => {

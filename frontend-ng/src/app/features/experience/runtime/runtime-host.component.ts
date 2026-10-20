@@ -67,6 +67,7 @@ export class ExperienceRuntimeHostComponent {
   readonly document = input.required<ExperienceDocument>();
   readonly pageId = input<string | null>(null);
   readonly experienceSlug = input('');
+  readonly releaseId = input<string | null>(null);
   readonly mode = input<RuntimeMode>('preview');
 
   readonly visiblePages = computed(() => {
@@ -117,6 +118,7 @@ export class ExperienceRuntimeHostComponent {
         : explicit || previous?.id || componentId;
     return {
       experienceSlug: this.experienceSlug(),
+      releaseId: this.releaseId() ?? undefined,
       pageId: page.id,
       componentId,
       stateKey: runtimeStateKey(this.experienceSlug(), page.id, componentId),

@@ -221,6 +221,35 @@ test('Invocation audit uses only the authorized Run payload when projections are
   assert.equal(view.invocation(), null);
 });
 
+test('Judge outcome is separate from completed call status and disappears with a redacted or cleared output', () => {
+  const injector = Injector.create({providers: [
+    SkillInvocationViewComponent,
+    {provide: ActivatedRoute, useValue: {}},
+    {provide: Router, useValue: {}},
+    {provide: WorkspaceService, useValue: new WorkspaceStub(false)},
+    {provide: CanonicalApiService, useValue: {}},
+    {provide: ObjectPerspectiveStore, useValue: {}},
+    {provide: LensService, useValue: {lens: () => 'operate'}},
+    {provide: I18nService, useValue: {locale: () => 'en', t: (key: string) => key === 'observability.codes.status.completed' ? 'Completed' : key}},
+    {provide: ZoomContextService, useValue: {}},
+  ]});
+  const view = injector.get(SkillInvocationViewComponent);
+  const result = {schema_version: 2, evaluation_id: 'judge-1', status: 'failed', quality_status: 'unassessed', reason: 'JUDGE_OUTPUT_TRUNCATED', answers: {}, coverage: {}};
+  view.invocation.set({id: 'inv-1', status: 'completed', output_ref: result} as any);
+  assert.equal(view.kpis()[0].label, 'dataops.judge.evaluation');
+  assert.equal(view.kpis()[0].value, 'dataops.judge.failure.title');
+  assert.equal(view.kpis()[1].label, 'dataops.judge.invocation');
+  assert.equal(view.kpis()[1].value, 'Completed');
+  view.invocation.set({id: 'inv-1', status: 'completed', output_ref: {...result, status: 'completed', quality_status: 'failed'}} as any);
+  assert.equal(view.kpis()[0].value, 'dataops.judge.criteria_failed');
+  view.invocation.set({id: 'inv-1', status: 'completed', output_ref: {redacted: true}} as any);
+  assert.equal(view.judgeResult(), null);
+  assert.equal(view.kpis()[0].label, 'runs.invocation.kpi.status');
+  view.invocation.set(null);
+  assert.equal(view.judgeResult(), null);
+  view.ngOnDestroy();
+});
+
 test('SkillInvocation shows Depuis la trace {id} when arrival provenance is present', () => {
   const previous = (globalThis as { history?: { state?: unknown } }).history;
   Object.defineProperty(globalThis, 'history', {

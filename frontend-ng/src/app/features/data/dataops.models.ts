@@ -247,7 +247,33 @@ export function validateQuestions(questions: TypedQuestion[]): string[] {
   return [...new Set(errors)];
 }
 export interface TypedAnswer { status: 'answered' | 'abstained' | 'invalid'; value: unknown; reason: string | null; explanation: string; confidence: number | null; evidence: Array<{ kind?: 'text'|'image'; evidence_id: string; start?: number; end?: number; quote?: string; image_sha256?:string; region?:number[]|null; description?:string }>; }
-export interface TypedEvaluationResult { schema_version: 2; evaluation_id: string; questions?: TypedQuestion[]; answers: Record<string, TypedAnswer>; status: string; disposition: string; quality_status: string; confidence: number | null; coverage: Record<string, number | string>; calibration?: {scope: string}; cost?: { amount: number | null; currency: string; measurement_coverage: string }; }
+export interface TypedEvaluationResult { schema_version: 2; evaluation_id: string; questions?: TypedQuestion[]; answers: Record<string, TypedAnswer>; status: string; disposition: string; quality_status: string; reason?: string | null; response_diagnostic?: {category: string; question_index?: number}; confidence: number | null; coverage: Record<string, number | string>; calibration?: {scope: string}; cost?: { amount: number | null; currency: string; measurement_coverage: string }; }
+const JUDGE_RESPONSE_CATEGORIES = ['response_size_or_type', 'json', 'schema', 'abstention', 'answer_state', 'evidence_required', 'evidence_scope', 'image_citation', 'evidence_kind', 'evidence_span', 'evidence_quote', 'validation'] as const;
+/** A returned evaluation is distinct from the transport status of its call. */
+export function typedJudgeOutcome(result: TypedEvaluationResult | null): {label: string; state: 'completed'|'partial'|'failed'} | null {
+  if (!result) return null;
+  if (result.status === 'failed') return {label: 'dataops.judge.failure.title', state: 'failed'};
+  if (result.quality_status === 'failed') return {label: 'dataops.judge.criteria_failed', state: 'failed'};
+  if (result.quality_status === 'passed') return {label: 'dataops.status.passed', state: 'completed'};
+  return {label: 'dataops.status.unassessed', state: 'partial'};
+}
+export function typedJudgeFailure(result: TypedEvaluationResult | null): {message: string; action: string; question: string | null} | null {
+  if (result?.status !== 'failed') return null;
+  let message = 'unavailable', action = 'review';
+  const reason = result.reason;
+  if (reason === 'JUDGE_RESPONSE_INVALID') {
+    const category = result.response_diagnostic?.category;
+    message = JUDGE_RESPONSE_CATEGORIES.some(value => value === category) ? category! : 'validation';
+    action = ['evidence_required', 'evidence_scope', 'image_citation', 'evidence_kind', 'evidence_span', 'evidence_quote'].includes(message) ? 'evidence' : 'configuration';
+  } else if (reason === 'JUDGE_OUTPUT_TRUNCATED') { message = 'truncated'; action = 'response_limit'; }
+  else if (reason === 'JUDGE_TIMEOUT') { message = 'timeout'; action = 'retry'; }
+  else if (reason === 'JUDGE_PROVIDER_UNAVAILABLE') { message = 'temporarily_unavailable'; action = 'retry'; }
+  else if (reason === 'JUDGE_ACCESS_REVOKED') { message = 'access'; action = 'access'; }
+  else if (['JUDGE_BUDGET_EXHAUSTED', 'JUDGE_MEASURED_BUDGET_EXCEEDED', 'SERVICE_BUDGET_EXHAUSTED'].includes(reason ?? '')) { message = 'budget'; action = 'budget'; }
+  const index = reason === 'JUDGE_RESPONSE_INVALID' ? result.response_diagnostic?.question_index : undefined;
+  const question = Number.isInteger(index) && index! >= 0 && Array.isArray(result.questions) ? result.questions[index!]?.question : null;
+  return {message: 'dataops.judge.failure.' + message, action: 'dataops.judge.recovery.' + action, question: typeof question === 'string' && question.trim() ? question.slice(0, 2000) : null};
+}
 export function typedResult(value: unknown): TypedEvaluationResult | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;

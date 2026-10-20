@@ -1,16 +1,29 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { I18nService } from '@app/core/i18n.service';
-import { typedResult } from './dataops.models';
+import { typedJudgeFailure, typedResult } from './dataops.models';
 @Component({
   selector: 'app-typed-judge-result', standalone: true, imports: [NgTemplateOutlet], changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
   template: `@if (result(); as evaluation) {
     <section class="dp-section" data-testid="typed-judge-result"><h2>{{ i18n.t('dataops.judge.result') }}</h2>
-      @if (compact()) { <p class="dp-note">{{ i18n.t('dataops.judge.quality') }}: {{ i18n.t('dataops.status.' + evaluation.quality_status) }}</p> }
-      @else { <div class="dp-row"><span>{{ i18n.t('dataops.judge.technical') }}: {{ i18n.t('dataops.status.' + evaluation.status) }}</span><span>{{ i18n.t('dataops.judge.quality') }}: {{ i18n.t('dataops.status.' + evaluation.quality_status) }}</span></div> }
+      @if (compact()) { <p class="dp-note">{{ i18n.t('dataops.judge.quality') }}: {{ i18n.t(qualityLabel()) }}</p> }
+      @else { <div class="dp-row"><span>{{ i18n.t('dataops.judge.evaluation') }}: {{ i18n.t('dataops.status.' + evaluation.status) }}</span><span>{{ i18n.t('dataops.judge.quality') }}: {{ i18n.t(qualityLabel()) }}</span></div> }
+      @if (failure(); as failure) {
+        <div class="judge-failure" role="status" data-testid="judge-failure">
+          <h3>{{ i18n.t('dataops.judge.failure.title') }}</h3>
+          <p>{{ i18n.t(failure.message) }}</p>
+          @if (failure.question) { <p class="dp-note">{{ i18n.t('dataops.judge.failure.question') }}: {{ failure.question }}</p> }
+          <p class="dp-note">{{ i18n.t(failure.action) }} {{ i18n.t('dataops.judge.failure.no_approval') }}</p>
+        </div>
+      }
       <p class="dp-note">{{ i18n.t('dataops.judge.review_required') }}</p>
+      @if (failedQuestions().length) {
+        <details class="judge-questions" data-testid="judge-failed-questions"><summary>{{ i18n.t('dataops.judge.failure.questions') }} · {{ failedQuestions().length }}</summary>
+          <ol>@for (question of failedQuestions(); track $index) { <li class="dp-note">{{ question }}</li> }</ol>
+        </details>
+      }
       <ng-template #technical>
-      @if (compact()) { <p class="dp-note">{{ i18n.t('dataops.judge.technical') }}: {{ i18n.t('dataops.status.' + evaluation.status) }}</p> }
+      @if (compact()) { <p class="dp-note">{{ i18n.t('dataops.judge.evaluation') }}: {{ i18n.t('dataops.status.' + evaluation.status) }}</p> }
       <p class="dp-note">{{ i18n.t('dataops.judge.confidence') }}: {{ evaluation.confidence == null ? i18n.t('dataops.unknown') : evaluation.confidence }}</p>
       @if (evaluation.confidence != null && evaluation.calibration; as calibration) { <p class="dp-note">{{calibration.scope}}</p> }
       <p class="dp-note">{{ i18n.t('dataops.judge.coverage', {answered: coverage('questions_answered'), total: coverage('questions_total'), images: coverage('images_examined'), imagesTotal: coverage('images_total')}) }}</p>
@@ -34,11 +47,18 @@ import { typedResult } from './dataops.models';
       @if (compact()) { <details data-testid="judge-technical-details"><summary>{{ i18n.t('dataops.judge.technical_details') }}</summary><ng-container [ngTemplateOutlet]="technical" /></details> }
     </section>
   }`,
+  styles: [`.judge-failure{margin:12px 0;padding:12px 14px;border-inline-start:2px solid var(--ck-signal-warn);background:var(--ck-bg-inset);border-radius:4px;overflow-wrap:anywhere}.judge-failure h3{margin:0 0 6px}.judge-failure p{margin:4px 0;font-size:12px;line-height:1.5}.judge-questions{margin:8px 0}.judge-questions ol{padding-inline-start:20px;list-style:decimal}.judge-questions li{margin:4px 0;overflow-wrap:anywhere}`],
 })
 export class TypedJudgeResultComponent {
   readonly i18n = inject(I18nService); readonly value = input<unknown>(null); readonly result = computed(() => typedResult(this.value()));
+  readonly failure = computed(() => typedJudgeFailure(this.result()));
+  readonly qualityLabel = computed(() => this.result()?.quality_status === 'failed' ? 'dataops.judge.criteria_failed' : 'dataops.status.' + this.result()?.quality_status);
+  readonly failedQuestions = computed(() => {
+    const questions = this.result()?.questions;
+    return this.failure() && Array.isArray(questions) ? questions.flatMap(question => typeof question?.question === 'string' && question.question.trim() ? [question.question.slice(0, 2000)] : []) : [];
+  });
   readonly compact = input(false);
-  readonly answers = computed(() => Object.entries(this.result()?.answers ?? {}).map(([key, answer]) => {
+  readonly answers = computed(() => Object.entries(this.result()?.answers ?? {}).filter(([,answer]) => !this.failure() || answer.status !== 'invalid').map(([key, answer]) => {
     const questions = this.result()?.questions;
     const label = Array.isArray(questions) ? questions.find(q => q && q.key === key)?.question : null;
     return { key, answer, question: typeof label === 'string' && label.trim() ? label.slice(0, 2000) : key };

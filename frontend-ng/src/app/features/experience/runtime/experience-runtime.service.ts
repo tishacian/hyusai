@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, map, of, timer } from 'rxjs';
+import { Observable, concat, defer, map, of, timer } from 'rxjs';
 import { catchError, filter, switchMap, take, takeWhile, tap } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
@@ -41,7 +41,7 @@ export interface RuntimeFileReference {
   status: string;
 }
 
-export type RuntimePhase = 'idle' | 'loading' | 'running' | 'error';
+export type RuntimePhase = 'idle' | 'loading' | 'restoring' | 'running' | 'error';
 
 export interface RuntimeExecutionState {
   run: Run | null;
@@ -96,6 +96,9 @@ export class ExperienceRuntimeService {
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly executions = signal<Record<string, RuntimeExecutionState>>({});
+  private epoch = 0;
+  private readonly operations = new Map<string, number>();
+  private readonly contexts = new Map<string, RuntimeNodeContext>();
 
   /** Every action owns its state; cross-component output reads are explicit. */
   readonly runs = computed(() => {
@@ -136,6 +139,65 @@ export class ExperienceRuntimeService {
       .pipe(catchError(() => of(null)));
   }
 
+  /** Read the last authorised execution of this released, fixed-input action.
+   * The server owns selection and access checks. No action is submitted, and
+   * restoring a completed action never replays its after-success navigation.
+   */
+  restore(context: RuntimeNodeContext, bindingKey: string): Observable<Run | null> {
+    if (context.mode !== 'live' || !context.experienceSlug || !context.releaseId || !bindingKey) return of(null);
+    if (this.lastError(context.stateKey) === 'release_changed'
+      && this.contexts.get(context.stateKey)?.releaseId === context.releaseId) return of(null);
+    return defer(() => {
+      this.contexts.set(context.stateKey, context);
+      const current = this.beginOperation(context.stateKey);
+      // A remount reauthorises the current release. Old in-memory history is
+      // not evidence that those Runs remain readable in this context.
+      this.patch(context.stateKey, { run: null, history: [], phase: 'restoring', lastError: null, lastInvoke: null });
+      const slug = encodeURIComponent(context.experienceSlug);
+      const key = encodeURIComponent(bindingKey);
+      return this.api.get<{ run: BindingInvokeResult | null }>(`/work/${slug}/bindings/${key}/runs/latest`, {
+        page_id: context.pageId,
+        component_id: context.componentId,
+        release_id: context.releaseId!,
+      }).pipe(
+        switchMap((result) => {
+          if (!current()) return of(null);
+          if (!result.run?.id) {
+            this.patch(context.stateKey, { phase: 'idle' });
+            return of(null);
+          }
+          return this.canonical.getRun(result.run.id).pipe(
+            switchMap((run) => {
+              if (!current()) return of(null);
+              if (!run) {
+                this.patch(context.stateKey, { phase: 'error', lastError: 'network' });
+                return of(null);
+              }
+              const settled = runIsSettled(run.status);
+              this.patch(context.stateKey, {
+                run,
+                history: upsertRun(this.state(context.stateKey).history, run),
+                phase: run.status === 'failed' ? 'error' : settled ? 'idle' : 'running',
+                lastError: run.status === 'failed' ? run.error ?? 'failed' : null,
+              });
+              return settled ? of(run) : concat(of(run), this.poll(context, run.id));
+            }),
+          );
+        }),
+        catchError((err: unknown) => {
+          if (current()) this.patch(context.stateKey, {
+            run: null, phase: 'error',
+            lastError: err instanceof HttpErrorResponse && err.status === 409
+              && err.error?.detail?.code === 'WORK_RELEASE_CHANGED' ? 'release_changed'
+              : err instanceof HttpErrorResponse && [401, 403].includes(err.status)
+                ? `http_${err.status}` : 'network',
+          });
+          return of(null);
+        }),
+      );
+    });
+  }
+
   invoke(
     context: RuntimeNodeContext,
     bindingKey: string,
@@ -143,10 +205,13 @@ export class ExperienceRuntimeService {
     confirmed?: boolean,
     idempotencyKey = invocationKey(),
   ): Observable<BindingInvokeResult | null> {
+    if (this.lastError(context.stateKey) === 'release_changed') return of(null);
     if (context.mode !== 'live' || !context.experienceSlug) {
       this.patch(context.stateKey, { phase: 'error', lastError: 'preview_disabled' });
       return of(null);
     }
+    const current = this.beginOperation(context.stateKey);
+    this.contexts.set(context.stateKey, context);
     this.patch(context.stateKey, {
       phase: 'loading',
       // A rejected submission has no execution of its own. Keep older runs in
@@ -173,6 +238,7 @@ export class ExperienceRuntimeService {
         headers: { 'Idempotency-Key': idempotencyKey },
       })
       .pipe(
+        filter(() => current()),
         tap((started) => {
           const run: Run = {
             id: started.id,
@@ -186,16 +252,19 @@ export class ExperienceRuntimeService {
           });
         }),
         catchError((err: unknown) => {
-          this.patch(context.stateKey, { phase: 'error', lastError: requestErrorMessage(err) });
+          if (current()) this.patch(context.stateKey, { phase: 'error', lastError: requestErrorMessage(err) });
           return of(null);
         }),
       );
   }
 
   poll(context: RuntimeNodeContext, runId: string): Observable<Run | null> {
+    const current = this.currentOperation(context.stateKey);
     let polls = 0;
     return timer(0, POLL_MS).pipe(
+      takeWhile(() => current()),
       switchMap(() => this.canonical.getRun(runId)),
+      filter(() => current()),
       tap((run) => {
         polls += 1;
         if (run) {
@@ -215,7 +284,7 @@ export class ExperienceRuntimeService {
       }),
       takeWhile((run) => polls < MAX_POLLS && !runIsSettled(run?.status), true),
       catchError(() => {
-        this.patch(context.stateKey, { phase: 'error', lastError: 'network' });
+        if (current()) this.patch(context.stateKey, { phase: 'error', lastError: 'network' });
         return of(null);
       }),
     );
@@ -250,7 +319,7 @@ export class ExperienceRuntimeService {
       phase: run.status === 'failed' ? 'error' : settled ? 'idle' : 'running',
       lastError: run.status === 'failed' ? run.error ?? 'failed' : null,
     });
-    const context = state.lastInvoke?.context;
+    const context = state.lastInvoke?.context ?? this.contexts.get(stateKey);
     if (context && (!settled || staleDecisionStatus)) this.poll(context, run.id).subscribe();
   }
 
@@ -286,7 +355,20 @@ export class ExperienceRuntimeService {
   }
 
   reset(): void {
+    this.epoch++;
+    this.operations.clear();
+    this.contexts.clear();
     this.executions.set({});
+  }
+
+  private beginOperation(key: string): () => boolean {
+    this.operations.set(key, (this.operations.get(key) ?? 0) + 1);
+    return this.currentOperation(key);
+  }
+
+  private currentOperation(key: string): () => boolean {
+    const epoch = this.epoch, operation = this.operations.get(key);
+    return () => this.epoch === epoch && this.operations.get(key) === operation;
   }
 
   private patch(key: string, change: Partial<RuntimeExecutionState>): void {
