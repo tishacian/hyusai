@@ -281,6 +281,7 @@ def db_session():
         "tabular_datasets",
         "runs",
         "system_bindings",
+        "experience_wizard_states",
         "experience_deployments",
         "experience_releases",
         "experience_draft_revisions",

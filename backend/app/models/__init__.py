@@ -35,6 +35,7 @@ from app.models.experience import (
     ExperienceDraftHistory,
     ExperienceDraftRevision,
     ExperienceRelease,
+    ExperienceWizardState,
 )
 from app.models.expert_capture import (
     ExpertCaptureEvent,
@@ -222,6 +223,7 @@ __all__ = [
     "SystemBinding",
     "Experience",
     "ExperienceDraftRevision",
+    "ExperienceWizardState",
     "ExperienceDraftHistory",
     "ExperienceRelease",
     "ExperienceDeployment",

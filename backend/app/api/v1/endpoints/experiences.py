@@ -29,6 +29,7 @@ from app.models.workspace import Workspace
 from app.services.audit_access import enforce_audit_read
 from app.services.experience import bindings as binding_service
 from app.services.experience import lifecycle as experience_service
+from app.services.experience import wizard_state as wizard_service
 from app.services.iam.decision_plane import enforce_action
 
 router = APIRouter()
@@ -89,6 +90,22 @@ class StagedBindingBody(BaseModel):
     ingress_id: str = Field(min_length=1, max_length=160)
     confirmation_policy: str = "confirm"
     on_unavailable: str = "unavailable"
+
+
+class WizardAudienceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    roles: list[str] = Field(default_factory=list)
+    groups: list[str] = Field(default_factory=list)
+    whole_workspace: bool = False
+
+
+class WizardStateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: int = Field(ge=1, le=3)
+    staged_bindings: list[StagedBindingBody] = Field(default_factory=list)
+    audience: WizardAudienceBody = Field(default_factory=WizardAudienceBody)
 
 
 class DraftFinalizeBody(DraftSaveBody):
@@ -664,6 +681,7 @@ async def finalize_experience_draft(
             expected_updated_at=body.expected_experience_updated_at,
             actor=actor,
         )
+        wizard_service.clear(db, experience_id=experience_id)
         db.commit()
         db.refresh(draft)
     except binding_service.BindingError as exc:
@@ -672,6 +690,57 @@ async def finalize_experience_draft(
     except experience_service.ExperienceError as exc:
         _raise_experience(db, exc)
     return experience_service.serialize_draft(draft)
+
+
+@router.get("/{experience_id}/wizard")
+async def get_experience_wizard_state(
+    experience_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Where the creation wizard stopped; ``null`` once the draft is finalised."""
+
+    _require_studio_enabled(workspace)
+    _enforce_edit(db, user=user, workspace=workspace)
+    try:
+        row = wizard_service.read(db, workspace_id=workspace.id, experience_id=experience_id)
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+    return {"wizard": wizard_service.serialize(row)}
+
+
+@router.put("/{experience_id}/wizard")
+async def save_experience_wizard_state(
+    experience_id: str,
+    body: WizardStateBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Keep the wizard's step, staged bindings and audience on the server.
+
+    Staged bindings are stored as choices only; they become workspace
+    bindings when the draft is finalised, as before.
+    """
+
+    _require_studio_enabled(workspace)
+    _enforce_edit(db, user=user, workspace=workspace)
+    try:
+        row = wizard_service.save(
+            db,
+            workspace_id=workspace.id,
+            experience_id=experience_id,
+            step=body.step,
+            staged_bindings=[spec.model_dump() for spec in body.staged_bindings],
+            audience=body.audience.model_dump(),
+            actor=_actor(user),
+        )
+        db.commit()
+        db.refresh(row)
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+    return {"wizard": wizard_service.serialize(row)}
 
 
 @router.get("/{experience_id}/ready-check")
