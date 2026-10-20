@@ -1,0 +1,221 @@
+"""One lifecycle while legacy DataOps tasks drain: RecipeExecution is a projection.
+
+The existing task names and subprocess supervisor are retained. Admission, lease,
+absolute deadline, cancellation and accounting come from compute_runs whenever
+its foundation is enabled; no second Celery task is submitted.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+from sqlalchemy.orm import object_session
+
+from app.core.config import settings
+from app.models.compute_run import ACTIVE_STATUSES, TERMINAL_STATUSES, ComputeRun
+from app.services import compute_runs as runs
+
+KINDS = {"data_prep", "ml_stream_score", "sql_transform"}
+
+
+def applicable(execution):
+    return (
+        settings.connector_framework_enabled and (execution.input_json or {}).get("kind") in KINDS
+    )
+
+
+def register(db, execution):
+    if not applicable(execution):
+        return None
+    db.flush()
+    kind = "sql_transform" if execution.input_json["kind"] == "sql_transform" else "data_prep"
+    now = execution.created_at or runs.utcnow()
+    row = runs.create_run(
+        db,
+        workspace_id=execution.workspace_id,
+        user_id=None,
+        connection_id=None,
+        operation=kind,
+        kind=kind,
+        recipe_execution_id=execution.id,
+        run_id=execution.run_id,
+        node_id=execution.node_id,
+        cpu_cores=settings.dataops_duckdb_threads,
+        deadline_at=now + timedelta(seconds=execution.timeout_s or settings.dataops_sql_timeout_s),
+    )
+    row.memory_mb = settings.dataops_runner_memory_limit_mb
+    row.fingerprint = execution.code_sha256
+    return row
+
+
+def start(db, execution):
+    if not applicable(execution):
+        return True
+    if execution.status != "queued":
+        return False
+    try:
+        row = register(db, execution)
+        db.commit()
+        token = runs.claim_run(db, row.id)
+        if not token:
+            db.refresh(row)
+            if row.status in TERMINAL_STATUSES:
+                execution.status = "failed" if row.status == "lost" else row.status
+                execution.error, execution.finished_at = row.error_code, row.finished_at
+                fail_outputs(db, execution)
+                db.commit()
+            return False
+        execution._compute_lease_token = token
+        if not runs.advance_run(db, row.id, token, "launching") or not runs.advance_run(
+            db, row.id, token, "running"
+        ):
+            raise runs.ComputeRunError("COMPUTE_LEASE_LOST")
+        # Legacy runners continue accepting relative timeouts, bounded now by
+        # the same absolute deadline that included their queue delay.
+        execution.timeout_s = max(0.01, (row.deadline_at - runs.utcnow()).total_seconds())
+        return True
+    except runs.ComputeRunError as exc:
+        db.rollback()
+        from app.services.recipe_executions import finalize_execution
+
+        finalize_execution(execution, status="failed", error=exc.code)
+        db.commit()
+        return False
+
+
+def poll(db, execution_id):
+    if not settings.connector_framework_enabled:
+        return False
+    from app.db.base import SessionLocal
+    from app.models.recipe import RecipeExecution
+
+    execution = db.get(RecipeExecution, execution_id)
+    token = getattr(execution, "_compute_lease_token", None)
+    # A heartbeat must be committed independently of dataset publication. Never
+    # hold the compute row lock throughout the child runtime: cancellation and
+    # the reaper must remain able to observe/update it.
+    with db.no_autoflush:
+        row = (
+            db.query(ComputeRun)
+            .filter_by(recipe_execution_id=execution_id)
+            .populate_existing()
+            .first()
+        )
+    if row is None:
+        return False
+    now = runs.utcnow()
+    if (
+        row.status not in ACTIVE_STATUSES
+        or row.lease_token != token
+        or row.cancel_requested
+        or row.deadline_at <= now
+        or not row.lease_expires_at
+        or row.lease_expires_at <= now
+    ):
+        return True
+    if getattr(execution, "_compute_settling", False) or db.new or db.dirty or db.deleted:
+        # begin_settlement holds the lifecycle row lock through publication;
+        # the absolute deadline replaces heartbeats in that transaction.
+        return False
+    with SessionLocal() as heartbeat_db:
+        return not runs.heartbeat(heartbeat_db, row.id, token)
+
+
+def begin_settlement(db, execution):
+    """Fence publication before any pointer mutation, with one lock order.
+
+    ComputeRun precedes RecipeExecution, as in the reaper. Once fenced, the
+    transaction owns publication until the absolute deadline; a separate
+    heartbeat could not renew a lease while this row is locked.
+    """
+    if not applicable(execution):
+        return
+    with db.no_autoflush:
+        row = (
+            db.query(ComputeRun)
+            .filter_by(recipe_execution_id=execution.id)
+            .with_for_update()
+            .populate_existing()
+            .one_or_none()
+        )
+    now = runs.utcnow()
+    if (
+        row is None
+        or row.status not in ACTIVE_STATUSES
+        or row.lease_token != getattr(execution, "_compute_lease_token", None)
+        or row.cancel_requested
+        or row.deadline_at <= now
+        or not row.lease_expires_at
+        or row.lease_expires_at <= now
+    ):
+        raise runs.ComputeRunError("COMPUTE_LEASE_LOST")
+    row.lease_expires_at = row.deadline_at
+    row.status = "committing"
+    db.flush()
+    execution._compute_settling = True
+
+
+def fail_outputs(db, execution):
+    from app.models.tabular import TabularDataset
+
+    spec = execution.input_json or {}
+    identifiers = list((spec.get("outputs") or {}).values())
+    if spec.get("output_id"):
+        identifiers.append(spec["output_id"])
+    if (execution.output_json or {}).get("dataset_id"):
+        identifiers.append(execution.output_json["dataset_id"])
+    for identifier in identifiers:
+        dataset = db.get(TabularDataset, identifier)
+        if (
+            dataset
+            and dataset.workspace_id == execution.workspace_id
+            and dataset.status in {"ingesting", "ready"}
+        ):
+            dataset.status, dataset.error = "failed", execution.error or "COMPUTE_CANCELLED"
+
+
+def finalize(execution):
+    if not applicable(execution):
+        return
+    db = object_session(execution)
+    if db is None:
+        return
+    row = (
+        db.query(ComputeRun)
+        .filter_by(recipe_execution_id=execution.id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if row is None:
+        return
+    now = runs.utcnow()
+    status = execution.status
+    error = None if status == "succeeded" else "DATAOPS_EXECUTION_FAILED"
+    if row.status in TERMINAL_STATUSES:
+        status, error = row.status, row.error_code
+    elif row.cancel_requested:
+        status, error = "cancelled", "COMPUTE_CANCELLED"
+    elif row.deadline_at <= now:
+        status, error = "timed_out", "COMPUTE_TIMEOUT"
+    elif row.status in ACTIVE_STATUSES and (
+        not row.lease_expires_at or row.lease_expires_at <= now
+    ):
+        status, error = "lost", "COMPUTE_WORKER_LOST"
+    elif (
+        row.status in ACTIVE_STATUSES
+        and getattr(execution, "_compute_lease_token", None) != row.lease_token
+    ):
+        # Refuse publication from a stale worker without overwriting the current
+        # compute owner. Its local legacy projection must fail closed as well.
+        execution.status, execution.error = "failed", "COMPUTE_LEASE_LOST"
+        fail_outputs(db, execution)
+        execution.output_json = None
+        return
+    if row.status not in TERMINAL_STATUSES:
+        runs._finish(row, status, error, now, execution.output_json)
+    if status != "succeeded":
+        execution.status = "failed" if status == "lost" else status
+        execution.error = execution.error or error
+        fail_outputs(db, execution)
+        execution.output_json = None

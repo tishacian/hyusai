@@ -22,15 +22,17 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.services.audit_logger import emit_audit_event
+from app.services.connectors.legacy_network import bind_config, network_scope
 from app.services.secrets.compat import (
     kind_for,
     read_secret_field,
@@ -137,13 +139,13 @@ def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _entries(workspace: "Workspace") -> dict[str, Any]:
+def _entries(workspace: Workspace) -> dict[str, Any]:
     settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     return _mapping(settings.get(SETTINGS_KEY))
 
 
 def get_config(
-    workspace: "Workspace",
+    workspace: Workspace,
     connector_id: str,
     *,
     include_secrets: bool = False,
@@ -188,10 +190,11 @@ def get_config(
         config["secrets"] = {
             key: decrypt(stored_secrets[key]) for key in spec.secrets if stored_secrets.get(key)
         }
+        return bind_config(config, workspace)
     return config
 
 
-def list_configs(workspace: "Workspace") -> list[dict[str, Any]]:
+def list_configs(workspace: Workspace) -> list[dict[str, Any]]:
     return [get_config(workspace, connector_id) for connector_id in CONNECTORS]
 
 
@@ -207,7 +210,7 @@ def _text(key: str, value: Any) -> str:
     return text
 
 
-def _persist(db: DBSession, workspace: "Workspace", entries: dict[str, Any]) -> None:
+def _persist(db: DBSession, workspace: Workspace, entries: dict[str, Any]) -> None:
     settings = dict(workspace.settings or {})
     settings[SETTINGS_KEY] = entries
     workspace.settings = settings
@@ -217,7 +220,7 @@ def _persist(db: DBSession, workspace: "Workspace", entries: dict[str, Any]) -> 
 
 def set_config(
     db: DBSession,
-    workspace: "Workspace",
+    workspace: Workspace,
     connector_id: str,
     values: Mapping[str, Any],
     *,
@@ -302,7 +305,7 @@ def set_config(
 
 def clear_config(
     db: DBSession,
-    workspace: "Workspace",
+    workspace: Workspace,
     connector_id: str,
     *,
     actor: str,
@@ -333,7 +336,7 @@ def _port(value: Any, default: int) -> int:
     return port if 0 < port < 65536 else default
 
 
-_Outcome = tuple[str, Optional[str]]
+_Outcome = tuple[str, str | None]
 
 
 def _test_telegram(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _Outcome:
@@ -477,7 +480,8 @@ def test_connection(connector_id: str, config: Mapping[str, Any]) -> dict[str, A
         status, detail = "unsupported", None
     else:
         try:
-            status, detail = tester(_mapping(config.get("values")), _mapping(config.get("secrets")))
+            with network_scope(config):
+                status, detail = tester(_mapping(config.get("values")), _mapping(config.get("secrets")))
         except Exception as exc:  # noqa: BLE001 — a driver message can quote the request
             logger.warning("Connector test %s failed: %s", connector_id, type(exc).__name__)
             status, detail = "error", type(exc).__name__
@@ -485,5 +489,5 @@ def test_connection(connector_id: str, config: Mapping[str, Any]) -> dict[str, A
         "id": connector_id,
         "status": status,
         "detail": detail,
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": datetime.now(UTC).isoformat(),
     }

@@ -1,0 +1,21 @@
+key: sap_hana
+version: 1
+label_key: connections.profile.sap_hana
+family: dbapi
+dialect: hana
+packages: [hdbcli]
+parameters:
+  - {key: host, type: host, required: true}
+  - {key: port, type: integer, default: 443, min: 1, max: 65535}
+  - {key: user, type: string, required: true}
+  - {key: password, type: secret, required: true, when: {demo_mode: [false]}}
+  - {key: schema, type: string}
+  - {key: encrypt, type: boolean, default: true}
+  - {key: ssl_validate_certificate, type: boolean, default: true}
+  - {key: demo_mode, type: boolean, default: false}
+capabilities:
+  read: true
+  read_partitioned: true
+  read_incremental: true
+  consistency: none
+limits: {preview_rows: 100, statement_timeout_ms: 30000, fetch_rows: 10000}

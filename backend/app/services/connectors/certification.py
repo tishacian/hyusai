@@ -62,7 +62,7 @@ class Capabilities(FrozenContract):
     write_upsert: StrictBool = False
     create_table: StrictBool = False
     write_outcome_check: Literal[
-        "marker_table", "job_id", "idempotency_key", "conditional_put", "none"
+        "marker_table", "job_id", "idempotency_key", "conditional_put", "snapshot_summary", "none"
     ] = "none"
     export_files: StrictBool = False
     watch: StrictBool = False
@@ -200,7 +200,8 @@ def certification_level(
     """Evaluate *trusted* bundles against the current components and deployment.
 
     A later failure wins over an older success. Conflicting same-time reports
-    fail closed. No API or catalogue currently invokes this preparatory helper.
+    fail closed. API connection badges evaluate trusted proof bundles against
+    the exact identity observed by the isolated runner.
     """
     if now.utcoffset() is None or type(max_age_days) is not int or max_age_days <= 0:
         raise ValueError("CONNECTOR_CERTIFICATION_POLICY_INVALID")

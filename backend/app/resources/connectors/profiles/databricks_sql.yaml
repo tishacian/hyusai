@@ -1,0 +1,39 @@
+key: databricks_sql
+version: 1
+label_key: connections.profile.databricks_sql
+family: dbapi
+dialect: databricks_sql
+packages:
+- httpx
+parameters:
+- key: host
+  type: host
+  required: true
+- key: warehouse_id
+  type: string
+  required: true
+  pattern: '[A-Za-z0-9_-]{1,255}'
+- key: catalog
+  type: string
+  required: false
+  default: main
+- key: schema
+  type: string
+  required: false
+  default: default
+- key: access_token
+  type: secret
+  required: true
+capabilities:
+  read: true
+  read_partitioned: true
+  read_incremental: true
+  write_append: true
+  write_overwrite: true
+  write_upsert: true
+  write_outcome_check: none
+  consistency: none
+limits:
+  preview_rows: 100
+  statement_timeout_ms: 30000
+  fetch_rows: 1000

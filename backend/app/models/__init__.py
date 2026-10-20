@@ -16,6 +16,12 @@ from app.models.client360 import (
     Client360MappingRule,
     Client360Opportunity,
 )
+from app.models.compute_run import ComputeRun
+from app.models.connector_connection import ConnectorConnection, ConnectorDelegation, ConnectorGrant
+from app.models.connector_governance import ConnectorEvidence, ConnectorNetworkException
+from app.models.connector_oauth_state import ConnectorOAuthState
+from app.models.connector_sync import ConnectorSyncState, ConnectorWatch
+from app.models.connector_write import ConnectorWrite
 from app.models.context import Context
 from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
@@ -117,6 +123,14 @@ from app.models.workspace_visual import (
 )
 
 __all__ = [
+    "ConnectorWrite",
+    "ConnectorOAuthState",
+    "ComputeRun",
+    "ConnectorConnection",
+    "ConnectorGrant",
+    "ConnectorDelegation",
+    "ConnectorEvidence",
+    "ConnectorNetworkException",
     "AssistantRequest",
     "User",
     "Session",
@@ -213,6 +227,8 @@ __all__ = [
     "Impact",
     "Decision",
     "ValueLoopOperation",
+    "ConnectorSyncState",
+    "ConnectorWatch",
     "ValueScenario",
     "ValueSimulation",
     "ValueActionExecution",

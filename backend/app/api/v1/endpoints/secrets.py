@@ -25,6 +25,7 @@ from app.services import secrets as registry
 from app.services.huggingface.access import is_platform_admin, is_workspace_admin
 from app.services.iam.decision_plane import enforce_action
 from app.services.secrets import SecretRegistryError
+from app.services.secrets.registry import user_owner_key
 
 router = APIRouter()
 
@@ -63,6 +64,12 @@ def _system_in_workspace(db: DBSession, workspace: Workspace, system_id: Any) ->
 def _require_scope_admin(
     db: DBSession, user: User, workspace: Workspace, scope: str, system: Optional[System]
 ) -> None:
+    if scope == "user":
+        try:
+            user_owner_key(db, workspace.id, user.id)
+        except SecretRegistryError as exc:
+            raise _http(exc) from exc
+        return
     if scope == "platform":
         if not is_platform_admin(user):
             raise _denied("PLATFORM_PERMISSION_DENIED")
@@ -86,6 +93,8 @@ def _require_scope_admin(
 def _load(db: DBSession, user: User, workspace: Workspace, secret_id: str) -> Secret:
     secret = db.get(Secret, secret_id)
     if secret is None or (secret.scope != "platform" and secret.workspace_id != workspace.id):
+        raise HTTPException(status_code=404, detail={"code": "SECRET_NOT_FOUND"})
+    if secret.scope == "user" and secret.user_id != user.id:
         raise HTTPException(status_code=404, detail={"code": "SECRET_NOT_FOUND"})
     system = db.get(System, secret.system_id) if secret.system_id else None
     _require_scope_admin(db, user, workspace, secret.scope, system)
@@ -136,6 +145,7 @@ async def list_secrets(
             workspace_id=None if scope == "platform" else workspace.id,
             system_id=system_id,
             include_disabled=include_disabled,
+            user_id=user.id if scope == "user" else None,
         )
     except SecretRegistryError as exc:
         raise _http(exc) from exc
@@ -154,7 +164,7 @@ async def create_secret(
     if unknown:
         raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": f"unknown fields: {', '.join(unknown)}"})
     scope = body.get("scope") or "workspace"
-    if scope not in ("platform", "workspace", "system"):
+    if scope not in ("platform", "workspace", "system", "user"):
         raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": "unknown scope"})
     system = _system_in_workspace(db, workspace, body.get("system_id")) if scope == "system" else None
     _require_scope_admin(db, user, workspace, scope, system)
@@ -166,7 +176,8 @@ async def create_secret(
             value=body.get("value"),
             actor=user.id,
             kind=body.get("kind") or "generic",
-            workspace_id=workspace.id if scope == "workspace" else None,
+            workspace_id=workspace.id if scope in {"workspace", "user"} else None,
+            user_id=user.id if scope == "user" else None,
             system_id=system.id if system else None,
             description=_optional_str(body, "description"),
             metadata=body.get("metadata"),

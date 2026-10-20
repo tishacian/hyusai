@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.capability import Capability
 from app.models.skill import Skill
+from app.services.connectors.skill_reads import ConnectorReadInput
+from app.services.connectors.skill_writes import ConnectorWriteRequestInput
 from app.services.ecommerce.skill_catalog import CLAIM_SKILLS
 from app.services.ml_methodology import skill_definitions as ml_methodology_skills
 
@@ -948,6 +950,54 @@ SEED_SKILLS: list[dict[str, Any]] = [
         "output_schema": {
             "type": "object",
             "properties": {"summary": {"type": "string"}, "events": {"type": "array"}},
+        },
+    },
+    {
+        "slug": "connector_read_v1",
+        "version": "1",
+        "name": "Connection Read",
+        "description": "Reads the unified connection registry through the isolated worker. Flow nodes wait for the published result within their run deadline; agents receive a durable compute_run_id and poll operation=status. Does not write to sources or borrow another user's credentials.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "async", "timeout_ms": 86_400_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": ConnectorReadInput.model_json_schema(by_alias=True),
+        "output_schema": {
+            "type": "object", "additionalProperties": False,
+            "required": ["compute_run_id", "connection_id", "operation", "status", "result", "error_code"],
+            "properties": {
+                "compute_run_id": {"type": "string"},
+                "connection_id": {"type": "string"},
+                "operation": {"type": "string", "enum": ["catalog", "table", "preview", "import"]},
+                "status": {"type": "string", "enum": ["queued", "admitted", "launching", "running", "committing", "succeeded", "failed", "cancelled", "timed_out", "lost"]},
+                "result": {"type": ["object", "null"]},
+                "error_code": {"type": ["string", "null"]},
+            },
+        },
+    },
+    {
+        "slug": "connector_write_request_v1",
+        "version": "1",
+        "name": "Connection Write Request",
+        "description": "Prepares an immutable write contract and queues its read-only preflight. A workspace administrator must review, approve and execute it in Connections. This Skill never approves or writes to a source.",
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "async", "timeout_ms": 30_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": ConnectorWriteRequestInput.model_json_schema(),
+        "output_schema": {
+            "type": "object", "additionalProperties": False,
+            "required": ["write_operation_id", "contract_digest", "state", "preview_compute_run_id", "approval_required", "contract"],
+            "properties": {
+                "write_operation_id": {"type": "string"},
+                "contract_digest": {"type": "string"},
+                "state": {"type": "string"},
+                "preview_compute_run_id": {"type": ["string", "null"]},
+                "approval_required": {"type": "boolean"},
+                "contract": {"type": "object"},
+            },
         },
     },
     {
@@ -3942,6 +3992,8 @@ SEED_CAPABILITIES: list[dict[str, Any]] = [
             "dbt_transform_v1",
             "llm_label_dataset_v1",
             "hf_dataset_import_v1",
+            "connector_read_v1",
+            "connector_write_request_v1",
         ],
         "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
         "value_per_outcome": 1.00,
@@ -4538,6 +4590,8 @@ SKILL_CATEGORIES: dict[str, str] = {
     "sap_list_approved_prs_v1": "Connections",
     "sap_reject_pr_v1": "Connections",
     "sap_hana_query_v1": "Connections",
+    "connector_read_v1": "Connections",
+    "connector_write_request_v1": "Connections",
     "scenario_compare_v1": "Decision Support",
     "scenario_generate_v1": "Decision Support",
     "scenario_recommend_v1": "Decision Support",

@@ -18,7 +18,7 @@ from sqlalchemy import (
 
 from app.db.base import Base
 
-SECRET_SCOPES = ("platform", "workspace", "system")
+SECRET_SCOPES = ("platform", "workspace", "system", "user")
 SECRET_KINDS = ("api_key", "token", "password", "oauth_client", "generic")
 SECRET_BACKENDS = ("db", "openbao")
 
@@ -33,10 +33,16 @@ class Secret(Base):
         # owner_key is "platform", the workspace id or the system id: NULL
         # owners would make the uniqueness constraint toothless.
         UniqueConstraint("scope", "owner_key", "name", name="uq_secrets_scope_owner_name"),
-        CheckConstraint("scope IN ('platform','workspace','system')", name="ck_secrets_scope"),
+        CheckConstraint(
+            "scope IN ('platform','workspace','system','user')", name="ck_secrets_scope"
+        ),
         CheckConstraint(
             "kind IN ('api_key','token','password','oauth_client','generic')",
             name="ck_secrets_kind",
+        ),
+        CheckConstraint(
+            "(scope = 'user' AND user_id IS NOT NULL AND workspace_id IS NOT NULL AND system_id IS NULL) OR (scope != 'user' AND user_id IS NULL)",
+            name="ck_secrets_user_owner",
         ),
         CheckConstraint("backend IN ('db','openbao')", name="ck_secrets_backend"),
     )
@@ -48,6 +54,9 @@ class Secret(Base):
     )
     system_id = Column(
         String(36), ForeignKey("systems.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     owner_key = Column(String(36), nullable=False)
     name = Column(String(120), nullable=False)

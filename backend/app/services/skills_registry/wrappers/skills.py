@@ -7290,6 +7290,47 @@ async def _reconciliation_report_v1(
     }
 
 
+async def _connector_write_request_v1(payload, ctx=None):
+    from app.services.connectors.skill_writes import request_write
+
+    return _connector_skill_call(request_write, payload, ctx)
+
+
+async def _connector_read_v1(payload, ctx=None):
+    from app.services.connectors.skill_reads import read, wait_for_result
+
+    result = _connector_skill_call(read, payload, ctx)
+    if ctx and ctx.get("run_id") and ctx.get("_skill_node_id"):
+        try:
+            return await wait_for_result(result, payload, ctx)
+        except Exception as exc:
+            code = getattr(exc, "code", "CONNECTOR_SKILL_FAILED")
+            raise SkillBindingError(code, code) from None
+    return result
+
+
+def _connector_skill_call(call, payload, ctx):
+    from pydantic import ValidationError
+
+    from app.db.base import SessionLocal
+
+    db = (ctx or {}).get("db")
+    owned = db is None
+    db = db or SessionLocal()
+    try:
+        return call(db, payload, ctx or {})
+    except ValidationError:
+        db.rollback()
+        raise SkillBindingError("CONNECTOR_PARAMETERS_INVALID", "CONNECTOR_PARAMETERS_INVALID") from None
+    except Exception as exc:
+        db.rollback()
+        code = getattr(exc, "code", "CONNECTOR_SKILL_FAILED")
+        raise SkillBindingError(code, code) from None
+    finally:
+        if owned:
+            db.close()
+
+
 async def _data_prep_v1(payload, ctx=None):
     import asyncio
     import time

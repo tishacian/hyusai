@@ -206,6 +206,8 @@ def finalize_execution(
         execution.duration_ms = (
             execution.finished_at - execution.started_at
         ).total_seconds() * 1000
+    from app.services.dataops.compute_registry import finalize as finalize_compute
+    finalize_compute(execution)
 
 
 def serialize_execution(execution: RecipeExecution) -> dict[str, Any]:
@@ -342,7 +344,10 @@ def cancel_requested(db: DBSession, execution_id: str) -> bool:
         .filter(RecipeExecution.id == execution_id)
         .scalar()
     )
-    return bool(value)
+    if value:
+        return True
+    from app.services.dataops.compute_registry import poll as poll_compute
+    return poll_compute(db, execution_id)
 
 
 def ensure_env_ready(db: DBSession, execution: RecipeExecution) -> PythonEnv | None:

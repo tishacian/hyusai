@@ -1,4 +1,4 @@
-"""Connector worker scaffold. Business tasks arrive with the C1 runner.
+"""Connector worker for isolated driver operations.
 
 Do not import the general worker's tasks: this image is not a consumer for
 Flows, ML or DataOps. The two queues are served by separate OS processes.
@@ -13,6 +13,7 @@ celery_connectors = Celery(
     "agentium_connectors",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
+    include=["app.workers.tasks_connectors"],
 )
 celery_connectors.conf.update(
     accept_content=["json"],
