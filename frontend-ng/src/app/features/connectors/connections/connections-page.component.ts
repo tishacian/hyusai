@@ -1,3 +1,5 @@
+import { timeout } from 'rxjs/operators';
+import { WRITE_TIMEOUT_MS, writeFailure } from '@app/shared/ui/load-state';
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -37,6 +39,8 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
   readonly disabled = signal(false);
   readonly busy = signal(false);
   readonly failure = signal<string | null>(null);
+  /** An approve or execute is on its way; its buttons stay disabled until the answer. */
+  readonly writeSending = signal(false);
   readonly run = signal<ConnectionRun | null>(null);
   readonly tables = signal<Array<{ schema: string; name: string }>>([]);
   readonly tools = signal<ToolContract[]>([]);
@@ -290,12 +294,20 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
     } catch (error) { if (this.context.isCurrent(request)) this.fail(error); }
   }
   async writeAction(action: 'approve' | 'execute'): Promise<void> {
-    const contract = this.writeContract(); if (!contract || !this.canConfigure() || (action === 'approve' && contract['preview_ready'] !== true)) return;
+    const contract = this.writeContract(); if (!contract || !this.canConfigure() || this.writeSending() || (action === 'approve' && contract['preview_ready'] !== true)) return;
     const request = this.context.captureRequest(), epoch = this.actionEpoch;
+    // One request at a time: a double click never sends twice (the server also refuses a second send).
+    this.writeSending.set(true); this.failure.set(null);
     try {
-      const result = await firstValueFrom(this.api.post<Record<string, any>>(`/connector-writes/${contract['id']}/${action}`, action === 'approve' ? { contract_digest: contract['contract_digest'] } : {}, { workspaceSlug: request.scope.workspaceSlug }));
+      const result = await firstValueFrom(this.api.post<Record<string, any>>(`/connector-writes/${contract['id']}/${action}`, action === 'approve' ? { contract_digest: contract['contract_digest'] } : {}, { workspaceSlug: request.scope.workspaceSlug })
+        .pipe(timeout({ first: WRITE_TIMEOUT_MS })));
       if (this.context.isCurrent(request) && epoch === this.actionEpoch) this.writeContract.set(result);
-    } catch (error) { if (this.context.isCurrent(request)) this.fail(error); }
+    } catch (error) {
+      if (!this.context.isCurrent(request)) return;
+      // A lost answer is not a failure: read the contract back instead of sending again.
+      if (writeFailure(error).s === 'unknown') { this.failure.set(this.i18n.t('state.write.unknown')); await this.refreshWrite(); }
+      else this.fail(error);
+    } finally { if (this.context.isCurrent(request)) this.writeSending.set(false); }
   }
   useIcebergSnapshot(): void {
     const current = this.run(), row = this.selected(), snapshot = current?.output?.['snapshot'];

@@ -115,14 +115,19 @@
               <pre class="text-xs overflow-auto whitespace-pre-wrap">{{ contract | json }}</pre>
               <p class="text-sm text-gray-400">{{ i18n.t('connections.approval_help') }}</p>
               <div class="flex flex-wrap gap-2">
-                <button class="ck-btn" (click)="refreshWrite()">{{ i18n.t('connections.refresh_write') }}</button>
+                <button class="ck-btn" data-testid="connector-write-refresh" (click)="refreshWrite()">{{ i18n.t('connections.refresh_write') }}</button>
                 @if (contract['state'] === 'prepared' || contract['state'] === 'approved') {
                   <button class="ck-btn" [disabled]="activeRun()" (click)="inspectWrite('preview')">{{ i18n.t('connections.preview_write') }}</button>
                   @if (isTools()) { <p class="text-sm text-gray-400">{{ i18n.t('connections.tool_preview_help') }}</p> }
-                  <button class="ck-btn" [disabled]="contract['preview_ready'] !== true" (click)="writeAction('approve')">{{ i18n.t('connections.approve') }}</button>
-                  <button class="ck-btn" [disabled]="contract['state'] !== 'approved'" (click)="writeAction('execute')">{{ i18n.t('connections.execute') }}</button>
+                  <button class="ck-btn" data-testid="connector-write-approve" [disabled]="writeSending() || contract['preview_ready'] !== true" (click)="writeAction('approve')">{{ i18n.t('connections.approve') }}</button>
+                  <button class="ck-btn" data-testid="connector-write-execute" [disabled]="writeSending() || contract['state'] !== 'approved'" (click)="writeAction('execute')">{{ i18n.t('connections.execute') }}</button>
                 }
-                @if (contract['state'] === 'unknown' && profile()?.capabilities?.['write_outcome_check'] !== 'none' && profile()?.capabilities?.['write_outcome_check']) { <button class="ck-btn" [disabled]="activeRun()" (click)="inspectWrite('reconcile')">{{ i18n.t('connections.reconcile_write') }}</button> }
+                <!-- An unknown result offers Check, then Abandon with a reason; never a resend. -->
+                @if (contract['state'] === 'unknown') {
+                  @if (profile()?.capabilities?.['write_outcome_check'] !== 'none' && profile()?.capabilities?.['write_outcome_check']) {
+                    <button class="ck-btn" data-testid="connector-write-verify" [disabled]="activeRun()" (click)="inspectWrite('reconcile')">{{ i18n.t('connections.reconcile_write') }}</button>
+                  }
+                }
                 @if (contract['review_decision_id']) { <a class="ck-btn" [navLink]="{ surface: 'review-queue' }">{{ i18n.t('connections.open_review') }}</a> }
               </div>
               @if (contract['state'] === 'unknown') {
