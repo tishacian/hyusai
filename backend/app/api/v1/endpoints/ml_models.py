@@ -753,6 +753,7 @@ class FeedbackBody(BaseModel):
 
     prediction_id: str = Field(min_length=8, max_length=36)
     label: str = Field(min_length=1, max_length=200)
+    sample_id: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 def _monitoring_for(db, *, model, workspace, user):
@@ -889,6 +890,7 @@ async def post_feedback(
             prediction_id=body.prediction_id,
             label=body.label,
             labeled_by=getattr(user, "id", None),
+            sample_id=body.sample_id,
         )
     except TabularError as exc:
         _raise_tabular(exc)
@@ -896,6 +898,27 @@ async def post_feedback(
         "prediction": serialize_prediction(row),
         "monitoring": _monitoring_for(db, model=model, workspace=workspace, user=user),
     }
+
+
+@router.get("/{model_id}/predictions/{prediction_id}")
+async def get_prediction_samples(
+    model_id: str,
+    prediction_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.tabular_monitoring import get_prediction
+
+    try:
+        ml_permissions.require(db, "feedback", workspace, user)
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        row = get_prediction(db, prediction_id=prediction_id, workspace_id=workspace.id)
+        if row.slug != model.slug:
+            raise TabularError(code="ML_PREDICTION_WRONG_MODEL", message="That prediction belongs to another model.", status_code=409)
+        return {"prediction": serialize_prediction(row)}
+    except TabularError as exc:
+        _raise_tabular(exc)
 
 
 @router.post("/{model_id}/feedback/dataset")

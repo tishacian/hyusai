@@ -270,6 +270,7 @@ def db_session():
         "python_envs",
         "ml_admission_counters",
         "ml_workspace_locks",
+        "ml_prediction_feedback",
         "ml_predictions",
         "ml_model_api_keys",
         "ml_models",

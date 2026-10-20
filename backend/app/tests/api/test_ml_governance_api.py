@@ -99,3 +99,34 @@ def test_failed_audit_prevents_key_creation(client, db_session, subject, monkeyp
     assert response.status_code == 503
     db_session.rollback()
     assert db_session.query(MLModelApiKey).count() == 0
+
+
+def test_batch_feedback_selects_one_retained_sample(client, db_session, subject):
+    from app.models.ml_feedback import MLPredictionFeedback
+    from app.services.tabular_predict import journal_call
+
+    model = subject[3]
+    identifier = journal_call(
+        db_session,
+        requested=model,
+        served=model,
+        caller="session",
+        rows=[{"x": 1}, {"x": 2}],
+        answers=[{"prediction": 1}, {"prediction": 2}],
+        duration_ms=2,
+    )
+    url = f"/ml-models/{model.id}"
+    response = client.post(url + "/feedback", json={"prediction_id": identifier, "label": "3"})
+    assert (
+        response.status_code == 422
+        and response.json()["detail"]["code"] == "ML_FEEDBACK_SAMPLE_REQUIRED"
+    )
+    samples = client.get(url + "/predictions/" + identifier).json()["prediction"]["samples"]
+    assert len(samples) == 2 and samples[0]["sample_id"] != samples[1]["sample_id"]
+    response = client.post(
+        url + "/feedback",
+        json={"prediction_id": identifier, "sample_id": samples[1]["sample_id"], "label": "3"},
+    )
+    assert response.status_code == 200, response.text
+    feedback = db_session.query(MLPredictionFeedback).one()
+    assert feedback.sample_index == 1 and feedback.label == "3.0"

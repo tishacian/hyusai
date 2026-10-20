@@ -834,7 +834,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(5, "usage: ml_train_harness.py MANIFEST_JSON RESULT_JSON")
     manifest_path, result_path = argv[1:3]
     try:
-        with open(manifest_path, "r", encoding="utf-8") as handle:
+        with open(manifest_path, encoding="utf-8") as handle:
             manifest = json.load(handle)
     except (OSError, ValueError) as exc:
         return _fail(5, f"ml_manifest_unreadable: {exc}")
@@ -847,7 +847,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     features = manifest.get("features")
     task = manifest.get("task")
     if (
-        not (isinstance(data_path, str) or (isinstance(data_path, list) and data_path and all(isinstance(p, str) and p for p in data_path)))
+        not (
+            isinstance(data_path, str)
+            or (
+                isinstance(data_path, list)
+                and data_path
+                and all(isinstance(p, str) and p for p in data_path)
+            )
+        )
         or not isinstance(model_dir, str)
         or not isinstance(target, str)
         or not isinstance(features, list)
@@ -964,9 +971,32 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(5, f"skrub_missing: {exc}")
 
     try:
-        x_train, x_test, y_train, y_test = train_test_split(
-            x, y, test_size=test_size, random_state=seed, stratify=stratify
-        )
+        partition = manifest.get("retraining_partition")
+        if partition is not None:
+            evidence = _evaluation_module()
+            train_count, test_count = partition["train_rows"], partition["test_rows"]
+            if (
+                partition.get("version") != 1
+                or type(train_count) is not int
+                or type(test_count) is not int
+                or train_count < min_rows
+                or test_count < 1
+                or train_count + test_count != len(x)
+                or list(x.index) != list(range(len(x)))
+                or evidence.fingerprint(evidence.row_ids(frame, partition["columns"]))
+                != partition["fingerprint"]
+            ):
+                raise ValueError("Invalid frozen retraining partition")
+            x_train, x_test = x.iloc[:train_count], x.iloc[train_count:]
+            y_train, y_test = y.iloc[:train_count], y.iloc[train_count:]
+            if set(evidence.row_ids(x_train, sorted(x.columns))) & set(
+                evidence.row_ids(x_test, sorted(x.columns))
+            ):
+                raise ValueError("Retraining partition leaks held-out observations")
+        else:
+            x_train, x_test, y_train, y_test = train_test_split(
+                x, y, test_size=test_size, random_state=seed, stratify=stratify
+            )
     except Exception as exc:  # noqa: BLE001
         return _fail(2, f"ml_split_failed: {exc}")
 
@@ -989,6 +1019,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
                 test_size=test_size,
                 positive_class=_label(positive) if positive is not None else None,
             )
+            if partition is not None:
+                evaluation["strategy"] = "preserved_source_holdout"
+                evaluation["source_partition_sha256"] = partition["source_partition_sha256"]
         except Exception as exc:
             return _fail(5, f"ml_evaluation_provenance_failed: {exc}")
 
@@ -1125,6 +1158,51 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "cv_std_ddof": 1,
     }
     metrics["monitoring_reference"] = _monitoring_reference(x_train, seed)
+    # Scores are measured on the original final test; store bounded numeric
+    # evidence, never the held-out feature rows in the monitoring read model.
+    predicted_reference = pipeline.predict(x_test)
+    if task == "classification" and hasattr(pipeline, "predict_proba"):
+        probabilities = pipeline.predict_proba(x_test)
+        if binary:
+            labels_order = list(pipeline.classes_)
+            scores_reference = probabilities[:, labels_order.index(positive)]
+        else:
+            scores_reference = probabilities.max(axis=1)
+    else:
+        scores_reference = predicted_reference
+    reference_values = [_number(value) for value in scores_reference]
+    reference_values = [value for value in reference_values if value is not None]
+    if reference_values:
+        import numpy as np
+
+        counts, edges = np.histogram(
+            reference_values, bins=min(10, max(1, len(set(reference_values))))
+        )
+        metrics["monitoring_reference"]["scores"] = {
+            "source": "final_test",
+            "kind": "confidence"
+            if task == "classification" and not binary
+            else "positive_probability"
+            if binary
+            else "prediction",
+            "n": len(reference_values),
+            "mean": float(np.mean(reference_values)),
+            "edges": edges.tolist(),
+            "counts": counts.tolist(),
+            "values": np.random.default_rng(seed)
+            .choice(reference_values, size=min(400, len(reference_values)), replace=False)
+            .tolist(),
+        }
+    if task == "classification" and not binary:
+        from sklearn.metrics import f1_score
+
+        metrics["monitoring_reference"]["concept"] = {
+            "f1_macro": float(
+                f1_score(
+                    y_test, predicted_reference, labels=classes, average="macro", zero_division=0
+                )
+            )
+        }
     if intervals is not None:
         metrics["intervals"] = _interval_evidence(intervals, pipeline.predict(x_test), y_test)
     metrics["rows"] = {
