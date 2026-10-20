@@ -7,6 +7,7 @@ import type { LabelReviewPage, LabelReviewSubmission } from '@app/features/data/
 import type { ObjectLens } from './navigation.catalog';
 import type { ModelCatalogEntry, ModelResolution } from './model-catalog';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
+import { fallbackUnless, type ErrorPolicy } from '@app/shared/ui/load-state';
 
 /** Canonical mental-model types — kept flat and permissive so the UI can
  *  degrade gracefully when any field is missing (e.g. before a run
@@ -1608,26 +1609,26 @@ export class CanonicalApiService {
     return ((raw as Record<string, T[]>)[key] ?? []) as T[];
   }
 
-  listCapabilities(): Observable<Capability[]> {
+  listCapabilities(policy?: ErrorPolicy): Observable<Capability[]> {
     return this.api
       .get<Capability[] | { capabilities: Capability[] }>('/capabilities')
       .pipe(
         map((r) => this.unwrap<Capability>(r, 'capabilities')),
-        catchError(() => of([] as Capability[])),
+        fallbackUnless(policy, () => [] as Capability[]),
       );
   }
 
-  catalog(): Observable<Capability[]> {
+  catalog(policy?: ErrorPolicy): Observable<Capability[]> {
     return this.api
       .get<Capability[] | { capabilities: Capability[] }>('/capabilities/catalog')
       .pipe(
         map((r) => this.unwrap<Capability>(r, 'capabilities')),
-        catchError(() => of([] as Capability[])),
+        fallbackUnless(policy, () => [] as Capability[]),
       );
   }
 
-  getCapability(id: string): Observable<Capability | null> {
-    return this.api.get<Capability>(`/capabilities/${id}`).pipe(catchError(() => of(null)));
+  getCapability(id: string, policy?: ErrorPolicy): Observable<Capability | null> {
+    return this.api.get<Capability>(`/capabilities/${id}`).pipe(fallbackUnless(policy, () => null));
   }
 
   getCapabilityPerspective(
@@ -1654,8 +1655,8 @@ export class CanonicalApiService {
       );
   }
 
-  getSkill(slug: string): Observable<Skill | null> {
-    return this.api.get<Skill>(`/skills/${encodeURIComponent(slug)}`).pipe(catchError(() => of(null)));
+  getSkill(slug: string, policy?: ErrorPolicy): Observable<Skill | null> {
+    return this.api.get<Skill>(`/skills/${encodeURIComponent(slug)}`).pipe(fallbackUnless(policy, () => null));
   }
 
   /** The verified runtimes, the authorable taxonomy and the caller's right to
@@ -1751,8 +1752,8 @@ export class CanonicalApiService {
       );
   }
 
-  getSystem(id: string): Observable<System | null> {
-    return this.api.get<System>(`/systems/${id}`).pipe(catchError(() => of(null)));
+  getSystem(id: string, policy?: ErrorPolicy): Observable<System | null> {
+    return this.api.get<System>(`/systems/${id}`).pipe(fallbackUnless(policy, () => null));
   }
 
   /** Strict counterpart used by mutation-sensitive editors: unlike
@@ -1836,10 +1837,10 @@ export class CanonicalApiService {
     );
   }
 
-  getSystemFlowManifest(id: string): Observable<FlowRuntimeManifest | null> {
+  getSystemFlowManifest(id: string, policy?: ErrorPolicy): Observable<FlowRuntimeManifest | null> {
     return this.api
       .get<FlowRuntimeManifest>(`/systems/${id}/flow-manifest`)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   /** Analyse an editor snapshot without mutating the persisted System. Errors
@@ -1943,10 +1944,10 @@ export class CanonicalApiService {
       opts?.propagateErrors ? throwError(() => error) : of(null)));
   }
 
-  deleteSystem(id: string): Observable<boolean> {
+  deleteSystem(id: string, policy?: ErrorPolicy): Observable<boolean> {
     return this.api.delete<void>(`/systems/${id}`).pipe(
       map(() => true),
-      catchError(() => of(false)),
+      fallbackUnless(policy, () => false),
     );
   }
 
@@ -2073,6 +2074,7 @@ export class CanonicalApiService {
       expected_flow_sha256?: string;
       flow_write_intent?: 'replace_active_flow';
     },
+    policy?: ErrorPolicy,
   ): Observable<SystemRollbackResult | null> {
     const params: Record<string, string> = {};
     if (opts?.expected_flow_sha256) {
@@ -2085,14 +2087,14 @@ export class CanonicalApiService {
         `/systems/${id}/versions/${versionNumber}/rollback${qs ? `?${qs}` : ''}`,
         { message: message ?? null },
       )
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   /** Fetch the portable JSON envelope for a system (Vague E / E3.4). */
-  exportSystem(id: string): Observable<SystemExportEnvelope | null> {
+  exportSystem(id: string, policy?: ErrorPolicy): Observable<SystemExportEnvelope | null> {
     return this.api
       .get<SystemExportEnvelope>(`/systems/${id}/export`)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   /** Import a system from an envelope. Mirrors the ``saveSystemFlow``
@@ -2166,23 +2168,23 @@ export class CanonicalApiService {
   }
 
   // ---- Contexts ------------------------------------------------------------
-  listContexts(params?: { system_id?: string }): Observable<Context[]> {
+  listContexts(params?: { system_id?: string }, policy?: ErrorPolicy): Observable<Context[]> {
     const p: Record<string, string> = {};
     if (params?.system_id) p['system_id'] = params.system_id;
     return this.api
       .get<Context[] | { contexts: Context[] }>('/contexts', p)
       .pipe(
         map((r) => this.unwrap<Context>(r, 'contexts')),
-        catchError(() => of([] as Context[])),
+        fallbackUnless(policy, () => [] as Context[]),
       );
   }
 
-  getContext(id: string): Observable<Context | null> {
-    return this.api.get<Context>(`/contexts/${id}`).pipe(catchError(() => of(null)));
+  getContext(id: string, policy?: ErrorPolicy): Observable<Context | null> {
+    return this.api.get<Context>(`/contexts/${id}`).pipe(fallbackUnless(policy, () => null));
   }
 
   /** Knowledge collection display name (slug → name from the documents meta list). */
-  getCollection(slug: string): Observable<{ slug: string; name: string } | null> {
+  getCollection(slug: string, policy?: ErrorPolicy): Observable<{ slug: string; name: string } | null> {
     return this.api
       .get<{ items?: Array<{ slug?: string; name?: string }> }>('/documents/collections')
       .pipe(
@@ -2191,11 +2193,11 @@ export class CanonicalApiService {
           if (!item?.slug) return null;
           return { slug: item.slug, name: item.name || item.slug };
         }),
-        catchError(() => of(null)),
+        fallbackUnless(policy, () => null),
       );
   }
 
-  getDataset(id: string): Observable<{ id: string; name: string; version?: number } | null> {
+  getDataset(id: string, policy?: ErrorPolicy): Observable<{ id: string; name: string; version?: number } | null> {
     return this.api
       .get<{ dataset?: { id: string; name: string; version?: number } } | { id: string; name: string; version?: number }>(
         `/datasets/${encodeURIComponent(id)}`,
@@ -2205,11 +2207,11 @@ export class CanonicalApiService {
           const dataset = 'dataset' in payload && payload.dataset ? payload.dataset : payload as { id: string; name: string; version?: number };
           return dataset?.id ? { id: dataset.id, name: dataset.name, version: dataset.version } : null;
         }),
-        catchError(() => of(null)),
+        fallbackUnless(policy, () => null),
       );
   }
 
-  getMlModel(id: string): Observable<{ id: string; name: string; version: number } | null> {
+  getMlModel(id: string, policy?: ErrorPolicy): Observable<{ id: string; name: string; version: number } | null> {
     return this.api
       .get<{ model?: { id: string; name: string; version: number } } | { id: string; name: string; version: number }>(
         `/ml-models/${encodeURIComponent(id)}`,
@@ -2221,20 +2223,20 @@ export class CanonicalApiService {
             ? { id: model.id, name: model.name, version: model.version ?? 1 }
             : null;
         }),
-        catchError(() => of(null)),
+        fallbackUnless(policy, () => null),
       );
   }
 
-  getExperienceSummary(id: string): Observable<{ id: string; name: string } | null> {
+  getExperienceSummary(id: string, policy?: ErrorPolicy): Observable<{ id: string; name: string } | null> {
     return this.api
       .get<{ id: string; name: string }>(`/experiences/${encodeURIComponent(id)}`)
       .pipe(
         map((row) => (row?.id ? { id: row.id, name: row.name || row.id } : null)),
-        catchError(() => of(null)),
+        fallbackUnless(policy, () => null),
       );
   }
 
-  getChatSessionSummary(id: string): Observable<{ id: string; title: string; system_id?: string | null } | null> {
+  getChatSessionSummary(id: string, policy?: ErrorPolicy): Observable<{ id: string; title: string; system_id?: string | null } | null> {
     return this.api
       .get<{ id: string; title?: string | null; meta_data?: Record<string, unknown> }>(
         `/sessions/${encodeURIComponent(id)}`,
@@ -2254,29 +2256,31 @@ export class CanonicalApiService {
             system_id: systemId,
           };
         }),
-        catchError(() => of(null)),
+        fallbackUnless(policy, () => null),
       );
   }
 
   createContext(
     body: Partial<Context>,
     options?: { workspaceSlug?: string | null },
+    policy?: ErrorPolicy,
   ): Observable<Context | null> {
-    return this.api.post<Context>('/contexts', body, options).pipe(catchError(() => of(null)));
+    return this.api.post<Context>('/contexts', body, options).pipe(fallbackUnless(policy, () => null));
   }
 
   updateContext(
     id: string,
     body: Partial<Context>,
     options?: { workspaceSlug?: string | null },
+    policy?: ErrorPolicy,
   ): Observable<Context | null> {
-    return this.api.patch<Context>(`/contexts/${id}`, body, options).pipe(catchError(() => of(null)));
+    return this.api.patch<Context>(`/contexts/${id}`, body, options).pipe(fallbackUnless(policy, () => null));
   }
 
-  deleteContext(id: string): Observable<boolean> {
+  deleteContext(id: string, policy?: ErrorPolicy): Observable<boolean> {
     return this.api.delete<void>(`/contexts/${id}`).pipe(
       map(() => true),
-      catchError(() => of(false)),
+      fallbackUnless(policy, () => false),
     );
   }
 
@@ -2287,10 +2291,11 @@ export class CanonicalApiService {
   persistContext(
     id: string,
     options?: { workspaceSlug?: string | null },
+    policy?: ErrorPolicy,
   ): Observable<Context | null> {
     return this.api
       .post<Context>(`/contexts/${id}/persist`, {}, options)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   // ---- Runs ----------------------------------------------------------------
@@ -2519,8 +2524,8 @@ export class CanonicalApiService {
    * Replay a finished run: the backend copies its input and its flow snapshot,
    * so the graph re-executes as it stood then, not as it stands today.
    */
-  rerunRun(id: string): Observable<Run | null> {
-    return this.api.post<Run>(`/runs/${id}/rerun`, {}).pipe(catchError(() => of(null)));
+  rerunRun(id: string, policy?: ErrorPolicy): Observable<Run | null> {
+    return this.api.post<Run>(`/runs/${id}/rerun`, {}).pipe(fallbackUnless(policy, () => null));
   }
 
   listRuns(params?: {
@@ -2552,7 +2557,7 @@ export class CanonicalApiService {
       .pipe(map((response) => this.unwrap(response, 'summaries')));
   }
 
-  getRun(id: string): Observable<Run | null> {
+  getRun(id: string, policy?: ErrorPolicy): Observable<Run | null> {
     return this.api.get<Run & { invocations?: SkillInvocation[] }>(`/runs/${id}`).pipe(
       map((r) => {
         if (!r) return null;
@@ -2562,16 +2567,16 @@ export class CanonicalApiService {
           skill_invocations: r.skill_invocations ?? r.invocations ?? [],
         } as Run;
       }),
-      catchError(() => of(null)),
+      fallbackUnless(policy, () => null),
     );
   }
 
-  getRunFiles(id: string): Observable<RunFile[]> {
+  getRunFiles(id: string, policy?: ErrorPolicy): Observable<RunFile[]> {
     return this.api
       .get<RunFile[] | { files: RunFile[] }>(`/runs/${encodeURIComponent(id)}/files`)
       .pipe(
         map((response) => this.unwrap(response, 'files')),
-        catchError(() => of([])),
+        fallbackUnless(policy, () => []),
       );
   }
 
@@ -2587,12 +2592,12 @@ export class CanonicalApiService {
       );
   }
 
-  getSkillInvocation(runId: string, invocationId: string): Observable<SkillInvocation | null> {
+  getSkillInvocation(runId: string, invocationId: string, policy?: ErrorPolicy): Observable<SkillInvocation | null> {
     return this.api
       .get<SkillInvocation>(
         `/runs/${encodeURIComponent(runId)}/invocations/${encodeURIComponent(invocationId)}`,
       )
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   getSkillInvocationPerspective(
@@ -2682,11 +2687,12 @@ export class CanonicalApiService {
   resolveRunHitl(
     runId: string,
     body: { action: 'accept' | 'reject'; expected_decision_id: string | undefined; actor?: string; note?: string; label_review?: LabelReviewSubmission },
+    policy?: ErrorPolicy,
   ): Observable<Run | null> {
     if (!body.expected_decision_id) return of(null);
     return this.api
       .post<Run>(`/runs/${runId}/hitl`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   getLabelReview(runId: string, decisionId: string, offset = 0): Observable<LabelReviewPage> {
@@ -2709,29 +2715,30 @@ export class CanonicalApiService {
   stepRun(
     runId: string,
     body: { action: 'step' | 'continue' | 'stop'; breakpoints?: string[] },
+    policy?: ErrorPolicy,
   ): Observable<Run | null> {
     return this.api
       .post<Run>(`/runs/${runId}/step`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   // ---- Impact / Hypervisor -------------------------------------------------
-  impactPortfolio(period = 'qtd'): Observable<ImpactAggregate | null> {
+  impactPortfolio(period = 'qtd', policy?: ErrorPolicy): Observable<ImpactAggregate | null> {
     return this.api
       .get<ImpactAggregate>('/impact/portfolio', { period })
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  impactByCapability(period = 'qtd'): Observable<CapabilityRow[]> {
+  impactByCapability(period = 'qtd', policy?: ErrorPolicy): Observable<CapabilityRow[]> {
     return this.api
       .get<{ items: CapabilityRow[] }>('/impact/by-capability', { period })
       .pipe(
         map((r) => r?.items ?? []),
-        catchError(() => of([] as CapabilityRow[])),
+        fallbackUnless(policy, () => [] as CapabilityRow[]),
       );
   }
 
-  impactBySystem(period = 'qtd'): Observable<Array<ImpactAggregate & { system_id: string; name?: string; status?: string }>> {
+  impactBySystem(period = 'qtd', policy?: ErrorPolicy): Observable<Array<ImpactAggregate & { system_id: string; name?: string; status?: string }>> {
     return this.api
       .get<{ items: Array<ImpactAggregate & { system_id: string; name?: string; status?: string }> }>(
         '/impact/by-system',
@@ -2739,14 +2746,14 @@ export class CanonicalApiService {
       )
       .pipe(
         map((r) => r?.items ?? []),
-        catchError(() => of([])),
+        fallbackUnless(policy, () => []),
       );
   }
 
-  hypervisorBalanceSheet(period = 'qtd'): Observable<HypervisorBalance | null> {
+  hypervisorBalanceSheet(period = 'qtd', policy?: ErrorPolicy): Observable<HypervisorBalance | null> {
     return this.api
       .get<HypervisorBalance>('/hypervisor/balance-sheet', { period })
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   hypervisorAutomationExplanations(): Observable<{
@@ -2761,25 +2768,25 @@ export class CanonicalApiService {
     return this.api.get('/hypervisor/automation-explanations');
   }
 
-  hypervisorSeries(window: HypervisorSeriesWindow = '30d'): Observable<HypervisorSeriesResponse | null> {
+  hypervisorSeries(window: HypervisorSeriesWindow = '30d', policy?: ErrorPolicy): Observable<HypervisorSeriesResponse | null> {
     return this.api
       .get<HypervisorSeriesResponse>('/hypervisor/series', { window })
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  hypervisorValueBases(): Observable<HypervisorValueBasisItem[]> {
+  hypervisorValueBases(policy?: ErrorPolicy): Observable<HypervisorValueBasisItem[]> {
     return this.api
       .get<{ items: HypervisorValueBasisItem[] }>('/hypervisor/value-bases')
       .pipe(
         map((r) => r?.items ?? []),
-        catchError(() => of([] as HypervisorValueBasisItem[])),
+        fallbackUnless(policy, () => [] as HypervisorValueBasisItem[]),
       );
   }
 
-  getCapabilityValueBasis(id: string): Observable<HypervisorValueBasisItem | null> {
+  getCapabilityValueBasis(id: string, policy?: ErrorPolicy): Observable<HypervisorValueBasisItem | null> {
     return this.api
       .get<HypervisorValueBasisItem>(`/capabilities/${encodeURIComponent(id)}/value-basis`)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   putCapabilityValueBasis(
@@ -2792,17 +2799,17 @@ export class CanonicalApiService {
     );
   }
 
-  hypervisorViews(): Observable<HypervisorViewsPayload | null> {
+  hypervisorViews(policy?: ErrorPolicy): Observable<HypervisorViewsPayload | null> {
     return this.api
       .get<HypervisorViewsPayload>('/hypervisor/views')
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   putHypervisorViews(views: HypervisorNamedView[], defaultViewId?: string | null): Observable<HypervisorViewsPayload> {
     return this.api.put<HypervisorViewsPayload>('/hypervisor/views', { views, ...(defaultViewId ? { default_view_id: defaultViewId } : {}) });
   }
 
-  hypervisorMapSettings(): Observable<{
+  hypervisorMapSettings(policy?: ErrorPolicy): Observable<{
     external_tiles_enabled: boolean;
     tile_provider: string;
     attribution: string;
@@ -2817,19 +2824,19 @@ export class CanonicalApiService {
         tile_url_template?: string | null;
         tile_url_template_dark?: string | null;
       }>('/hypervisor/map-settings')
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   hypervisorValueLoop(): Observable<PortfolioValueLoop> {
     return this.api.get<PortfolioValueLoop>('/hypervisor/value-loop');
   }
 
-  hypervisorRecommendations(): Observable<Recommendation[]> {
+  hypervisorRecommendations(policy?: ErrorPolicy): Observable<Recommendation[]> {
     return this.api
       .get<{ items: Recommendation[] }>('/hypervisor/recommendations')
       .pipe(
         map((r) => r?.items ?? []),
-        catchError(() => of([] as Recommendation[])),
+        fallbackUnless(policy, () => [] as Recommendation[]),
       );
   }
 
@@ -2841,24 +2848,26 @@ export class CanonicalApiService {
       min_breach_rate?: number;
       dry_run?: boolean;
     } = {},
+    policy?: ErrorPolicy,
   ): Observable<ProactiveRecommendationGenerateResponse | null> {
     return this.api
       .post<ProactiveRecommendationGenerateResponse>('/hypervisor/recommendations/generate', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   hypervisorWhatIf(body: {
     scope: string;
     target_id?: string | null;
     levers: Record<string, unknown>;
-  }): Observable<WhatIfResult | null> {
+  }, policy?: ErrorPolicy): Observable<WhatIfResult | null> {
     return this.api
       .post<WhatIfResult>('/hypervisor/what-if', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   listDecisions(
     params: { status?: string; scope?: string; kind?: string; limit?: number; offset?: number } = {},
+    policy?: ErrorPolicy,
   ): Observable<{ items: DecisionRow[]; total: number; limit: number; offset: number }> {
     const p: Record<string, string | number> = {};
     if (params.status) p['status'] = params.status;
@@ -2872,9 +2881,7 @@ export class CanonicalApiService {
         p as Record<string, string>,
       )
       .pipe(
-        catchError(() =>
-          of({ items: [] as DecisionRow[], total: 0, limit: params.limit ?? 50, offset: params.offset ?? 0 }),
-        ),
+        fallbackUnless(policy, () => ({ items: [] as DecisionRow[], total: 0, limit: params.limit ?? 50, offset: params.offset ?? 0 })),
       );
   }
 
@@ -2891,16 +2898,16 @@ export class CanonicalApiService {
     meeting_event_id?: string;
     agenda_item_ref?: string;
     meeting_decision_id?: string;
-  }): Observable<DecisionDetail | null> {
+  }, policy?: ErrorPolicy): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>('/hypervisor/decisions', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  getDecision(id: string): Observable<DecisionDetail | null> {
+  getDecision(id: string, policy?: ErrorPolicy): Observable<DecisionDetail | null> {
     return this.api
       .get<DecisionDetail>(`/hypervisor/decisions/${id}`)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   acceptDecision(
@@ -2911,10 +2918,11 @@ export class CanonicalApiService {
       feedback_label?: 'false_positive' | 'true_breach' | 'correct_with_fix';
       feedback_corrected_output?: Record<string, unknown>;
     } = {},
+    policy?: ErrorPolicy,
   ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/accept`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   rejectDecision(
@@ -2925,10 +2933,11 @@ export class CanonicalApiService {
       feedback_label?: 'false_positive' | 'true_breach' | 'correct_with_fix';
       feedback_corrected_output?: Record<string, unknown>;
     } = {},
+    policy?: ErrorPolicy,
   ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/reject`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   /**
@@ -2947,37 +2956,40 @@ export class CanonicalApiService {
       source_decision_id?: string;
       source_feedback_id?: string;
     } = {},
+    policy?: ErrorPolicy,
   ): Observable<RunReplayResult | null> {
     return this.api
       .post<RunReplayResult>(`/runs/${runId}/replay`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  listRunReplays(runId: string): Observable<RunReplayListResponse | null> {
+  listRunReplays(runId: string, policy?: ErrorPolicy): Observable<RunReplayListResponse | null> {
     return this.api
       .get<RunReplayListResponse>(`/runs/${runId}/replays`)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   applyDecision(
     id: string,
     body: { actor?: string; enact?: boolean; patch?: Record<string, unknown> } = { enact: true },
+    policy?: ErrorPolicy,
   ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/apply`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   applyActiveSuggestion(
     id: string,
     body: { actor?: string } = {},
+    policy?: ErrorPolicy,
   ): Observable<ActiveSuggestionApplyResult | null> {
     return this.api
       .post<ActiveSuggestionApplyResult>(
         `/hypervisor/decisions/${id}/apply-active-suggestion`,
         body,
       )
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   // ---- Evaluation loop (Vague E / E1) -------------------------------------
@@ -2993,6 +3005,7 @@ export class CanonicalApiService {
       as_of?: string;
       limit?: number;
     } = {},
+    policy?: ErrorPolicy,
   ): Observable<EvaluationReviewQueueResponse | null> {
     const q: Record<string, string> = {};
     if (params.status) q['status'] = params.status;
@@ -3003,21 +3016,22 @@ export class CanonicalApiService {
     if (params.limit != null) q['limit'] = String(params.limit);
     return this.api
       .get<EvaluationReviewQueueResponse>('/evaluation/review-queue', q)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   getEvaluationPresets(
     params: { capability_id?: string; system_id?: string } = {},
+    policy?: ErrorPolicy,
   ): Observable<EvaluationPresetResponse | null> {
     const q: Record<string, string> = {};
     if (params.capability_id) q['capability_id'] = params.capability_id;
     if (params.system_id) q['system_id'] = params.system_id;
     return this.api
       .get<EvaluationPresetResponse>('/evaluation/presets', q)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  updateEvaluationPreset(body: Partial<EvaluationPresetConfig> & { name?: string }): Observable<{
+  updateEvaluationPreset(body: Partial<EvaluationPresetConfig> & { name?: string }, policy?: ErrorPolicy): Observable<{
     id: string;
     name: string;
     config: EvaluationPresetConfig;
@@ -3030,11 +3044,12 @@ export class CanonicalApiService {
         config: EvaluationPresetConfig;
         updated_at: string | null;
       }>('/evaluation/presets', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   getEvaluationTrend(
     params: { system_id?: string; as_of?: string; since?: string; group_by?: 'day' | 'capability' | 'system' } = {},
+    policy?: ErrorPolicy,
   ): Observable<EvaluationTrendResponse | null> {
     const q: Record<string, string> = {};
     if (params.since) q['since'] = params.since;
@@ -3043,11 +3058,12 @@ export class CanonicalApiService {
     if (params.group_by) q['group_by'] = params.group_by;
     return this.api
       .get<EvaluationTrendResponse>('/evaluation/trend', q)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   getEvaluationComponentHealth(
     params: { since?: string; system_id?: string; as_of?: string } = {},
+    policy?: ErrorPolicy,
   ): Observable<EvaluationComponentHealthResponse | null> {
     const q: Record<string, string> = {};
     if (params.since) q['since'] = params.since;
@@ -3055,24 +3071,25 @@ export class CanonicalApiService {
     if (params.system_id) q['system_id'] = params.system_id;
     return this.api
       .get<EvaluationComponentHealthResponse>('/evaluation/component-health', q)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   listCanonicalAnswers(
     params: { limit?: number; offset?: number } = {},
+    policy?: ErrorPolicy,
   ): Observable<CanonicalAnswerListResponse | null> {
     const q: Record<string, string> = {};
     if (params.limit != null) q['limit'] = String(params.limit);
     if (params.offset != null) q['offset'] = String(params.offset);
     return this.api
       .get<CanonicalAnswerListResponse>('/evaluation/canonical-answers', q)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  deleteCanonicalAnswer(id: string): Observable<boolean> {
+  deleteCanonicalAnswer(id: string, policy?: ErrorPolicy): Observable<boolean> {
     return this.api.delete<void>(`/evaluation/canonical-answers/${id}`).pipe(
       map(() => true),
-      catchError(() => of(false)),
+      fallbackUnless(policy, () => false),
     );
   }
 
@@ -3085,6 +3102,7 @@ export class CanonicalApiService {
   getEvaluationByRun(
     runId: string,
     options?: { workspaceSlug?: string | null },
+    policy?: ErrorPolicy,
   ): Observable<EvaluationByRunResponse | null> {
     return this.api
       .get<EvaluationByRunResponse>(
@@ -3092,20 +3110,21 @@ export class CanonicalApiService {
         undefined,
         options,
       )
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   overrideRunOutcome(
     runId: string,
     body: { value: number; note?: string },
+    policy?: ErrorPolicy,
   ): Observable<RunDetail | null> {
     return this.api
       .patch<RunDetail>(`/runs/${runId}/outcome`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
   // ---- Control plane ------------------------------------------------------
-  controlPolicies(params?: { scope?: string; target_id?: string }): Observable<ControlPolicy[]> {
+  controlPolicies(params?: { scope?: string; target_id?: string }, policy?: ErrorPolicy): Observable<ControlPolicy[]> {
     const p: Record<string, string> = {};
     if (params?.scope) p['scope'] = params.scope;
     if (params?.target_id) p['target_id'] = params.target_id;
@@ -3113,17 +3132,17 @@ export class CanonicalApiService {
       .get<{ policies: ControlPolicy[] }>('/control-plane/policies', p)
       .pipe(
         map((r) => r?.policies ?? []),
-        catchError(() => of([] as ControlPolicy[])),
+        fallbackUnless(policy, () => [] as ControlPolicy[]),
       );
   }
 
-  createControlPolicy(body: Partial<ControlPolicy>): Observable<ControlPolicy | null> {
+  createControlPolicy(body: Partial<ControlPolicy>, policy?: ErrorPolicy): Observable<ControlPolicy | null> {
     return this.api
       .post<ControlPolicy>('/control-plane/policies', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  adaptivePolicies(params?: { scope?: string; target_id?: string }): Observable<AdaptivePolicy[]> {
+  adaptivePolicies(params?: { scope?: string; target_id?: string }, policy?: ErrorPolicy): Observable<AdaptivePolicy[]> {
     const p: Record<string, string> = {};
     if (params?.scope) p['scope'] = params.scope;
     if (params?.target_id) p['target_id'] = params.target_id;
@@ -3131,35 +3150,35 @@ export class CanonicalApiService {
       .get<{ policies: AdaptivePolicy[] }>('/control-plane/adaptive', p)
       .pipe(
         map((r) => r?.policies ?? []),
-        catchError(() => of([] as AdaptivePolicy[])),
+        fallbackUnless(policy, () => [] as AdaptivePolicy[]),
       );
   }
 
-  createAdaptivePolicy(body: Partial<AdaptivePolicy>): Observable<AdaptivePolicy | null> {
+  createAdaptivePolicy(body: Partial<AdaptivePolicy>, policy?: ErrorPolicy): Observable<AdaptivePolicy | null> {
     return this.api
       .post<AdaptivePolicy>('/control-plane/adaptive', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  updateAdaptivePolicy(id: string, body: Partial<AdaptivePolicy>): Observable<AdaptivePolicy | null> {
+  updateAdaptivePolicy(id: string, body: Partial<AdaptivePolicy>, policy?: ErrorPolicy): Observable<AdaptivePolicy | null> {
     return this.api
       .patch<AdaptivePolicy>(`/control-plane/adaptive/${id}`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  toggleAdaptivePolicy(id: string, enabled?: boolean): Observable<AdaptivePolicy | null> {
+  toggleAdaptivePolicy(id: string, enabled?: boolean, policy?: ErrorPolicy): Observable<AdaptivePolicy | null> {
     const body = enabled === undefined ? {} : { enabled };
     return this.api
       .post<AdaptivePolicy>(`/control-plane/adaptive/${id}/toggle`, body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 
-  deleteAdaptivePolicy(id: string): Observable<boolean> {
+  deleteAdaptivePolicy(id: string, policy?: ErrorPolicy): Observable<boolean> {
     return this.api
       .delete<void>(`/control-plane/adaptive/${id}`)
       .pipe(
         map(() => true),
-        catchError(() => of(false)),
+        fallbackUnless(policy, () => false),
       );
   }
 
@@ -3167,10 +3186,10 @@ export class CanonicalApiService {
     scope: string;
     target_id?: string | null;
     levers: { resource?: number; velocity?: number; autonomy?: number; risk_tolerance?: number };
-  }): Observable<SimulateResult | null> {
+  }, policy?: ErrorPolicy): Observable<SimulateResult | null> {
     return this.api
       .post<SimulateResult>('/control-plane/simulate', body)
-      .pipe(catchError(() => of(null)));
+      .pipe(fallbackUnless(policy, () => null));
   }
 }
 
