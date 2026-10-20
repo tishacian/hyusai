@@ -133,6 +133,7 @@ const pureSpecs = [
   'src/app/shared/schema-builder/schema-builder.vm.spec.ts',
   'src/app/shared/ui/data-table.vm.spec.ts',
   'src/app/shared/ui/load-state.spec.ts',
+  'src/app/shared/ui/run-decision.spec.ts',
   'src/app/shared/ui/icon-registry.spec.ts',
   'src/app/features/data/data.vm.spec.ts',
   'src/app/features/data/viz/viz.vm.spec.ts',

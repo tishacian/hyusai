@@ -104,6 +104,12 @@ export const COMMON_FR = {
   'state.decision.check_recorded': 'Vérifié : une décision est enregistrée, l’exécution n’attend plus.',
   'state.decision.check_pending': 'Vérifié : aucune décision n’est enregistrée. Vous pouvez décider à nouveau.',
   'state.decision.check_unknown': 'La vérification a échoué. Réessayez avant de décider à nouveau.',
+  'state.decision.read_only': 'Consultation seule',
+  'state.decision.read_only.not_authorized': 'Votre rôle ne vous donne pas le droit d’approuver cette exécution. Avoir accès à l’application ne suffit pas : demandez ce droit à un administrateur du workspace.',
+  'state.decision.read_only.admin_required': 'Seul un administrateur du workspace peut décider sur cette exécution.',
+  'state.decision.read_only.decided': 'Cette décision a déjà été prise.',
+  'state.decision.read_only.expired': 'Le délai pour décider est dépassé.',
+  'state.decision.read_only.missing': 'La décision attendue est introuvable. Rechargez pour voir l’état de l’exécution.',
   // --- Help affordance (ck-help button chrome; the panel content keeps
   // --- its own language preference, see CONVENTION.md §5) -----------
   'common.help.about': 'Aide sur {name}',
@@ -246,6 +252,12 @@ export const COMMON_EN: Record<keyof typeof COMMON_FR, string> = {
   'state.decision.check_recorded': 'Checked: a decision is recorded, the run no longer waits.',
   'state.decision.check_pending': 'Checked: no decision is recorded. You can decide again.',
   'state.decision.check_unknown': 'The check failed. Try again before deciding again.',
+  'state.decision.read_only': 'Read only',
+  'state.decision.read_only.not_authorized': 'Your role does not give you the right to approve this run. Access to the application is not enough: ask a workspace administrator for this right.',
+  'state.decision.read_only.admin_required': 'Only a workspace administrator can decide on this run.',
+  'state.decision.read_only.decided': 'This decision has already been taken.',
+  'state.decision.read_only.expired': 'The time to decide has run out.',
+  'state.decision.read_only.missing': 'The expected decision cannot be found. Reload to see the run’s state.',
   // --- Help affordance (ck-help button chrome; the panel content keeps
   // --- its own language preference, see CONVENTION.md §5) -----------
   'common.help.about': 'Help about {name}',

@@ -1,3 +1,4 @@
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
@@ -28,7 +29,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent, DecisionRightComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -130,8 +131,11 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               @if (machineAidsAllowed()) { <app-run-quality-review [run]="run()" /> }
               @if (machineAidsAllowed() && run()?.status === 'hitl_pending') {
                 <div class="claims-approval"><p>{{ i18n.t('experience.claims.approval_hint') }}</p>
+                  <app-decision-right [hitl]="run()?.hitl" />
+                  @if (mayDecide(run()?.hitl)) {
                   <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy() || !!decisionNotice()?.unknown" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>
                   <button class="xp-work-btn" [disabled]="busy() || !!decisionNotice()?.unknown" (click)="decide('reject')">{{ i18n.t('experience.claims.reject') }}</button>
+                  }
                 </div>
               } @else if (run()?.status === 'running' || run()?.status === 'pending') { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
               @else if (recordedActions().length) {
@@ -203,6 +207,7 @@ export class ClaimsStudioComponent {
   }));
   readonly advice = computed(() => selectedAdvice(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly caseData = computed(() => caseDatasets(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
+  protected readonly mayDecide = mayDecide;
   readonly busy = signal(false); readonly actionError = signal(false);
   /** The last decision's outcome when it was not recorded, or the check that followed it. */
   readonly decisionNotice = signal<(DecisionMessage & { unknown: boolean }) | null>(null);
@@ -360,7 +365,7 @@ export class ClaimsStudioComponent {
     });
   }
   async decide(action: 'accept' | 'reject'): Promise<void> {
-    const run = this.run(); if (!run || this.busy() || !this.machineAidsAllowed() || this.decisionNotice()?.unknown) return;
+    const run = this.run(); if (!run || this.busy() || !this.machineAidsAllowed() || this.decisionNotice()?.unknown || !mayDecide(run.hitl)) return;
     this.busy.set(true); this.actionError.set(false);
     const generation = this.generation;
     this.decisionNotice.set(null);

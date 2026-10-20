@@ -285,7 +285,11 @@ export interface RetrievalDecisionTrace {
 export type { LabelReviewPage, LabelReviewSubmission } from '@app/features/data/label-review.vm';
 
 export interface RunHitlPayload {
+  /** The reader's right to decide this pause (`run.approve`), computed by the server.
+   * Absent on older servers: treat as unknown, not as a yes. */
   can_decide?: boolean;
+  /** Why `can_decide` is false: `not_authorized`, `admin_required`, `decided`, `expired` or `missing`. */
+  decide_reason?: string | null;
   model_retraining?: RetrainingBinding | null;
   label_review?: { dataset_id?: string; sha256?: string } | null;
   node_id?: string;

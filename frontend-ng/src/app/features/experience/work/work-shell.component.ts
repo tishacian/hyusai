@@ -1,3 +1,4 @@
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { retrainingReviewReady } from '@app/features/models/retraining-evidence.vm';
@@ -77,6 +78,7 @@ const POLL_MS = 8000;
     RunMandateComponent,
     WorkBarComponent,
     WorkAppHeaderComponent,
+    DecisionRightComponent,
   ],
   styleUrl: './work.scss',
   template: `
@@ -217,6 +219,8 @@ const POLL_MS = 8000;
                     @if (run.hitl?.prompt_kind === 'review_dataset_labels') {
                       <app-dataset-label-review [runId]="run.id" [decisionId]="run.hitl?.decision_id ?? ''" [disabled]="decisionBusy().has(run.id)" (submissionChange)="setLabelReview(run, $event)" />
                     }
+                    <app-decision-right [hitl]="run.hitl" />
+                    @if (mayDecide(run.hitl)) {
                     <label>
                       {{ i18n.t('experience.work.validations.reason') }}
                       <textarea
@@ -244,6 +248,7 @@ const POLL_MS = 8000;
                     </div>
                     @if (reasonError() === run.id) {
                       <p class="xp-work-note" role="alert">{{ i18n.t('experience.work.validations.reason_required') }}</p>
+                    }
                     }
                     @if (decisionNotices()[run.id]; as notice) {
                       <div class="xp-work-note" data-testid="work-decision-notice" [attr.data-tone]="notice.tone" [attr.role]="notice.role">
@@ -342,6 +347,7 @@ export class WorkShellComponent {
   readonly labelReviews = signal<Record<string, LabelReviewSubmission | null>>({});
   readonly decidedRun = signal<Run | null>(null);
   readonly decisionAvailable = workDecisionAvailable;
+  protected readonly mayDecide = mayDecide;
   private readonly navigationProfile = inject(NavigationProfileService);
   readonly canInspectRuns = computed(() => {
     const profile = this.navigationProfile.effective();
@@ -452,7 +458,7 @@ export class WorkShellComponent {
   }
 
   decide(run: Run, action: 'accept' | 'reject'): void {
-    if (this.decisionBusy().has(run.id) || this.decisionLocked(run)) return;
+    if (this.decisionBusy().has(run.id) || this.decisionLocked(run) || !mayDecide(run.hitl)) return;
     if (action === 'accept' && run.hitl?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(run.hitl?.model_retraining)) return;
     const labelReview = this.labelReviewFor(run);
     if (action === 'accept' && run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReview) return;

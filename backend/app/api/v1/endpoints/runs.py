@@ -657,9 +657,13 @@ async def get_run(
             "correlation_key": pending_cp.get("correlation_key")
             or rationale.get("correlation_key"),
         }
-    if pending_cp and decision and rationale.get("prompt_kind") == "approve_model_retraining":
-        payload["hitl"]["can_decide"] = _retraining_gate_decidable(
+    if pending_cp:
+        # Read-only hint for every pause, so a reader sees "consultation only"
+        # and why before acting; POST /hitl rechecks the same authority.
+        can_decide, decide_reason = _hitl_decision_right(
             db, run=r, decision=decision, workspace=workspace, user=user)
+        payload["hitl"]["can_decide"] = can_decide
+        payload["hitl"]["decide_reason"] = decide_reason
     debug_cp = _pending_debug_checkpoint(r)
     if debug_cp:
         payload["debug"] = {
@@ -1048,27 +1052,39 @@ def _legacy_hitl_authorized(
     )
 
 
-def _retraining_gate_decidable(db, *, run, decision, workspace, user):
-    """Read-only approval hint; POST /hitl rechecks the canonical authority."""
+def _hitl_decision_right(db, *, run, decision, workspace, user):
+    """Read-only approval hint for any pause: ``(can_decide, reason)``.
+
+    ``reason`` is ``None`` when the reader may decide, otherwise one of
+    ``decided``, ``expired``, ``missing``, ``admin_required`` or
+    ``not_authorized``. Holding the application is never the right to
+    approve: only ``run.approve`` is. POST /hitl rechecks the canonical
+    authority.
+    """
     from datetime import datetime
     from app.services.iam.decision_plane import resolve_action
 
-    if decision.status != "proposed" or (decision.expires_at and decision.expires_at <= datetime.utcnow()):
-        return False
+    if decision is None:
+        return False, "missing"
+    if decision.status != "proposed":
+        return False, "decided"
+    if decision.expires_at and decision.expires_at <= datetime.utcnow():
+        return False, "expired"
     target = _decision_target_run(db, decision=decision, paused_run=run, workspace_id=workspace.id)
     if target is None:
-        return False
+        return False, "missing"
     if any(_managed_agentic_run_requires_admin(db, run=item, workspace=workspace)
            for item in (run, target)) and not _has_private_chat_admin_access(db, user=user, workspace=workspace):
-        return False
+        return False, "admin_required"
     try:
         legacy = _legacy_hitl_authorized(db, user=user, workspace=workspace, paused_run=run, decision_target=target)
     except HTTPException:
-        return False
-    return resolve_action(db, user=user, workspace=workspace, resource_kind="run", action="approve",
+        return False, "not_authorized"
+    allowed = resolve_action(db, user=user, workspace=workspace, resource_kind="run", action="approve",
         legacy_allowed=legacy, resource_attrs={"run_id": run.id, "system_id": run.system_id,
             "capability_id": run.capability_id, "decision_id": decision.id, "owner_user_id": target.initiated_by_user_id},
         audit_shadow_diff=False, audit_shadow_evidence=False).effective_allowed
+    return (True, None) if allowed else (False, "not_authorized")
 
 
 @router.get("/{run_id}/label-review")

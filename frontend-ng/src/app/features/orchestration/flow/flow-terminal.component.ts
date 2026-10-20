@@ -1,3 +1,4 @@
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
 import { retrainingReviewReady } from '@app/features/models/retraining-evidence.vm';
 /**
@@ -37,7 +38,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
   selector: 'app-flow-terminal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, DatasetLabelReviewComponent, RetrainingContextComponent],
+  imports: [IconComponent, DatasetLabelReviewComponent, RetrainingContextComponent, DecisionRightComponent],
   styleUrl: './flow-terminal.component.scss',
   template: `
     <section class="ck-term" [attr.aria-label]="i18n.t('flow.terminal.aria')">
@@ -121,6 +122,8 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
             @if (h.prompt_kind === 'review_dataset_labels') {
               <app-dataset-label-review [runId]="runId()" [decisionId]="h.decision_id ?? ''" [disabled]="hitlResolving()" (submissionChange)="labelReview.set($event)" />
             }
+            <app-decision-right [hitl]="h" />
+            @if (mayDecide(h)) {
             <div class="ck-term__actions">
               <button
                 type="button"
@@ -139,6 +142,7 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 <app-icon name="check" [size]="12" /> {{ i18n.t('flow.terminal.approval.accept') }}
               </button>
             </div>
+            }
             @if (hitlNotice(); as notice) {
               <div
                 class="ck-term__card-meta"
@@ -243,6 +247,7 @@ export class FlowTerminalComponent {
   private readonly gateKey = computed(() => JSON.stringify([this.runId(), this.hitl()?.decision_id]));
   readonly debug = input<RunDebugPayload | null>(null);
   readonly hitlResolving = input(false);
+  protected readonly mayDecide = mayDecide;
   /** What happened to the last decision sent from here: a failure, a lost answer, a check. */
   readonly hitlNotice = input<{ key: string; params?: Record<string, string | number>; role: string; tone: string; verifiable: boolean } | null>(null);
   readonly debugStepping = input(false);
@@ -267,7 +272,7 @@ export class FlowTerminalComponent {
   }
 
   protected resolve(action: 'accept' | 'reject'): void {
-    if (this.hitlResolving()) return;
+    if (this.hitlResolving() || !mayDecide(this.hitl())) return;
     if (action === 'accept' && this.hitl()?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(this.hitl()?.model_retraining)) return;
     const label_review = this.labelReview();
     if (action === 'accept' && this.hitl()?.prompt_kind === 'review_dataset_labels') {

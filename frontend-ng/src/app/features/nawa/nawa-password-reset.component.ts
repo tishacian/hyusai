@@ -1,3 +1,4 @@
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { I18nService } from '@app/core/i18n.service';
 import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
@@ -102,6 +103,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
     NawaCreatorBannerComponent,
     NawaThemeToggleComponent,
     ThinkingOrbComponent,
+    DecisionRightComponent,
   ],
   styleUrls: ['./nawa-theme.scss', './nawa-password-reset.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
@@ -339,6 +341,8 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                 Nothing has been changed on the account. Your decision is recorded in the audit
                 ledger under your own account.
               </p>
+              <app-decision-right [hitl]="run()?.hitl" />
+              @if (mayDecide(run()?.hitl)) {
               <div class="pr-gate-actions">
                 <button
                   type="button"
@@ -362,6 +366,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                   <span class="nawa-note">Recording the decision…</span>
                 }
               </div>
+              }
             </div>
           }
 
@@ -477,6 +482,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
 })
 export class NawaPasswordResetComponent implements OnDestroy {
   private readonly service = inject(NawaItsdService);
+  protected readonly mayDecide = mayDecide;
   private readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
@@ -679,7 +685,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
    */
   protected decide(action: 'accept' | 'reject'): void {
     const run = this.run();
-    if (!run || this.resolving()) return;
+    if (!run || this.resolving() || !mayDecide(run.hitl)) return;
     this.resolving.set(true);
     this.errorText.set(null);
     this.service.resolveHitl(run.id, action, run.hitl?.decision_id).subscribe((outcome) => {
