@@ -103,6 +103,7 @@ from app.api.v1.endpoints import (
     webcam_proxy,
     work,
     workspace_app_governance,
+    workspace_experience_activation,
     workspace_jobs,
 )
 
@@ -118,6 +119,9 @@ api_router.include_router(build_info.router, prefix="/build-info", tags=["build-
 
 # OmniRAG engine — preserved.
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(
+    workspace_experience_activation.router, prefix="/auth", tags=["auth"]
+)
 api_router.include_router(health.router, prefix="/health", tags=["health"])
 api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
