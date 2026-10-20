@@ -1,4 +1,5 @@
 import { CommonModule } from '@angular/common';
+import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -1199,19 +1200,25 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     this.chatBusy.set(true);
     this.workApi
       .decide(current, action, note ?? this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
-      .subscribe((decided) => {
+      .subscribe((outcome) => {
+        if (outcome.s === 'sent') return;
         this.deciding.set(false);
         this.chatBusy.set(false);
-        if (decided) this.rejecting.set(false);
-        if (!decided) {
-          this.error.set(this.i18n.t('experience.pr_to_po.studio.error.decision_failed'));
-          this.chatDialogue.update((dialogue) =>
-            dialogue && dialogue.stage === 'posting' ? { ...dialogue, stage: 'proposing' } : dialogue,
-          );
+        if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+          this.rejecting.set(false);
+          // The HITL endpoint answers with the pre-resume status; poll the walk.
+          this.follow(current.id);
           return;
         }
-        // The HITL endpoint answers with the pre-resume status; poll the walk.
-        this.follow(current.id);
+        const message = decisionMessage(outcome, action);
+        this.error.set(outcome.s === 'failed' && outcome.status !== 409
+          ? this.i18n.t('experience.pr_to_po.studio.error.decision_failed')
+          : this.i18n.t(message.key, message.params));
+        this.chatDialogue.update((dialogue) =>
+          dialogue && dialogue.stage === 'posting' ? { ...dialogue, stage: 'proposing' } : dialogue,
+        );
+        // A lost or stale answer: read the Run back rather than deciding again.
+        if (outcome.s === 'unknown' || outcome.status === 409) this.follow(current.id);
       });
   }
 

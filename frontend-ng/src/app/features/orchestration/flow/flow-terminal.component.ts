@@ -139,6 +139,21 @@ import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
                 <app-icon name="check" [size]="12" /> {{ i18n.t('flow.terminal.approval.accept') }}
               </button>
             </div>
+            @if (hitlNotice(); as notice) {
+              <div
+                class="ck-term__card-meta"
+                data-testid="flow-hitl-notice"
+                [attr.data-tone]="notice.tone"
+                [attr.role]="notice.role"
+              >
+                <span>{{ i18n.t(notice.key, notice.params) }}</span>
+                @if (notice.verifiable) {
+                  <button type="button" class="ck-term__btn" data-testid="flow-hitl-verify" (click)="verifyHitl.emit()">
+                    {{ i18n.t('state.decision.verify') }}
+                  </button>
+                }
+              </div>
+            }
           </div>
         }
 
@@ -228,10 +243,13 @@ export class FlowTerminalComponent {
   private readonly gateKey = computed(() => JSON.stringify([this.runId(), this.hitl()?.decision_id]));
   readonly debug = input<RunDebugPayload | null>(null);
   readonly hitlResolving = input(false);
+  /** What happened to the last decision sent from here: a failure, a lost answer, a check. */
+  readonly hitlNotice = input<{ key: string; params?: Record<string, string | number>; role: string; tone: string; verifiable: boolean } | null>(null);
   readonly debugStepping = input(false);
   readonly debugModeLabel = input<DebugMode>('off');
 
   readonly resolveHitl = output<{ action: 'accept' | 'reject'; label_review?: LabelReviewSubmission }>();
+  readonly verifyHitl = output<void>();
   readonly debugAction = output<'step' | 'continue' | 'stop'>();
   readonly clear = output<void>();
   readonly close = output<void>();

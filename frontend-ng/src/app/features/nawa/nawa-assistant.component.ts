@@ -21,6 +21,8 @@
  * a processed request comes from the run; every citation comes from a retrieval
  * the engine reported; a tool that refused is quoted refusing.
  */
+import { I18nService } from '@app/core/i18n.service';
+import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
   afterRenderEffect,
   effect,
@@ -463,6 +465,9 @@ function hasBothProofs(reply: string): boolean {
                     >
                       Decline
                     </button>
+                    @if (decisionText(); as text) {
+                      <p class="as-next" role="alert" data-testid="nawa-decision-notice">{{ text }}</p>
+                    }
                   </div>
                 }
                 @if (processed.note) {
@@ -593,6 +598,9 @@ export class NawaAssistantComponent implements OnDestroy {
   protected readonly turns = signal<DeskTurn[]>([]);
   protected readonly pending = signal(false);
   protected readonly resolving = signal(false);
+  /** Why the last decision was not recorded, or that its answer was lost. */
+  protected readonly decisionText = signal<string | null>(null);
+  private readonly i18n = inject(I18nService);
   protected readonly draft = signal('');
 
   /**
@@ -1022,8 +1030,13 @@ export class NawaAssistantComponent implements OnDestroy {
   protected decide(run: RunState, action: 'accept' | 'reject'): void {
     if (this.resolving()) return;
     this.resolving.set(true);
-    this.itsd.resolveHitl(run.runId, action, run.decisionId).subscribe((acknowledged) => {
-      if (!acknowledged) this.resolving.set(false);
+    this.decisionText.set(null);
+    this.itsd.resolveHitl(run.runId, action, run.decisionId).subscribe((outcome) => {
+      if (outcome.s === 'sent' || outcome.s === 'confirmed' || outcome.s === 'accepted') return;
+      // Say whether it was refused or lost; the poll shows if a lost one went through.
+      this.resolving.set(false);
+      const message = decisionMessage(outcome, action);
+      this.decisionText.set(this.i18n.t(message.key, message.params));
     });
   }
 

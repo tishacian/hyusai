@@ -11,7 +11,7 @@ function harness() {
   const response = new Subject<Run | null>(), calls: unknown[] = [], updates: boolean[] = [];
   let current = true;
   const component = Object.assign(Object.create(RetrainingRunApprovalComponent.prototype), {
-    run, generation:0,busy:signal(false),settled:signal(false),error:signal(false),
+    run, generation:0,busy:signal(false),settled:signal(false),error:signal(false),notice:signal(null),
     changed:{emit:() => updates.push(true)},
     workspace:{captureRequestScope:() => 'workspace',isRequestScopeCurrent:() => current},
     api:{resolveRunHitl:(id:string,body:unknown) => {calls.push({id,body});return response;}},
@@ -39,4 +39,11 @@ test('missing context blocks acceptance, refusal remains possible and denied res
   await h.component.resolve('accept');assert.equal(h.calls.length,0);
   const pending=h.component.resolve('reject');h.response.next(null);await pending;
   assert.equal(h.component.error(),true);assert.deepEqual(h.calls,[{id:'run',body:{action:'reject',expected_decision_id:'decision'}}]);
+});
+test('a lost answer says unknown and a denied one says why, never the same words', async () => {
+  for (const [error, key] of [[{status:0},'state.decision.unknown'],[{status:504},'state.decision.unknown'],[{status:403},'state.decision.denied'],[{status:500},'state.decision.server']] as const) {
+    const h=harness(), pending=h.component.resolve('reject');
+    h.response.error(error); await pending;
+    assert.equal(h.component.error(),true); assert.equal(h.component.notice()?.key,key); assert.equal(h.component.settled(),false);
+  }
 });

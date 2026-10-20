@@ -23,6 +23,7 @@
  * the screen.
  */
 import '@angular/compiler';
+import { I18nService } from '@app/core/i18n.service';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -201,6 +202,7 @@ function makeHarness(options: { system?: System | null; admin?: boolean } = {}) 
         },
       },
       { provide: ThemeService, useValue: { businessResolved: signal('light') } },
+      { provide: I18nService, useValue: { t: (key: string) => key, locale: signal('en') } },
       { provide: VoiceDictationService, useValue: dictation },
       { provide: VoiceTtsPlaybackService, useValue: { createController: () => speaker } },
       { provide: ChangeDetectorRef, useValue: { markForCheck: () => undefined } },

@@ -1,3 +1,5 @@
+import { I18nService } from '@app/core/i18n.service';
+import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -475,6 +477,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
 })
 export class NawaPasswordResetComponent implements OnDestroy {
   private readonly service = inject(NawaItsdService);
+  private readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
 
@@ -679,12 +682,14 @@ export class NawaPasswordResetComponent implements OnDestroy {
     if (!run || this.resolving()) return;
     this.resolving.set(true);
     this.errorText.set(null);
-    this.service.resolveHitl(run.id, action, run.hitl?.decision_id).subscribe((acknowledged) => {
-      if (acknowledged) return;
+    this.service.resolveHitl(run.id, action, run.hitl?.decision_id).subscribe((outcome) => {
+      if (outcome.s === 'sent' || outcome.s === 'confirmed' || outcome.s === 'accepted') return;
+      // A lost answer is not a refusal. The poll, still alive on the paused
+      // run, shows whether it went through; deciding again is safe because the
+      // server answers 409 to a decision it no longer waits for.
       this.resolving.set(false);
-      this.errorText.set(
-        'The decision was not recorded. Check your rights on this workspace, then try again.',
-      );
+      const message = decisionMessage(outcome, action);
+      this.errorText.set(this.i18n.t(message.key, message.params));
     });
   }
 
