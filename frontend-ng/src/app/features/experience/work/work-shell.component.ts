@@ -1,3 +1,4 @@
+import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
@@ -79,6 +80,7 @@ const POLL_MS = 8000;
     WorkBarComponent,
     WorkAppHeaderComponent,
     DecisionRightComponent,
+    RunQualityReviewComponent,
   ],
   styleUrl: './work.scss',
   template: `
@@ -215,6 +217,8 @@ const POLL_MS = 8000;
                     }
                     @if (isReviewed(run)) {
                       <app-work-decision-context [run]="run" [showRunLink]="canInspectRuns()" />
+                      <!-- The Judge's reserve stays above the decision, details closed or not. -->
+                      <app-run-quality-review [run]="run" />
                     @if (run.hitl?.prompt_kind === 'approve_model_retraining') { <ck-retraining-context [binding]="run.hitl?.model_retraining" /> }
                     @if (run.hitl?.prompt_kind === 'review_dataset_labels') {
                       <app-dataset-label-review [runId]="run.id" [decisionId]="run.hitl?.decision_id ?? ''" [disabled]="decisionBusy().has(run.id)" (submissionChange)="setLabelReview(run, $event)" />

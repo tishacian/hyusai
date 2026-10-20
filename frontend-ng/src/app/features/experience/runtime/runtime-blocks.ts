@@ -1,3 +1,4 @@
+import { workPageHref } from '../work/work-catalog';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -873,7 +874,7 @@ export class QueueBlock {
   selector: 'xp-rt-approval',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, TagComponent],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, TagComponent, RouterLink],
   styleUrl: './runtime.scss',
   template: `
     <article class="xp-rt-block" [attr.aria-label]="ariaName() || null">
@@ -882,12 +883,17 @@ export class QueueBlock {
         <div class="xp-rt-row">
           <h3>{{ title() }}</h3>
           @if (status()) {
-            <ck-tag tone="warn">{{ status() }}</ck-tag>
+            <ck-tag tone="warn">{{ i18n.t('experience.runtime.approval.status', { status: status() }) }}</ck-tag>
           }
         </div>
         <p class="xp-rt-sub">{{ body() }}</p>
         @if (description()) {
           <p class="xp-rt-sub">{{ description() }}</p>
+        }
+        @if (validationsHref(); as href) {
+          <a class="xp-rt-link" [routerLink]="href" data-testid="approval-card-validations">
+            {{ i18n.t('experience.runtime.approval.open_validations') }}
+          </a>
         }
       </xp-rt-slot>
     </article>
@@ -895,6 +901,7 @@ export class QueueBlock {
 })
 export class ApprovalCardBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
   readonly data = computed(() => {
@@ -919,6 +926,14 @@ export class ApprovalCardBlock {
       ? dynamicSlot(this.runtime, this.node(), this.context(), !this.title() && !this.body())
       : slotOf(this.node(), !this.title() && !this.body()),
   );
+  /** The Validations tab, only when a real pause waits for a decision in Work. */
+  readonly validationsHref = computed(() => {
+    const context = this.context();
+    if (context.mode !== 'live' || !context.experienceSlug) return null;
+    return this.runtime.run(context.sourceStateKey)?.status === 'hitl_pending'
+      ? workPageHref(context.experienceSlug, 'validations')
+      : null;
+  });
 }
 
 @Component({
