@@ -85,7 +85,7 @@ def test_oauth_token_is_sent_as_bearer(monkeypatch):
     mcp_oauth.clear_token_cache()
 
 
-def test_client_posts_with_redirects_enabled(monkeypatch):
+def test_client_posts_with_redirects_disabled(monkeypatch):
     seen: dict[str, bool] = {}
 
     class _FakeClient:
@@ -119,7 +119,7 @@ def test_client_posts_with_redirects_enabled(monkeypatch):
         "initialize",
         {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}},
     )
-    assert seen["follow_redirects"] is True
+    assert seen["follow_redirects"] is False
     assert result["serverInfo"]["name"] == "sap-mcp"
 
 
@@ -165,3 +165,19 @@ def test_oauth_token_http_error_is_unreachable():
     finally:
         monkeypatch.undo()
         mcp_oauth.clear_token_cache()
+
+
+@pytest.fixture(autouse=True)
+def connector_test_dns(monkeypatch):
+    # These tests replace the database/HTTP driver; resolve its test hostname
+    # locally too, while leaving the production destination policy in place.
+    import socket
+
+    from app.services.connectors import network_policy
+
+    monkeypatch.setattr(
+        network_policy.socket, "getaddrinfo",
+        lambda host, port, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+        ],
+    )

@@ -38,6 +38,7 @@ import {
   APPS,
   CONNECTOR_CATEGORIES,
   CONNECTORS,
+  hasConnectorRuntime,
   ConnectorDef,
   readAppToggles,
   type ConnectorStatus,
@@ -1065,23 +1066,13 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 <div class="flex items-start justify-between mb-2.5">
                   <div
                     class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
-                    [ngClass]="c.status === 'coming-soon'
+                    [ngClass]="c.status === 'on-request'
                       ? 'bg-white/5 text-gray-400'
                       : 'bg-cyan-500/15 text-cyan-400'"
                   >
                     <app-icon [name]="c.icon" [size]="18" />
                   </div>
-                  @if (connectorStatus(c) === 'configuration-only') {
-                    <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.configuration_only') }}</span>
-                  } @else if (connectorStatus(c) === 'active') {
-                    <app-status-pulse tone="success" [label]="i18n.t('connectors.status.connected')" />
-                  } @else if (c.status === 'beta') {
-                    <span class="ck-pill ck-tone-preview">{{ i18n.t('connectors.status.beta') }}</span>
-                  } @else if (c.status === 'available') {
-                    <app-status-pulse tone="accent" [label]="i18n.t('connectors.status.available')" />
-                  } @else {
-                    <span class="ck-pill ck-tone-warn">{{ i18n.t('connectors.status.soon') }}</span>
-                  }
+                  <span class="ck-pill ck-tone-preview">{{ i18n.t(connectorStatusKey(c)) }}</span>
                 </div>
                 <h4 class="text-sm font-semibold text-white mb-1">{{ c.name }}</h4>
                 <p class="text-[11px] text-gray-400 leading-relaxed line-clamp-2">
@@ -1310,14 +1301,14 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     CONNECTORS.filter((c) => this.isConnectorVisible(c)),
   );
   readonly connectorsActive = computed(
-    // Same rule as the cards: a saved PostgreSQL setup is not an observed connection.
-    () => this.visibleConnectors().filter((c) => this.connectorStatus(c) === 'active').length,
+    // This counter describes saved settings, never live health or certification.
+    () => this.visibleConnectors().filter((c) => this.isConfigured(c.id)).length,
   );
   readonly connectorsAvailable = computed(
-    () => this.visibleConnectors().filter((c) => c.status !== 'coming-soon').length,
+    () => this.visibleConnectors().filter(hasConnectorRuntime).length,
   );
   readonly connectorsComingSoon = computed(
-    () => this.visibleConnectors().filter((c) => c.status === 'coming-soon').length,
+    () => this.visibleConnectors().filter((c) => c.status === 'on-request').length,
   );
   readonly appsEnabled = computed(() => {
     this.appsVersion();
@@ -2227,10 +2218,12 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   connectorStatus(connector: ConnectorDef): ConnectorStatus {
-    // A saved setup does not constitute an observed PostgreSQL connection.
-    if (connector.id === 'postgresql') return connector.status;
-    if (connector.status === 'configuration-only') return connector.status;
-    return this.isConfigured(connector.id) ? 'active' : connector.status;
+    // Saved credentials are not a runtime observation or a qualification bundle.
+    return connector.status;
+  }
+
+  connectorStatusKey(connector: ConnectorDef): string {
+    return `connectors.status.${connector.status.replace(/-/g, '_')}`;
   }
 
   openConnector(c: ConnectorDef): void {

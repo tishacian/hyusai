@@ -58,6 +58,25 @@ if grep -q '^dataopsWorker:' "$ROOT/ops/helm/agentium/values.yaml"; then
 		fail "the general worker must refuse the dataops queue"
 	fi
 fi
+# Connector scaffolds are opt-in and reserve two independent processes.
+if grep -q '^connectorWorkers:' "$ROOT/ops/helm/agentium/values.yaml"; then
+	if grep -q 'name: agentium-worker-connectors' /tmp/agentium-helm.yaml; then
+		fail "connector workers must be disabled by default"
+	fi
+	connector_image="example.invalid/connector-runner@sha256:$(printf '%064d' 0)"
+	connectors="$(helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+		--set connectorWorkers.enabled=true --set-string "connectorWorkers.image=$connector_image" \
+		--show-only templates/worker-connectors.yaml)"
+	[ "$(grep -c 'kind: Deployment' <<<"$connectors")" -eq 2 ] || fail "connectors require two Deployments"
+	for queue in connectors connectors_interactive; do
+		grep -A1 'name: CELERY_QUEUES' <<<"$connectors" | grep -q "value: $queue$" ||
+			fail "connector pool missing: $queue"
+		if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+			--set-string "worker.queues=cpu\\,$queue" >/dev/null 2>&1; then
+			fail "the general worker must refuse $queue"
+		fi
+	done
+fi
 grep -q -- '--import-realm' /tmp/agentium-helm.yaml ||
 	fail "keycloak must import the realm its readiness probe requests"
 cmp -s "$ROOT/backend/keycloak/realm-export.json" \

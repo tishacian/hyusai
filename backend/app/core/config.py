@@ -115,8 +115,12 @@ class Settings(BaseSettings):
     # the work that grows with the data: their own pool keeps a large join from
     # holding the slots the walkers that wait on it need.
     celery_dataops_queue: str = "dataops"
+    # Dedicated connector pools: interactive work never waits behind imports.
+    celery_connectors_queue: str = "connectors"
+    celery_connectors_interactive_queue: str = "connectors_interactive"
     hana_writes_enabled: bool = False
     hana_network_policy_mode: Literal["report", "enforce"] = "report"
+    connector_network_policy_mode: Literal["report", "enforce"] = "report"
     hana_allowed_hosts: str = ""
     hana_allowed_cidrs: str = ""
     hana_allow_insecure_tls: bool = False
