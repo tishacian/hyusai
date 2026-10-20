@@ -1745,17 +1745,23 @@
     padding-inline: 12px;
   }
 
+  /* Wrap instead of scrolling: a scrolling list of non-focusable steps is
+     unreachable by keyboard (axe scrollable-region-focusable). */
   .xp-wizard > .xp-steps {
     justify-content: flex-start;
-    flex-wrap: nowrap;
-    padding-inline: 14px;
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
-    scrollbar-width: thin;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    min-height: 50px;
+    padding: 8px 14px;
   }
 
   .xp-wizard > .xp-steps li {
     flex: 0 0 auto;
+  }
+
+  .xp-wizard > .xp-steps li:not(:last-child)::after {
+    width: 12px;
   }
 
   .xp-wizard-body {
@@ -1786,3 +1792,67 @@
 /* Identity editing needs enough room to compare controls and the live preview. */
 .xp-bottom.is-identity .xp-bottom-panel { height:min(72dvh,900px); }
 .xp-bottom.is-identity app-brand-appearance-editor { grid-column:1 / -1; }
+
+/* Lot 4 — wizard: the Work address as a real field, what each form does
+   not imply, and the way out when no System is published yet. */
+.xp-field > .xp-slug-input {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.xp-slug-input > span {
+  padding: 8px 0 8px 10px;
+  border: 1px solid var(--ck-stroke-3);
+  border-right: 0;
+  border-radius: var(--ck-radius-md) 0 0 var(--ck-radius-md);
+  background: var(--ck-bg-panel-hi);
+  color: var(--ck-fg-3);
+  font-family: var(--ck-font-mono);
+}
+
+.xp-slug-input > input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 0 var(--ck-radius-md) var(--ck-radius-md) 0;
+  font-family: var(--ck-font-mono);
+}
+
+.xp-slug-input > input[aria-invalid='true'] {
+  border-color: var(--ck-status-neg-line);
+}
+
+.xp-field-error {
+  color: var(--ck-status-neg-fg);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.xp-choice-not {
+  margin: 0;
+  color: var(--ck-fg-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.xp-bind-empty {
+  display: grid;
+  gap: var(--ck-space-2);
+}
+
+.xp-link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ck-primary);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.xp-link-btn:focus-visible {
+  outline: 2px solid var(--ck-primary);
+  outline-offset: 2px;
+}

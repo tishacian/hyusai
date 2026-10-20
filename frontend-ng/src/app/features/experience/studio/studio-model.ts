@@ -156,6 +156,8 @@ export interface StudioExperience {
   binding_keys?: string[];
   draft_revision?: number;
   latest_release_number?: number | null;
+  /** Step an unfinished creation wizard resumes at; null when finished. */
+  wizard_step?: number | null;
   deployments?: WorkDeployment[];
   draft?: {
     pages?: unknown;

@@ -5,6 +5,15 @@
   <ck-help titleHelp id="concept.business-application" />
 
   <div class="xp-hub">
+    @if (returnTo(); as back) {
+      <div class="xp-return" role="status" data-testid="hub-return-to-wizard">
+        <p>{{ i18n.t('experience.start.return.body') }}</p>
+        <a [routerLink]="back.path" [queryParams]="back.params" class="xp-card-cta">
+          {{ i18n.t('experience.start.return.cta') }}
+          <ck-glyph name="arrow-right" [size]="12" />
+        </a>
+      </div>
+    }
     @if (canEdit()) {
       <section class="xp-start" aria-labelledby="xp-start-title" data-testid="start-point">
         <div class="xp-start-main">
@@ -112,10 +121,17 @@
           @for (app of recentApps(); track app.id) {
             <li>
               <span><strong>{{ app.name }}</strong><small>{{ state(app) }} · /work/{{ app.slug }}</small></span>
-              <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }" class="xp-card-cta">
-                {{ i18n.t('experience.apps.action.continue') }}
-                <ck-glyph name="arrow-right" [size]="12" />
-              </a>
+              @if (app.wizard_step) {
+                <a [routerLink]="wizardPath" [queryParams]="wizardParams(app)" class="xp-card-cta" data-testid="hub-resume-wizard">
+                  {{ i18n.t('experience.apps.action.resume_wizard') }}
+                  <ck-glyph name="arrow-right" [size]="12" />
+                </a>
+              } @else {
+                <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }" class="xp-card-cta">
+                  {{ i18n.t('experience.apps.action.continue') }}
+                  <ck-glyph name="arrow-right" [size]="12" />
+                </a>
+              }
             </li>
           }
         </ul>

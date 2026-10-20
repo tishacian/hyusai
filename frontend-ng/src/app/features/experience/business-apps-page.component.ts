@@ -6,6 +6,8 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from './experience-access';
 import { StudioApiService } from './studio/studio-api.service';
+import { wizardQueryParams } from './studio/wizard-route';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import {
   filterInventory,
   inventoryAudience,
@@ -126,7 +128,11 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                   <td>{{ releaseLabel(app) }}</td>
                   <td>{{ audienceText(app) }}</td>
                   <td class="xp-actions">
-                    @if (canEdit()) {
+                    @if (canEdit() && app.wizard_step) {
+                      <a [routerLink]="wizardPath" [queryParams]="wizardParams(app)" data-testid="apps-resume-wizard">
+                        {{ i18n.t('experience.apps.action.resume_wizard') }}
+                      </a>
+                    } @else if (canEdit()) {
                       <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
                         {{
                           stateOf(app) === 'draft'
@@ -156,6 +162,12 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
   styleUrl: './studio/studio.scss',
 })
 export class BusinessAppsPageComponent {
+  /** An unfinished creation wizard resumes at its step, not in the editor. */
+  readonly wizardPath = navigationLeafUrl('create-app-new');
+  wizardParams(app: StudioExperience): Record<string, string> {
+    return wizardQueryParams(app.id, app.wizard_step ?? 1);
+  }
+
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
   private readonly workspace = inject(WorkspaceService);

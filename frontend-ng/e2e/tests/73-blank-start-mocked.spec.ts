@@ -5,7 +5,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
  * Plan lot 4 — where to start in Créer on a blank workspace (US03, US07,
  * US08, US09), fully mocked. Loopback only:
  *
- *   E2E_CHROME_V2_MOCKED=1 E2E_BASE_URL=http://127.0.0.1:4238 \
+ *   E2E_CHROME_V2_MOCKED=1 E2E_BASE_URL=http://127.0.0.1:4341 \
  *   npx playwright test e2e/tests/73-blank-start-mocked.spec.ts --trace=off
  */
 

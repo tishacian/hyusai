@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CanonicalApiService, type RunSystemSummary } from '@app/core/canonical-api.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -19,6 +20,7 @@ import { automationSystemBody, selectAutomationSkill } from './hub/automation-dr
 import { StartExampleImportComponent } from './hub/example-import.component';
 import { StartPrerequisitesComponent } from './hub/prerequisites.component';
 import { automationFailure, type AutomationFailure } from './hub/start.model';
+import { wizardQueryParams, wizardReturnTo } from './studio/wizard-route';
 
 @Component({
   selector: 'app-create-hub',
@@ -26,6 +28,7 @@ import { automationFailure, type AutomationFailure } from './hub/start.model';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    RouterLink,
     NavLinkDirective,
     EmptyStateComponent,
     GlyphComponent,
@@ -43,6 +46,7 @@ export class CreateHubComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
+  private readonly queryParams = toSignal(inject(ActivatedRoute).queryParamMap, { requireSync: true });
   readonly recentApps = signal<StudioExperience[]>([]);
   readonly recentState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly recentSystems = signal<RunSystemSummary[]>([]);
@@ -94,6 +98,22 @@ export class CreateHubComponent {
     const label = this.i18n.t(key);
     return label === key ? status : label;
   }
+
+  /** An unfinished creation wizard resumes at its step, not in the editor. */
+  readonly wizardPath = navigationLeafUrl('create-app-new');
+  wizardParams(app: StudioExperience): Record<string, string> {
+    return wizardQueryParams(app.id, app.wizard_step ?? 1);
+  }
+
+  /** Set when the wizard sent the author here to create the missing System. */
+  readonly returnTo = computed(() => {
+    const target = wizardReturnTo(this.queryParams().get('returnTo'));
+    if (!target) return null;
+    const url = new URL(target, 'http://local');
+    const params: Record<string, string> = {};
+    url.searchParams.forEach((value, key) => { params[key] = value; });
+    return { path: url.pathname, params };
+  });
 
   /** "Start from scratch" or "Start from an example": nothing is imported by default. */
   readonly start = signal<'zero' | 'example' | null>(null);

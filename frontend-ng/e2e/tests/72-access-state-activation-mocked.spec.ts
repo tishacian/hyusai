@@ -5,7 +5,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
  * Plan lot 4 — closed destinations (PL02) and the Work and Studio setting
  * (PL01), fully mocked. No backend, loopback only:
  *
- *   E2E_CHROME_V2_MOCKED=1 E2E_BASE_URL=http://127.0.0.1:4238 \
+ *   E2E_CHROME_V2_MOCKED=1 E2E_BASE_URL=http://127.0.0.1:4341 \
  *   npx playwright test e2e/tests/72-access-state-activation-mocked.spec.ts --trace=off
  */
 
