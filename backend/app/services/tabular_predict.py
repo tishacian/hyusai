@@ -916,56 +916,61 @@ def predict_rows(
 ) -> dict[str, Any]:
     """Answer an inline batch, and say which version answered."""
 
-    served = serving_version(db, model, version=version)
-    _interval_band(served, interval_level)
-    coerced = coerce_rows(served, rows)
-    from app.services.ml_governance import admit
-    admit(db, model, rows=len(coerced), key_id=key_id)
-    if served.family in {"tabular_deep", "tabular_foundation"} and settings.ml_runtime != "ml-deep":
-        from app.services.ml.deep_serving import request_rows
+    from app.services.ml_operations import inference_attempt
 
-        result = request_rows(db, served, coerced, explain=explain, interval_level=interval_level)
-    else:
-        result = _prediction_payload(
-            served, coerced, explain=explain, interval_level=interval_level
+    with inference_attempt(db, model=model, caller=caller) as observation:
+
+        served = serving_version(db, model, version=version)
+        observation["served_id"] = served.id
+        _interval_band(served, interval_level)
+        coerced = coerce_rows(served, rows)
+        from app.services.ml_governance import admit
+        admit(db, model, rows=len(coerced), key_id=key_id)
+        if served.family in {"tabular_deep", "tabular_foundation"} and settings.ml_runtime != "ml-deep":
+            from app.services.ml.deep_serving import request_rows
+
+            result = request_rows(db, served, coerced, explain=explain, interval_level=interval_level)
+        else:
+            result = _prediction_payload(
+                served, coerced, explain=explain, interval_level=interval_level
+            )
+        answers, classes, positive = result["predictions"], result["classes"], result["positive_label"]
+        elapsed_ms = result["duration_ms"]
+        record_usage(db, served, rows=len(answers))
+        prediction_id = journal_call(
+            db,
+            requested=model,
+            served=served,
+            caller=caller,
+            rows=coerced,
+            answers=answers,
+            duration_ms=elapsed_ms,
+            store=store,
         )
-    answers, classes, positive = result["predictions"], result["classes"], result["positive_label"]
-    elapsed_ms = result["duration_ms"]
-    record_usage(db, served, rows=len(answers))
-    prediction_id = journal_call(
-        db,
-        requested=model,
-        served=served,
-        caller=caller,
-        rows=coerced,
-        answers=answers,
-        duration_ms=elapsed_ms,
-        store=store,
-    )
-    logger.info(
-        "tabular_predict: answered",
-        model_id=served.id,
-        rows=len(answers),
-        duration_ms=elapsed_ms,
-        caller=caller,
-        prediction_id=prediction_id,
-    )
-    return {
-        "served": _served_block(served),
-        "captured_at": datetime.now(UTC).isoformat(),
-        "task": served.task,
-        "target": served.target,
-        "classes": classes,
-        "positive_label": positive,
-        "predictions": answers,
-        "rows": len(answers),
-        "duration_ms": elapsed_ms,
-        "prediction_id": prediction_id,
-        # What *this* request paid to get a pipeline in memory. Zero on a hit,
-        # which is the number the cache exists to produce.
-        "load_ms": result["load_ms"],
-        "cached": result["cached"],
-    }
+        logger.info(
+            "tabular_predict: answered",
+            model_id=served.id,
+            rows=len(answers),
+            duration_ms=elapsed_ms,
+            caller=caller,
+            prediction_id=prediction_id,
+        )
+        return {
+            "served": _served_block(served),
+            "captured_at": datetime.now(UTC).isoformat(),
+            "task": served.task,
+            "target": served.target,
+            "classes": classes,
+            "positive_label": positive,
+            "predictions": answers,
+            "rows": len(answers),
+            "duration_ms": elapsed_ms,
+            "prediction_id": prediction_id,
+            # What *this* request paid to get a pipeline in memory. Zero on a hit,
+            # which is the number the cache exists to produce.
+            "load_ms": result["load_ms"],
+            "cached": result["cached"],
+        }
 
 
 def _score_summary(answers: Sequence[dict[str, Any]], *, task: str | None = None) -> dict[str, Any]:
@@ -1058,6 +1063,12 @@ def journal_call(
     )
     db.add(row)
     db.flush()
+    from app.services.ml_operations import record_inference
+
+    record_inference(
+        db, requested=requested, served=served, caller=caller,
+        row_count=len(answers), duration_ms=duration_ms, event_id=row.id,
+    )
     # The primary journal remains authoritative if shadow staging fails. No
     # broker call or challenger inference runs on the serving request path.
     try:
@@ -1119,58 +1130,63 @@ def score_dataset(
     tell a scored table apart from a transformed one in lineage.
     """
 
-    served = serving_version(db, model, version=version)
-    fields = contract_fields(served)
-    if dataset.status != "ready":
-        raise TabularError(
-            code="DATASET_NOT_READY",
-            message="The dataset to score is still being prepared.",
-            status_code=409,
-            details={"status": dataset.status},
-        )
-    rows = int(dataset.row_count or 0)
-    ceiling = int(settings.ml_score_max_rows)
-    if rows > ceiling:
-        raise TabularError(
-            code="ML_SCORE_TOO_MANY_ROWS",
-            message=(f"The dataset has {rows:,} rows, above the {ceiling:,} scoring ceiling."),
-            details={"rows": rows, "limit": ceiling},
-        )
+    from app.services.ml_operations import inference_attempt
 
-    import polars as pl
+    with inference_attempt(db, model=model, caller="score") as observation:
 
-    started = time.monotonic()
-    # Reserved before the reading starts, so the work has a row to report on.
-    # Everything above this point is a refusal — an unready input, a row ceiling,
-    # a missing column — and a refusal must not leave a dataset behind.
-    output = reserve_frame(
-        db,
-        workspace_id=served.workspace_id,
-        name=output_name or f"{dataset.name} · scored",
-        source="score",
-        produced_by=ML_SCORE_SKILL_SLUG,
-        parent_ids=[dataset.id],
-        run_id=run_id,
-        node_id=node_id,
-        step=SCORE_STEPS[0],
-    )
-    try:
-        return _score_into(
+        served = serving_version(db, model, version=version)
+        observation["served_id"] = served.id
+        fields = contract_fields(served)
+        if dataset.status != "ready":
+            raise TabularError(
+                code="DATASET_NOT_READY",
+                message="The dataset to score is still being prepared.",
+                status_code=409,
+                details={"status": dataset.status},
+            )
+        rows = int(dataset.row_count or 0)
+        ceiling = int(settings.ml_score_max_rows)
+        if rows > ceiling:
+            raise TabularError(
+                code="ML_SCORE_TOO_MANY_ROWS",
+                message=(f"The dataset has {rows:,} rows, above the {ceiling:,} scoring ceiling."),
+                details={"rows": rows, "limit": ceiling},
+            )
+
+        import polars as pl
+
+        started = time.monotonic()
+        # Reserved before the reading starts, so the work has a row to report on.
+        # Everything above this point is a refusal — an unready input, a row ceiling,
+        # a missing column — and a refusal must not leave a dataset behind.
+        output = reserve_frame(
             db,
-            output=output,
-            requested=model,
-            served=served,
-            dataset=dataset,
-            fields=fields,
-            started=started,
-            pl=pl,
+            workspace_id=served.workspace_id,
+            name=output_name or f"{dataset.name} · scored",
+            source="score",
+            produced_by=ML_SCORE_SKILL_SLUG,
+            parent_ids=[dataset.id],
+            run_id=run_id,
+            node_id=node_id,
+            step=SCORE_STEPS[0],
         )
-    except TabularError as exc:
-        fail_frame(db, output, f"{exc.code}: {exc.message}")
-        raise
-    except Exception as exc:  # noqa: BLE001 - the row must not outlive the work
-        fail_frame(db, output, str(exc)[:2000])
-        raise
+        try:
+            return _score_into(
+                db,
+                output=output,
+                requested=model,
+                served=served,
+                dataset=dataset,
+                fields=fields,
+                started=started,
+                pl=pl,
+            )
+        except TabularError as exc:
+            fail_frame(db, output, f"{exc.code}: {exc.message}")
+            raise
+        except Exception as exc:  # noqa: BLE001 - the row must not outlive the work
+            fail_frame(db, output, str(exc)[:2000])
+            raise
 
 
 def _score_into(
@@ -1735,7 +1751,8 @@ def publish_as_skill(
         "retryable": True,
         "idempotent": True,
     }
-    row.pricing = {"unit": "per_prediction", "unit_price": 0.0, "currency": "USD"}
+    if existing is None:
+        row.pricing = {}  # No declared tariff is unknown, not free inference.
     row.certification_level = "basic"
     row.is_seeded = "N"
     row.provider = "internal"

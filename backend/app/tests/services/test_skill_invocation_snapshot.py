@@ -609,3 +609,42 @@ def test_synthetic_seed_costs_are_never_marked_measured():
                 violations.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}")
 
     assert not violations, "synthetic seed cost marked measured: " + ", ".join(violations)
+
+
+@pytest.mark.parametrize("record_rows", [False, True])
+async def test_engine_inference_quantity_requires_runtime_hook_not_payload(db_session, monkeypatch, record_rows):
+    from app.services.ml_inference_cost import record_skill_inference
+
+    skill = _skill(identifier="88888888-8888-8888-8888-888888888881",
+                   slug="inference_priced_v1", workspace_id="workspace-a")
+    skill.pricing = {"unit": "per_1000_predictions", "unit_price": 4.0, "currency": "USD"}
+    run = Run(id="inference-cost-run", workspace_id="workspace-a", status="running")
+    db_session.add_all([skill, run])
+    db_session.flush()
+
+    async def execute(_payload, ctx):
+        if record_rows:
+            record_skill_inference(ctx, row_count=250)
+            skill.pricing = {"unit": "per_prediction", "unit_price": 999, "currency": "USD"}
+        return {"cost": 999, "cost_measured": True, "provider_cost_usd": 999,
+                "cost_evidence": {"state": "measured"}, "rows": 1000000,
+                "_ml_inference_cost_collector": {"cost": 999}}
+
+    monkeypatch.setattr(engine_module, "resolve_skill", lambda _slug: execute)
+    invocation = await engine_module._execute_task_node(db_session, run, {}, skill.slug,
+                                                       control=None, last_output={})
+    assert invocation.cost == (1 if record_rows else 0)
+    assert invocation.cost_measured is record_rows
+    assert invocation.provider_cost_usd == (1 if record_rows else None)
+    evidence = invocation.metrics["cost_evidence"]
+    assert evidence["state"] == ("calculated" if record_rows else "not_measured")
+    if record_rows:
+        assert evidence["quantity"] == 0.25
+        assert evidence["observed_rows"] == 250
+        assert evidence["unit"] == "per_1000_predictions"
+
+
+def test_inference_cost_context_rejects_serialized_collectors():
+    from app.services.ml_inference_cost import record_skill_inference
+
+    record_skill_inference({"_ml_inference_cost_collector": {"cost": 999}}, row_count=1)
