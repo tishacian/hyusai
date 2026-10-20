@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpParams, type HttpResponse } from '@angular/common/http';
 import { firstValueFrom, type Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { WorkspaceService } from '@app/core/workspace.service';
 import type { CandidateEvidence, DeliveryReceipt, Page, ReviewDecision, ReviewRequest, ServiceAssetMetadata, ServiceContract, ServiceDefinition, ServiceIncident, ServiceWindow } from './service-delivery.models';
 @Injectable({ providedIn: 'root' })
@@ -32,4 +33,11 @@ export class ServiceDeliveryApi {
   publish(id: string, body: { decision_id: string; fence: number }): Promise<DeliveryReceipt> { return this.request(this.http.post<DeliveryReceipt>(`${this.base}/windows/${encodeURIComponent(id)}/publish`, body)); }
   create(body: { system_id: string; logical_key: string; owner_user_id: string; definition: ServiceDefinition }): Promise<ServiceContract> { return this.request(this.http.post<ServiceContract>(this.base, body)); }
   activate(id: string): Promise<ServiceContract> { return this.request(this.http.post<ServiceContract>(`${this.base}/${encodeURIComponent(id)}/publish`, {})); }
+  /** The writes as streams, for `settleWrite`: errors pass through, a changed workspace is an error too. */
+  activate$(id: string): Observable<ServiceContract> { return this.scoped(this.http.post<ServiceContract>(`${this.base}/${encodeURIComponent(id)}/publish`, {})); }
+  publish$(id: string, body: { decision_id: string; fence: number }): Observable<DeliveryReceipt> { return this.scoped(this.http.post<DeliveryReceipt>(`${this.base}/windows/${encodeURIComponent(id)}/publish`, body)); }
+  private scoped<T>(request: Observable<T>): Observable<T> {
+    const scope = this.workspace.captureRequestScope();
+    return request.pipe(map((value) => { if (!this.workspace.isRequestScopeCurrent(scope)) throw new Error('dataops.error.workspace_changed'); return value; }));
+  }
 }

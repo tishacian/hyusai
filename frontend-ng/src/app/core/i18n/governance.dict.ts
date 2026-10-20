@@ -545,6 +545,8 @@ export const GOVERNANCE_FR = {
   'governance.canonical.title': 'Réponses canoniques',
   'governance.canonical.subtitle':
     "Réponses déterministes promues depuis les retours d'évaluation. Elles court-circuitent le LLM lorsque la même question est posée à nouveau.",
+  'governance.canonical.delete.confirmed': "Réponse canonique supprimée : « {question} ».",
+  'governance.canonical.delete.failed': "La réponse canonique n’a pas été supprimée.",
   'governance.canonical.loading': 'Chargement des réponses canoniques…',
   'governance.canonical.empty.title': "Aucune réponse canonique pour l'instant",
   'governance.canonical.empty.description':
@@ -1184,6 +1186,8 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.canonical.title': 'Canonical answers',
   'governance.canonical.subtitle':
     'Deterministic answers promoted from evaluation feedback. These bypass the LLM when the same question is asked again.',
+  'governance.canonical.delete.confirmed': "Canonical answer deleted: “{question}”.",
+  'governance.canonical.delete.failed': "The canonical answer was not deleted.",
   'governance.canonical.loading': 'Loading canonical answers…',
   'governance.canonical.empty.title': 'No canonical answer yet',
   'governance.canonical.empty.description':
