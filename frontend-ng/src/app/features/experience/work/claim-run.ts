@@ -18,6 +18,7 @@ export interface ClaimProposal {
 export const CLAIM_TOOL_LABELS: Record<string, string> = {
   ecommerce_sav_dataset_v1: 'experience.claims.step.features',
   sql_transform_v1: 'experience.claims.step.prepare',
+  data_prep_v1: 'experience.claims.step.prepare',
   ml_batch_score_v1: 'experience.claims.step.risk',
   ecommerce_sav_context_v1: 'experience.claims.step.combine',
   ecommerce_sla_features_v1: 'experience.claims.step.features',

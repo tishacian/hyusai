@@ -5,7 +5,7 @@ import { firstValueFrom, Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
-import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
@@ -13,6 +13,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { PG_ERROR_CODES, pgFailure, type PgFailure } from '@app/features/connectors/postgresql/postgresql.types';
 import { WorkActionReceiptComponent, type WorkActionReceipt } from '@app/shared/work-records/work-action-receipt.component';
 import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
+import { typedJudgeOutcome, typedResult } from '@app/features/data/dataops.models';
 import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
 import { WorkRecordQueueComponent, type WorkRecordItem } from '@app/shared/work-records/work-record-queue.component';
 import { workSourceRef } from '@app/shared/work-sources/work-source';
@@ -101,7 +102,8 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               </article>
               <article class="claims-panel"><h3>{{ i18n.t('experience.claims.inquiry') }}</h3>
                 <ol class="claims-steps" aria-live="polite">@for (step of projection().steps; track step.id) {
-                  <li [attr.data-state]="step.status"><span class="claims-step-dot" aria-hidden="true"></span><span>{{ i18n.t(toolLabel(step.skill_slug)) }}</span><span class="claims-quiet">{{ stepState(step.status) }}</span></li>
+                  @let outcome = stepOutcome(step);
+                  <li [attr.data-state]="outcome?.state ?? step.status"><span class="claims-step-dot" aria-hidden="true"></span><span>{{ i18n.t(toolLabel(step.skill_slug)) }}</span><span class="claims-quiet">{{ outcome ? i18n.t(outcome.label) : stepState(step.status) }}</span></li>
                 } @empty { <li class="claims-quiet claims-step-empty">{{ i18n.t('experience.claims.not_started') }}</li> }</ol>
               </article>
             </section>
@@ -373,4 +375,5 @@ export class ClaimsStudioComponent {
   actionLabel(value: string): string { return CLAIM_ACTION_LABELS[value] ?? 'experience.claims.unknown'; }
   reasonLabel(value: string): string { return CLAIM_REASON_LABELS[value] ?? 'experience.claims.unknown'; }
   stepState(value?: string): string { return this.i18n.t(value === 'completed' ? 'experience.claims.step.done' : value === 'failed' ? 'experience.claims.step.failed' : 'experience.claims.step.pending'); }
+  stepOutcome(step: SkillInvocation) { return typedJudgeOutcome(typedResult(step.output_ref)); }
 }

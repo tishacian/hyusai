@@ -7,12 +7,13 @@ const contract = { schema_version:1, task:'classification', model_id:'qa-sla-mod
 function document() { return {pages:[{id:'forecast',title:'Charge et capacité',components:[
   {type:'header',id:'intro',props:{title:'Anticiper la charge',subtitle:'Historique observé, prévision et preuve du modèle.'}},
   {type:'action_button',id:'forecast-action',props:{label:'Calculer la prévision',bindingKey:'operations.forecast',input:{}}},
+  {type:'runtime_status',id:'forecast-status',props:{sourceComponentId:'forecast-action'}},
   {type:'prediction',id:'risk',props:{title:'Priorité du dossier',predictionContract:contract,dataBinding:{source:'run-output',componentId:'forecast-action',nodeId:'sav.context',selector:'model_advice'}}},
   {type:'chart',id:'forecast-chart',props:{title:'Charge par jour',caption:'Observations et prévision à 14 jours',kind:'timeseries',datasetSource:{source:'run-output',componentId:'forecast-action',selector:'dataset_id'},mapping:{time:'ds',actual:'actual',value:'forecast',lower:'lower',upper:'upper',series:'channel'},unit:'dossiers'}},
 ]},{id:'history',title:'Historique',components:[{type:'callout',id:'help',props:{body:'Les décisions restent liées à leur exécution.'}}]}]}; }
 const rows = Array.from({length:28},(_,i)=> { const date=new Date('2026-10-01T00:00:00Z');date.setUTCDate(date.getUTCDate()+i);const y=Math.round(42+20*Math.sin(i/3)+i*2);return {ds:date.toISOString(),channel:'Web',actual:i<14?y:null,forecast:i>=14?y:null,lower:i>=14?y-12:null,upper:i>=14?y+14:null}; });
 async function setup(page:Page, theme='dark',locale='fr',state:'ready'|'denied'|'empty'|'stale'|'partial'='ready') {
-  let saved=document();const writes:any[]=[];const datasetRequests:string[]=[];
+  let saved=document();const writes:any[]=[];const datasetRequests:string[]=[];const restoredRequests:string[]=[];
   const experience={id:'qa-experience',slug:'operations',name:'Opérations SAV',description:'Décider avec les données et les preuves',pattern:'dashboard',languages:['fr','en'],theme:{mode:theme},access_policy:{roles:[],groups:[]},created_by:'qa-user',updated_at:'2026-10-09T00:00:00Z'};
   const binding={binding_key:'operations.forecast',system_id:'qa-system',published_flow_version_id:'qa-version',ingress_id:'source.forecast',confirmation_policy:'none',on_unavailable:'unavailable'};
   await page.route('**/*',route=>['localhost','127.0.0.1'].includes(new URL(route.request().url()).hostname)?route.fallback():route.abort());
@@ -26,6 +27,10 @@ async function setup(page:Page, theme='dark',locale='fr',state:'ready'|'denied'|
     if(path==='/auth/workspaces/'+workspace.slug)return json(route,workspace);
     if(path==='/work/operations')return json(route,{experience,channel:'live',release:{id:'qa-release',release_number:2,pages:saved,renderer_version:'certified-components-0.2.0',bindings_snapshot:[binding],theme:{mode:theme},languages:['fr','en']}});
     if(path.endsWith('/bindings/operations.forecast/resolve'))return json(route,{status:'ok',binding});
+    if(path.endsWith('/bindings/operations.forecast/runs/latest')){
+      restoredRequests.push(url.search);
+      return json(route,{run:writes.some(write=>write.component_id==='forecast-action')?{id:'qa-forecast-run',status:'completed'}:null});
+    }
     if(path.endsWith('/bindings/operations.forecast/runs')){writes.push(req.postDataJSON());return json(route,{id:'qa-forecast-run',status:'pending'},201);}
     if(path==='/runs/qa-forecast-run')return json(route,{id:'qa-forecast-run',system_id:'qa-system',status:'completed',completed_at:new Date().toISOString(),output_ref:{dataset_id:'qa-result-dataset',advice:{served:{model_id:'qa-sla-model',version:state==='stale'?1:2},target:'late',positive_label:'1',captured_at:new Date().toISOString(),predictions:[{prediction:'1',probability:.82}]}},skill_invocations:[{id:'qa-context',run_id:'qa-forecast-run',status:'completed',trace:{node_id:'sav.context'},output_ref:{model_advice:{served:{model_id:'qa-sla-model',version:state==='stale'?1:2},target:'late',positive_label:'1',captured_at:new Date().toISOString(),predictions:[{prediction:'1',probability:.82}]}}}]});
     if(path.startsWith('/work/operations/datasets/')){datasetRequests.push(url.search);return json(route,state==='denied'?{detail:{code:'WORK_DATASET_NOT_FOUND'}}:{rows:state==='empty'?[]:rows,columns:['ds','actual','forecast','lower','upper','channel'],total_rows:state==='empty'?0:state==='partial'?40:28,returned_rows:state==='empty'?0:28,truncated:state==='partial',provenance:{dataset_id:'qa-result-dataset',dataset_version:3,dataset_name:'Charge SAV',run_id:'qa-forecast-run',model:{model_id:'qa-forecast-model',name:'Prévision de charge',version:2}},freshness:{dataset_created_at:new Date().toISOString()}},state==='denied'?404:200);}
@@ -42,7 +47,7 @@ async function setup(page:Page, theme='dark',locale='fr',state:'ready'|'denied'|
     if(path==='/work/operations/validations')return json(route,{runs:[]});
     return json(route,{});
   });
-  return {writes,datasetRequests,saved:()=>saved};
+  return {writes,datasetRequests,restoredRequests,saved:()=>saved};
 }
 
 test.describe('Generic Work prediction and time series — local product QA',()=>{
@@ -85,6 +90,62 @@ test.describe('Generic Work prediction and time series — local product QA',()=
    await page.screenshot({path:`/workspace/scratch/work-blocks-2026-10-09/work-${state}.png`,fullPage:true});
   });
  }
+ for(const locale of ['fr','en'] as const){
+  test(`${locale}: returning and reloading restores the last authorised result without another action`,async({page})=>{
+   const fixture=await setup(page,'dark',locale);
+   await page.goto('/work/operations/forecast');
+   await page.getByRole('button',{name:'Calculer la prévision',exact:true}).click();
+   await expect(page.locator('xp-timeseries canvas')).toBeVisible();
+   await page.getByRole('link',{name:'Historique',exact:true}).click();
+   await expect(page.getByText('Les décisions restent liées à leur exécution.')).toBeVisible();
+   await page.getByRole('link',{name:'Charge et capacité',exact:true}).click();
+   await expect(page.locator('xp-timeseries canvas')).toBeVisible();
+   await page.reload();
+   await expect(page.locator('xp-timeseries canvas')).toBeVisible();
+   await expect(page.locator('xp-rt-status')).toContainText(locale==='fr'?'Terminé':'Completed');
+   await expect(page.locator('xp-timeseries')).toContainText('28 / 28');
+   expect(fixture.writes.filter(write=>write.component_id==='forecast-action')).toHaveLength(1);
+   expect(fixture.restoredRequests).toHaveLength(3);
+   for(const query of fixture.restoredRequests){
+    expect(new URLSearchParams(query).get('release_id')).toBe('qa-release');
+    expect(new URLSearchParams(query).get('page_id')).toBe('forecast');
+    expect(new URLSearchParams(query).get('component_id')).toBe('forecast-action');
+   }
+   expect(fixture.datasetRequests).toEqual(Array(3).fill('?run_id=qa-forecast-run'));
+  });
+ }
+ test('failed restoration shows an unavailable status, without a fabricated empty chart or automatic submission',async({page})=>{
+  const fixture=await setup(page);
+  await page.route('**/work/operations/bindings/operations.forecast/runs/latest?*',route=>route.fulfill({
+   status:503,contentType:'application/json',body:JSON.stringify({detail:'temporarily unavailable'}),
+  }));
+  await page.goto('/work/operations/forecast');
+  await expect(page.locator('xp-rt-status')).toContainText('État indisponible');
+  await expect(page.locator('xp-timeseries [role=alert]')).toBeVisible();
+  await expect(page.locator('xp-timeseries canvas')).toHaveCount(0);
+  expect(fixture.datasetRequests).toEqual([]);
+  expect(fixture.writes).toEqual([]);
+ });
+ test('release change disables a pending confirmation and asks to reload instead of reporting a network failure',async({page})=>{
+  const fixture=await setup(page);
+  let lookup:Route|undefined;
+  await page.route('**/work/operations/bindings/operations.forecast/resolve',route=>route.fulfill({
+   contentType:'application/json',body:JSON.stringify({status:'ok',binding:{confirmation_policy:'confirm'}}),
+  }));
+  await page.route('**/work/operations/bindings/operations.forecast/runs/latest?*',route=>{lookup=route;});
+  await page.goto('/work/operations/forecast');
+  await page.getByRole('button',{name:'Calculer la prévision',exact:true}).click();
+  const confirm=page.getByRole('button',{name:'Confirmer',exact:true});
+  await expect(confirm).toBeVisible();
+  await expect.poll(()=>!!lookup).toBe(true);
+  await lookup!.fulfill({status:409,contentType:'application/json',body:JSON.stringify({detail:{code:'WORK_RELEASE_CHANGED'}})});
+  await expect(confirm).toBeDisabled();
+  await expect(page.locator('xp-rt-action [role=alert]')).toContainText('Rechargez la page');
+  await confirm.dispatchEvent('click');
+  expect(fixture.writes).toEqual([]);
+  await page.getByRole('button',{name:'Annuler',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Calculer la prévision',exact:true})).toBeDisabled();
+ });
  test('Studio exposes typed controls and persists mappings and prediction semantics',async({page})=>{
    const fixture=await setup(page);await page.setViewportSize({width:1600,height:1100});await page.goto('/create/apps/qa-experience');
    await expect(page.locator('.xp-ed')).toBeVisible();

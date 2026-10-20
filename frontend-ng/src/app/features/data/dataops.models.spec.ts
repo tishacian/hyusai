@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
-import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, judgeDraftFromNode, judgeNodePatch, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
+import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, judgeDraftFromNode, judgeNodePatch, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedJudgeFailure, typedJudgeOutcome, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
 import { hashSaltOptions, prepFieldDefault, prepFields, prepNumber, prepParamChange, prepStepDefaults, prepStepParamChange } from './prep-fields';
 import type { SecretMeta } from '@app/shared/secrets/secrets.api';
 
@@ -106,6 +106,37 @@ test('the result view recognizes v2 without inventing confidence or coercing a l
   assert.equal(typedResult({schema_version: 2, evaluation_id: 'invalid', coverage: {}, answers: {q: null}}), null);
   const result = {schema_version: 2, evaluation_id: 'judge-1', answers: {}, coverage: {}, confidence: null, cost: {amount: null}};
   assert.equal(typedResult(result)?.confidence, null); assert.equal(typedResult(result)?.cost?.amount, null);
+});
+
+test('judge failures use fixed diagnostics and a real rubric question, never provider text or unbounded indices', () => {
+  const base = {schema_version: 2, evaluation_id: 'judge-1', status: 'failed', reason: 'JUDGE_RESPONSE_INVALID', questions: [{question: 'Is the proposed remedy supported?'}], answers: {}, coverage: {}};
+  for (const category of ['response_size_or_type', 'json', 'schema', 'abstention', 'answer_state', 'evidence_required', 'evidence_scope', 'image_citation', 'evidence_kind', 'evidence_span', 'evidence_quote', 'validation']) {
+    const failure = typedJudgeFailure(typedResult({...base, response_diagnostic: {category, question_index: 0, message: 'PRIVATE_PROVIDER_TEXT'}}));
+    assert.equal(failure?.message, 'dataops.judge.failure.' + category);
+    assert.equal(failure?.question, base.questions[0].question);
+    assert.ok(!JSON.stringify(failure).includes('PRIVATE_PROVIDER_TEXT'));
+  }
+  for (const index of [-1, 1, .5, Infinity, '0', null]) {
+    const failure = typedJudgeFailure(typedResult({...base, response_diagnostic: {category: 'PRIVATE_PROVIDER_TEXT', question_index: index}}));
+    assert.equal(failure?.message, 'dataops.judge.failure.validation');
+    assert.equal(failure?.question, null);
+  }
+  assert.equal(typedJudgeFailure(typedResult({...base, reason: 'PRIVATE_PROVIDER_TEXT'}))?.message, 'dataops.judge.failure.unavailable');
+});
+
+test('a failed judge is distinct from assessed criteria, abstention, truncation and unavailable outputs', () => {
+  const base = {schema_version: 2, evaluation_id: 'judge-1', answers: {}, coverage: {}, quality_status: 'unassessed'};
+  assert.equal(typedJudgeFailure(null), null);
+  assert.equal(typedJudgeFailure(typedResult({...base, status: 'completed', quality_status: 'failed'})), null);
+  assert.equal(typedJudgeFailure(typedResult({...base, status: 'partial'})), null);
+  assert.equal(typedJudgeFailure(typedResult({...base, status: 'failed', reason: 'JUDGE_OUTPUT_TRUNCATED'}))?.message, 'dataops.judge.failure.truncated');
+  assert.equal(typedJudgeFailure(typedResult({...base, status: 'failed', reason: 'JUDGE_TIMEOUT'}))?.action, 'dataops.judge.recovery.retry');
+  assert.equal(typedJudgeFailure(typedResult({...base, status: 'failed', reason: 'JUDGE_ACCESS_REVOKED'}))?.action, 'dataops.judge.recovery.access');
+  assert.equal(typedJudgeOutcome(null), null);
+  assert.deepEqual(typedJudgeOutcome(typedResult({...base, status: 'failed'})), {label: 'dataops.judge.failure.title', state: 'failed'});
+  assert.deepEqual(typedJudgeOutcome(typedResult({...base, status: 'completed', quality_status: 'failed'})), {label: 'dataops.judge.criteria_failed', state: 'failed'});
+  assert.deepEqual(typedJudgeOutcome(typedResult({...base, status: 'completed', quality_status: 'passed'})), {label: 'dataops.status.passed', state: 'completed'});
+  assert.deepEqual(typedJudgeOutcome(typedResult({...base, status: 'partial'})), {label: 'dataops.status.unassessed', state: 'partial'});
 });
 
 test('changing operation removes prepare-only steps; split ratios and integer limits are checked before submission', () => {

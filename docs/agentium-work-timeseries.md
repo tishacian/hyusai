@@ -85,11 +85,42 @@ résolu depuis la lineage du dataset dans le même workspace. Le graphique montr
 la fraîcheur et fournit des liens vers le dataset et le modèle. Les résultats
 précédents sont retirés dès qu’une nouvelle exécution démarre.
 
+## Retrouver le résultat en revenant sur la page
+
+Le renderer courant restaure le dernier Run autorisé des boutons `action_button`
+à entrées fixes. Un retour de navigation ou un rechargement lit ce résultat :
+il ne soumet pas à nouveau l’action, ne consomme pas de calcul et ne rejoue pas
+la navigation configurée après réussite. Un Run en cours reprend son suivi ; un
+échec récent reste visible, même si une exécution plus ancienne avait réussi.
+
+`GET /work/{slug}/bindings/{key}/runs/latest` reçoit `page_id`, `component_id` et
+`release_id`. Le serveur dérive l’entrée et la confirmation depuis le bouton et
+le binding de la release. Il sélectionne uniquement les Runs du lecteur courant
+dans ce workspace, cette release, ce canal, cette page, ce composant et cette
+version du Flow, avec la même empreinte de requête, puis vérifie `run.read`.
+Une publication survenue pendant la lecture renvoie `WORK_RELEASE_CHANGED` :
+la page invite à se recharger et désactive l’action concernée.
+Un résultat absent ou désormais illisible ne devient pas une donnée vide à
+transformer en zéro, ni une invitation à relancer automatiquement l’action.
+
+Les formulaires à valeurs saisies et les composants de requête ne sont pas
+concernés par cette reprise : aucune entrée métier antérieure n’est devinée.
+Les releases épinglées au renderer historique conservent leur comportement.
+Aucune nouvelle configuration de l’application ni migration n’est nécessaire.
+
+Limite distincte du contrat de soumission existant : le POST d’action ne porte
+pas encore de précondition de release. La garde de lecture ne constitue donc
+pas un verrou transactionnel contre une publication survenue entre la dernière
+lecture et le clic. Ce verrou serveur reste un complément indépendant.
+
 ## Vérifications
 
 - `backend/app/tests/services/test_work_datasets.py` : accès croisés, provenance,
   autorisations, release/action, configuration, projections bornées locales et
   distantes, route et ready-check.
+- `backend/app/tests/api/test_work_latest_action_run.py` : reprise sans invocation,
+  états en cours ou échoués, portée de la publication, auteur, autorisations et
+  empreinte des entrées ; même suite exécutée sur SQLite et PostgreSQL 16.
 - `frontend-ng/src/app/features/experience/runtime/timeseries.spec.ts` : alignement
   temporel, gaps, intervalles, doublons, mappings, limites de lignes/séries.
 - Les tests du runtime et du Studio conservent barres/anneaux et bindings existants.

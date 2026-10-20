@@ -1,5 +1,9 @@
 # Luma — recette après déploiement du 20 octobre 2026
 
+Suite après déploiement de cette livraison :
+[recette en service de be3c7439](luma-postdeploy-be3c7439-2026-10-20.md).
+Le présent document conserve les résultats observés sur `1b36e8a1`.
+
 La recette vise le System `f3ea83de-df89-45ec-8a85-c00d676b2713` et Work
 `reclamations`, dans `agentium-showcase`. Les Runs de prévision et d'enquête
 confirment `flow_evidence.runtime_revision =

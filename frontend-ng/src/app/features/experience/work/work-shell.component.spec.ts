@@ -5,9 +5,12 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { DefaultUrlSerializer, UrlTree } from '@angular/router';
 import { WorkShellComponent } from './work-shell.component';
-import { signal } from '@angular/core';
+import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { Subject } from 'rxjs';
-import type { Run } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { ApiService } from '@app/core/api.service';
+import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
+import type { RuntimeNodeContext } from '../runtime/model';
 import { hostedWorkPage } from './work-release-pages-nav';
 import { CERTIFIED_RENDERER_VERSION } from '../runtime/model';
 import type { WorkResolve } from './work-catalog';
@@ -96,6 +99,36 @@ test('leaving Work cancels decision delivery before it can resume another applic
   response.next({ ...run, status: 'running' } as Run);
   assert.deepEqual(resumed, []);
   assert.equal(shell.decidedRun(), null);
+});
+
+test('leaving Work invalidates late action and polling responses before state or navigation callbacks', async () => {
+  for (const stage of ['invoke', 'poll']) {
+    const response = new Subject<Run>();
+    const injector = Injector.create({ providers: [
+      { provide: ApiService, useValue: { post: () => response } },
+      { provide: CanonicalApiService, useValue: { getRun: () => response } },
+    ] });
+    const runtime = runInInjectionContext(injector, () => new ExperienceRuntimeService());
+    const context: RuntimeNodeContext = {
+      experienceSlug: 'support', releaseId: 'release-a', pageId: 'capacity',
+      componentId: 'forecast', stateKey: 'forecast', sourceStateKey: 'forecast', mode: 'live',
+    };
+    const shell = Object.assign(Object.create(WorkShellComponent.prototype), { runtime }) as WorkShellComponent;
+    let delivered = 0;
+    const subscription = (stage === 'invoke'
+      ? runtime.invoke(context, 'forecast', {})
+      : runtime.poll(context, 'late-run')).subscribe(() => delivered++);
+    if (stage === 'poll') await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(response.observed, true);
+    shell.ngOnDestroy();
+    response.next({ id: 'late-run', system_id: 'system-a', status: 'completed' });
+    response.complete();
+    assert.equal(delivered, 0, 'a destroyed action cannot execute its after-success callback');
+    assert.equal(runtime.run('forecast'), null);
+    assert.deepEqual(runtime.runs(), []);
+    subscription.unsubscribe();
+    injector.destroy();
+  }
 });
 
 test('refusal keeps the existing required reason and failed submissions retain the request', () => {
