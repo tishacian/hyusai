@@ -1,4 +1,5 @@
 import { WorkspaceBrandComponent } from './workspace-brand.component';
+import { WorkspaceExperienceActivationComponent } from './experience-activation.component';
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -26,7 +27,7 @@ const FIELD =
 @Component({
   selector: 'app-workspace-general',
   standalone: true,
-  imports: [WorkspaceBrandComponent, FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent, HelpTooltipComponent],
+  imports: [WorkspaceBrandComponent, WorkspaceExperienceActivationComponent, FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent, HelpTooltipComponent],
   template: `
     <div class="space-y-6">
       <section class="ck-surface rounded-md p-6">
@@ -101,6 +102,7 @@ const FIELD =
 
       @if (detail(); as d) {
         <app-workspace-brand [workspace]="d" [canEdit]="canEdit()" (saved)="detail.set($event)" />
+        <app-workspace-experience-activation [workspace]="d" [canEdit]="canEdit()" />
         <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
             <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
