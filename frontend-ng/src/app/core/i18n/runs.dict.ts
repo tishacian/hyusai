@@ -179,6 +179,8 @@ export const RUNS_FR = {
   'runs.provenance.from_trace': 'Depuis la trace {id}',
   'runs.detail.rerun': 'Relancer',
   'runs.detail.rerunning': 'Relance…',
+  'runs.detail.rerun_failed': 'La relance n’a pas démarré.',
+  'runs.detail.override.failed': 'La valeur n’est pas enregistrée.',
   'runs.detail.rerun_hint': "Réexécuter avec la même entrée et le Flow tel qu'il était alors",
   'runs.detail.not_found.title': 'Exécution introuvable',
   'runs.detail.not_found.description':
@@ -445,6 +447,8 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.provenance.from_trace': 'From trace {id}',
   'runs.detail.rerun': 'Rerun',
   'runs.detail.rerunning': 'Rerunning…',
+  'runs.detail.rerun_failed': 'The rerun did not start.',
+  'runs.detail.override.failed': 'The value was not saved.',
   'runs.detail.rerun_hint': 'Re-execute with the same input and the Flow as it stood then',
   'runs.detail.not_found.title': 'Run not found',
   'runs.detail.not_found.description':

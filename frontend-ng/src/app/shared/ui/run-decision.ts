@@ -73,7 +73,7 @@ export interface DecisionMessage {
 }
 
 /** The words for a decision outcome, in `state.decision.*`. */
-export function decisionMessage(outcome: DecisionOutcome, action: DecisionAction): DecisionMessage {
+export function decisionMessage(outcome: WriteOutcome<unknown>, action: DecisionAction): DecisionMessage {
   switch (outcome.s) {
     case 'sent':
       return { key: 'state.decision.sent', role: 'status', tone: 'neutral' };

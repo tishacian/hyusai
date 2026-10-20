@@ -1947,14 +1947,6 @@ export class CanonicalApiService {
     return this.api.patch<System>(url, body).pipe(catchError((error: unknown) =>
       opts?.propagateErrors ? throwError(() => error) : of(null)));
   }
-
-  deleteSystem(id: string, policy?: ErrorPolicy): Observable<boolean> {
-    return this.api.delete<void>(`/systems/${id}`).pipe(
-      map(() => true),
-      fallbackUnless(policy, () => false),
-    );
-  }
-
   // ---- Custom chain versioning (Vague E / E3) ----------------------------
   // Purpose-built save-with-errors wrapper. Unlike ``updateSystem`` which
   // swallows every failure into ``null``, this one surfaces the structured
@@ -2972,30 +2964,6 @@ export class CanonicalApiService {
       .get<RunReplayListResponse>(`/runs/${runId}/replays`)
       .pipe(fallbackUnless(policy, () => null));
   }
-
-  applyDecision(
-    id: string,
-    body: { actor?: string; enact?: boolean; patch?: Record<string, unknown> } = { enact: true },
-    policy?: ErrorPolicy,
-  ): Observable<DecisionDetail | null> {
-    return this.api
-      .post<DecisionDetail>(`/hypervisor/decisions/${id}/apply`, body)
-      .pipe(fallbackUnless(policy, () => null));
-  }
-
-  applyActiveSuggestion(
-    id: string,
-    body: { actor?: string } = {},
-    policy?: ErrorPolicy,
-  ): Observable<ActiveSuggestionApplyResult | null> {
-    return this.api
-      .post<ActiveSuggestionApplyResult>(
-        `/hypervisor/decisions/${id}/apply-active-suggestion`,
-        body,
-      )
-      .pipe(fallbackUnless(policy, () => null));
-  }
-
   // ---- Evaluation loop (Vague E / E1) -------------------------------------
   // Review queue and threshold presets. The backend already has a legacy
   // `/evaluation/score` manual endpoint (wired into the chat fact-check
@@ -3139,13 +3107,6 @@ export class CanonicalApiService {
         fallbackUnless(policy, () => [] as ControlPolicy[]),
       );
   }
-
-  createControlPolicy(body: Partial<ControlPolicy>, policy?: ErrorPolicy): Observable<ControlPolicy | null> {
-    return this.api
-      .post<ControlPolicy>('/control-plane/policies', body)
-      .pipe(fallbackUnless(policy, () => null));
-  }
-
   adaptivePolicies(params?: { scope?: string; target_id?: string }, policy?: ErrorPolicy): Observable<AdaptivePolicy[]> {
     const p: Record<string, string> = {};
     if (params?.scope) p['scope'] = params.scope;
@@ -3156,44 +3117,6 @@ export class CanonicalApiService {
         map((r) => r?.policies ?? []),
         fallbackUnless(policy, () => [] as AdaptivePolicy[]),
       );
-  }
-
-  createAdaptivePolicy(body: Partial<AdaptivePolicy>, policy?: ErrorPolicy): Observable<AdaptivePolicy | null> {
-    return this.api
-      .post<AdaptivePolicy>('/control-plane/adaptive', body)
-      .pipe(fallbackUnless(policy, () => null));
-  }
-
-  updateAdaptivePolicy(id: string, body: Partial<AdaptivePolicy>, policy?: ErrorPolicy): Observable<AdaptivePolicy | null> {
-    return this.api
-      .patch<AdaptivePolicy>(`/control-plane/adaptive/${id}`, body)
-      .pipe(fallbackUnless(policy, () => null));
-  }
-
-  toggleAdaptivePolicy(id: string, enabled?: boolean, policy?: ErrorPolicy): Observable<AdaptivePolicy | null> {
-    const body = enabled === undefined ? {} : { enabled };
-    return this.api
-      .post<AdaptivePolicy>(`/control-plane/adaptive/${id}/toggle`, body)
-      .pipe(fallbackUnless(policy, () => null));
-  }
-
-  deleteAdaptivePolicy(id: string, policy?: ErrorPolicy): Observable<boolean> {
-    return this.api
-      .delete<void>(`/control-plane/adaptive/${id}`)
-      .pipe(
-        map(() => true),
-        fallbackUnless(policy, () => false),
-      );
-  }
-
-  simulate(body: {
-    scope: string;
-    target_id?: string | null;
-    levers: { resource?: number; velocity?: number; autonomy?: number; risk_tolerance?: number };
-  }, policy?: ErrorPolicy): Observable<SimulateResult | null> {
-    return this.api
-      .post<SimulateResult>('/control-plane/simulate', body)
-      .pipe(fallbackUnless(policy, () => null));
   }
 }
 

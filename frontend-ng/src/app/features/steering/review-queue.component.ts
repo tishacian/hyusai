@@ -1,3 +1,5 @@
+import { STRICT, WRITE_TIMEOUT_MS, settleWrite, writeFailure } from '@app/shared/ui/load-state';
+import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -11,7 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, type ParamMap } from '@angular/router';
 import { FilterChipComponent, NavLinkDirective } from '@app/shared/cockpit';
-import { map } from 'rxjs/operators';
+import { map, timeout } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
@@ -633,34 +635,38 @@ export class SteeringReviewQueueComponent implements OnInit {
   }
 
   accept(item: ReviewQueueItem): void {
-    if (this.pendingId()) return;
-    this.pendingId.set(item.decision.id);
-    this.canonical.acceptDecision(item.decision.id).subscribe({
-      next: () => {
-        this.pendingId.set(null);
-        this.confirmBanner.set({
-          id: item.decision.id,
-          message: this.i18n.t('steering.review.confirm_accept'),
-        });
-        this.refresh();
-      },
-      error: () => this.pendingId.set(null),
-    });
+    this.decide(item, 'accept');
   }
 
   reject(item: ReviewQueueItem): void {
+    this.decide(item, 'reject');
+  }
+
+  /**
+   * Sends the decision under the write contract: the banner says "accepted"
+   * or "rejected" only once the server confirmed it. A refusal says why; a
+   * lost answer says so and the queue is read back, never sent again.
+   */
+  private decide(item: ReviewQueueItem, action: 'accept' | 'reject'): void {
     if (this.pendingId()) return;
     this.pendingId.set(item.decision.id);
-    this.canonical.rejectDecision(item.decision.id).subscribe({
-      next: () => {
-        this.pendingId.set(null);
+    const request = action === 'accept'
+      ? this.canonical.acceptDecision(item.decision.id, {}, STRICT)
+      : this.canonical.rejectDecision(item.decision.id, {}, STRICT);
+    settleWrite(request).subscribe((outcome) => {
+      if (outcome.s === 'sent') return;
+      this.pendingId.set(null);
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
         this.confirmBanner.set({
           id: item.decision.id,
-          message: this.i18n.t('steering.review.confirm_reject'),
+          message: this.i18n.t(action === 'accept' ? 'steering.review.confirm_accept' : 'steering.review.confirm_reject'),
         });
-        this.refresh();
-      },
-      error: () => this.pendingId.set(null),
+      } else {
+        const message = decisionMessage(outcome, action);
+        this.confirmBanner.set({ id: item.decision.id, message: this.i18n.t(message.key, message.params) });
+      }
+      // Confirmed, refused or lost: the queue as the server holds it now.
+      this.refresh();
     });
   }
 
@@ -699,7 +705,8 @@ export class SteeringReviewQueueComponent implements OnInit {
       .replayRun(item.run.id, {
         overrides,
         source_decision_id: item.decision.id,
-      })
+      }, STRICT)
+      .pipe(timeout({ first: WRITE_TIMEOUT_MS }))
       .subscribe({
         next: (res) => {
           this.replayPending.set(false);
@@ -728,8 +735,18 @@ export class SteeringReviewQueueComponent implements OnInit {
             );
           }
         },
-        error: () => {
+        error: (error: unknown) => {
           this.replayPending.set(false);
+          // A lost answer may still have started a replay: say so, never "failed".
+          if (writeFailure(error).s === 'unknown') {
+            this.toast.warning(
+              this.i18n.t('state.write.unknown'),
+              this.i18n.t('steering.review.toast.replay_error_title'),
+              { timeOut: 8000 },
+            );
+            this.refresh();
+            return;
+          }
           this.toast.error(
             this.i18n.t('steering.review.toast.replay_request_failed'),
             this.i18n.t('steering.review.toast.replay_error_title'),

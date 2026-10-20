@@ -1,3 +1,5 @@
+import { STRICT, settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { RetrainingRunApprovalComponent } from '@app/features/models/retraining-run-approval.component';
 /**
  * Canonical `/runs/:runId` detail view.
@@ -53,6 +55,7 @@ import { observabilityNumber } from '../observability/observability-labels';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    WriteOutcomeComponent,
     RouterLink,
     NavLinkDirective,
     CkBackLinkComponent,
@@ -222,6 +225,11 @@ import { observabilityNumber } from '../observability/observability-labels';
             {{ rerunning() ? i18n.t('runs.detail.rerunning') : i18n.t('runs.detail.rerun') }}
           </button>
         }
+        <app-write-outcome
+          data-testid="run-rerun-outcome"
+          [outcome]="rerunOutcome()?.s === 'failed' || rerunOutcome()?.s === 'unknown' ? rerunOutcome() : null"
+          [failedLabel]="i18n.t('runs.detail.rerun_failed')"
+        />
       </div>
 
       @if (loading() && !run()) {
@@ -338,6 +346,11 @@ import { observabilityNumber } from '../observability/observability-labels';
                   >
                     {{ i18n.t('common.cancel') }}
                   </button>
+                  <app-write-outcome
+                    data-testid="run-override-outcome"
+                    [outcome]="overrideOutcome()?.s === 'failed' || overrideOutcome()?.s === 'unknown' ? overrideOutcome() : null"
+                    [failedLabel]="i18n.t('runs.detail.override.failed')"
+                  />
                 </div>
               }
             </div>
@@ -784,6 +797,9 @@ export class RunViewComponent implements OnInit, OnDestroy {
     return !!status && status !== 'pending' && status !== 'running';
   });
   protected readonly rerunning = signal(false);
+  /** Outcome of the last rerun or override, so a failure or a lost answer is said, never silent. */
+  protected readonly rerunOutcome = signal<WriteOutcome | null>(null);
+  protected readonly overrideOutcome = signal<WriteOutcome | null>(null);
 
   /**
    * Replay this run and follow the child, so the two executions can be compared
@@ -794,17 +810,17 @@ export class RunViewComponent implements OnInit, OnDestroy {
     const id = this.runId();
     if (!id || this.rerunning()) return;
     this.rerunning.set(true);
-    this.canonical.rerunRun(id).subscribe({
-      next: (replay) => {
-        this.rerunning.set(false);
-        if (replay?.id) {
-          void this.router.navigateByUrl(this.navigation.objectUrl('run', replay.id, {
-            capabilityId: this.run()?.capability_id || this.navigation.capabilityId(),
-            systemId: this.run()?.system_id || this.navigation.systemId(),
-          }));
-        }
-      },
-      error: () => this.rerunning.set(false),
+    settleWrite(this.canonical.rerunRun(id, STRICT)).subscribe((outcome) => {
+      this.rerunOutcome.set(outcome);
+      if (outcome.s === 'sent') return;
+      this.rerunning.set(false);
+      const replay = outcome.s === 'confirmed' || outcome.s === 'accepted' ? outcome.value : null;
+      if (replay?.id) {
+        void this.router.navigateByUrl(this.navigation.objectUrl('run', replay.id, {
+          capabilityId: this.run()?.capability_id || this.navigation.capabilityId(),
+          systemId: this.run()?.system_id || this.navigation.systemId(),
+        }));
+      }
     });
   }
 
@@ -1032,22 +1048,24 @@ export class RunViewComponent implements OnInit, OnDestroy {
     const scope = this.workspace.captureRequestScope();
     const generation = ++this.overrideGeneration;
     this.submittingOverride.set(true);
-    const subscription = this.canonical
+    const subscription = settleWrite(this.canonical
       .overrideRunOutcome(id, {
         value: this.overrideValue(),
         note: this.overrideNote() || undefined,
-      })
-      .subscribe({
-        next: (updated) => {
-          if (!this.overrideIsCurrent(scope, generation, id)) return;
-          if (updated) this.run.set(updated as unknown as Run);
-          this.submittingOverride.set(false);
+      }, STRICT))
+      .subscribe((outcome) => {
+        if (!this.overrideIsCurrent(scope, generation, id)) return;
+        this.overrideOutcome.set(outcome);
+        if (outcome.s === 'sent') return;
+        this.submittingOverride.set(false);
+        if ((outcome.s === 'confirmed' || outcome.s === 'accepted') && outcome.value) {
+          this.run.set(outcome.value as unknown as Run);
           this.overrideMode.set(false);
-        },
-        error: () => {
-          if (!this.overrideIsCurrent(scope, generation, id)) return;
-          this.submittingOverride.set(false);
-        },
+          this.overrideOutcome.set(null);
+          return;
+        }
+        // Refused or lost: the form stays open with the operator's value.
+        if (outcome.s === 'unknown') this.refresh();
       });
     this.overrideSubscription = subscription.closed ? null : subscription;
   }

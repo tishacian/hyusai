@@ -93,7 +93,9 @@ export function readFailure<T>(error: unknown, previous?: LoadState<T> | null): 
  * that timed out, never reached the server, or died at the gateway (502, 504)
  * may still have been applied, so its result is unknown.
  */
-export function writeFailure(error: unknown): WriteOutcome<never> {
+export type WriteProblem = Extract<WriteOutcome<never>, { readonly s: 'failed' | 'unknown' }>;
+
+export function writeFailure(error: unknown): WriteProblem {
   const facts = failureFacts(error);
   if (facts.timedOut || facts.status === null || facts.status === 502 || facts.status === 504) {
     return { s: 'unknown', status: facts.status, code: facts.code };
@@ -205,6 +207,20 @@ export function lastGood<T>(state: LoadState<T> | null | undefined): { value: T;
 /** The value a screen may show: the current one, or the last good one after a failed refresh. */
 export function shownValue<T>(state: LoadState<T> | null | undefined): T | undefined {
   return lastGood(state)?.value;
+}
+
+/** Why a write failed, as an i18n key in `state.write.cause.*`, for any screen to show. */
+export function writeFailureCause(
+  outcome: { readonly status: number | null; readonly code: string | null; readonly detail: string | null },
+): { key: string; params?: Record<string, string | number> } {
+  const { status, code, detail } = outcome;
+  if (code === 'not_applied') return { key: 'state.write.cause.not_applied' };
+  if (status === 409) return { key: 'state.write.cause.conflict' };
+  if (status === 401 || status === 403) return { key: 'state.write.cause.denied' };
+  if (status !== null && status >= 400 && status < 500) {
+    return detail ? { key: 'state.write.cause.refused_detail', params: { detail } } : { key: 'state.write.cause.refused' };
+  }
+  return { key: 'state.write.cause.server', params: { status: status ?? '—' } };
 }
 
 export function isSettled(outcome: WriteOutcome | null | undefined): boolean {

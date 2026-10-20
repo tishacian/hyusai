@@ -14,6 +14,7 @@
  *                         Context as its `context_id`, with a warning
  *                         panel when count > 0
  */
+import { STRICT, settleWrite, writeFailureCause, type WriteOutcome } from '@app/shared/ui/load-state';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -532,23 +533,20 @@ export class ContextViewComponent implements OnInit {
           : this.i18n.t('contexts.confirm.delete_bound_many', { name: c.name, count: bound });
     if (!confirm(msg)) return;
     this.saving.set(true);
-    this.canonical.deleteContext(c.id).subscribe({
-      next: (ok) => {
-        this.saving.set(false);
-        if (ok) {
-          this.toast.success(
-            this.i18n.t('contexts.toast.deleted', { name: c.name }),
-            this.i18n.t('contexts.view.title_fallback'),
-          );
-          void this.router.navigateByUrl(this.navigation.surfaceUrl('contexts'));
-        } else {
-          this.toast.error(this.i18n.t('contexts.toast.delete_failed'), this.i18n.t('contexts.view.title_fallback'));
-        }
-      },
-      error: () => {
-        this.saving.set(false);
-        this.toast.error(this.i18n.t('contexts.toast.delete_failed'), this.i18n.t('contexts.view.title_fallback'));
-      },
+    settleWrite(this.canonical.deleteContext(c.id, STRICT)).subscribe((outcome) => {
+      if (outcome.s === 'sent') return;
+      this.saving.set(false);
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+        this.toast.success(
+          this.i18n.t('contexts.toast.deleted', { name: c.name }),
+          this.i18n.t('contexts.view.title_fallback'),
+        );
+        void this.router.navigateByUrl(this.navigation.surfaceUrl('contexts'));
+      } else {
+        this.toastWriteProblem(outcome, 'contexts.toast.delete_failed');
+        // A lost answer: read the context back before anything else.
+        if (outcome.s === 'unknown') this.load(c.id);
+      }
     });
   }
 
@@ -556,23 +554,30 @@ export class ContextViewComponent implements OnInit {
     const c = this.ctx();
     if (!c) return;
     this.saving.set(true);
-    this.canonical.updateContext(c.id, body).subscribe({
-      next: (updated) => {
-        this.saving.set(false);
-        if (updated) {
-          this.applyContext(updated);
-          this.toast.success(
-            this.i18n.t('contexts.toast.saved', { version: updated.version ?? '?' }),
-            this.i18n.t('contexts.toast.updated_title'),
-          );
-        } else {
-          this.toast.error(this.i18n.t('contexts.toast.update_failed'), this.i18n.t('contexts.view.title_fallback'));
-        }
-      },
-      error: () => {
-        this.saving.set(false);
-        this.toast.error(this.i18n.t('contexts.toast.update_failed'), this.i18n.t('contexts.view.title_fallback'));
-      },
+    settleWrite(this.canonical.updateContext(c.id, body, undefined, STRICT)).subscribe((outcome) => {
+      if (outcome.s === 'sent') return;
+      this.saving.set(false);
+      if ((outcome.s === 'confirmed' || outcome.s === 'accepted') && outcome.value) {
+        const updated = outcome.value;
+        this.applyContext(updated);
+        this.toast.success(
+          this.i18n.t('contexts.toast.saved', { version: updated.version ?? '?' }),
+          this.i18n.t('contexts.toast.updated_title'),
+        );
+      } else {
+        this.toastWriteProblem(outcome, 'contexts.toast.update_failed');
+        if (outcome.s === 'unknown') this.load(c.id);
+      }
     });
+  }
+
+  /** A refused write says why; a lost answer says the result is unknown, never "failed". */
+  private toastWriteProblem(outcome: WriteOutcome, failedKey: string): void {
+    if (outcome.s === 'failed') {
+      const cause = writeFailureCause(outcome);
+      this.toast.error(`${this.i18n.t(failedKey)} ${this.i18n.t(cause.key, cause.params)}`, this.i18n.t('contexts.view.title_fallback'));
+    } else {
+      this.toast.warning(this.i18n.t('state.write.unknown'), this.i18n.t('contexts.view.title_fallback'));
+    }
   }
 }

@@ -52,6 +52,7 @@ import {
   FlowManifestService,
   runtimeModeKey,
 } from './flow-manifest.service';
+import { STRICT, settleWrite, writeFailureCause } from '@app/shared/ui/load-state';
 import { FlowPersistenceService } from './flow-persistence.service';
 import {
   canDecideAgain,
@@ -718,36 +719,39 @@ export class FlowRunService {
       text: this.i18n.t('flow.run.log.operator_action', { action }),
     });
     const scope = this.captureWorkspaceScope();
-    this.canonical.stepRun(run.id, { action, breakpoints: this._breakpoints() }).subscribe({
-      next: (updated) => {
-        if (!this.isWorkspaceScopeCurrent(scope)) return;
-        this.debugStepping.set(false);
-        if (!updated) {
-          this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.debug_rejected') });
-          return;
-        }
-        if (action === 'stop') {
-          this.executing.set(false);
-          this.status.set('done');
-          this.activeNodeId.set(null);
-          this.currentRun.set(updated);
+    settleWrite(this.canonical.stepRun(run.id, { action, breakpoints: this._breakpoints() }, STRICT)).subscribe((outcome) => {
+      if (outcome.s === 'sent' || !this.isWorkspaceScopeCurrent(scope)) return;
+      this.debugStepping.set(false);
+      const updated = outcome.s === 'confirmed' || outcome.s === 'accepted' ? outcome.value : null;
+      if (!updated) {
+        if (outcome.s === 'unknown' || outcome.s === 'confirmed' || outcome.s === 'accepted') {
+          // The answer was lost: read the Run back instead of stepping again.
+          this.push({ tone: 'warn', tag: 'DEBUG', text: this.i18n.t('state.write.unknown') });
           this.canonical.getRun(run.id).subscribe((r) => {
-            if (!this.isWorkspaceScopeCurrent(scope)) return;
-            if (r) this.currentRun.set(r);
+            if (this.isWorkspaceScopeCurrent(scope) && r) this.currentRun.set(r);
           });
           return;
         }
+        const cause = writeFailureCause(outcome);
+        this.push({ tone: 'neg', tag: 'ERR', text: `${this.i18n.t('flow.run.log.debug_rejected')} ${this.i18n.t(cause.key, cause.params)}` });
+        return;
+      }
+      if (action === 'stop') {
+        this.executing.set(false);
+        this.status.set('done');
+        this.activeNodeId.set(null);
         this.currentRun.set(updated);
-        this.executing.set(true);
-        this.status.set('running');
-        this.seenCheckpoints.clear();
-        this.startStreaming(run.id, scope);
-      },
-      error: () => {
-        if (!this.isWorkspaceScopeCurrent(scope)) return;
-        this.debugStepping.set(false);
-        this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.debug_network') });
-      },
+        this.canonical.getRun(run.id).subscribe((r) => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
+          if (r) this.currentRun.set(r);
+        });
+        return;
+      }
+      this.currentRun.set(updated);
+      this.executing.set(true);
+      this.status.set('running');
+      this.seenCheckpoints.clear();
+      this.startStreaming(run.id, scope);
     });
   }
 

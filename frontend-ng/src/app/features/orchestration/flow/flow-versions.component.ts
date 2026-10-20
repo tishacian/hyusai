@@ -10,6 +10,7 @@
  * `FlowStore` for its diff baseline. After rollback it emits the authoritative
  * System response; the builder/persistence boundary owns graph hydration.
  */
+import { STRICT, settleWrite, writeFailureCause } from '@app/shared/ui/load-state';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -719,40 +720,23 @@ export class FlowVersionsComponent {
     this.rollbackPending.set(true);
     const scope = this.workspace.captureRequestScope();
     const message = this.rollbackMessage().trim() || this.i18n.t('flow.versions.rollback_message', { version: tgt.version_number });
-    this.canonical
-      .rollbackSystemVersion(sid, tgt.version_number, message, writeOptions)
-      .subscribe({
-        next: (res) => {
-          if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          this.rollbackPending.set(false);
-          if (!res) {
-            // The request may have committed even when its response was lost.
-            // Keep the graph non-interactive until a strict GET resolves truth.
-            this.invalidateBaseline();
-            this.persistence.beginHydration();
-            this.reloadRequired.emit();
-            this.toastr.warning(
-              this.i18n.t('flow.versions.rollback_unknown'),
-              this.i18n.t('flow.versions.rollback_verification'),
-            );
-            return;
-          }
-          this.rollbackTarget.set(null);
-          this.rollbackMessage.set('');
-          // Output delivery is synchronous: the builder/persistence owner hydrates
-          // the authoritative System before we recapture the read-only diff base.
-          this.rolledBack.emit(res.system);
+    settleWrite(this.canonical.rollbackSystemVersion(sid, tgt.version_number, message, writeOptions, STRICT))
+      .subscribe((outcome) => {
+        if (outcome.s === 'sent' || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.rollbackPending.set(false);
+        if (outcome.s === 'failed') {
+          // The server refused: nothing changed, the graph stays as it was.
           this.persistence.endExternalMutation();
-          this.captureBaseline();
-          this.refresh();
-          this.toastr.success(
-            this.i18n.t('flow.versions.rollback_success', { version: tgt.version_number, newVersion: res.new_version.version_number }),
-            this.i18n.t('flow.versions.rollback_title'),
+          const cause = writeFailureCause(outcome);
+          this.toastr.error(
+            this.i18n.t(cause.key, cause.params),
+            this.i18n.t('flow.versions.rollback_refused'),
           );
-        },
-        error: () => {
-          if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          this.rollbackPending.set(false);
+          return;
+        }
+        if (outcome.s === 'unknown' || !outcome.value) {
+          // The request may have committed even when its response was lost.
+          // Keep the graph non-interactive until a strict GET resolves truth.
           this.invalidateBaseline();
           this.persistence.beginHydration();
           this.reloadRequired.emit();
@@ -760,7 +744,21 @@ export class FlowVersionsComponent {
             this.i18n.t('flow.versions.rollback_unknown'),
             this.i18n.t('flow.versions.rollback_verification'),
           );
-        },
+          return;
+        }
+        const res = outcome.value;
+        this.rollbackTarget.set(null);
+        this.rollbackMessage.set('');
+        // Output delivery is synchronous: the builder/persistence owner hydrates
+        // the authoritative System before we recapture the read-only diff base.
+        this.rolledBack.emit(res.system);
+        this.persistence.endExternalMutation();
+        this.captureBaseline();
+        this.refresh();
+        this.toastr.success(
+          this.i18n.t('flow.versions.rollback_success', { version: tgt.version_number, newVersion: res.new_version.version_number }),
+          this.i18n.t('flow.versions.rollback_title'),
+        );
       });
   }
 

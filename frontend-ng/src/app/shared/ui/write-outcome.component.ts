@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from './icon.component';
-import type { WriteOutcome } from './load-state';
+import { writeFailureCause, type WriteOutcome } from './load-state';
 
 /**
  * The outcome of a write, said next to the action that sent it (see
@@ -85,21 +85,11 @@ export class WriteOutcomeComponent {
       case 'confirmed': return this.confirmedLabel() ?? this.i18n.t('state.write.confirmed');
       case 'failed': {
         const lead = this.failedLabel() ?? this.i18n.t('state.write.failed');
-        return `${lead} ${this.failureCause(outcome.status, outcome.code, outcome.detail)}`;
+        const cause = writeFailureCause(outcome);
+        return `${lead} ${this.i18n.t(cause.key, cause.params)}`;
       }
       case 'unknown': return this.i18n.t('state.write.unknown');
     }
   });
 
-  private failureCause(status: number | null, code: string | null, detail: string | null): string {
-    if (code === 'not_applied') return this.i18n.t('state.write.cause.not_applied');
-    if (status === 409) return this.i18n.t('state.write.cause.conflict');
-    if (status === 401 || status === 403) return this.i18n.t('state.write.cause.denied');
-    if (status !== null && status >= 400 && status < 500) {
-      return detail
-        ? this.i18n.t('state.write.cause.refused_detail', { detail })
-        : this.i18n.t('state.write.cause.refused');
-    }
-    return this.i18n.t('state.write.cause.server', { status: status ?? '—' });
-  }
 }

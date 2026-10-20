@@ -1,3 +1,4 @@
+import { STRICT, WRITE_TIMEOUT_MS, writeFailure, writeFailureCause } from '@app/shared/ui/load-state';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,7 +10,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of, type Observable } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, timeout } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
@@ -1618,10 +1619,12 @@ export class SystemBuilderComponent implements OnInit {
             name: this.draft.name.trim() || this.i18n.t('systems.builder.context_name_fallback'),
           }),
           data_refs: [...this.draft.collections],
-        })
+        }, undefined, STRICT).pipe(timeout({ first: WRITE_TIMEOUT_MS }))
       : of(null);
 
-    contextOp.subscribe((ctx) => {
+    // A context that could not be created stops the save: a System saved
+    // without the Context its Runs need would look complete and answer blind.
+    contextOp.subscribe({ error: (error: unknown) => this.contextFailed(error), next: (ctx) => {
       // Canonical flow projection. When a System is being edited we
       // preserve the existing `variant` + any `extended` markers so the
       // specialised facets (e.g. intelligence) survive a save.
@@ -1692,7 +1695,21 @@ export class SystemBuilderComponent implements OnInit {
         );
         void this.router.navigateByUrl(this.navigation.objectUrl('system', draft.id));
       });
-    });
+    } });
+  }
+
+  private contextFailed(error: unknown): void {
+    this.launching.set(false);
+    const outcome = writeFailure(error);
+    if (outcome.s === 'unknown') {
+      this.toast.warning(this.i18n.t('state.write.unknown'), this.i18n.t('systems.builder.toast.context_failed_title'));
+      return;
+    }
+    const cause = writeFailureCause(outcome);
+    this.toast.error(
+      `${this.i18n.t('systems.builder.toast.context_failed')} ${this.i18n.t(cause.key, cause.params)}`,
+      this.i18n.t('systems.builder.toast.context_failed_title'),
+    );
   }
 
   formatPrice(v: number | null | undefined): string {
