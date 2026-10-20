@@ -21,6 +21,7 @@ import { TokenStorageService } from '@app/core/token-storage.service';
 import { AuthStore } from '@app/store/auth.store';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { normalizeAuthRedirect } from '@app/core/auth-redirect';
 import {
   resolveSigninExperience,
   type SigninExperiencePresentation,
@@ -708,7 +709,7 @@ export class SigninComponent implements OnDestroy {
     this.authBootstrap.markValid();
     this.workspaceService.loadWorkspaces().subscribe({
       next: () => {
-        const redirect = this.normalizeRedirect(this.route.snapshot.queryParams['redirectURL']);
+        const redirect = normalizeAuthRedirect(this.route.snapshot.queryParams['redirectURL']);
         this.router.navigateByUrl(redirect).then(
           () => this.loading.set(false),
           () => {
@@ -722,11 +723,6 @@ export class SigninComponent implements OnDestroy {
         this.error.set(err.error?.detail || this.i18n.t('auth.signin.error.workspaces'));
       },
     });
-  }
-
-  private normalizeRedirect(value: unknown): string {
-    const redirect = typeof value === 'string' && value.startsWith('/') ? value : '/';
-    return redirect.startsWith('/auth') ? '/' : redirect;
   }
 
   resetToLogin(): void {

@@ -244,6 +244,7 @@ const storeSpecs = [
   'src/app/core/api.service.spec.ts',
   'src/app/store/auth.store.spec.ts',
   'src/app/core/auth.interceptor.spec.ts',
+  'src/app/core/auth-redirect.spec.ts',
   'src/app/core/navigation-profile.guard.spec.ts',
   'src/app/core/object-perspective.store.spec.ts',
   'src/app/core/zoom-context.service.spec.ts',
