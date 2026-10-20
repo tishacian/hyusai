@@ -22,6 +22,7 @@ function decisionHarness() {
   } } as unknown as Run;
   const response = new Subject<DecisionOutcome>();
   const checkStreams: Array<Subject<DecisionCheck>> = [];
+  const follow = new Subject<Run | null>();
   const checks = () => checkStreams[checkStreams.length - 1];
   const calls: unknown[][] = [];
   const resumed: Run[] = [];
@@ -32,6 +33,7 @@ function decisionHarness() {
     reviewedDecisions: signal({}), labelReviews: signal({}), decisionBusy: signal(new Set<string>()),
     decisionError: signal(false), announcement: signal(''), reasonError: signal<string | null>(null),
     reasons: signal({}), decidedRun: signal<Run | null>(null), pending: signal([run]), decisionNotices: signal({}),
+    decidedAction: signal(null), decidedAt: signal(null), decisionEffect: signal(null), effectWatch: null,
     experienceId: signal('app-a'),
     destroy: { onDestroy: (callback: () => void) => { destruction.add(callback); return () => destruction.delete(callback); } },
     i18n: { t: (key: string) => key },
@@ -39,11 +41,12 @@ function decisionHarness() {
     api: {
       decide: (...args: unknown[]) => { calls.push(args); return response; },
       checkDecision: () => { const stream = new Subject<DecisionCheck>(); checkStreams.push(stream); return stream; },
+      followRun: () => follow,
     },
     runtime: { resumeAfterDecision: (value: Run) => resumed.push(value) },
     adoption: { recordDecision: () => decisions.push(run.id) },
   }) as WorkShellComponent;
-  return { shell, run, response, checks, calls, resumed, decisions, switchWorkspace: () => { currentScope = false; }, destroy: () => { for (const callback of destruction) callback(); } };
+  return { shell, run, response, checks, follow, calls, resumed, decisions, switchWorkspace: () => { currentScope = false; }, destroy: () => { for (const callback of destruction) callback(); } };
 }
 
 test('Work requires review of the exact request before a decision and submits it only once', () => {
@@ -62,6 +65,20 @@ test('Work requires review of the exact request before a decision and submits it
   assert.equal(shell.decidedRun()?.id, run.id);
   assert.deepEqual(shell.pending(), []);
   assert.deepEqual(decisions, [run.id], 'L34 — a saved decision ends the getting-started journey');
+  assert.equal(shell.decidedAction(), 'accept');
+  assert.equal(shell.decisionEffect(), 'following', 'the decision is recorded, its effect not yet');
+});
+
+test('the decision receipt reads the effect apart from the decision', () => {
+  const { shell, run, response, follow } = decisionHarness();
+  shell.reviewDecision(run);
+  shell.decide(run, 'accept');
+  response.next({ s: 'confirmed', value: { ...run, status: 'hitl_pending' } as Run, at: 1 });
+  follow.next({ ...run, status: 'running' } as Run);
+  assert.equal(shell.decisionEffect(), 'following');
+  follow.next({ ...run, status: 'failed' } as Run);
+  assert.equal(shell.decisionEffect(), 'failed');
+  assert.equal(shell.decidedAction(), 'accept', 'a failed effect does not undo the recorded decision');
 });
 
 test('label review remains part of the existing Work approval and rejects without corrections', () => {

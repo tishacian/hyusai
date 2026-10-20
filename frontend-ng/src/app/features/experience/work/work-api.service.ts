@@ -1,3 +1,7 @@
+import { timer } from 'rxjs';
+import { switchMap, take, takeWhile } from 'rxjs/operators';
+import { STRICT } from '@app/shared/ui/load-state';
+import { runIsSettled } from '../runtime/model';
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
@@ -116,6 +120,18 @@ export class WorkApiService {
     return decideRun(this.canonical, run.id, { action, note, expected_decision_id: run.hitl?.decision_id,
       ...(action === 'accept' && labelReview ? { label_review: labelReview } : {}),
     });
+  }
+
+  /**
+   * Follows a Run after its decision was recorded, until it settles: what the
+   * decision set in motion is read separately from the decision itself.
+   */
+  followRun(runId: string): Observable<Run | null> {
+    return timer(1_500, 3_000).pipe(
+      switchMap(() => this.canonical.getRun(runId, STRICT)),
+      takeWhile((run) => !run || run.status === 'hitl_pending' || !runIsSettled(run.status), true),
+      take(60),
+    );
   }
 
   /** Reads a Run back after a lost answer, instead of deciding again. */

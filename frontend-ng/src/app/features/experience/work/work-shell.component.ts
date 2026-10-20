@@ -1,3 +1,4 @@
+import { runIsSettled } from '../runtime/model';
 import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
@@ -179,7 +180,15 @@ const POLL_MS = 8000;
             @if (activePage() === validationsPage) {
               <section class="xp-work-hitl" [attr.aria-label]="i18n.t('experience.work.validations')">
                 @if (decidedRun(); as decided) {
-                  <div class="xp-work-note" role="status">
+                  <!-- The decision is one thing, what it set in motion another (W04, W06). -->
+                  <div class="xp-work-note" role="status" data-testid="work-decision-receipt">
+                    <p>
+                      <strong>{{ i18n.t(decidedAction() === 'reject' ? 'state.decision.recorded_reject' : decidedAction() === 'accept' ? 'state.decision.recorded_accept' : 'state.decision.check_recorded') }}</strong>
+                      @if (decidedAt(); as at) { {{ i18n.t('experience.work.receipt.at', { time: formatReceiptTime(at) }) }} }
+                    </p>
+                    @if (decisionEffect(); as effect) {
+                      <p data-testid="work-decision-effect" [attr.data-effect]="effect">{{ i18n.t('experience.work.receipt.effect.' + effect) }}</p>
+                    }
                     <p>{{ i18n.t('workMandate.recorded') }}</p>
                     <app-run-mandate [runId]="decided.id" [compact]="true" />
                   </div>
@@ -350,6 +359,11 @@ export class WorkShellComponent {
   readonly reviewedDecisions = signal<Record<string, string>>({});
   readonly labelReviews = signal<Record<string, LabelReviewSubmission | null>>({});
   readonly decidedRun = signal<Run | null>(null);
+  readonly decidedAction = signal<'accept' | 'reject' | null>(null);
+  readonly decidedAt = signal<number | null>(null);
+  /** What the Run did after the decision, read apart from the decision itself. */
+  readonly decisionEffect = signal<'following' | 'completed' | 'failed' | 'unknown' | null>(null);
+  private effectWatch: Subscription | null = null;
   readonly decisionAvailable = workDecisionAvailable;
   protected readonly mayDecide = mayDecide;
   private readonly navigationProfile = inject(NavigationProfileService);
@@ -526,6 +540,9 @@ export class WorkShellComponent {
         this.setDecisionNotice(run.id, null);
         this.runtime.resumeAfterDecision(check.run);
         this.decidedRun.set(check.run);
+        this.decidedAction.set(null);
+        this.decidedAt.set(null);
+        this.followEffect(check.run.id);
         this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
       } else if (check.s === 'pending') {
         this.setDecisionNotice(run.id, { ...message, locked: false, verifiable: false });
@@ -533,6 +550,27 @@ export class WorkShellComponent {
         this.setDecisionNotice(run.id, { ...message, locked: true, verifiable: true });
       }
     });
+  }
+
+  private followEffect(runId: string): void {
+    this.effectWatch?.unsubscribe();
+    this.decisionEffect.set('following');
+    const scope = this.workspace.captureRequestScope();
+    this.effectWatch = this.api.followRun(runId).pipe(takeUntilDestroyed(this.destroy)).subscribe({
+      next: (current) => {
+        if (!this.workspace.isRequestScopeCurrent(scope) || this.decidedRun()?.id !== runId) return;
+        if (!current || current.status === 'hitl_pending' || !runIsSettled(current.status)) return;
+        this.decisionEffect.set(current.status === 'completed' ? 'completed' : 'failed');
+      },
+      error: () => {
+        if (this.workspace.isRequestScopeCurrent(scope) && this.decidedRun()?.id === runId) this.decisionEffect.set('unknown');
+      },
+    });
+  }
+
+  formatReceiptTime(at: number): string {
+    const locale = this.i18n.locale() === 'fr' ? 'fr-FR' : 'en-GB';
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   }
 
   decisionLocked(run: Run): boolean {
@@ -551,6 +589,9 @@ export class WorkShellComponent {
   private recordDecided(run: Run, updated: Run, action: 'accept' | 'reject', title: string): void {
     this.runtime.resumeAfterDecision(updated);
     this.decidedRun.set(updated);
+    this.decidedAction.set(action);
+    this.decidedAt.set(Date.now());
+    this.followEffect(updated.id);
     // L34 — a real decision on agent work ends the client getting-started journey.
     this.adoption.recordDecision();
     this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
@@ -695,6 +736,11 @@ export class WorkShellComponent {
     this.reviewedDecisions.set({});
     this.labelReviews.set({});
     this.decidedRun.set(null);
+    this.decidedAction.set(null);
+    this.decidedAt.set(null);
+    this.decisionEffect.set(null);
+    this.effectWatch?.unsubscribe();
+    this.effectWatch = null;
     this.boundSystemIds.set([]);
     this.validationWatch?.unsubscribe();
     this.validationWatch = null;
