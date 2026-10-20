@@ -1,4 +1,6 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { LOADING, settleRead, settleWrite, writeFailureCause, type LoadState } from '@app/shared/ui/load-state';
 import { DatePipe, NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -150,19 +152,23 @@ const INVITE_TEMPLATES: Array<{ id: RoleTemplate; labelKey: string; inviteable: 
           </h2>
         </div>
 
-        @if (loading()) {
-          <div class="p-6 space-y-3">
+        @if (membersState().s === 'loading' && members().length === 0) {
+          <div class="p-6 space-y-3" role="status" [attr.aria-label]="i18n.t('common.loading')">
             <app-skeleton height="56px" />
             <app-skeleton height="56px" />
             <app-skeleton height="56px" />
           </div>
-        } @else if (members().length === 0) {
+        } @else if (membersState().s === 'error' || membersState().s === 'denied') {
+          <!-- A failed read is never shown as "no members"; the last list stays visible below it. -->
+          <app-empty-state size="sm" [state]="membersState()" (retry)="reload()" />
+        } @else if (membersState().s === 'empty') {
           <app-empty-state
             icon="users"
             [title]="i18n.t('workspace.members.empty.title')"
             [description]="i18n.t('workspace.members.empty.description')"
           />
-        } @else {
+        }
+        @if (members().length > 0) {
           <div class="divide-y divide-white/5">
             @for (m of members(); track m.user_id) {
               <div class="px-6 py-4 flex items-center gap-4">
@@ -277,6 +283,17 @@ const INVITE_TEMPLATES: Array<{ id: RoleTemplate; labelKey: string; inviteable: 
       (cancel)="pendingRemove.set(null)"
       (confirm)="confirmRemove()"
     />
+
+    <!-- A role change is chosen, summarised, confirmed, then read back: the select alone sends nothing. -->
+    <app-confirm-dialog
+      [open]="!!pendingRole()"
+      [title]="i18n.t('workspace.members.role_change.title')"
+      [description]="roleChangeSummary()"
+      [confirmLabel]="i18n.t('workspace.members.role_change.confirm')"
+      icon="users"
+      (cancel)="pendingRole.set(null)"
+      (confirm)="confirmRoleChange()"
+    />
   `,
   styles: [`
     .workspace-select {
@@ -325,6 +342,21 @@ export class WorkspaceMembersComponent {
   );
 
   readonly members = signal<WorkspaceMemberDetail[]>([]);
+  /** The members read, under the shared contract: a failure keeps the last list, never an empty one. */
+  readonly membersState = signal<LoadState<WorkspaceMemberDetail[]>>(LOADING);
+  /** A role picked in the select, waiting for confirmation; nothing is sent before it. */
+  readonly pendingRole = signal<{ member: WorkspaceMemberDetail; from: RoleTemplate; to: RoleTemplate } | null>(null);
+  readonly roleChangeSummary = computed(() => {
+    const pending = this.pendingRole();
+    if (!pending) return '';
+    return this.i18n.t('workspace.members.role_change.summary', {
+      name: pending.member.email || pending.member.username,
+      from: this.roleName(pending.from),
+      to: this.roleName(pending.to),
+      effect: this.i18n.t(`workspace.members.role_change.effect.${pending.to}`),
+    });
+  });
+  private readonly http = inject(HttpClient);
   readonly availableUsers = signal<AvailableWorkspaceUser[]>([]);
   readonly loading = signal(true);
   readonly inviting = signal(false);
@@ -366,16 +398,20 @@ export class WorkspaceMembersComponent {
 
   load(slug: string): void {
     this.loading.set(true);
-    this.workspaceService.listMembers(slug).subscribe({
-      next: (list) => {
-        this.members.set(list);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.loading.set(false);
-        this.members.set([]);
-      },
+    settleRead(this.workspaceService.listMembers(slug), { previous: this.membersState() }).subscribe((state) => {
+      if (this.routeSlug() !== slug) return;
+      this.membersState.set(state);
+      if (state.s === 'loading') return;
+      this.loading.set(false);
+      // Only a successful read replaces the list.
+      if (state.s === 'ready') this.members.set(state.value);
+      if (state.s === 'empty') this.members.set([]);
     });
+  }
+
+  reload(): void {
+    const slug = this.routeSlug();
+    if (slug) this.load(slug);
   }
 
   invite(): void {
@@ -467,32 +503,80 @@ export class WorkspaceMembersComponent {
     );
   }
 
+  /** Picking a role only opens the confirmation; the select returns to the current role. */
   changeRole(member: WorkspaceMemberDetail, ev: Event): void {
+    const select = ev.target as HTMLSelectElement;
+    const to = select.value as RoleTemplate;
+    const from = this.memberTemplate(member);
+    select.value = from;
+    if (to === from || this.savingMember()) return;
+    this.pendingRole.set({ member, from, to });
+  }
+
+  /**
+   * Sends the change with the role the administrator saw: if another
+   * administrator changed it meanwhile, the server answers 409 and nothing is
+   * overwritten. The role shown afterwards is read back from the server.
+   */
+  confirmRoleChange(): void {
+    const pending = this.pendingRole();
     const slug = this.routeSlug();
-    if (!slug) return;
-    const newTemplate = (ev.target as HTMLSelectElement).value as RoleTemplate;
-    if (newTemplate === this.memberTemplate(member)) return;
+    if (!pending || !slug) return;
+    this.pendingRole.set(null);
+    const { member, from, to } = pending;
+    const name = member.email || member.username;
     this.savingMember.set(member.user_id);
-    this.workspaceService.updateMemberRole(slug, member.user_id, newTemplate).subscribe({
-      next: () => {
-        this.savingMember.set(null);
-        this.toastr.success(
-          this.i18n.t('workspace.members.toast.role', {
-            name: member.email || member.username,
-            role: this.roleName(newTemplate).toLocaleLowerCase(),
-          }),
-          this.i18n.t('workspace.members.toast.role_title'),
-        );
-        this.load(slug);
-      },
-      error: (err) => {
-        this.savingMember.set(null);
+    settleWrite(this.http.patch(
+      `/api/v1/auth/workspaces/${encodeURIComponent(slug)}/members/${encodeURIComponent(member.user_id)}`,
+      { role_template: to, expected_role_template: from },
+    )).subscribe((outcome) => {
+      if (outcome.s === 'sent') return;
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+        this.readBackRole(slug, member, to);
+        return;
+      }
+      this.savingMember.set(null);
+      if (outcome.s === 'failed' && outcome.status === 409) {
+        this.toastr.warning(this.i18n.t('workspace.members.role_change.conflict', { name }), this.i18n.t('workspace.toast.error_title'));
+      } else if (outcome.s === 'failed') {
+        const cause = writeFailureCause(outcome);
         this.toastr.error(
-          err?.error?.detail || this.i18n.t('workspace.members.toast.role_failed'),
+          `${this.i18n.t('workspace.members.toast.role_failed')} ${this.i18n.t(cause.key, cause.params)}`,
           this.i18n.t('workspace.toast.error_title'),
         );
-        this.load(slug);
-      },
+      } else {
+        this.toastr.warning(this.i18n.t('state.write.unknown'), this.i18n.t('workspace.toast.error_title'));
+      }
+      // Whatever happened, show the roles as the server holds them now.
+      this.load(slug);
+    });
+  }
+
+  /** The role shown after a change comes from the server, for this very person. */
+  private readBackRole(slug: string, member: WorkspaceMemberDetail, expected: RoleTemplate): void {
+    const name = member.email || member.username;
+    settleRead(this.workspaceService.listMembers(slug), { previous: this.membersState() }).subscribe((state) => {
+      if (state.s === 'loading' || this.routeSlug() !== slug) return;
+      this.savingMember.set(null);
+      this.membersState.set(state);
+      if (state.s !== 'ready') {
+        this.toastr.warning(this.i18n.t('workspace.members.role_change.unread', { name }), this.i18n.t('workspace.members.toast.role_title'));
+        return;
+      }
+      this.members.set(state.value);
+      const current = state.value.find((row) => row.user_id === member.user_id);
+      const effective = current ? this.memberTemplate(current) : null;
+      if (effective === expected) {
+        this.toastr.success(
+          this.i18n.t('workspace.members.toast.role', { name, role: this.roleName(expected).toLocaleLowerCase() }),
+          this.i18n.t('workspace.members.toast.role_title'),
+        );
+      } else {
+        this.toastr.warning(
+          this.i18n.t('workspace.members.role_change.differs', { name, role: effective ? this.roleName(effective) : '—' }),
+          this.i18n.t('workspace.members.toast.role_title'),
+        );
+      }
     });
   }
 

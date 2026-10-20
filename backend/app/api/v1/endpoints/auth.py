@@ -423,6 +423,9 @@ class MemberUpdate(BaseModel):
     role_template: Optional[str] = None
     custom_labels: Optional[list[str]] = None
     app_entitlements: Optional[list[str]] = None
+    # The role the administrator saw. When it is no longer the member's role,
+    # the change is refused with 409 rather than overwriting another decision.
+    expected_role_template: Optional[str] = None
 
 
 def _resolve_member_role_template(
@@ -2375,6 +2378,19 @@ async def update_member_role(
         getattr(target, "role_template", None),
         target.role,
     )
+    if (
+        body.expected_role_template is not None
+        and body.expected_role_template.strip() != before_template
+    ):
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "member_role_changed",
+                "message": "This member's role changed since it was read.",
+                "current_role_template": before_template,
+            },
+        )
     before_labels = list(target.custom_labels or [])
     before_entitlements = list_member_app_entitlements(db, target)
     next_labels = body.custom_labels if body.custom_labels is not None else before_labels
