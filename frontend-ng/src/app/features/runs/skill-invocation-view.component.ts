@@ -38,6 +38,7 @@ import { recordedModelExecution } from '@app/core/model-catalog';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 import { observabilityText } from '../observability/observability-labels';
 import { TypedJudgeResultComponent } from '../data/typed-judge-result.component';
+import { typedJudgeOutcome, typedResult } from '../data/dataops.models';
 import {
   arrivalProvenanceLabel,
   readArrivalProvenance,
@@ -89,6 +90,10 @@ import {
       <section class="ck-surface rounded-md p-4 mb-4"><app-model-execution [resolution]="model" /></section>
     }
 
+    @if (judgeResult()?.status === 'failed') {
+      <app-typed-judge-result class="invocation-quality" [value]="invocation()?.output_ref" [compact]="true" />
+    }
+
     @if (!projectionEnabled()) {
       <section class="ck-surface rounded-md p-4" data-testid="skill-invocation-audit" aria-live="polite">
         @if (loading()) {
@@ -107,7 +112,7 @@ import {
           <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
         <ck-tab id="io" [label]="i18n.t('runs.invocation.tab.io')">
-          <app-typed-judge-result [value]="invocation()?.output_ref" />
+          @if (judgeResult()?.status !== 'failed') { <app-typed-judge-result [value]="invocation()?.output_ref" /> }
           <ck-object-perspective [objectLabel]="i18n.t('runs.invocation.object_label')" [lens]="activeLens()" facet="io" [perspective]="activePerspective()" [loading]="loading()" [error]="error()" />
         </ck-tab>
         <ck-tab id="runtime" [label]="i18n.t('runs.invocation.tab.runtime')">
@@ -132,6 +137,7 @@ import {
       text-decoration: none;
     }
     .arrival-chip:hover { color: var(--ck-fg-1); }
+    .invocation-quality { margin: 0 24px 16px; }
   `],
 })
 export class SkillInvocationViewComponent implements OnInit, OnDestroy {
@@ -173,6 +179,7 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   readonly runId = signal('');
   readonly invocationId = signal('');
   readonly invocation = signal<SkillInvocation | null>(null);
+  readonly judgeResult = computed(() => typedResult(this.invocation()?.output_ref));
   readonly modelExecution = computed(() => this.invocation() ? recordedModelExecution(this.invocation()!) : null);
   readonly perspectives = signal<Partial<Record<ObjectLens, ObjectPerspectiveResponse>>>({});
   readonly loading = signal(false);
@@ -194,16 +201,25 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
       metrics: inv.metrics ?? {}, trace: inv.trace ?? {} }, null, 2);
   });
   readonly kpis = computed<CkObjectKpi[]>(() => {
+    const judge = this.judgeResult();
+    const outcome = typedJudgeOutcome(judge);
+    const evaluation: CkObjectKpi[] = outcome ? [{
+      label: this.i18n.t('dataops.judge.evaluation'),
+      value: this.i18n.t(outcome.label),
+    }] : [];
+    const statusLabel = this.i18n.t(judge ? 'dataops.judge.invocation' : 'runs.invocation.kpi.status');
     if (!this.projectionEnabled()) {
       const inv = this.invocation();
       return [
-        { label: this.i18n.t('runs.invocation.kpi.status'), value: inv ? observabilityText(this.i18n, 'status', inv.status) : '—' },
+        ...evaluation,
+        { label: statusLabel, value: inv ? observabilityText(this.i18n, 'status', inv.status) : '—' },
         { label: this.i18n.t('runs.invocation.kpi.latency'), value: this.msFactValue({ state: 'available', value: inv?.latency_ms }) },
       ];
     }
     const header = this.perspectives()['build']?.header;
     return [
-      { label: this.i18n.t('runs.invocation.kpi.status'), value: this.factValue(header?.['status']) },
+      ...evaluation,
+      { label: statusLabel, value: this.factValue(header?.['status']) },
       { label: this.i18n.t('runs.invocation.kpi.latency'), value: this.msFactValue(header?.['latency']) },
       { label: this.i18n.t('runs.invocation.kpi.cost'), value: this.factValue(header?.['cost']) },
       { label: this.i18n.t('runs.invocation.kpi.skill_version'), value: this.factValue(header?.['skill_version']) },

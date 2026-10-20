@@ -50,6 +50,38 @@ du texte autorisé reste refusé. Le diagnostic ne répare pas la réponse et ne
 change pas les règles de validation. Les échecs anciens, enregistrés avant ce
 diagnostic, ne permettent pas de reconstruire leur réponse fournisseur.
 
+## Génération bornée et compatibilité des résultats
+
+Le juge applique le réglage produit existant `OPENAI_REASONING_EFFORT`
+(`minimal` par défaut) aux modèles `gpt-5`, `gpt-5-mini`, `gpt-5-nano` et à leurs
+snapshots datés reconnus. Sur Azure, le nom doit également être reconnu et la
+version API datée doit être au moins `2025-04-01`. Les alias de déploiement
+inconnus, anciennes API Azure et autres familles de modèles ne reçoivent pas
+cet argument. Une valeur configurée incompatible est refusée avant tout appel
+(`JUDGE_GENERATION_SETTINGS_INVALID`).
+
+Le plafond de sortie reste celui du Flow ; sur GPT-5, il couvre le raisonnement
+et le JSON visible. Ce raccordement n'augmente aucun budget et ne modifie aucun
+réglage global. La consigne demande des explications courtes et les citations
+exactes nécessaires ; les contrôles des preuves restent identiques.
+
+Le résultat canonique conserve `generation_contract` : paramètres effectifs,
+empreinte du protocole, du prompt concret et du schéma de réponse. Aucun prompt
+brut supplémentaire n'est stocké dans cette trace. Ces éléments participent à
+l'idempotence : changer le protocole ou les paramètres avec la même clé de
+requête refuse la réutilisation (`JUDGE_REQUEST_KEY_CONFLICT`) et ne déclenche
+pas un nouvel appel.
+
+La calibration compare une `generation_basis` stable entre dossiers :
+paramètres, empreinte du protocole et du schéma, sans empreinte du prompt
+concret. Un corpus de qualification qui mélange plusieurs bases est refusé.
+Le profil qualifié conserve cette base et ne fournit de confiance qu'à une
+évaluation compatible. Les anciens profils qui n'en portent pas restent
+consultables, mais leur confiance ne s'applique plus au protocole actuel :
+`confidence=null`, sans migration ni modification de leurs preuves historiques.
+Une nouvelle qualification humaine est nécessaire ; aucun résultat automatisé
+de recette ne la remplace.
+
 ## Preuves A1 et découpage
 
 Chaque unité est un actif immuable autorisé du workspace. Son manifeste porte

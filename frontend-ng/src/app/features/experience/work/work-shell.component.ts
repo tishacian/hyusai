@@ -299,6 +299,7 @@ export class WorkShellComponent {
     document: this.document(),
     pageId: this.activePage(),
     experienceSlug: this.slug(),
+    releaseId: this.releaseId(),
     mode: 'live',
   }));
   readonly theme = signal<{ mode: 'light' | 'dark'; accent: string; onAccent: string }>({
@@ -361,6 +362,7 @@ export class WorkShellComponent {
 
   constructor() {
     let generation = 0;
+    let resolvedEpoch: number | undefined;
     const reset = this.workspace.registerContextReset(() => {
       generation++;
       this.resetExperienceState();
@@ -374,10 +376,12 @@ export class WorkShellComponent {
       this.cockpitReturnLabel.set(label?.trim() || null);
     });
     combineLatest([this.route.paramMap, toObservable(this.workspace.contextEpoch)])
-      .pipe(takeUntilDestroyed(this.destroy)).subscribe(([params]) => {
+      .pipe(takeUntilDestroyed(this.destroy)).subscribe(([params, epoch]) => {
       const slug = params.get('slug') ?? '';
+      const sameScope = resolvedEpoch === epoch;
+      resolvedEpoch = epoch;
       this.requestedPage.set(params.get('pageId'));
-      if (slug === this.slug() && this.state() === 'ready') {
+      if (sameScope && slug === this.slug() && this.state() === 'ready') {
         this.activateRequestedPage(true);
         return;
       }
@@ -395,6 +399,12 @@ export class WorkShellComponent {
         this.open(result.body);
       });
     });
+  }
+
+  ngOnDestroy(): void {
+    // The runtime is root-scoped. Leaving Work must invalidate in-flight
+    // actions too, even if the workspace changes after this shell is gone.
+    this.runtime.reset();
   }
 
   studioLink(): UrlTree {

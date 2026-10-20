@@ -8,6 +8,7 @@ import {
   inject,
   input,
   signal,
+  untracked,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import type { ChartConfiguration, ChartData } from 'chart.js';
@@ -125,7 +126,7 @@ function dynamicSlot(
 ): Slot {
   if (!runtimeDataBinding(node)) return slotOf(node, empty);
   const phase = runtime.phase(context.sourceStateKey);
-  return slotOf(node, empty, phase === 'loading' || phase === 'running', phase === 'error');
+  return slotOf(node, empty, phase === 'loading' || phase === 'restoring' || phase === 'running', phase === 'error');
 }
 
 @Component({
@@ -979,7 +980,7 @@ export class HistoryBlock {
     return slotOf(
       this.node(),
       this.items().length === 0,
-      this.implicit() && (phase === 'loading' || phase === 'running'),
+      this.implicit() && (phase === 'loading' || phase === 'restoring' || phase === 'running'),
       this.implicit() && phase === 'error',
     );
   });
@@ -1057,6 +1058,9 @@ export class RuntimeStatusBlock {
     return this.resolver.resolve(url) ? null : id;
   });
   readonly label = computed(() => {
+    if (this.runtime.phase(this.context().sourceStateKey) === 'restoring') {
+      return this.i18n.t('experience.runtime.status.restoring');
+    }
     const vocab = this.vocab();
     if (!vocab) return this.i18n.t('experience.runtime.status.idle');
     if (vocab === 'error' && runtimeFailureKind(this.error()) === 'status_unknown') {
@@ -1157,6 +1161,7 @@ export class ResultBlock {
       this.node(),
       this.data() === null || this.data() === undefined,
       this.runtime.phase(this.context().sourceStateKey) === 'loading'
+        || this.runtime.phase(this.context().sourceStateKey) === 'restoring'
         || this.runtime.phase(this.context().sourceStateKey) === 'running',
       this.runtime.phase(this.context().sourceStateKey) === 'error',
     ));
@@ -1671,7 +1676,7 @@ export class FormBlock {
             <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="cancelConfirmation()">
               {{ i18n.t('common.cancel') }}
             </button>
-            <button type="button" class="xp-rt-btn" data-confirm-accept (click)="invoke(true)">
+            <button type="button" class="xp-rt-btn" data-confirm-accept [disabled]="releaseChanged()" (click)="invoke(true)">
               {{ i18n.t('common.confirm') }}
             </button>
           </div>
@@ -1681,7 +1686,7 @@ export class FormBlock {
           type="button"
           class="xp-rt-btn"
           data-action-trigger
-          [disabled]="busy() || resolving() || blocked() || unlinked() || context().mode === 'preview'"
+          [disabled]="busy() || resolving() || blocked() || releaseChanged() || unlinked() || context().mode === 'preview'"
           [attr.aria-label]="ariaName() || null"
           [attr.aria-describedby]="unlinked() ? noLinkHintId() : null"
           (click)="onClick()"
@@ -1691,6 +1696,9 @@ export class FormBlock {
         @if (unlinked()) {
           <p class="xp-rt-hint" [id]="noLinkHintId()">{{ i18n.t('experience.runtime.action.no_link') }}</p>
         }
+      }
+      @if (releaseChanged()) {
+        <p class="xp-rt-err" role="alert">{{ i18n.t('experience.runtime.failure.release_changed') }}</p>
       }
     </div>
   `,
@@ -1726,17 +1734,26 @@ export class ActionButtonBlock {
     return !!status && status !== 'ok' && status !== 'loading';
   });
   readonly resolving = computed(() => this.resolveStatus() === 'loading');
+  readonly releaseChanged = computed(() => this.runtime.lastError(this.context().stateKey) === 'release_changed');
+  // Host context objects are recreated during rendering; their identity must
+  // not cause repeated reads of the same action.
+  private readonly actionContext = computed(() => {
+    const context = this.context(), bindingKey = this.bindingKey();
+    return { context, bindingKey, key: JSON.stringify([
+      context.experienceSlug, context.releaseId, context.pageId, context.componentId,
+      context.stateKey, context.mode, bindingKey,
+    ]) };
+  }, { equal: (a, b) => a.key === b.key });
 
   constructor() {
-    effect(() => {
-      const key = this.bindingKey();
-      const context = this.context();
+    effect((onCleanup) => {
+      const { bindingKey: key, context } = this.actionContext();
       if (!key || context.mode !== 'live') {
         this.resolveStatus.set(null);
         return;
       }
       this.resolveStatus.set('loading');
-      this.runtime.resolve(context, key).pipe(take(1)).subscribe((resolved) => {
+      const resolution = this.runtime.resolve(context, key).pipe(take(1)).subscribe((resolved) => {
         if (!resolved) {
           this.resolveStatus.set('unavailable');
           return;
@@ -1744,11 +1761,13 @@ export class ActionButtonBlock {
         this.resolveStatus.set(resolved.status);
         this.confirmation = resolved.binding.confirmation_policy === 'confirm';
       });
+      const restoration = untracked(() => this.runtime.restore(context, key).subscribe());
+      onCleanup(() => { resolution.unsubscribe(); restoration.unsubscribe(); });
     });
   }
 
   onClick(): void {
-    if (this.resolving() || this.blocked() || !this.bindingKey() || this.context().mode !== 'live') return;
+    if (this.resolving() || this.blocked() || this.releaseChanged() || !this.bindingKey() || this.context().mode !== 'live') return;
     if (this.confirmation) {
       this.confirming.set(true);
       queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
@@ -1758,6 +1777,7 @@ export class ActionButtonBlock {
   }
 
   invoke(confirmed: boolean): void {
+    if (this.releaseChanged()) return;
     this.confirming.set(false);
     if (confirmed) queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
     const input = this.node().props?.['input'];

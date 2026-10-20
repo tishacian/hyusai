@@ -339,6 +339,7 @@ export const EXPERIENCE_FR = {
   'experience.runtime.error.model_dependency':
     'Ce résultat est indisponible tant que le problème du modèle n’est pas résolu. Contactez le responsable de l’application.',
   'experience.runtime.status.idle': 'Pas encore démarré',
+  'experience.runtime.status.restoring': 'Chargement du dernier résultat',
   'experience.runtime.status.running': 'En cours',
   'experience.runtime.status.pending_validation': 'En attente de validation',
   'experience.runtime.status.completed': 'Terminé',
@@ -347,6 +348,7 @@ export const EXPERIENCE_FR = {
   'experience.runtime.failure.model_incompatible': 'Le modèle utilisé par cette action est incompatible avec la version actuelle du service. Le responsable de l’application doit le réentraîner ou sélectionner une version compatible avant de relancer l’action.',
   'experience.runtime.failure.model_unavailable': 'Le service nécessaire au modèle est indisponible. Demandez au responsable de l’application de le rétablir avant de relancer l’action.',
   'experience.runtime.failure.access': 'Cette action ne peut pas être utilisée avec votre accès actuel. Reconnectez-vous ou contactez le responsable de l’application.',
+  'experience.runtime.failure.release_changed': 'Cette application a été mise à jour. Rechargez la page avant de lancer une action.',
   'experience.runtime.failure.status_unknown': 'L’état de l’action n’a pas pu être confirmé. Elle peut encore être en cours : consultez le détail du traitement avant de la relancer.',
   'experience.runtime.failure.status_unknown_label': 'État indisponible',
   'experience.runtime.failure.failed': 'L’action n’a pas pu aboutir. Consultez le détail du traitement ou transmettez sa référence au responsable de l’application pour identifier le problème.',
@@ -1718,6 +1720,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.runtime.error.model_dependency':
     'This result is unavailable until the model issue is resolved. Contact the application owner.',
   'experience.runtime.status.idle': 'Not started yet',
+  'experience.runtime.status.restoring': 'Loading the last result',
   'experience.runtime.status.running': 'In progress',
   'experience.runtime.status.pending_validation': 'Awaiting validation',
   'experience.runtime.status.completed': 'Completed',
@@ -1726,6 +1729,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.runtime.failure.model_incompatible': 'The model used by this action is incompatible with the current service version. The application owner needs to retrain it or select a compatible version before you start the action again.',
   'experience.runtime.failure.model_unavailable': 'The service required by the model is unavailable. Ask the application owner to restore it before running the action again.',
   'experience.runtime.failure.access': 'This action is unavailable with your current access. Sign in again or contact the application owner.',
+  'experience.runtime.failure.release_changed': 'This application has been updated. Reload the page before starting an action.',
   'experience.runtime.failure.status_unknown': 'The action status could not be confirmed. It may still be running: check its processing details before starting it again.',
   'experience.runtime.failure.status_unknown_label': 'Status unavailable',
   'experience.runtime.failure.failed': 'The action could not complete. Open its processing details or share its reference with the application owner to identify the problem.',

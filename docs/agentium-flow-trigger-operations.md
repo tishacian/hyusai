@@ -136,6 +136,40 @@ The default limit is 10 real triggered Runs per System per rolling hour. Three
 consecutive failed triggered Runs trip the circuit breaker. Business side effects
 remain subject to the Flow's existing governance and human review gates.
 
+### New work versus evidence for a waiting Run
+
+An inbound event without a correlation key starts its own Run through the normal
+published ingress and execution guards. It does not belong to whichever human
+review happens to be waiting in that System.
+
+To add evidence to an existing Run, include a non-empty `correlation_key`,
+`correlation_id` or `transaction_id` accepted by the published input schema.
+The value must match exactly one eligible Run in the same System and workspace:
+a Run waiting for human review, or a running AgentLoop. Receiving evidence adds
+an inbox entry; it never approves or resumes a human gate. A different or unknown
+key follows the new-Run path. Multiple eligible matches are rejected with
+`inbox_correlation_ambiguous`; the sender must not retry with a changed key merely
+to bypass that refusal.
+
+The input contract and delegated publication authority are checked before an
+inbox write, as they are before creating a Run. An out-of-contract correlation
+field is not a way to target a waiting Run. When publication is enabled, the
+target Run must carry the same frozen version, Flow hash, execution contract
+and ingress as the accepted delivery. A new publication cannot feed an older
+Run through its new contract: `inbox_target_publication_mismatch` or
+`inbox_target_ingress_mismatch` rejects that delivery without consuming its
+deduplication key. Review the waiting Run rather than changing the correlation
+key to force another route. Inbox delivery remains deduplicated and
+transactional. Existing dry-run/live, governance and dispatch rules remain in place.
+
+This replaces the earlier **open buffer** behavior, which routed missing or
+unmatched keys to the most recent waiting Run. Integrations relying on that
+fallback must publish an explicit correlation field and send the same business
+key on the initial request and its later evidence. Uncorrelated Runs no longer
+receive the historical shared `_default` memory. That internal key is reserved
+and refused for inbound correlation; historical inbox and memory records remain
+available for audit.
+
 ## Cron schedule
 
 `POST /systems/{system_id}/schedules` accepts `name`, `cron_expr`, `timezone`,

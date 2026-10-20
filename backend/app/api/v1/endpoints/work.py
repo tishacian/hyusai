@@ -917,6 +917,87 @@ async def resolve_work_binding(
     }
 
 
+@router.get("/{slug}/bindings/{key}/runs/latest")
+def latest_work_action_run(
+    slug: str,
+    key: str,
+    page_id: str = Query(min_length=1, max_length=160),
+    component_id: str = Query(min_length=1, max_length=160),
+    release_id: str = Query(min_length=1, max_length=36),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Resume this reader's fixed released action without invoking anything.
+
+    The immutable action supplies its input. Forms are deliberately excluded:
+    their last submitted values cannot be inferred from an empty page. Matching
+    all statuses preserves a recent failure or pending Run instead of silently
+    replacing it with an older successful result.
+    """
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    try:
+        experience, deployment, release = _resolve_for_user(
+            db, workspace=workspace, user=user, slug=slug
+        )
+        if release.id != release_id:
+            raise experience_service.ExperienceError(
+                code="WORK_RELEASE_CHANGED",
+                message="The deployed application changed. Reload it before reading results.",
+                status_code=409,
+            )
+        snapshot = experience_service.work_binding_snapshot(release, binding_key=key)
+        experience_service.work_binding_context(
+            release, binding_key=key, page_id=page_id, component_id=component_id
+        )
+        page = next(p for p in release.pages["pages"] if p.get("id") == page_id)
+        component = next(c for c in page["components"] if c.get("id") == component_id)
+        props = component.get("props") or {}
+        if component.get("type") != "action_button" or props.get("bindingKey") != key:
+            raise experience_service.ExperienceError(
+                code="WORK_RUN_RESUME_UNSUPPORTED",
+                message="Only actions with a fixed released input can resume their last result.",
+                status_code=404,
+            )
+        request_sha256 = _canonical_sha256(
+            {
+                "binding_key": key,
+                "component_id": component_id,
+                "confirmed": True if snapshot.get("confirmation_policy") == "confirm" else None,
+                "page_id": page_id,
+                "payload": props.get("input", {}),
+                "slug": slug,
+            }
+        )
+    except experience_service.ExperienceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+
+    adapter = Run.input_ref["_ingress"]["adapter"]
+    expected = {
+        "surface": "experience",
+        "experience_id": experience.id,
+        "experience_release_id": release.id,
+        "channel": deployment.channel,
+        "binding_key": key,
+        "page_id": page_id,
+        "component_id": component_id,
+        "request_sha256": request_sha256,
+    }
+    query = db.query(Run).filter(
+        Run.workspace_id == workspace.id,
+        Run.initiated_by_user_id == user.id,
+        Run.system_id == snapshot["system_id"],
+        Run.published_flow_version_id == snapshot["published_flow_version_id"],
+        Run.flow_sha256 == snapshot["flow_sha256"],
+        Run.input_ref["_ingress"]["ingress_id"].as_string() == snapshot["ingress_id"],
+        Run.execution_surface == "published_manual",
+        *(adapter[field].as_string() == value for field, value in expected.items()),
+    ).order_by(Run.started_at.desc(), Run.id.desc())
+    runs = readable_run_page(db, query=query, limit=1, user=user, workspace=workspace)
+    return {"run": _work_run_response(runs[0], replayed=False) if runs else None}
+
+
 @router.post("/{slug}/bindings/{key}/runs", status_code=201)
 async def invoke_work_binding(
     slug: str,

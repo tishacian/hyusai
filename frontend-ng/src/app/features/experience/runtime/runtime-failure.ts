@@ -2,7 +2,8 @@ import type { Run } from '@app/core/canonical-api.service';
 
 /** Only recognised error codes become user-facing advice; raw errors never do. */
 export function runtimeFailureKind(error: string | null | undefined):
-  'model_incompatible' | 'model_unavailable' | 'access' | 'status_unknown' | 'failed' {
+  'model_incompatible' | 'model_unavailable' | 'access' | 'status_unknown' | 'release_changed' | 'failed' {
+  if (error === 'release_changed') return 'release_changed';
   if (error === 'network' || error === 'timeout') return 'status_unknown';
   if (error === 'http_401' || error === 'http_403') return 'access';
   // Worker errors can wrap a code: node_error_policy:node.id:skill_failed:CODE: detail.

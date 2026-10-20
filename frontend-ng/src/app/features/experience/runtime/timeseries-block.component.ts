@@ -66,7 +66,7 @@ export class TimeseriesBlockComponent {
   readonly value = input<unknown>(null);
   readonly response = signal<DatasetResponse | null>(null);
   readonly loading = signal(false); readonly error = signal(false);
-  readonly working = computed(() => ['loading', 'running'].includes(this.runtime.phase(this.context().sourceStateKey)));
+  readonly working = computed(() => ['loading', 'restoring', 'running'].includes(this.runtime.phase(this.context().sourceStateKey)));
   readonly runError = computed(() => this.runtime.phase(this.context().sourceStateKey) === 'error');
   readonly selectedName = signal(''); private readonly refresh = signal(0);
   readonly projection = computed(() => projectTimeseries(this.working() ? null : this.datasetMode() ? this.response()?.rows : this.value(), this.node().props?.['mapping']));

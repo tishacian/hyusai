@@ -1,9 +1,12 @@
 """Unit tests for run inbox buffering + SystemMemory reinjection (Phase 4)."""
+
 from __future__ import annotations
 
 import uuid
+from copy import deepcopy
 from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.decision import Decision
@@ -134,6 +137,260 @@ def test_try_buffer_event_none_when_no_paused_run(db_session):
         payload={"correlation_key": "orphan"},
     )
     assert result is None
+
+
+def _event_target(db, *, workspace_id, system_id, correlation_key, status):
+    run = _paused_run(
+        db,
+        workspace_id=workspace_id,
+        system_id=system_id,
+        correlation_key=correlation_key,
+    )
+    if status == "running":
+        run.status = status
+        run.flow_snapshot = {
+            "nodes": [{"id": "investigate", "kind": "agent_loop"}],
+            "edges": [],
+        }
+        run.checkpoints = []
+        db.commit()
+    return run
+
+
+@pytest.mark.parametrize("status", ["hitl_pending", "running"])
+@pytest.mark.parametrize(
+    "existing_key,incoming_key",
+    [(None, None), ("old-case", None), (None, "new-case"), ("old-case", "new-case")],
+)
+def test_unrelated_delivery_never_enters_an_existing_run(
+    db_session, status, existing_key, incoming_key
+):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    run = _event_target(
+        db_session,
+        workspace_id=ws.id,
+        system_id=system.id,
+        correlation_key=existing_key,
+        status=status,
+    )
+    checkpoint_before = deepcopy(run.checkpoints)
+    payload = {"case": "new"}
+    if incoming_key is not None:
+        payload["correlation_key"] = incoming_key
+
+    result = inbox.try_buffer_event(
+        db_session,
+        system_id=system.id,
+        event_kind="webhook.received",
+        payload=payload,
+    )
+
+    assert result is None
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    db_session.refresh(run)
+    assert run.status == status
+    assert run.checkpoints == checkpoint_before
+
+
+@pytest.mark.parametrize("status", ["hitl_pending", "running"])
+def test_explicit_correlation_buffers_only_the_matching_run(db_session, status):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    target = _event_target(
+        db_session,
+        workspace_id=ws.id,
+        system_id=system.id,
+        correlation_key="same-case",
+        status=status,
+    )
+    newer_unrelated = _event_target(
+        db_session,
+        workspace_id=ws.id,
+        system_id=system.id,
+        correlation_key=None,
+        status=status,
+    )
+
+    result = inbox.try_buffer_event(
+        db_session,
+        system_id=system.id,
+        event_kind="webhook.received",
+        payload={"correlation_key": "same-case", "document": "additional-evidence"},
+    )
+
+    assert result["status"] == "buffered"
+    assert result["run_id"] == target.id
+    assert db_session.query(RunInbox).filter_by(run_id=target.id).count() == 1
+    assert db_session.query(RunInbox).filter_by(run_id=newer_unrelated.id).count() == 0
+    assert db_session.get(Run, target.id).status == status
+
+
+@pytest.mark.parametrize("status", ["hitl_pending", "running"])
+def test_correlation_cannot_match_another_system_or_workspace(db_session, status):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    other_system = _system(db_session, ws.id)
+    other_ws = _workspace(db_session)
+    foreign_system = _system(db_session, other_ws.id)
+    targets = [
+        _event_target(
+            db_session,
+            workspace_id=owner.id,
+            system_id=target_system.id,
+            correlation_key="shared-business-key",
+            status=status,
+        )
+        for owner, target_system in ((ws, other_system), (other_ws, foreign_system))
+    ]
+    before_checkpoints = {run.id: deepcopy(run.checkpoints) for run in targets}
+
+    result = inbox.try_buffer_event(
+        db_session,
+        system_id=system.id,
+        event_kind="webhook.received",
+        payload={"correlation_key": "shared-business-key"},
+    )
+
+    assert result is None
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    for run in targets:
+        db_session.refresh(run)
+        assert run.checkpoints == before_checkpoints[run.id]
+
+
+@pytest.mark.parametrize("status", ["hitl_pending", "running"])
+def test_run_with_inconsistent_workspace_is_not_an_event_target(db_session, status):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    foreign_ws = _workspace(db_session)
+    target = _event_target(
+        db_session,
+        workspace_id=foreign_ws.id,
+        system_id=system.id,
+        correlation_key="same-case",
+        status=status,
+    )
+    checkpoint_before = deepcopy(target.checkpoints)
+
+    result = inbox.try_buffer_event(
+        db_session,
+        system_id=system.id,
+        workspace_id=ws.id,
+        event_kind="webhook.received",
+        payload={"correlation_key": "same-case"},
+    )
+
+    assert result is None
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    db_session.refresh(target)
+    assert target.checkpoints == checkpoint_before
+
+
+def test_caller_workspace_cannot_borrow_another_systems_correlated_run(db_session):
+    ws = _workspace(db_session)
+    foreign_ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    target = _paused_run(
+        db_session, workspace_id=ws.id, system_id=system.id, correlation_key="same-case"
+    )
+    checkpoint_before = deepcopy(target.checkpoints)
+
+    with pytest.raises(ValueError, match="^INBOX_WORKSPACE_MISMATCH$"):
+        inbox.try_buffer_event(
+            db_session,
+            system_id=system.id,
+            workspace_id=foreign_ws.id,
+            event_kind="webhook.received",
+            payload={"correlation_key": "same-case"},
+        )
+
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    db_session.refresh(target)
+    assert target.checkpoints == checkpoint_before
+
+
+def test_reserved_default_correlation_cannot_route_a_delivery(db_session):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    target = _paused_run(
+        db_session, workspace_id=ws.id, system_id=system.id, correlation_key="_default"
+    )
+    checkpoint_before = deepcopy(target.checkpoints)
+
+    with pytest.raises(ValueError, match="^INBOX_CORRELATION_RESERVED$"):
+        inbox.try_buffer_event(
+            db_session,
+            system_id=system.id,
+            workspace_id=ws.id,
+            event_kind="webhook.received",
+            payload={"correlation_key": "_default"},
+        )
+
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    db_session.refresh(target)
+    assert target.checkpoints == checkpoint_before
+
+
+@pytest.mark.parametrize(
+    "statuses",
+    [("hitl_pending", "hitl_pending"), ("running", "running"), ("hitl_pending", "running")],
+)
+def test_ambiguous_correlation_never_selects_the_latest_run(db_session, statuses):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    runs = [
+        _event_target(
+            db_session,
+            workspace_id=ws.id,
+            system_id=system.id,
+            correlation_key="same-case",
+            status=status,
+        )
+        for status in statuses
+    ]
+    before_checkpoints = {run.id: deepcopy(run.checkpoints) for run in runs}
+
+    with pytest.raises(ValueError, match="^INBOX_CORRELATION_AMBIGUOUS$"):
+        inbox.try_buffer_event(
+            db_session,
+            system_id=system.id,
+            event_kind="webhook.received",
+            payload={"correlation_key": "same-case"},
+        )
+
+    assert db_session.query(RunInbox).count() == 0
+    assert db_session.query(SystemMemory).count() == 0
+    for run, status in zip(runs, statuses, strict=True):
+        db_session.refresh(run)
+        assert run.status == status
+        assert run.checkpoints == before_checkpoints[run.id]
+
+
+def test_non_agent_loop_running_run_does_not_buffer_even_with_exact_correlation(db_session):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    run = _paused_run(
+        db_session, workspace_id=ws.id, system_id=system.id, correlation_key="same-case"
+    )
+    run.status = "running"
+    run.flow_snapshot = system.flow_definition
+    db_session.commit()
+
+    result = inbox.try_buffer_event(
+        db_session,
+        system_id=system.id,
+        event_kind="webhook.received",
+        payload={"correlation_key": "same-case"},
+    )
+
+    assert result is None
+    assert db_session.query(RunInbox).count() == 0
 
 
 def test_emit_event_buffers_instead_of_dispatch(db_session, monkeypatch):
@@ -294,6 +551,79 @@ def test_reinject_memory_into_state_on_resume(db_session):
     assert state.pool.get(["memory", "version"]) == 2
     assert state.pool.get(["memory", "latest", "path"]) == "/in/y.csv"
     assert state.ctx["memory"]["correlation_key"] == "tx-9"
+
+
+def test_uncorrelated_run_does_not_reinject_legacy_default_memory_or_delete_history(db_session):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    historical_run = _paused_run(
+        db_session, workspace_id=ws.id, system_id=system.id, correlation_key=None
+    )
+    historical_payload = {"claim_id": "historical-case", "document": "historic-evidence"}
+    historical_memory = SystemMemory(
+        id=str(uuid.uuid4()),
+        workspace_id=ws.id,
+        system_id=system.id,
+        correlation_key="_default",
+        state={"latest": historical_payload, "event_count": 1},
+        version=1,
+    )
+    historical_inbox = RunInbox(
+        id=str(uuid.uuid4()),
+        run_id=historical_run.id,
+        workspace_id=ws.id,
+        system_id=system.id,
+        event_kind="webhook.received",
+        correlation_key=None,
+        payload=historical_payload,
+    )
+    db_session.add_all([historical_memory, historical_inbox])
+    db_session.commit()
+    newer_run = _paused_run(
+        db_session, workspace_id=ws.id, system_id=system.id, correlation_key=None
+    )
+    state = WalkerState()
+    state.pool = VariablePool()
+
+    assert inbox.load_memory_for_run(db_session, newer_run) is None
+    assert inbox.reinject_memory_into_state(db_session, newer_run, state) is None
+    assert "memory" not in state.ctx
+    db_session.refresh(historical_memory)
+    db_session.refresh(historical_inbox)
+    assert historical_memory.state["latest"] == historical_payload
+    assert historical_inbox.payload == historical_payload
+    assert historical_inbox.run_id == historical_run.id
+    assert db_session.query(RunInbox).count() == 1
+    assert db_session.query(SystemMemory).count() == 1
+
+
+def test_explicit_reserved_correlation_cannot_read_legacy_default_memory(db_session):
+    ws = _workspace(db_session)
+    system = _system(db_session, ws.id)
+    historical_payload = {"claim_id": "old-anonymous-case"}
+    historical_memory = SystemMemory(
+        id=str(uuid.uuid4()),
+        workspace_id=ws.id,
+        system_id=system.id,
+        correlation_key="_default",
+        state={"latest": historical_payload, "event_count": 1},
+        version=1,
+    )
+    db_session.add(historical_memory)
+    db_session.commit()
+    run = _paused_run(
+        db_session, workspace_id=ws.id, system_id=system.id, correlation_key="_default"
+    )
+    state = WalkerState()
+    state.pool = VariablePool()
+
+    assert inbox.load_memory_for_run(db_session, run) is None
+    assert inbox.reinject_memory_into_state(db_session, run, state) is None
+    assert "memory" not in state.ctx
+    db_session.refresh(historical_memory)
+    assert historical_memory.state["latest"] == historical_payload
+    assert db_session.query(SystemMemory).count() == 1
+    assert db_session.query(RunInbox).count() == 0
 
 
 def test_resume_run_dag_calls_memory_reinject(db_session, monkeypatch):

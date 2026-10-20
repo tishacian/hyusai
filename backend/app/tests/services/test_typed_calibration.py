@@ -281,6 +281,13 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
     report = qualified["partitions"]["calibration"]
     assert report["precision"] == report["recall"] == report["coverage"] == 1
     assert report["confidence_bounds"]["_overall"]["families"] == 2
+    # Different evidence prompts remain comparable within the same generation
+    # protocol. The concrete prompt hash must never become a calibration gate.
+    assert len({output["generation_contract"]["prompt_sha256"] for output in outputs}) == 4
+    assert all(
+        calibration._generation_basis(output) == qualified["generation_basis"]
+        for output in outputs
+    )
     result = copy.deepcopy(outputs[0])
     calibration.bind_confidence(s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], result)
     assert result["confidence"] == pytest.approx(calibration.wilson_lower(2, 2))
@@ -296,6 +303,45 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
             s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], changed
         )
         assert changed["confidence"] is None and "calibration" not in changed
+    for key, value in [
+        ("parameters", {**result["generation_contract"]["parameters"], "reasoning_effort": "low"}),
+        ("parameters", {**result["generation_contract"]["parameters"], "max_tokens": 8192}),
+        ("prompt_protocol_sha256", "0" * 64),
+        ("response_schema_sha256", "0" * 64),
+    ]:
+        changed = copy.deepcopy(result)
+        changed["generation_contract"][key] = value
+        calibration.bind_confidence(
+            s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], changed
+        )
+        assert changed["confidence"] is None and "calibration" not in changed
+        assert all(answer["confidence"] is None for answer in changed["answers"].values())
+    missing = copy.deepcopy(result)
+    missing.pop("generation_contract")
+    calibration.bind_confidence(
+        s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], missing
+    )
+    assert missing["confidence"] is None and "calibration" not in missing
+
+    # A genuine older qualified profile lacks a generation basis. Do not
+    # silently attach its empirical confidence to this changed protocol.
+    profile = assets.resolve_asset_ref(s.db, s.workspace.id, qualified["profile_ref"])
+    old_manifest = copy.deepcopy(profile.manifest_json)
+    old_manifest.pop("generation_basis")
+    old_manifest["report"].pop("generation_basis")
+    legacy = assets.register_asset(
+        s.db, s.workspace.id, "reference", "legacy-calibration-profile", old_manifest
+    )
+    legacy_ref = assets.asset_ref(legacy)
+    assets.record_qualification(
+        s.db, s.workspace.id, legacy_ref, status="qualified",
+        policy={"type": calibration.PREFIX + "profile"},
+        evidence={"report_sha256": assets.content_digest(old_manifest["report"])},
+    )
+    legacy_result = copy.deepcopy(result)
+    calibration.bind_confidence(s.db, s.workspace.id, s.owner.id, legacy_ref, legacy_result)
+    assert legacy_result["confidence"] is None and "calibration" not in legacy_result
+    assert all(answer["confidence"] is None for answer in legacy_result["answers"].values())
     assets.record_qualification(
         s.db,
         s.workspace.id,
@@ -306,6 +352,26 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
     )
     calibration.bind_confidence(s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], result)
     assert result["confidence"] is None and "calibration" not in result
+
+
+async def test_calibration_refuses_mixed_generation_protocols(
+    setup, corpus_data, monkeypatch
+):
+    s = setup
+    spec, evidence = corpus_data
+    cid = make_corpus(s, spec)
+    for unit in spec["units"][1:]:
+        label(s, cid, unit["key"])
+        label(s, cid, unit["key"], s.member.id)
+        if unit["key"] == "segment-3":
+            monkeypatch.setattr(judge, "_PROMPT_TEMPLATE", judge._PROMPT_TEMPLATE + "\nBe concise.")
+        await predict(s, cid, spec, evidence, unit["key"], monkeypatch)
+    result = calibration.qualify(s.db, s.workspace.id, s.owner.id, cid)
+    assert not result["qualified"] and "profile_ref" not in result
+    assert "CALIBRATION_GENERATION_CHANGED" in result["reasons"]
+    assert result["generation_basis"] is None
+    assert result["partitions"]["calibration"]["precision"] == 1
+    assert result["partitions"]["test"]["precision"] == 1
 
 
 async def test_abstention_counts_as_missed_critical_coverage_and_never_qualifies(

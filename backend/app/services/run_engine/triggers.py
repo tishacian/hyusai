@@ -24,6 +24,7 @@ GOVERNANCE INVARIANT (docs/adr-flow-source-nodes.md §6 — enforced in code):
   side effect requires an ``hitl`` gate. Anything outside the allowlist is
   rejected/skipped — the flag cannot relax it.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,7 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
@@ -70,7 +71,7 @@ EVENT_CONNECTOR_CHANGED = "connector.objects_changed"
 # so they never appear here and are ignored by the registry.
 # ``source.schedule`` is registered for graph/visibility parity; cron firing is
 # table-driven via ``run_schedules`` + ``scheduler_tick`` (not ``emit_event``).
-TRIGGER_TYPE_TO_EVENT: Dict[str, str] = {
+TRIGGER_TYPE_TO_EVENT: dict[str, str] = {
     "source.sftp_arrival": EVENT_SFTP_FILE_ARRIVED,
     "source.deposit_promoted": EVENT_DEPOSIT_PROMOTED,
     "source.webhook": EVENT_WEBHOOK_RECEIVED,
@@ -92,7 +93,7 @@ class EventGovernance:
     """
 
     event_kind: str
-    permitted_effects: Set[str]
+    permitted_effects: set[str]
     require_hitl_for_side_effects: bool
 
 
@@ -102,7 +103,7 @@ _EFFECT_INGESTION = "ingestion"
 _EFFECT_ANALYSIS = "analysis"
 _EFFECT_NOTIFICATION = "notification"
 
-_GOVERNANCE: Dict[str, EventGovernance] = {
+_GOVERNANCE: dict[str, EventGovernance] = {
     EVENT_CONNECTOR_CHANGED: EventGovernance(
         event_kind=EVENT_CONNECTOR_CHANGED,
         permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
@@ -146,7 +147,7 @@ _INGESTION_EFFECT_TOKENS = {"ingestion", "write", "side_effect"}
 _NOTIFICATION_EFFECT_TOKENS = {"notification", "notify"}
 
 
-def _node_effect(node: Dict[str, Any]) -> str:
+def _node_effect(node: dict[str, Any]) -> str:
     """Classify a node's effect: ``ingestion`` (side effect), ``notification``
     or ``analysis`` (default, read-only).
 
@@ -176,21 +177,21 @@ def _node_effect(node: Dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Flow inspection helpers
 # ---------------------------------------------------------------------------
-def _flow_nodes(flow: Any) -> List[Dict[str, Any]]:
+def _flow_nodes(flow: Any) -> list[dict[str, Any]]:
     if not isinstance(flow, dict):
         return []
     nodes = flow.get("nodes")
     return [n for n in nodes if isinstance(n, dict)] if isinstance(nodes, list) else []
 
 
-def _flow_edges(flow: Any) -> List[Dict[str, Any]]:
+def _flow_edges(flow: Any) -> list[dict[str, Any]]:
     if not isinstance(flow, dict):
         return []
     edges = flow.get("edges")
     return [e for e in edges if isinstance(e, dict)] if isinstance(edges, list) else []
 
 
-def _trigger_nodes(flow: Any) -> List[Dict[str, Any]]:
+def _trigger_nodes(flow: Any) -> list[dict[str, Any]]:
     """Return the ACTIVE trigger source nodes of a flow.
 
     A node is an active trigger when it resolves to the ``source`` role, its
@@ -199,7 +200,7 @@ def _trigger_nodes(flow: Any) -> List[Dict[str, Any]]:
     marker is UI provenance only and does NOT disable the trigger — execution
     is governed by the master flag + per-System mode, not by that marker.
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for node in _flow_nodes(flow):
         if not is_flow_source_node(node):
             continue
@@ -212,17 +213,17 @@ def _trigger_nodes(flow: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def _trigger_event_kinds(flow: Any) -> Set[str]:
+def _trigger_event_kinds(flow: Any) -> set[str]:
     return {TRIGGER_TYPE_TO_EVENT[str(n.get("type"))] for n in _trigger_nodes(flow)}
 
 
-def dispatch_trigger_ingresses(flow: Any) -> Dict[str, List[str]]:
+def dispatch_trigger_ingresses(flow: Any) -> dict[str, list[str]]:
     """Map each ``event_kind`` to the active trigger node ids listening for it.
 
     A trigger node id doubles as the published ingress id a delivery may name,
     so the dispatch path and the readiness read model resolve one candidate set.
     """
-    out: Dict[str, List[str]] = defaultdict(list)
+    out: dict[str, list[str]] = defaultdict(list)
     for node in _trigger_nodes(flow):
         node_id = str(node.get("id") or "")
         if node_id:
@@ -235,21 +236,21 @@ def ingress_kind_for_event(event_kind: str) -> str:
     return "http" if event_kind == EVENT_WEBHOOK_RECEIVED else "event"
 
 
-def _edge_endpoints(edge: Dict[str, Any]) -> Tuple[str, str]:
+def _edge_endpoints(edge: dict[str, Any]) -> tuple[str, str]:
     src = str(edge.get("from") or edge.get("source") or "")
     dst = str(edge.get("to") or edge.get("target") or "")
     return src, dst
 
 
-def _reachable_from(start_ids: List[str], edges: List[Dict[str, Any]]) -> Set[str]:
+def _reachable_from(start_ids: list[str], edges: list[dict[str, Any]]) -> set[str]:
     """Node ids reachable (descendants) from any of ``start_ids`` — excludes the
     start ids themselves unless they form a cycle."""
-    adj: Dict[str, List[str]] = defaultdict(list)
+    adj: dict[str, list[str]] = defaultdict(list)
     for edge in edges:
         src, dst = _edge_endpoints(edge)
         if src and dst:
             adj[src].append(dst)
-    seen: Set[str] = set()
+    seen: set[str] = set()
     stack = list(start_ids)
     while stack:
         current = stack.pop()
@@ -260,13 +261,13 @@ def _reachable_from(start_ids: List[str], edges: List[Dict[str, Any]]) -> Set[st
     return seen
 
 
-def _ancestors_of(target: str, edges: List[Dict[str, Any]]) -> Set[str]:
-    rev: Dict[str, List[str]] = defaultdict(list)
+def _ancestors_of(target: str, edges: list[dict[str, Any]]) -> set[str]:
+    rev: dict[str, list[str]] = defaultdict(list)
     for edge in edges:
         src, dst = _edge_endpoints(edge)
         if src and dst:
             rev[dst].append(src)
-    seen: Set[str] = set()
+    seen: set[str] = set()
     stack = [target]
     while stack:
         current = stack.pop()
@@ -334,7 +335,7 @@ def evaluate_governance(event_kind: str, flow: Any) -> GovernanceVerdict:
 # ---------------------------------------------------------------------------
 def build_registry(
     db: DBSession, *, workspace_id: Optional[str] = None
-) -> Dict[Tuple[str, Optional[str]], List[str]]:
+) -> dict[tuple[str, Optional[str]], list[str]]:
     """Map ``(event_kind, workspace_id) -> [system_id]`` for every System whose
     ``flow_definition`` declares an active trigger node.
 
@@ -345,7 +346,7 @@ def build_registry(
     query = db.query(System).filter(System.status == "active")
     if workspace_id is not None:
         query = query.filter(System.workspace_id == workspace_id)
-    registry: Dict[Tuple[str, Optional[str]], List[str]] = defaultdict(list)
+    registry: dict[tuple[str, Optional[str]], list[str]] = defaultdict(list)
     for system in query.all():
         for event_kind in _trigger_event_kinds(system.flow_definition or {}):
             key = (event_kind, system.workspace_id)
@@ -364,15 +365,16 @@ _TRIGGER_META_KEY = "_event_trigger"
 class _PublishedTriggerEvidence:
     """Published identity accepted under the locked System row."""
 
-    flow: Dict[str, Any]
+    flow: dict[str, Any]
     version_id: str
     flow_sha256: str
+    execution_contract: dict[str, Any]
 
 
 class _TriggerDeliveryDuplicate(RuntimeError):
     """Internal control flow carrying a durable prior delivery result."""
 
-    def __init__(self, result: Dict[str, Any]):
+    def __init__(self, result: dict[str, Any]):
         super().__init__("trigger delivery already claimed")
         self.result = result
 
@@ -426,7 +428,7 @@ def _duplicate_delivery_result(
     *,
     system_id: str,
     dedup_key: str,
-) -> Dict[str, Any] | None:
+) -> dict[str, Any] | None:
     claim = (
         db.query(TriggerEventClaim)
         .filter(
@@ -436,7 +438,7 @@ def _duplicate_delivery_result(
         .one_or_none()
     )
     if claim is not None:
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "system_id": system_id,
             "status": "duplicate",
             "dedup_key": dedup_key,
@@ -463,7 +465,7 @@ def _duplicate_delivery_result(
 
 def _trigger_input_ref(
     event_kind: str, dedup_key: str, payload: Any, *, mode: str, simulated: bool
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         _TRIGGER_META_KEY: {
             "event_kind": event_kind,
@@ -569,7 +571,7 @@ CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3
 _SETTINGS_TRIGGER_KEY = "event_trigger"
 
 
-def _system_trigger_settings(system: System) -> Dict[str, Any]:
+def _system_trigger_settings(system: System) -> dict[str, Any]:
     blob = system.settings if isinstance(system.settings, dict) else {}
     et = blob.get(_SETTINGS_TRIGGER_KEY)
     return et if isinstance(et, dict) else {}
@@ -633,7 +635,7 @@ def _count_recent_triggered_runs(db: DBSession, system_id: str, since: datetime)
     )
 
 
-def _recent_triggered_run_statuses(db: DBSession, system_id: str, limit: int) -> List[str]:
+def _recent_triggered_run_statuses(db: DBSession, system_id: str, limit: int) -> list[str]:
     rows = (
         db.query(Run)
         .filter(Run.system_id == system_id, Run.trigger == "webhook", Run.status != "simulated")
@@ -844,13 +846,13 @@ def _process_live(
     system: System,
     event_kind: str,
     workspace_id: Optional[str],
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     dedup_key: str,
     *,
     published_evidence: _PublishedTriggerEvidence | None = None,
     execution_principal: dict | None = None,
     owns_session: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Live guards followed by one transactional, durable Run handoff."""
     if _circuit_open(db, system, owns_session=owns_session):
         logger.warning("triggers: circuit open, skipping dispatch", system_id=system.id)
@@ -953,7 +955,7 @@ ACCEPTED_DELIVERY_STATUSES = frozenset(
 )
 
 
-def delivery_status(results: List[Dict[str, Any]]) -> str:
+def delivery_status(results: list[dict[str, Any]]) -> str:
     """Collapse per-target outcomes into one verdict for the inbound caller.
 
     ``ignored`` when nothing listened (triggers off, or no registered target),
@@ -972,12 +974,12 @@ def delivery_status(results: List[Dict[str, Any]]) -> str:
 def emit_event(
     event_kind: str,
     workspace_id: Optional[str],
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     db: Optional[DBSession] = None,
     system_id: Optional[str] = None,
     execution_principal: dict | None = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Emit ``event_kind`` for ``workspace_id`` and process every target System.
 
     Returns a list of per-target result dicts. ``status`` is one of:
@@ -1020,7 +1022,7 @@ def emit_event(
             system_ids = [system_id]
         if not system_ids:
             return [{"status": "no_target", "event_kind": event_kind, "workspace_id": workspace_id}]
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for target_id in system_ids:
             system = (
                 db.query(System)
@@ -1054,11 +1056,11 @@ def _process_target(
     system: System,
     event_kind: str,
     workspace_id: Optional[str],
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     owns_session: bool,
     execution_principal: dict | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Governance → dedup → (live dispatch | dry-run journal) for one System.
 
     The mode gate is the ONLY difference between Phase 3a and 3b: a target in
@@ -1146,6 +1148,7 @@ def _process_target(
             flow=published_flow,
             version_id=version_id,
             flow_sha256=published_hash,
+            execution_contract=_contract,
         )
     try:
         resolve_persisted_system_catalog_bindings(
@@ -1185,19 +1188,76 @@ def _process_target(
     if existing is not None:
         return existing
 
-    # Phase 4 — while a correlated Run is ``hitl_pending``, buffer inbound
-    # transactions into ``run_inbox`` (+ SystemMemory) instead of starting a
-    # parallel run. Applies in both dry-run and live modes.
+    # A matching explicit correlation may feed an existing Run's inbox; a
+    # missing/different key must follow the ordinary new-Run path below.
+    # Receiving more evidence never approves or resumes a human gate.
     try:
-        from app.services.run_engine.inbox import try_buffer_event  # noqa: WPS433
+        from app.services.run_engine.execution_principal import (
+            ExecutionPrincipalError,
+            validate_run_authority,
+        )
+        from app.services.run_engine.inbox import InboxRoutingError, try_buffer_event
+        from app.services.run_engine.run_contracts import (
+            RuntimeContractError,
+            validate_ingress_payload,
+        )
+
+        def validate_buffered_payload(target: Run) -> None:
+            if published_evidence is None:
+                return
+            from app.services.flow_contracts import canonical_sha256
+
+            # Inbox writes must not bypass the same published input contract
+            # checked when the delivery starts a new Run.
+            if "_debug" in payload:
+                raise InboxRoutingError("RUN_DEBUG_SURFACE_FORBIDDEN")
+            trigger_ids = dispatch_trigger_ingresses(published_evidence.flow).get(event_kind, [])
+            kind = ingress_kind_for_event(event_kind)
+            ingress_id = flow_ingress.resolve_published_ingress_id(
+                published_evidence.execution_contract,
+                kind=kind,
+                requested_ingress_id=trigger_ids[0] if len(trigger_ids) == 1 else None,
+            )
+            validate_ingress_payload(
+                published_evidence.execution_contract,
+                ingress_id=ingress_id,
+                kind=kind,
+                payload=payload,
+            )
+            # A matching business key cannot expand an older Run's frozen
+            # authority after another publication or redirect another entry.
+            if (
+                target.published_flow_version_id != published_evidence.version_id
+                or target.flow_sha256 != published_evidence.flow_sha256
+                or not isinstance(target.execution_contract, dict)
+                or canonical_sha256(target.execution_contract)
+                != canonical_sha256(published_evidence.execution_contract)
+            ):
+                raise InboxRoutingError("INBOX_TARGET_PUBLICATION_MISMATCH")
+            target_input = target.input_ref if isinstance(target.input_ref, dict) else {}
+            target_ingress = target_input.get("_ingress")
+            if (
+                not isinstance(target_ingress, dict)
+                or target_ingress.get("ingress_id") != ingress_id
+                or target_ingress.get("kind") != kind
+            ):
+                raise InboxRoutingError("INBOX_TARGET_INGRESS_MISMATCH")
+            validate_run_authority(
+                execution_principal,
+                version_id=published_evidence.version_id,
+                flow_sha256=published_evidence.flow_sha256,
+                execution_contract=published_evidence.execution_contract,
+            )
 
         try:
             with db.begin_nested():
                 buffered = try_buffer_event(
                     db,
                     system_id=system.id,
+                    workspace_id=workspace_id,
                     event_kind=event_kind,
                     payload=payload if isinstance(payload, dict) else {},
+                    before_buffer=validate_buffered_payload,
                 )
                 if buffered is not None:
                     db.add(
@@ -1224,6 +1284,18 @@ def _process_target(
             if duplicate is None:
                 raise
             return duplicate
+    except (
+        InboxRoutingError,
+        RuntimeContractError,
+        flow_ingress.FlowIngressError,
+        ExecutionPrincipalError,
+    ) as exc:
+        return {
+            "system_id": system.id,
+            "status": "rejected",
+            "reason": exc.code.lower(),
+            "dedup_key": dedup_key,
+        }
     except Exception as exc:  # noqa: BLE001 — storage failures must fail closed.
         logger.warning(
             "triggers: inbox buffer failed",
@@ -1287,8 +1359,8 @@ def emit_deposit_promoted(
     *,
     workspace_id: Optional[str],
     collection_slug: Optional[str],
-    file_ids: List[str],
-) -> List[Dict[str, Any]]:
+    file_ids: list[str],
+) -> list[dict[str, Any]]:
     """Hook fired AFTER an operator promotes deposit file(s) to a collection.
 
     ``deposit.promoted`` is the only event allowed to feed a side-effecting
@@ -1320,8 +1392,8 @@ def emit_sftp_file_arrived(
     db: DBSession,
     *,
     workspace_id: Optional[str],
-    payload: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    payload: dict[str, Any],
+) -> list[dict[str, Any]]:
     """Hook fired on SFTP staging close and/or reconciliation file arrival.
 
     Governance-restricted to analysis / notification runs only (NEVER
