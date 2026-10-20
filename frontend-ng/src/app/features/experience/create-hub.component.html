@@ -6,32 +6,70 @@
 
   <div class="xp-hub">
     @if (canEdit()) {
-      <form class="xp-automation" (ngSubmit)="createAutomation()">
-        <div class="xp-automation-head">
-          <h2>{{ i18n.t('experience.hub.automation.title') }}</h2>
-          <span>{{ i18n.t('experience.hub.automation.shape') }}</span>
+      <section class="xp-start" aria-labelledby="xp-start-title" data-testid="start-point">
+        <div class="xp-start-main">
+          <h2 id="xp-start-title" class="xp-section-title">{{ i18n.t('experience.start.title') }}</h2>
+          <p class="xp-start-lede">{{ i18n.t('experience.start.lede') }}</p>
+          <fieldset class="xp-start-choices">
+            <legend class="sr-only">{{ i18n.t('experience.start.title') }}</legend>
+            <label class="xp-start-choice">
+              <input type="radio" name="start-point" value="zero" [checked]="start() === 'zero'" (change)="start.set('zero')" data-testid="start-zero" />
+              <span>
+                <strong>{{ i18n.t('experience.start.zero.title') }}</strong>
+                <small>{{ i18n.t('experience.start.zero.body') }}</small>
+              </span>
+            </label>
+            <label class="xp-start-choice">
+              <input type="radio" name="start-point" value="example" [checked]="start() === 'example'" (change)="start.set('example')" data-testid="start-example-choice" />
+              <span>
+                <strong>{{ i18n.t('experience.start.example_choice.title') }}</strong>
+                <small>{{ i18n.t('experience.start.example_choice.body') }}</small>
+              </span>
+            </label>
+          </fieldset>
+
+          @if (start() === 'zero') {
+            <form class="xp-automation" (ngSubmit)="createAutomation()" data-testid="start-zero-form">
+              <div class="xp-automation-head">
+                <h3>{{ i18n.t('experience.hub.automation.title') }}</h3>
+                <span>{{ i18n.t('experience.hub.automation.shape') }}</span>
+              </div>
+              <label class="xp-automation-label" for="automation-prompt">{{ i18n.t('experience.start.zero.objective') }}</label>
+              <input
+                id="automation-prompt"
+                type="text"
+                [(ngModel)]="automationPrompt"
+                name="automation-prompt"
+                [placeholder]="i18n.t('experience.hub.composer.placeholder')"
+                [disabled]="automationCreating()"
+                autocomplete="off"
+              />
+              <footer>
+                <p>{{ i18n.t('experience.hub.automation.body') }}</p>
+                <button type="submit" [disabled]="automationCreating()" data-testid="start-zero-create">
+                  {{ automationCreating() ? i18n.t('experience.hub.automation.loading') : i18n.t('experience.hub.automation.cta') }}
+                </button>
+              </footer>
+              @if (automationError(); as error) {
+                <div class="xp-automation-error" role="alert" data-testid="start-zero-error" [attr.data-kind]="error">
+                  <p>{{ i18n.t(error === 'no_model' && !modelPortalOpen() ? 'experience.hub.automation.failure.no_model_portal' : 'experience.hub.automation.failure.' + error) }}</p>
+                  @if (error === 'no_model') {
+                    <a [navLink]="{ surface: 'resources' }" class="xp-card-cta" data-testid="start-zero-model-link">
+                      {{ i18n.t(modelPortalOpen() ? 'experience.start.prereq.model.fix' : 'experience.start.prereq.model.fix_portal') }}
+                    </a>
+                  }
+                </div>
+              }
+            </form>
+          }
+          @if (start() === 'example') {
+            <app-start-example-import />
+          }
         </div>
-        <input
-          type="text"
-          [(ngModel)]="automationPrompt"
-          name="automation-prompt"
-          [placeholder]="i18n.t('experience.hub.composer.placeholder')"
-          [disabled]="automationCreating()"
-          autocomplete="off"
-        />
-        <footer>
-          <p>{{ i18n.t('experience.hub.automation.body') }}</p>
-          <button
-            type="submit"
-            [disabled]="automationCreating()"
-          >
-            {{ automationCreating() ? i18n.t('experience.hub.automation.loading') : i18n.t('experience.hub.automation.cta') }}
-          </button>
-        </footer>
-        @if (automationError(); as error) {
-          <p class="xp-automation-error" role="alert">{{ i18n.t(error) }}</p>
-        }
-      </form>
+        <aside class="xp-start-aside">
+          <app-start-prerequisites />
+        </aside>
+      </section>
     }
 
     @if (!canEdit()) {

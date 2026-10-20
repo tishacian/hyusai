@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { switchMap } from 'rxjs';
 import { CanonicalApiService, type RunSystemSummary } from '@app/core/canonical-api.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -17,6 +16,9 @@ import { canEditExperienceStudio } from './experience-access';
 import { StudioApiService } from './studio/studio-api.service';
 import { inventoryState, type StudioExperience } from './studio/studio-model';
 import { automationSystemBody, selectAutomationSkill } from './hub/automation-draft.model';
+import { StartExampleImportComponent } from './hub/example-import.component';
+import { StartPrerequisitesComponent } from './hub/prerequisites.component';
+import { automationFailure, type AutomationFailure } from './hub/start.model';
 
 @Component({
   selector: 'app-create-hub',
@@ -29,6 +31,8 @@ import { automationSystemBody, selectAutomationSkill } from './hub/automation-dr
     GlyphComponent,
     HelpTooltipComponent,
     PageFrameComponent,
+    StartExampleImportComponent,
+    StartPrerequisitesComponent,
   ],
   templateUrl: './create-hub.component.html',
   styleUrl: './create-hub.component.scss',
@@ -50,7 +54,8 @@ export class CreateHubComponent {
   ));
   automationPrompt = '';
   readonly automationCreating = signal(false);
-  readonly automationError = signal<string | null>(null);
+  readonly automationError = signal<AutomationFailure | null>(null);
+  readonly modelPortalOpen = this.workspace.modelPortalEnabled;
 
   constructor() {
     this.loadRecent();
@@ -90,36 +95,50 @@ export class CreateHubComponent {
     return label === key ? status : label;
   }
 
+  /** "Start from scratch" or "Start from an example": nothing is imported by default. */
+  readonly start = signal<'zero' | 'example' | null>(null);
+
   createAutomation(): void {
     if (!this.canEdit() || this.automationCreating()) return;
     const prompt = this.automationPrompt.trim() || 'New automation';
+    const scope = this.workspace.captureRequestScope();
     this.automationCreating.set(true);
     this.automationError.set(null);
-    this.canonical
-      .listSkills({ propagateErrors: true })
-      .pipe(
-        switchMap((skills) => {
-          const skill = selectAutomationSkill(skills);
-          if (!skill) throw new Error('automation_llm_unavailable');
-          return this.canonical.createSystem(
-            automationSystemBody(skill, prompt),
-            { propagateErrors: true },
-          );
-        }),
-      )
-      .subscribe({
-        next: (system) => {
+    this.canonical.listSkills({ propagateErrors: true }).subscribe({
+      next: (skills) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        const skill = selectAutomationSkill(skills);
+        if (!skill) {
           this.automationCreating.set(false);
-          if (!system) throw new Error('automation_create_failed');
-          void this.router.navigateByUrl(
-            navigationLeafUrl('system-flow', { ref: system.id }),
-          );
-        },
-        error: () => {
-          this.automationCreating.set(false);
-          this.automationError.set('experience.hub.automation.error');
-        },
-      });
+          this.automationError.set('no_model');
+          return;
+        }
+        this.canonical
+          .createSystem(automationSystemBody(skill, prompt), { propagateErrors: true })
+          .subscribe({
+            next: (system) => {
+              if (!this.workspace.isRequestScopeCurrent(scope)) return;
+              this.automationCreating.set(false);
+              if (!system) {
+                // The server answered without a System: whether one exists is unknown.
+                this.automationError.set('unverifiable');
+                return;
+              }
+              void this.router.navigateByUrl(navigationLeafUrl('system-flow', { ref: system.id }));
+            },
+            error: (error: unknown) => {
+              if (!this.workspace.isRequestScopeCurrent(scope)) return;
+              this.automationCreating.set(false);
+              this.automationError.set(automationFailure('create', error));
+            },
+          });
+      },
+      error: (error: unknown) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.automationCreating.set(false);
+        this.automationError.set(automationFailure('skills', error));
+      },
+    });
   }
 
 }

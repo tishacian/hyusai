@@ -20,7 +20,7 @@
   gap: 16px;
 }
 
-.xp-automation h2 {
+.xp-automation h3 {
   margin: 0;
   color: var(--ck-fg-1);
   font-size: 18px;
@@ -239,3 +239,110 @@
   text-align: center;
 }
 
+
+/* Lot 4 — where to start: an explicit choice, then the inventory of what
+   this workspace already has. */
+.xp-start {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: var(--ck-space-6);
+  align-items: start;
+}
+
+.xp-start-main {
+  display: grid;
+  gap: var(--ck-space-4);
+  min-width: 0;
+}
+
+.xp-start-lede {
+  margin: 0;
+  color: var(--ck-fg-3);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.xp-start-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--ck-space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.xp-start-choice {
+  display: flex;
+  gap: var(--ck-space-3);
+  align-items: flex-start;
+  padding: var(--ck-space-4);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-md);
+  background: var(--ck-bg-panel);
+  cursor: pointer;
+}
+
+.xp-start-choice:has(input:checked) {
+  border-color: var(--ck-primary);
+}
+
+.xp-start-choice input {
+  margin-top: 3px;
+}
+
+.xp-start-choice input:focus-visible {
+  outline: 2px solid var(--ck-primary);
+  outline-offset: 2px;
+}
+
+.xp-start-choice span {
+  display: grid;
+  gap: var(--ck-space-1);
+  min-width: 0;
+}
+
+.xp-start-choice strong {
+  color: var(--ck-fg-1);
+  font-size: 15px;
+}
+
+.xp-start-choice small {
+  color: var(--ck-fg-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.xp-automation-label {
+  color: var(--ck-fg-2);
+  font-size: 13px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 960px) {
+  .xp-start {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.xp-automation-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ck-space-3);
+}
+
+.xp-automation-error p {
+  margin: 0;
+}
+
+.xp-start .xp-section-title {
+  margin: 0;
+}
