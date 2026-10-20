@@ -50,6 +50,7 @@ from app.services import system_model_operations
 from app.services.actions.contracts import normalize_system_action_pack_settings
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
+from app.services.systems import examples as system_examples
 from app.services.chat_execution_policy import (
     migration_059_system_id,
 )
@@ -1088,6 +1089,21 @@ async def list_dispatch_readiness(
     """
     _enforce_system_collection_read(db, user=user, workspace=workspace)
     return dispatch_readiness.workspace_dispatch_readiness(db, workspace=workspace)
+
+
+@router.get("/examples")
+async def list_system_examples(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Built-in examples a creator may import on purpose, with provenance.
+
+    Read-only: nothing is created until the envelope is sent to
+    ``POST /systems/import``. Declared ahead of ``GET /{system_id}``.
+    """
+    _enforce_system_collection_read(db, user=user, workspace=workspace)
+    return {"examples": system_examples.list_examples()}
 
 
 @router.post("")
@@ -2218,21 +2234,7 @@ async def export_system(
     return payload
 
 
-@router.post("/import")
-async def import_system(
-    body: SystemImportBody,
-    workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-):
-    """Create a new System from an exported envelope.
-
-    The flow is validated through the same DAG validator as PATCH, so
-    a malformed envelope cannot sneak a broken chain into the
-    workspace. Skill slugs that don't resolve in the target workspace
-    are reported under ``unresolved_skills`` in the response — the
-    import still succeeds, the operator rebinds manually afterwards.
-    """
+def _enforce_system_import(db: DBSession, *, user: User, workspace: Workspace) -> None:
     enforce_action(
         db,
         user=user,
@@ -2248,6 +2250,77 @@ async def import_system(
         ),
         resource_attrs={"mutation": "import"},
     )
+
+
+@router.post("/import/preview")
+async def preview_system_import(
+    body: SystemImportBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """What ``POST /systems/import`` would create, without creating anything.
+
+    Same authority, envelope validation and skill rebinding as the import, so
+    a creator sees the objects and the unresolved dependencies first, and a
+    refusal shows up before any choice is made.
+    """
+    _enforce_system_import(db, user=user, workspace=workspace)
+    try:
+        create_kwargs, report = export_service.prepare_import(
+            db=db,
+            envelope=body.envelope,
+            workspace_id=workspace.id,
+            target_name=body.target_name,
+        )
+    except export_service.ChainExportError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_envelope", "message": str(exc)},
+        ) from exc
+    flow = create_kwargs.get("flow_definition") or {}
+    issues = dag_validator.validate_flow(flow)
+    nodes = [
+        {
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "kind": node.get("kind"),
+            "skill_slug": (node.get("config") or {}).get("skill_slug")
+            if isinstance(node.get("config"), Mapping)
+            else None,
+        }
+        for node in flow.get("nodes") or []
+        if isinstance(node, Mapping)
+    ]
+    return {
+        "name": create_kwargs["name"],
+        "objective": create_kwargs["objective"],
+        "nodes": nodes,
+        "edge_count": len(flow.get("edges") or []),
+        "resolved_skills": [row["slug"] for row in report.get("resolved_skills", [])],
+        "unresolved_skills": report.get("unresolved_skills", []),
+        "source": report.get("source", {}),
+        "valid": not dag_validator.has_errors(issues),
+        "issues": dag_validator.issues_to_payload(issues),
+    }
+
+
+@router.post("/import")
+async def import_system(
+    body: SystemImportBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Create a new System from an exported envelope.
+
+    The flow is validated through the same DAG validator as PATCH, so
+    a malformed envelope cannot sneak a broken chain into the
+    workspace. Skill slugs that don't resolve in the target workspace
+    are reported under ``unresolved_skills`` in the response — the
+    import still succeeds, the operator rebinds manually afterwards.
+    """
+    _enforce_system_import(db, user=user, workspace=workspace)
     try:
         create_kwargs, report = export_service.prepare_import(
             db=db,
