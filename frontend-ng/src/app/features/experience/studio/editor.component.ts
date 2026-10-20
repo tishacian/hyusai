@@ -68,6 +68,7 @@ import {
 } from './studio-model';
 import type { ReadyCheck } from './studio-publish';
 import { ExperiencePublishDialogComponent } from './publish-dialog.component';
+import { StudioTestPreviewComponent } from './test-preview.component';
 import type {
   CertifiedType,
   ExperienceDocument,
@@ -181,6 +182,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
     ExperienceRuntimeHostComponent,
     ExperiencePublishDialogComponent,
     ConfirmDialogComponent,
+    StudioTestPreviewComponent,
   ],
   styleUrl: './studio.scss',
   template: `
@@ -527,6 +529,12 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
               </div>
             }
           </div>
+          <app-studio-test-preview
+            [page]="selectedPage()"
+            [bindings]="bindings()"
+            [systemNames]="systemNames()"
+            (openSetting)="openComponentSetting($event)"
+          />
           @if (!readOnly()) {
           <form class="xp-assist" (submit)="$event.preventDefault(); propose()">
             <div class="xp-assist-bar">
@@ -804,17 +812,24 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                 </select>
               </div>
               @if (bound(node); as row) {
-                <p class="xp-meta">
-                  <span>{{ bindingLabel(row) }}</span>
-                </p>
-                <p class="xp-hint">
-                  <strong>{{ i18n.t('experience.editor.action.inputs') }}</strong>
-                  @if (inputNames(node).length === 0) {
-                    {{ i18n.t('experience.editor.action.inputs.empty') }}
-                  } @else {
-                    {{ inputNames(node).join(', ') }}
-                  }
-                </p>
+                <dl class="xp-kv" data-testid="action-contract">
+                  <dt>{{ i18n.t('experience.editor.action.system') }}</dt>
+                  <dd data-testid="action-contract-system">{{ systemLabel(row.system_id) }}</dd>
+                  <dt>{{ i18n.t('experience.editor.action.version_label') }}</dt>
+                  <dd data-testid="action-contract-version" [attr.data-current]="versionCurrent(row)">
+                    {{ i18n.t(versionCurrent(row) === false ? 'experience.editor.action.version_outdated' : 'experience.editor.action.version_published', { version: row.published_flow_version_id.slice(0, 8) }) }}
+                  </dd>
+                  <dt>{{ i18n.t('experience.editor.action.inputs') }}</dt>
+                  <dd data-testid="action-contract-inputs">
+                    @switch (dataContractStates()[row.binding_key]) {
+                      @case ('ready') {
+                        {{ actionInputs(row).length === 0 ? i18n.t('experience.editor.action.inputs.empty') : actionInputs(row).join(', ') }}
+                      }
+                      @case ('error') { {{ i18n.t('experience.editor.action.inputs.unknown') }} }
+                      @default { {{ i18n.t('experience.editor.action.inputs.loading') }} }
+                    }
+                  </dd>
+                </dl>
                 @if (sharedWith(row.binding_key); as others) {
                   @if (others.length > 0) {
                     <p class="xp-warn" role="status">
@@ -975,12 +990,19 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                     <span>{{ i18n.t('experience.editor.data.path') }}</span>
                     <select [value]="dataBinding(node)?.selector ?? ''" (change)="setDataField(node, 'selector', selectValue($event))">
                       @for (option of dataSelectorOptions(node); track option.value) {
-                        <option [value]="option.value">
-                          {{ option.value ? option.label : i18n.t('experience.editor.data.whole_result') }}
+                        <option [value]="option.value" [disabled]="option.absent">
+                          {{ option.absent
+                            ? i18n.t('experience.editor.data.absent_option', { path: option.label })
+                            : option.value ? option.label : i18n.t('experience.editor.data.whole_result') }}
                         </option>
                       }
                     </select>
                   </label>
+                  @if (selectorAbsent(node)) {
+                    <p class="xp-warn" role="alert" data-testid="data-selector-absent">
+                      {{ i18n.t('experience.editor.data.absent', { path: dataBinding(node)?.selector ?? '' }) }}
+                    </p>
+                  }
                   <p class="xp-hint">{{ i18n.t('experience.editor.data.explicit') }}</p>
                   <details>
                     <summary>{{ i18n.t('experience.editor.action.advanced') }}</summary>
@@ -1365,6 +1387,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
       @if (lockedDraft(); as draft) {
       <app-experience-publish-dialog
         [experienceId]="experienceId"
+        [appSlug]="slug()"
         [draft]="draft"
         [experienceUpdatedAt]="detail()?.updated_at ?? ''"
         [deployments]="detail()?.deployments ?? []"
@@ -1450,6 +1473,8 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly deploymentRelease = signal<StudioRelease | null>(null);
   readonly drifts = signal<StudioDrift[]>([]);
   readonly publishedVersions = signal<Record<string, string>>({});
+  /** Published System names, to say which System an action calls. */
+  readonly systemNames = signal<Record<string, string>>({});
   readonly lifecycleBusy = signal(false);
   readonly dataError = signal<string | null>(null);
   readonly dataContracts = signal<Record<string, StudioIngressList>>({});
@@ -2025,10 +2050,6 @@ export class ExperienceEditorComponent implements OnDestroy {
     return bindingSharedWith(this.apps(), key, this.id());
   }
 
-  inputNames(node: ExperienceNode): string[] {
-    return fieldsFromSchema(node.props?.['schema']).map((field) => field.label || field.name);
-  }
-
   setActionBinding(node: ExperienceNode, key: string): void {
     if (this.readOnly() || !node.id) return;
     this.actionBindingRequests.get(node.id)?.unsubscribe();
@@ -2062,6 +2083,7 @@ export class ExperienceEditorComponent implements OnDestroy {
           ? { bindingKey: key, schema }
           : { bindingKey: key, input: {} });
         if (!this.bindingKeys().includes(key)) this.bindingKeys.update((keys) => [...keys, key]);
+        this.loadDataContract(key);
       },
       error: () => {
         if (this.id() === routeId && this.actionBindingRequests.get(nodeId) === request) {
@@ -2214,15 +2236,53 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.dataError.set(null);
   }
 
-  dataSelectorOptions(node: ExperienceNode): Array<{ value: string; label: string }> {
+  /**
+   * Only paths the bound published version exposes are offered. A saved path
+   * it no longer exposes stays visible as the current value, disabled and
+   * flagged, so it is never offered as a choice (plan lot 4, US33).
+   */
+  dataSelectorOptions(node: ExperienceNode): Array<{ value: string; label: string; absent?: boolean }> {
     const key = this.dataContractKey(node);
     const schema = key ? this.dataContracts()[key]?.output_schema : null;
-    const options = schemaSelectorOptions(schema, node.type);
+    const options: Array<{ value: string; label: string; absent?: boolean }> = schemaSelectorOptions(schema, node.type);
     const current = this.dataBinding(node)?.selector ?? '';
-    if (current && !options.some((option) => option.value === current)) {
-      options.push({ value: current, label: humanizeIdentifier(current) || current });
+    if (current && this.selectorAbsent(node)) {
+      options.push({ value: current, label: current, absent: true });
     }
     return options.length > 0 ? options : [{ value: '', label: '' }];
+  }
+
+  /** The saved path is not in the contract the bound version publishes. */
+  selectorAbsent(node: ExperienceNode): boolean {
+    const key = this.dataContractKey(node);
+    if (!key || this.dataContractStates()[key] !== 'ready') return false;
+    const current = this.dataBinding(node)?.selector ?? '';
+    if (!current) return false;
+    const schema = this.dataContracts()[key]?.output_schema;
+    return !schemaSelectorOptions(schema, node.type).some((option) => option.value === current);
+  }
+
+  systemLabel(systemId: string): string {
+    return this.systemNames()[systemId] ?? this.i18n.t('experience.editor.action.system_unknown');
+  }
+
+  /** null while unknown; false when the System has published a newer version since. */
+  versionCurrent(row: StudioBinding): boolean | null {
+    const published = this.publishedVersions()[row.system_id];
+    return published ? published === row.published_flow_version_id : null;
+  }
+
+  /** Inputs the bound entry point of the published version expects. */
+  actionInputs(row: StudioBinding): string[] {
+    const contract = this.dataContracts()[row.binding_key];
+    const ingress = contract?.ingresses.find((item) => item.ingress_id === row.ingress_id);
+    return fieldsFromSchema(ingress?.input_schema ?? null).map((field) => field.label || field.name);
+  }
+
+  openComponentSetting(componentId: string): void {
+    this.selectNode(this.pageId(), componentId);
+    // The data source and output path are set under the Action tab.
+    this.inspectorTab.set('action');
   }
 
   queryInput(node: ExperienceNode): string {
@@ -2270,6 +2330,9 @@ export class ExperienceEditorComponent implements OnDestroy {
   private ensureNodeDataContract(node: ExperienceNode): void {
     const key = this.dataContractKey(node);
     if (key) this.loadDataContract(key);
+    // Actions and forms show their System, version and expected inputs.
+    const own = this.nodeBindingKey(node);
+    if (own && own !== key) this.loadDataContract(own);
   }
 
   private loadDataContract(key: string, force = false): void {
@@ -3239,11 +3302,14 @@ export class ExperienceEditorComponent implements OnDestroy {
       next: (rows) => {
         if (this.id() !== id) return;
         const versions: Record<string, string> = {};
+        const names: Record<string, string> = {};
         for (const row of rows) {
           const version = row.published_flow_version_id;
           if (version) versions[row.id] = version;
+          names[row.id] = row.name;
         }
         this.publishedVersions.set(versions);
+        this.systemNames.set(names);
       },
       error: () => {
         if (this.id() === id) this.publishedVersions.set({});

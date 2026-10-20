@@ -1,4 +1,4 @@
-import { DOCUMENT } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { A11yModule } from '@angular/cdk/a11y';
 import {
   ChangeDetectionStrategy,
@@ -15,6 +15,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { forkJoin } from 'rxjs';
+import { RouterLink } from '@angular/router';
+import { workPageHref } from '../work/work-catalog';
 import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import {
@@ -49,7 +51,7 @@ export interface PublishSummary {
   selector: 'app-experience-publish-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, HelpTooltipComponent],
+  imports: [A11yModule, DatePipe, HelpTooltipComponent, RouterLink],
   styleUrl: './studio.scss',
   template: `
     @if (open()) {
@@ -77,6 +79,33 @@ export interface PublishSummary {
             [disabled]="busy()"
             (click)="close()"
           >✕</button>
+          @if (receipt(); as r) {
+            <div class="xp-receipt" data-testid="deploy-receipt">
+              <p class="xp-hint">{{ i18n.t('experience.publish.receipt.eyebrow') }}</p>
+              <h2 id="xp-pub-title" #receiptTitle tabindex="-1">{{ i18n.t('experience.publish.receipt.title.' + r.channel, { n: r.releaseNumber }) }}</h2>
+              <p role="status">{{ i18n.t('experience.publish.receipt.body') }}</p>
+              <dl class="xp-recap">
+                <dt>{{ i18n.t('experience.publish.receipt.release') }}</dt>
+                <dd data-testid="deploy-receipt-release">{{ i18n.t('experience.publish.receipt.release_value', { n: r.releaseNumber }) }}</dd>
+                <dt>{{ i18n.t('experience.publish.receipt.channel') }}</dt>
+                <dd data-testid="deploy-receipt-channel">{{ i18n.t('experience.publish.receipt.channel.' + r.channel) }}</dd>
+                <dt>{{ i18n.t('experience.publish.receipt.audience') }}</dt>
+                <dd data-testid="deploy-receipt-audience">{{ r.audience }}</dd>
+                <dt>{{ i18n.t('experience.publish.receipt.author') }}</dt>
+                <dd>{{ r.author || i18n.t('experience.publish.receipt.unknown') }}</dd>
+                <dt>{{ i18n.t('experience.publish.receipt.at') }}</dt>
+                <dd>{{ r.at ? (r.at | date: 'medium') : i18n.t('experience.publish.receipt.unknown') }}</dd>
+              </dl>
+              <div class="xp-foot">
+                <button type="button" class="xp-btn" (click)="close()">{{ i18n.t('experience.publish.close') }}</button>
+                @if (r.workHref) {
+                  <a class="xp-btn xp-btn-primary" [routerLink]="r.workHref" (click)="close()" data-testid="deploy-receipt-open">
+                    {{ i18n.t('experience.publish.receipt.open') }}
+                  </a>
+                }
+              </div>
+            </div>
+          } @else {
           <p class="xp-hint">{{ i18n.t(release() ? 'experience.publish.deploy.eyebrow' : 'experience.publish.eyebrow') }}</p>
           <h2 id="xp-pub-title">{{ release()
             ? i18n.t('experience.publish.deploy.title', { n: release()!.release_number })
@@ -315,6 +344,7 @@ export interface PublishSummary {
               </button>
             }
           </div>
+          }
         </section>
       </div>
     }
@@ -327,6 +357,18 @@ export class ExperiencePublishDialogComponent {
   private readonly injector = inject(Injector);
   readonly returnFocus = input<HTMLElement | null>(null);
   readonly experienceId = input.required<string>();
+  /** The application's address in Work, for the receipt's "Open in Work". */
+  readonly appSlug = input('');
+  /** What the server confirmed after a deployment; the dialog stays open on it. */
+  readonly receipt = signal<{
+    releaseNumber: number;
+    channel: 'pilot' | 'live';
+    audience: string;
+    author: string | null;
+    at: string | null;
+    workHref: string | null;
+  } | null>(null);
+  private readonly receiptTitle = viewChild<ElementRef<HTMLElement>>('receiptTitle');
   readonly draft = input.required<StudioDraft>();
   readonly experienceUpdatedAt = input.required<string>();
   readonly deployments = input<readonly StudioDeployment[]>([]);
@@ -452,6 +494,7 @@ export class ExperiencePublishDialogComponent {
       this.release.set(initialRelease);
       this.notes.set('');
       this.error.set(null);
+      this.receipt.set(null);
       this.channel.set('none');
       this.deployGroups.set([]);
       if (initialRelease) {
@@ -704,10 +747,19 @@ export class ExperiencePublishDialogComponent {
         ...(pilotAudience ? { audience: pilotAudience } : {}),
       })
       .subscribe({
-        next: () => {
+        next: (deployment) => {
           this.busy.set(false);
+          const confirmed = deployment as StudioDeployment & { updated_by?: string | null };
+          this.receipt.set({
+            releaseNumber: release.release_number,
+            channel,
+            audience: this.receiptAudience(channel, confirmed.audience ?? pilotAudience),
+            author: confirmed.updated_by ?? null,
+            at: confirmed.updated_at ?? null,
+            workHref: this.appSlug() ? workPageHref(this.appSlug()) : null,
+          });
           this.deployed.emit();
-          this.close();
+          afterNextRender(() => this.receiptTitle()?.nativeElement.focus(), { injector: this.injector });
         },
         error: (err) => {
           const conflict = apiCode(err) === 'EXPERIENCE_DEPLOYMENT_CONFLICT';
@@ -732,6 +784,17 @@ export class ExperiencePublishDialogComponent {
       pilot: pilot?.updated_at ?? null,
       live: live?.updated_at ?? null,
     });
+  }
+
+  /** The audience the server recorded, as the author reads it. */
+  private receiptAudience(channel: 'pilot' | 'live', audience: Record<string, unknown> | null | undefined): string {
+    const policy = audience && Object.keys(audience).length > 0
+      ? audience
+      : channel === 'live' ? this.recapAudience() : {};
+    const roles = this.audienceValues(policy, 'roles').map((role) => this.i18n.t(`governance.access.role.${role}`));
+    const groups = this.audienceValues(policy, 'groups');
+    const parts = [...roles, ...groups.map((group) => this.i18n.t('experience.publish.receipt.group', { group }))];
+    return parts.length > 0 ? parts.join(', ') : this.i18n.t('experience.publish.receipt.whole_workspace');
   }
 
   private audienceValues(policy: Record<string, unknown>, key: 'roles' | 'groups'): string[] {
