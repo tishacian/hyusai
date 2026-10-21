@@ -219,6 +219,8 @@ const POLL_MS = 8000;
                       <p>{{ run.hitl?.prompt }}</p>
                     }
                     <app-run-mandate [runId]="run.id" [compact]="true" />
+                    <!-- Who may decide is said before any action, reviewing included. -->
+                    <app-decision-right [hitl]="run.hitl" />
                     @if (!decisionAvailable(run)) {
                       <p class="xp-work-note" role="status">{{ i18n.t('workMandate.unavailable') }}</p>
                     } @else if (!isReviewed(run)) {
@@ -232,7 +234,6 @@ const POLL_MS = 8000;
                     @if (run.hitl?.prompt_kind === 'review_dataset_labels') {
                       <app-dataset-label-review [runId]="run.id" [decisionId]="run.hitl?.decision_id ?? ''" [disabled]="decisionBusy().has(run.id)" (submissionChange)="setLabelReview(run, $event)" />
                     }
-                    <app-decision-right [hitl]="run.hitl" />
                     @if (mayDecide(run.hitl)) {
                     <label>
                       {{ i18n.t('experience.work.validations.reason') }}

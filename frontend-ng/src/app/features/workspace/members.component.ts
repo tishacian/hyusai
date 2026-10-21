@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { LOADING, settleRead, settleWrite, writeFailureCause, type LoadState } from '@app/shared/ui/load-state';
 import { DatePipe, NgClass } from '@angular/common';
@@ -398,8 +398,9 @@ export class WorkspaceMembersComponent {
 
   load(slug: string): void {
     this.loading.set(true);
-    settleRead(this.workspaceService.listMembers(slug), { previous: this.membersState() }).subscribe((state) => {
-      if (this.routeSlug() !== slug) return;
+    // Read untracked: `load` runs inside the route effect, which must not re-run on its own state.
+    settleRead(this.workspaceService.listMembers(slug), { previous: untracked(this.membersState) }).subscribe((state) => {
+      if (untracked(this.routeSlug) !== slug) return;
       this.membersState.set(state);
       if (state.s === 'loading') return;
       this.loading.set(false);
