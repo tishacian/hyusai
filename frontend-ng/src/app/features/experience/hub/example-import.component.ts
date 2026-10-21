@@ -142,7 +142,7 @@ type PreviewState = 'idle' | 'loading' | 'ready' | 'error';
     .provenance { display: grid; grid-template-columns: max-content 1fr; gap: var(--ck-space-1) var(--ck-space-3); margin: var(--ck-space-4) 0 0; font-size: 13px; }
     .provenance dt { color: var(--ck-fg-3); }
     .provenance dd { margin: 0; color: var(--ck-fg-1); }
-    .preview ul { margin: 0; padding-left: var(--ck-space-5); font-size: 13px; color: var(--ck-fg-2); line-height: 1.7; }
+    .preview ul { margin: 0; padding-left: var(--ck-space-6); font-size: 13px; color: var(--ck-fg-2); line-height: 1.7; }
     .preview code { font-family: var(--ck-font-mono); font-size: 12px; margin-left: var(--ck-space-1); }
     .dep.is-ok { color: var(--ck-status-ok-fg); }
     .dep.is-missing { color: var(--ck-status-warn-fg); }

@@ -160,7 +160,7 @@ import { ExperienceActivationService } from './experience-activation.service';
       margin: var(--ck-space-4) 0; padding: var(--ck-space-3) var(--ck-space-4);
       border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-panel-hi);
     }
-    .effect ul { margin: 0; padding-left: var(--ck-space-5); color: var(--ck-fg-2); font-size: 14px; line-height: 1.6; }
+    .effect ul { margin: 0; padding-left: var(--ck-space-6); color: var(--ck-fg-2); font-size: 14px; line-height: 1.6; }
     .notice {
       display: flex; flex-wrap: wrap; align-items: center; gap: var(--ck-space-2);
       margin: var(--ck-space-4) 0 0; padding: var(--ck-space-2) var(--ck-space-3);
