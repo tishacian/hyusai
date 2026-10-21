@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test.use({ serviceWorkers: 'block', video: 'off' });
+
 const workspace = { id: 'ops-ws', slug: 'ops-ws', name: 'Operations', role: 'owner', role_template: 'workspace_owner', settings: {} };
 const mission = { id: 'mission-1', title: 'Delivery report', description: 'Summarise the delivery evidence', agent_id: 'system-1', status: 'pending', steps: [], artifacts: {}, executions: [] };
 const secret = { id: 'secret-1', name: 'erp-key', ref: 'secret://workspace/erp-key', scope: 'workspace', workspace_id: workspace.id, kind: 'api_key', current_version: 2, value_set: true, disabled_at: null, versions: [{version:1, created_at:'2026-10-01T00:00:00Z'}, {version:2, created_at:'2026-10-10T00:00:00Z'}] };
@@ -43,7 +45,6 @@ async function install(page: Page, options: { existing?: Record<string, unknown>
 
 test.describe('Lot 7: deliberate operations and retained evidence', () => {
   test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1','Local mocked contract only');
-  test.use({serviceWorkers:'block',video:'off'});
 
   test('composition saves a draft, launch reviews goal, agent and deliverable',async ({page}) => {
     const writes=await install(page);
@@ -74,7 +75,7 @@ test.describe('Lot 7: deliberate operations and retained evidence', () => {
     await page.getByText('Exécutions et livrables conservés').click();
     await expect(page.locator('app-drawer')).toContainText('Previous retained report');
     await page.getByRole('button',{name:'Relancer',exact:true}).click();
-    await expect(page.locator('app-confirm-dialog')).toContainText('conserv');
+    await expect(page.locator('app-confirm-dialog')).toContainText('Une nouvelle exécution sera créée ; le livrable précédent restera dans l’historique.');
     expect(writes).toEqual([]);
   });
 

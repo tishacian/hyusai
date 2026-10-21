@@ -139,6 +139,8 @@
   color: var(--ck-fg-4);
 }
 
+.xp-cell-label { display: none; }
+
 /* The flex group lives inside the cell: `display: flex` on a <td> took it
    out of the table layout. Links are compact `.ck-btn`s so they keep one line. */
 .xp-actions {
@@ -1601,7 +1603,15 @@
   gap: 16px;
 }
 
+.xp-search {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .xp-search input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   min-height: 34px;
   padding: 7px 10px;
   border: 1px solid var(--ck-stroke-3);
@@ -1635,6 +1645,49 @@
 }
 
 @media (max-width: 760px) {
+  /* Keep every value and action readable without a horizontal table scroll.
+     Explicit table roles/headers retain associations when the rows stack. */
+  .xp-table,
+  .xp-table tbody,
+  .xp-table tbody tr,
+  .xp-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .xp-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .xp-table tbody tr {
+    margin-bottom: 16px;
+    border: 1px solid var(--ck-stroke-2);
+    border-radius: 6px;
+  }
+
+  .xp-table td {
+    padding: 10px 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .xp-table td:last-child { border-bottom: 0; }
+
+  .xp-cell-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ck-fg-3);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   .xp-ed-chrome {
     display: flex;
     flex: 0 0 auto;
@@ -1694,6 +1747,7 @@
   .xp-wizard-title { display: none; }
   .xp-wizard-topbar { grid-template-columns: 1fr auto; }
   .xp-inventory-tools { flex-direction: column; }
+  .xp-search { width: 100%; }
 
   .xp-bottom-bar {
     justify-content: flex-start;

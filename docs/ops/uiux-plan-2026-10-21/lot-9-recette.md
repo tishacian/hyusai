@@ -1,6 +1,6 @@
 # Lot 9 — protocole et état de recette
 
-**État : non exécuté.** Aucun participant humain, temps de tâche, taux de réussite ou résultat axe n'est déduit des tests unitaires. Le plan demande une pile de recette, un second corpus, des comptes et des personnes ; ces observations restent à recueillir.
+**État initial avant déploiement : non exécuté.** Les passages automatisés désormais réalisés sont documentés dans la [recette après déploiement](../uiux-recette-2026-10-21.md). Aucun participant humain, temps de tâche ou taux de réussite n'est déduit des tests automatisés. Le plan demande une pile de recette, un second corpus, des comptes et des personnes ; ces observations restent à recueillir.
 
 ## Révision et environnement
 

@@ -248,6 +248,7 @@ test.describe('L33 — Work home « À faire »', () => {
 
       const home = page.locator('app-work-launcher');
       await expect(home.getByRole('heading', { level: 1 })).toHaveText('4 choses vous attendent', { timeout: 20_000 });
+      await expect(home.getByRole('heading', { level: 1 })).toBeFocused();
       await expect(home.locator('.xp-home-eyebrow')).toHaveText('Accueil');
       expect(await home.evaluate((root) => {
         const apps = root.querySelector('.xp-home-apps')!;
@@ -284,6 +285,7 @@ test.describe('L33 — Work home « À faire »', () => {
       await expect(rows.nth(2).locator('.xp-home-chip')).toHaveText('À relire');
       await expect(rows.nth(3).locator('.xp-home-chip')).toHaveText('Prêt');
       await expect(rows.nth(3)).toContainText('4 étapes · 6,2 s');
+      await expect(rows.nth(3).locator('a')).toHaveAttribute('href', '/runs/e2d7e8ce-aa01?systemId=sys-nightly');
 
       // Agent work this week, with one receipt line each and a mono reference.
       const work = home.locator('.xp-home-work > li');
@@ -291,6 +293,7 @@ test.describe('L33 — Work home « À faire »', () => {
       await expect(work.nth(0)).toContainText('8 étapes · 18 s · écriture scellée');
       await expect(work.nth(1)).toContainText('3 passages lus · 2 cités');
       await expect(work.nth(0).locator('a.xp-home-id')).toHaveText('827e12b7');
+      await expect(work.nth(2).locator('a.xp-home-id')).toHaveAttribute('href', '/runs/e2d7e8ce-aa01?systemId=sys-nightly');
       await expect(home.locator('.xp-home-rail app-adoption-journey')).toHaveCount(1);
       // No designer note, no letter-spaced capitals.
       await expect(home).not.toContainText('Un utilisateur est activé');

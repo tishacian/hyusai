@@ -671,7 +671,8 @@ export class FlowBuilderComponent {
       : [...primitives, ...governed];
   });
   protected readonly systemId = signal<string | null>(null);
-  protected readonly deliveryJournalOpen = this.route.snapshot.queryParamMap.get('tab') === 'triggers';
+  protected readonly deliveryJournalOpen = (this.route.snapshot.queryParamMap.get('facet')
+    ?? this.route.snapshot.queryParamMap.get('tab')) === 'triggers';
   protected readonly system = signal<System | null>(null);
   protected readonly paletteOpen = signal(true);
   protected readonly inspectorOpen = signal(false);

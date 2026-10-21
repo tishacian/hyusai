@@ -17,7 +17,7 @@ Each step should have: a short title, a description of what to do, and a type
 (one of: rag_query, analysis, synthesis, search, document_scan, aggregation).
 
 Return ONLY valid JSON array, no markdown:
-[{"title": "...", "description": "...", "type": "..."}]
+[{{"title": "...", "description": "...", "type": "..."}}]
 
 Mission: {mission}"""
 

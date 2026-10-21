@@ -89,6 +89,7 @@ test.describe('Flow trigger setup — local fixtures only', () => {
       await page.setViewportSize({ width, height: 1000 });
       const writes = await setup(page, locale, theme);
       await page.goto(`/systems/${systemId}/flow?tab=triggers`);
+      await expect(page).toHaveURL(/\/flow\?facet=triggers(?:&|$)/);
       await expect(page.getByTestId('flow-published-reading')).toBeVisible();
       await expect(page.locator('app-flow-node')).toHaveCount(3);
       const deliveries = page.getByTestId('trigger-deliveries');
@@ -105,7 +106,20 @@ test.describe('Flow trigger setup — local fixtures only', () => {
       // Give the 1200 ms autosave debounce a chance to fire if a read path regresses.
       await page.waitForTimeout(1500);
       await expect(page.locator('app-flow-node')).toHaveCount(3);
-      expect(writes).toEqual([]);
+      // Resolving the legacy deep link records navigation telemetry. It must
+      // not validate, edit or publish the Flow while reading the published one.
+      expect(writes).toEqual([{
+        path: '/audit',
+        body: {
+          event_type: 'navigation.resolved', severity: 'info',
+          details: {
+            schema_version: 1, requested_route: '/systems/:systemId/flow',
+            resolved_route: '/systems/:systemId/flow', effective_surface: 'systems',
+            effective_workspace: workspace.slug, redirected: true,
+            redirect_reason: 'legacy_tab_query', redirect_owner: 'navigation_resolver',
+          },
+        },
+      }]);
       await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
       await expect(page.getByTestId('flow-published-reading')).toHaveCount(0);
       await expect.poll(() => writes.some(write => write.path.endsWith('/validate-flow'))).toBe(true);

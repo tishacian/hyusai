@@ -33,7 +33,7 @@ for (const locale of ['fr', 'en'] as const) {
       return route.fulfill({ contentType: 'application/json', body: '{}' });
     });
     await page.goto('/deposit/receipt-fixture');
-    await expect(page.getByRole('heading', { name: 'Guest document deposit' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Guest document deposit', level: 1, exact: true })).toBeVisible();
     await page.locator('input[type=file]').setInputFiles([
       { name: 'received.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic document') },
       { name: 'refused.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('Synthetic refusal') },
