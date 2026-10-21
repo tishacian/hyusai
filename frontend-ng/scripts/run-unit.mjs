@@ -195,6 +195,7 @@ const pureSpecs = [
   'src/app/features/experience/work/pr-to-po-receipt.spec.ts',
   'src/app/features/experience/studio/studio.spec.ts',
   'src/app/features/runs/runs-origin.spec.ts',
+  'src/app/features/auth/signup.vm.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +

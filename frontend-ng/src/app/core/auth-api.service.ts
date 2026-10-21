@@ -145,6 +145,13 @@ export class AuthApiService {
     );
   }
 
+  resendSignupVerification(email: string): Observable<{ status: string; verification_email_sent?: boolean }> {
+    return this.http.post<{ status: string; verification_email_sent?: boolean }>(
+      '/api/v1/auth/signup/resend-verification',
+      { email }
+    );
+  }
+
   passwordReset(email: string): Observable<{ status: string; message: string }> {
     return this.http.post<{ status: string; message: string }>(
       '/api/v1/auth/password-reset',

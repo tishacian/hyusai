@@ -770,6 +770,50 @@ async def signup(body: SignupRequest, db: DBSession = Depends(get_db)):
     }
 
 
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/signup/resend-verification")
+async def resend_signup_verification(body: ResendVerificationRequest):
+    """Send the signup verification email again.
+
+    The way out when ``/signup`` answered ``verification_email_sent: false``.
+    Only an enabled, not yet verified account gets an email; the answer says
+    whether one was sent, never why not, so it reveals no more than
+    ``/signup`` already does (409 on an existing email).
+    """
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{_get_admin_url()}/users",
+            params={"email": body.email, "exact": "true"},
+            headers=headers,
+            timeout=10,
+        )
+    users = resp.json() if resp.status_code == 200 else []
+    target = body.email.strip().lower()
+    pending = next(
+        (
+            user
+            for user in users
+            if user.get("enabled", True)
+            and not user.get("emailVerified", False)
+            and str(user.get("email") or user.get("username") or "").strip().lower() == target
+        ),
+        None,
+    )
+
+    sent = False
+    if pending and pending.get("id"):
+        sent = await _send_signup_verification_email(pending["id"], admin_token)
+    return {"status": "ok", "verification_email_sent": sent}
+
+
 def _select_password_reset_user(users: list[dict], email: str) -> Optional[dict]:
     """Pick the safest Keycloak user for a password reset email.
 
