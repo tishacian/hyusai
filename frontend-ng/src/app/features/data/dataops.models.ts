@@ -16,7 +16,9 @@ export interface PrepPreview { output_schema?:TabularColumn[];stats_scope?:'samp
   step_schemas?: Array<{id: string; index: number; enabled: boolean; schema: TabularColumn[]; schema_diff?: {added?: string[]; removed?: string[]; changed?: string[]}}>;
   warnings?: Array<string | {code: string; step_id?: string}>; counters?: Record<string, unknown>; counts?: Record<string, number>;
 }
-export interface PrepExecution { id: string; status: string; stage?: string; error?: string | null; output_json?: Record<string, unknown> | null; output?: Record<string, unknown>; }
+export interface PrepExecution { id: string; status: string; stage?: string; error?: string | null; output_json?: Record<string, unknown> | null; output?: Record<string, unknown>;
+  /** The server took a cancel request; the run is stopped only once `status` says so. */
+  cancel_requested?: boolean; created_at?: string | null; finished_at?: string | null; }
 export const PREP_OPERATIONS: PrepOperation[] = ['prepare', 'join', 'union', 'aggregate', 'unpivot', 'split', 'sample'];
 export const PREP_ACTIONS: PrepAction[] = ['bin', 'select_columns', 'drop_columns', 'rename_columns', 'select', 'drop', 'rename', 'cast', 'fill_null', 'drop_null', 'filter', 'derive', 'sort', 'deduplicate', 'trim', 'upper', 'lower', 'replace', 'date_format', 'hash', 'move_columns', 'copy_column', 'concat_columns', 'normalize_column_names', 'add_column', 'parse_date', 'format_date', 'from_epoch', 'parse_number', 'to_boolean', 'drop_nulls', 'fill_nulls', 'filter_rows', 'filter_range', 'filter_expression', 'flag_rows', 'text_transform', 'replace_values', 'split_column', 'extract_regex', 'count_occurrences', 'substring', 'pad', 'length', 'negate_boolean', 'bin_numeric', 'formula', 'conditional_column', 'map_values', 'window', 'mask', 'dedup', 'round', 'math', 'extract_date_parts', 'date_diff', 'date_add', 'truncate_date', 'convert_timezone', 'scale'];
 export const PREVIEW_ROW_LIMIT = 100;

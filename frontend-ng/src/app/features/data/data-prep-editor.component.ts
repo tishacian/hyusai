@@ -20,10 +20,11 @@ import { PrepParamsComponent } from './prep-params.component';
     }
     @if (value().spec.operation === 'prepare') { <section class="dp-section"><h3>{{ i18n.t('dataops.steps') }}</h3>
       @for (step of value().spec.steps; track step.id ?? $index; let n = $index) {
-        <div class="dp-section"><div class="dp-row"><label class="dp-field"><span>{{ i18n.t('dataops.step') }} {{ n + 1 }}</span><select class="dp-input" [value]="step.action" (change)="stepAction(n, val($event))">@for (action of actions; track action) { <option [value]="action">{{ i18n.t('dataops.step.' + action) }}</option> }</select></label>
+        <div class="dp-section" [class.dp-section--invalid]="!!stepError(step.id)" [attr.aria-invalid]="stepError(step.id) ? 'true' : null"><div class="dp-row"><label class="dp-field"><span>{{ i18n.t('dataops.step') }} {{ n + 1 }}</span><select class="dp-input" [value]="step.action" (change)="stepAction(n, val($event))">@for (action of actions; track action) { <option [value]="action">{{ i18n.t('dataops.step.' + action) }}</option> }</select></label>
           <button type="button" class="dp-button" [disabled]="n === 0" (click)="move(n, -1)" [attr.aria-label]="i18n.t('dataops.up')">↑</button>
           <button type="button" class="dp-button" [disabled]="n === value().spec.steps.length - 1" (click)="move(n, 1)" [attr.aria-label]="i18n.t('dataops.down')">↓</button>
           <button type="button" class="dp-button" (click)="remove(n)">{{ i18n.t('dataops.remove') }}</button></div>
+          @if (stepError(step.id); as message) { <p class="dp-error" role="alert" [attr.data-testid]="'prep-step-error-' + n">{{ message }}</p> }
           <app-prep-params [kind]="step.action" [params]="step.params" [columns]="columnsBefore(n)" (paramsChange)="stepParams(n, $event)" />
         </div>
       }
@@ -42,10 +43,13 @@ import { PrepParamsComponent } from './prep-params.component';
 })
 export class DataPrepEditorComponent {
   readonly i18n = inject(I18nService); readonly value = input.required<PrepDraft>(); readonly datasets = input<DatasetDto[]>([]);
+  /** A compilation error the server tied to one step, by step id. */
+  readonly stepErrors = input<Readonly<Record<string, string>>>({});
   readonly valueChange = output<PrepDraft>(); readonly operations = PREP_OPERATIONS; readonly actions = PREP_ACTIONS;
   readonly ports = computed(() => prepDraftPorts(this.value()));
   readonly columns = computed(() => this.datasetColumns(this.value().spec.operation === 'join' ? 'left' : this.ports()[0]));
   readonly rightColumns = computed(() => this.datasetColumns('right'));
+  stepError(id: string | undefined): string | null { return id ? this.stepErrors()[id] ?? null : null; }
   val(event: Event): string { return (event.target as HTMLInputElement).value; }
   number(event: Event): number { return prepNumber(this.val(event)) ?? Number.NaN; }
   private change(fn: (draft: PrepDraft) => void): void { const draft = structuredClone(this.value()); fn(draft); this.valueChange.emit(draft); }

@@ -37,6 +37,7 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow-data-prep.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-data-prep-ui-contract.spec.ts',
   'src/app/features/data/dataops.models.spec.ts',
+  'src/app/features/data/data-preparation.vm.spec.ts',
   'src/app/features/experience/work/service-delivery.models.spec.ts',
   'src/app/features/models/preprocessing-evidence.vm.spec.ts',
   'src/app/features/models/evaluation-evidence.vm.spec.ts',
