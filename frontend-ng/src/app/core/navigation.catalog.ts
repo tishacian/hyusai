@@ -425,7 +425,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   },
   {
     id: 'workspace-app-platform',
-    label: 'Workspace Apps',
+    label: 'Workspace modules',
     route: '/governance/workspace-apps',
     lens: 'govern',
     object: 'Workspace',
@@ -433,11 +433,11 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     apiPrefix: '/api/v1/governance/workspace-apps',
     status: 'canonical',
     audience: 'admin',
-    description: 'Content-addressed installation, upgrade, rollback and uninstall lifecycle for Workspace Apps.',
+    description: 'Content-addressed installation, upgrade, rollback and uninstall lifecycle for workspace modules.',
   },
   {
     id: 'apps',
-    label: 'Apps',
+    label: 'Extensions',
     route: '/apps',
     lens: 'govern',
     object: 'Connector',
@@ -617,8 +617,8 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'create-app-new', parent: 'create-apps', route: '/create/apps/new', label: 'New business application' },
   { id: 'create-app-edit', parent: 'create-apps', route: '/create/apps/:appId', label: 'Studio editor' },
   { id: 'create-preview', parent: 'create', route: '/create/preview', label: 'Studio preview' },
-  { id: 'workspace-app-unavailable', parent: 'hypervisor', route: '/workspace-app-unavailable', label: 'Workspace app unavailable' },
-  { id: 'workspace-app-repair', parent: 'hypervisor', route: '/workspace-app-repair', label: 'Workspace app repair' },
+  { id: 'workspace-app-unavailable', parent: 'hypervisor', route: '/workspace-app-unavailable', label: 'Workspace module unavailable' },
+  { id: 'workspace-app-repair', parent: 'hypervisor', route: '/workspace-app-repair', label: 'Workspace module repair' },
   { id: 'help-guide', parent: 'work', route: '/help/:guideId', label: 'Help guide' },
   { id: 'work-getting-started', parent: 'work', route: '/work/getting-started', label: 'Getting started' },
   { id: 'work-claims-studio', parent: 'work', route: '/work/reclamations/studio', label: 'Claims studio' },
@@ -728,7 +728,7 @@ export interface CockpitSection {
   group?: CockpitSectionGroup;
   /** Action row after a separator (Créer › Nouveau flux). */
   role?: 'action';
-  /** Hidden from non-admin members (e.g. Apps du workspace). */
+  /** Hidden from non-admin members (e.g. Modules du workspace). */
   adminOnly?: boolean;
   /** Hidden unless experience governance is allowed (Expériences). */
   experienceGovernance?: boolean;
@@ -1094,7 +1094,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'surface'), route: '/workspace', group: 'workspace' },
       { ...section('access', 'Access & roles', 'focus', 'governance', 'surface'), route: '/governance/access', matches: ['/governance/access'], group: 'workspace' },
       {
-        ...section('workspace_apps', 'Workspace apps', 'layers', 'workspace-app-platform', 'surface'),
+        ...section('workspace_apps', 'Workspace modules', 'layers', 'workspace-app-platform', 'surface'),
         group: 'workspace',
         adminOnly: true,
       },

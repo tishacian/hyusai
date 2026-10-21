@@ -55,7 +55,7 @@ export const GOVERNANCE_FR = {
   'governance.shell.canonical': 'Réponses canoniques',
   'governance.shell.access': 'Accès et rôles',
   'governance.shell.blueprints': 'Blueprints',
-  'governance.shell.apps': 'Apps du workspace',
+  'governance.shell.apps': 'Modules du workspace',
   'governance.shell.surface': 'Carte des surfaces',
 
   // --- Audit logs --------------------------------------------------
@@ -367,9 +367,9 @@ export const GOVERNANCE_FR = {
   'governance.surface.workspace-blueprints.title': 'Blueprints du workspace',
   'governance.surface.workspace-blueprints.description':
     'Exporter et appliquer la structure et la configuration du workspace sans utilisateurs, secrets ni données brutes.',
-  'governance.surface.workspace-app-platform.title': 'Workspace Apps',
+  'governance.surface.workspace-app-platform.title': 'Modules du workspace',
   'governance.surface.workspace-app-platform.description':
-    'Cycle de vie adressé par contenu des Workspace Apps : installation, mise à niveau, retour arrière et désinstallation.',
+    'Cycle de vie adressé par contenu des modules du workspace : installation, mise à niveau, retour arrière et désinstallation.',
   'governance.surface.apps.title': 'Apps',
   'governance.surface.apps.description':
     "Intégrations d'apps cataloguées et disponibilité runtime.",
@@ -479,8 +479,8 @@ export const GOVERNANCE_FR = {
   'governance.blueprints.error.request': 'La requête blueprint a échoué.',
 
   // --- Workspace apps lifecycle -------------------------------------
-  'governance.apps.eyebrow': 'Gouvernance · Plateforme Workspace Apps',
-  'governance.apps.title': 'Workspace Apps',
+  'governance.apps.eyebrow': 'Gouvernance · Modules du workspace',
+  'governance.apps.title': 'Modules du workspace',
   'governance.apps.lead':
     "Installez, mettez à niveau, revenez en arrière ou désinstallez un manifeste d'app compilé via un plan exact, adressé par contenu. Ce cycle de vie ne modifie jamais les réglages du workspace ni les droits des membres.",
   'governance.apps.refresh': 'Actualiser le registre',
@@ -491,14 +491,14 @@ export const GOVERNANCE_FR = {
   'governance.apps.receipt.steps': '{count} étapes de cycle de vie vérifiées',
   'governance.apps.receipt.phase': 'phase {phase}',
   'governance.apps.receipt.idempotent': 'rejeu idempotent',
-  'governance.apps.safety.aria': 'Garanties du cycle de vie des Workspace Apps',
+  'governance.apps.safety.aria': 'Garanties du cycle de vie des modules du workspace',
   'governance.apps.safety.admin': 'Admin uniquement',
   'governance.apps.safety.digest': 'Empreinte exacte du manifeste',
   'governance.apps.safety.plan': 'Plan avant application',
   'governance.apps.safety.retry': 'Clé de réessai stable',
   'governance.apps.safety.entitlements': 'Aucune mutation des droits',
   'governance.apps.loading': 'Chargement du registre de manifestes faisant autorité…',
-  'governance.apps.empty': "Aucun manifeste de Workspace App compilé n'est disponible.",
+  'governance.apps.empty': "Aucun manifeste de module du workspace compilé n'est disponible.",
   'governance.apps.state.installed': 'installée',
   'governance.apps.state.not_installed': 'non installée',
   'governance.apps.card.version': 'Version actuelle',
@@ -530,16 +530,16 @@ export const GOVERNANCE_FR = {
   'governance.apps.plan.applying': 'Application…',
   'governance.apps.error.no_workspace': "Aucun workspace actif n'est disponible.",
   'governance.apps.error.tenant':
-    "Le registre des Workspace Apps a renvoyé l'identité d'un autre tenant.",
-  'governance.apps.error.registry': 'Le registre des Workspace Apps est indisponible.',
+    "Le registre des modules du workspace a renvoyé l'identité d'un autre tenant.",
+  'governance.apps.error.registry': 'Le registre des modules du workspace est indisponible.',
   'governance.apps.error.plan_mismatch':
     'Le plan de cycle de vie ne correspond pas au contrat du manifeste sélectionné.',
-  'governance.apps.error.plan_rejected': 'Le plan Workspace App a été rejeté.',
+  'governance.apps.error.plan_rejected': 'Le plan du module du workspace a été rejeté.',
   'governance.apps.error.workspace_changed':
     'Le workspace a changé. Créez un nouveau plan de cycle de vie.',
   'governance.apps.error.receipt_mismatch':
     'Le reçu de cycle de vie ne correspond pas au plan appliqué.',
-  'governance.apps.error.apply_rejected': "L'application du plan Workspace App a été rejetée.",
+  'governance.apps.error.apply_rejected': "L'application du plan du module du workspace a été rejetée.",
 
   // --- Canonical answers --------------------------------------------
   'governance.canonical.title': 'Réponses canoniques',
@@ -722,7 +722,7 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.shell.canonical': 'Canonical answers',
   'governance.shell.access': 'Access & roles',
   'governance.shell.blueprints': 'Blueprints',
-  'governance.shell.apps': 'Workspace apps',
+  'governance.shell.apps': 'Workspace modules',
   'governance.shell.surface': 'Surface map',
 
   // --- Audit logs --------------------------------------------------
@@ -1019,9 +1019,9 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.surface.workspace-blueprints.title': 'Workspace Blueprints',
   'governance.surface.workspace-blueprints.description':
     'Export and apply workspace structure/configuration without users, secrets or raw data.',
-  'governance.surface.workspace-app-platform.title': 'Workspace Apps',
+  'governance.surface.workspace-app-platform.title': 'Workspace modules',
   'governance.surface.workspace-app-platform.description':
-    'Content-addressed installation, upgrade, rollback and uninstall lifecycle for Workspace Apps.',
+    'Content-addressed installation, upgrade, rollback and uninstall lifecycle for workspace modules.',
   'governance.surface.apps.title': 'Apps',
   'governance.surface.apps.description': 'Catalogued app integrations and runtime availability.',
   'governance.surface.resources.title': 'Resources',
@@ -1122,8 +1122,8 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.blueprints.error.request': 'Blueprint request failed.',
 
   // --- Workspace apps lifecycle -------------------------------------
-  'governance.apps.eyebrow': 'Governance · Workspace App Platform',
-  'governance.apps.title': 'Workspace Apps',
+  'governance.apps.eyebrow': 'Governance · Workspace modules',
+  'governance.apps.title': 'Workspace modules',
   'governance.apps.lead':
     'Install, upgrade, roll back or uninstall a compiled app manifest through an exact, content-addressed plan. This lifecycle never edits workspace settings or member entitlements.',
   'governance.apps.refresh': 'Refresh registry',
@@ -1133,14 +1133,14 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.apps.receipt.steps': '{count} lifecycle steps verified',
   'governance.apps.receipt.phase': 'phase {phase}',
   'governance.apps.receipt.idempotent': 'idempotent replay',
-  'governance.apps.safety.aria': 'Workspace App lifecycle guarantees',
+  'governance.apps.safety.aria': 'Workspace module lifecycle guarantees',
   'governance.apps.safety.admin': 'Admin-only',
   'governance.apps.safety.digest': 'Exact manifest digest',
   'governance.apps.safety.plan': 'Plan before apply',
   'governance.apps.safety.retry': 'Stable retry key',
   'governance.apps.safety.entitlements': 'No entitlement mutation',
   'governance.apps.loading': 'Loading the authoritative manifest registry…',
-  'governance.apps.empty': 'No compiled Workspace App manifest is available.',
+  'governance.apps.empty': 'No compiled workspace module manifest is available.',
   'governance.apps.state.installed': 'installed',
   'governance.apps.state.not_installed': 'not installed',
   'governance.apps.card.version': 'Current version',
@@ -1171,14 +1171,14 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.apps.plan.apply': 'Apply exact plan',
   'governance.apps.plan.applying': 'Applying…',
   'governance.apps.error.no_workspace': 'No active workspace is available.',
-  'governance.apps.error.tenant': 'The Workspace App registry returned another tenant identity.',
-  'governance.apps.error.registry': 'The Workspace App registry is unavailable.',
+  'governance.apps.error.tenant': 'The workspace module registry returned another tenant identity.',
+  'governance.apps.error.registry': 'The workspace module registry is unavailable.',
   'governance.apps.error.plan_mismatch':
     'The lifecycle plan does not match the selected manifest contract.',
-  'governance.apps.error.plan_rejected': 'The Workspace App plan was rejected.',
+  'governance.apps.error.plan_rejected': 'The workspace module plan was rejected.',
   'governance.apps.error.workspace_changed': 'The workspace changed. Create a new lifecycle plan.',
   'governance.apps.error.receipt_mismatch': 'The lifecycle receipt does not match the applied plan.',
-  'governance.apps.error.apply_rejected': 'The Workspace App apply was rejected.',
+  'governance.apps.error.apply_rejected': 'The workspace module apply was rejected.',
 
   // --- Canonical answers --------------------------------------------
   'governance.canonical.title': 'Canonical answers',

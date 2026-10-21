@@ -496,7 +496,7 @@ test('Administrer lists destinations in three groups including Outils and Extens
   );
 });
 
-test('a member cannot see Apps du workspace in Administrer', () => {
+test('a member cannot see Modules du workspace in Administrer', () => {
   const govern = COCKPIT_VERBS.find((verb) => verb.key === 'govern')!;
   const asMember = cockpitVerbSections(govern, { isAdmin: false });
   assert.equal(asMember.some((section) => section.key === 'workspace_apps'), false);

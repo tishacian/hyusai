@@ -84,11 +84,11 @@ import {
               <ck-glyph name="sliders" [size]="14" />
               <div class="flex flex-col gap-1">
                 <div class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);">
-                  {{ appOverrides().length }} SKILL{{ appOverrides().length === 1 ? '' : 'S' }} ENABLED BY A WORKSPACE APP
+                  {{ appOverrides().length }} SKILL{{ appOverrides().length === 1 ? '' : 'S' }} ENABLED BY AN EXTENSION
                 </div>
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); line-height:1.6; margin:0;">
-                  Enabling a wired app writes its skills into this policy. Turn the app off in
-                  <a [navLink]="{ surface: 'apps' }" style="color:var(--ck-fg-2);">Apps &amp; integrations</a>
+                  Enabling a wired extension writes its skills into this policy. Turn the extension off in
+                  <a [navLink]="{ surface: 'apps' }" style="color:var(--ck-fg-2);">Extensions</a>
                   to remove them — {{ appOverrides().length === 1 ? 'it is' : 'they are' }} not curation decisions.
                 </p>
               </div>
@@ -207,7 +207,7 @@ import {
                   (click)="removeOverride(override)"
                   [disabled]="!data.editable || saving() || isAppOwned(override)"
                   [title]="isAppOwned(override)
-                    ? 'Written by a Workspace App — disable the app instead'
+                    ? 'Written by an extension — disable the extension instead'
                     : 'Remove this override'"
                   class="ck-mono"
                   style="padding:4px 8px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; background:transparent; color:var(--ck-fg-3); border:1px solid var(--ck-stroke-soft);"

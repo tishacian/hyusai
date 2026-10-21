@@ -454,10 +454,10 @@ export const RESOURCES_FR = {
   'resources.kpi.providers': 'Fournisseurs',
   'resources.kpi.connectors': 'Connecteurs',
   'resources.kpi.connectors.hint': '{configured} configurés · {coming} sur demande',
-  'resources.kpi.apps': 'Apps activées',
-  'resources.kpi.apps.hint': 'Aller à /apps · {count} disponibles',
+  'resources.kpi.apps': 'Extensions activées',
+  'resources.kpi.apps.hint': 'Ouvrir les extensions · {count} disponibles',
   'resources.kpi.apps.title':
-    'Gérer les apps packagées & intégrations — catalogue de {count} entrées',
+    'Gérer les extensions packagées et les intégrations, catalogue de {count} entrées',
   'resources.tab.models': 'Modèles',
   'resources.tab.providers': 'Fournisseurs',
   'resources.tab.serving': 'Serving',
@@ -815,8 +815,8 @@ export const RESOURCES_FR = {
   'connectors.toast.clear_failed': "Impossible d'effacer la configuration {name}",
 
   // --- /apps — page --------------------------------------------------
-  'apps.eyebrow': 'Gouverner · Apps',
-  'apps.title': 'Apps & intégrations',
+  'apps.eyebrow': 'Gouverner · Extensions',
+  'apps.title': 'Extensions',
   'apps.subtitle':
     "Extensions packagées et intégrations que l'orchestrateur peut brancher sur n'importe quel système — à ne pas confondre avec /skills, le registre atomique.",
   'apps.request_wiring': 'Demander le câblage',
@@ -830,7 +830,7 @@ export const RESOURCES_FR = {
   'apps.banner.wired.many':
     "{count} apps câblées activées — les skills et les connecteurs sont synchronisés côté serveur. Les cartes uniquement au catalogue restent des marqueurs d'intention jusqu'à leur câblage.",
   'apps.load_error':
-    'Impossible de charger les apps du workspace depuis le serveur — affichage du cache local.',
+    'Impossible de charger les extensions depuis le serveur — affichage du cache local.',
   'apps.filter.enabled': 'Activées',
   'apps.filter.wired': 'Câblées',
   'apps.filter.ready': 'Prêtes',
@@ -1508,10 +1508,10 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'resources.kpi.providers': 'Providers',
   'resources.kpi.connectors': 'Connectors',
   'resources.kpi.connectors.hint': '{configured} configured · {coming} on request',
-  'resources.kpi.apps': 'Apps enabled',
-  'resources.kpi.apps.hint': 'Go to /apps · {count} available',
+  'resources.kpi.apps': 'Extensions enabled',
+  'resources.kpi.apps.hint': 'Open extensions · {count} available',
   'resources.kpi.apps.title':
-    'Manage packaged apps & integrations — catalog of {count} entries',
+    'Manage packaged extensions and integrations, catalog of {count} entries',
   'resources.tab.models': 'Models',
   'resources.tab.providers': 'Providers',
   'resources.tab.serving': 'Serving',
@@ -1866,8 +1866,8 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.toast.clear_failed': 'Could not clear the {name} setup',
 
   // --- /apps — page --------------------------------------------------
-  'apps.eyebrow': 'Govern · Apps',
-  'apps.title': 'Apps & integrations',
+  'apps.eyebrow': 'Govern · Extensions',
+  'apps.title': 'Extensions',
   'apps.subtitle':
     'Packaged extensions and integrations the orchestrator can plug into any system — not to be confused with /skills, the atomic registry.',
   'apps.request_wiring': 'Request wiring',
@@ -1880,7 +1880,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
     '1 wired app enabled — skills and connectors are synced server-side. Catalog-only cards remain intent flags until wired.',
   'apps.banner.wired.many':
     '{count} wired apps enabled — skills and connectors are synced server-side. Catalog-only cards remain intent flags until wired.',
-  'apps.load_error': 'Could not load workspace apps from server — showing local cache.',
+  'apps.load_error': 'Could not load extensions from the server — showing the local cache.',
   'apps.filter.enabled': 'Enabled',
   'apps.filter.wired': 'Wired',
   'apps.filter.ready': 'Ready',
