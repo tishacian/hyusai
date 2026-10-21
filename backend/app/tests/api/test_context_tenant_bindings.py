@@ -63,3 +63,66 @@ async def test_context_create_and_update_reject_system_from_another_workspace(db
     assert update_error.value.status_code == 400
     db_session.refresh(local_context)
     assert local_context.system_id is None
+
+
+@pytest.mark.asyncio
+async def test_context_freshness_uses_source_dates_without_crossing_tenants(db_session):
+    from datetime import datetime
+
+    from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
+
+    workspace = _workspace(db_session, "freshness")
+    foreign = _workspace(db_session, "foreign-freshness")
+    old, recent = datetime(2026, 1, 1), datetime(2026, 10, 20)
+    local = KnowledgeCollection(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        slug="manual",
+        name="Manual",
+        vector_collection_name="manual-local",
+        artifact_prefix="test/manual",
+    )
+    other = KnowledgeCollection(
+        id=str(uuid4()),
+        workspace_id=foreign.id,
+        slug="foreign-only",
+        name="Hidden",
+        vector_collection_name="manual-foreign",
+        artifact_prefix="test/hidden",
+    )
+    db_session.add_all([local, other])
+    db_session.flush()
+    source = KnowledgeCollectionSource(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        collection_id=local.id,
+        filename="manual.pdf",
+        normalized_name="manual.pdf",
+        status="ready",
+        updated_at=old,
+    )
+    hidden = KnowledgeCollectionSource(
+        id=str(uuid4()),
+        workspace_id=foreign.id,
+        collection_id=other.id,
+        filename="hidden.pdf",
+        normalized_name="hidden.pdf",
+        status="ready",
+        updated_at=old,
+    )
+    context = Context(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Fresh edit",
+        version=7,
+        updated_at=recent,
+        data_refs=["collection:manual", "collection:foreign-only"],
+    )
+    db_session.add_all([source, hidden, context])
+    db_session.commit()
+    result = await contexts.get_context(context.id, workspace, db_session)
+    assert result["updated_at"] == recent.isoformat()
+    assert result["source_dates"] == [
+        {"ref": "collection:manual", "updated_at": old.isoformat()},
+        {"ref": "collection:foreign-only", "updated_at": None},
+    ]

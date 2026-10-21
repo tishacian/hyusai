@@ -16,7 +16,9 @@ import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, forkJoin, of, type Observable } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, timeout } from 'rxjs/operators';
+import { STRICT, WRITE_TIMEOUT_MS, settleWrite, writeFailure, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { ApiService } from '@app/core/api.service';
 import {
   CanonicalApiService,
@@ -198,6 +200,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
   },
   imports: [
     MLAlertInboxComponent,
+    WriteOutcomeComponent,
     NgTemplateOutlet,
     PageFrameComponent,
     HypervisorAutomationComponent,
@@ -367,6 +370,12 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                       [exit]="block.exit || null"
                       [points]="impactOrdrePoints()"
                       (logDecision)="onMeetingDecision($event)"
+                    />
+                    <app-write-outcome
+                      data-testid="impact-meeting-decision-outcome"
+                      [outcome]="meetingWrite()"
+                      [confirmedLabel]="i18n.t('hypervisor.v2.meeting.outcome.confirmed')"
+                      [failedLabel]="i18n.t('hypervisor.v2.meeting.outcome.failed')"
                     />
                   }
                   @case ('indicateurs') {
@@ -542,6 +551,13 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                   {{ scanning() ? i18n.t('hypervisor.reco.scanning') : i18n.t('hypervisor.reco.scan') }}
                 </button>
               </header>
+              <app-write-outcome
+                data-testid="impact-scan-outcome"
+                [outcome]="scanWrite()"
+                [confirmedLabel]="i18n.t('hypervisor.reco.outcome.confirmed')"
+                [failedLabel]="i18n.t('hypervisor.reco.outcome.failed')"
+              />
+              <ng-container [ngTemplateOutlet]="decisionOutcomeTpl"></ng-container>
               @if (sourceStates().decisions !== 'ready') {
                 <ng-container [ngTemplateOutlet]="unavailableTpl" [ngTemplateOutletContext]="{ source: 'decisions' }"></ng-container>
               } @else if (proposedDecisions().length === 0) {
@@ -555,8 +571,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                       }
                       <span class="hv2-grow">{{ item.title }}</span>
                       <span class="ck-mono hv2-muted">{{ formatDate(item.created_at) }}</span>
-                      <button type="button" class="hv2-btn" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
-                      <button type="button" class="hv2-btn" (click)="reject(item)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+                      <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+                      <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="reject(item)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
                     </li>
                   }
                 </ul>
@@ -934,13 +950,26 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           }
         </dl>
         <div class="hv2-btn-row">
-          <button type="button" class="hv2-btn" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
-          <button type="button" class="hv2-btn" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+          <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+          <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
         </div>
         <a class="hv2-link" [navLink]="{ surface: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
       } @else {
         <p class="hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</p>
         <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
+      }
+      <!-- Outside the branches: the decided row leaves the list, its outcome stays. -->
+      <ng-container [ngTemplateOutlet]="decisionOutcomeTpl"></ng-container>
+    </ng-template>
+
+    <ng-template #decisionOutcomeTpl>
+      @if (decisionWrite(); as sent) {
+        <app-write-outcome
+          data-testid="impact-decision-outcome"
+          [outcome]="sent.outcome"
+          [confirmedLabel]="i18n.t(sent.action === 'accept' ? 'hypervisor.v2.decision.outcome.accepted' : 'hypervisor.v2.decision.outcome.rejected')"
+          [failedLabel]="i18n.t('hypervisor.v2.decision.outcome.failed')"
+        />
       }
     </ng-template>
 
@@ -1586,7 +1615,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                           <button type="button" class="hv2-text-btn" (click)="saveBasis(row)" [disabled]="savingBasis()">{{ i18n.t('common.save') }}</button>
                           <button type="button" class="hv2-text-btn" (click)="editingId.set(null)">{{ i18n.t('common.cancel') }}</button>
                           @if (basisError()) {
-                            <p class="hv2-error">{{ i18n.t('hypervisor.v2.bases.save_failed') }}</p>
+                            <p class="hv2-error" role="alert" data-testid="impact-basis-error">{{ i18n.t(basisError() === 'unknown' ? 'state.write.unknown' : 'hypervisor.v2.bases.save_failed') }}</p>
                           }
                         </div>
                       } @else {
@@ -2215,7 +2244,13 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly scanning = signal(false);
   readonly savingViews = signal(false);
   readonly savingBasis = signal(false);
-  readonly basisError = signal(false);
+  /** Why the last value basis was not saved: refused, or the answer never came. */
+  readonly basisError = signal<false | 'failed' | 'unknown'>(false);
+  /** The last decision sent from Impact, said next to its buttons until the next one. */
+  readonly decisionWrite = signal<{ id: string; action: 'accept' | 'reject'; outcome: WriteOutcome } | null>(null);
+  readonly scanWrite = signal<WriteOutcome | null>(null);
+  readonly meetingWrite = signal<WriteOutcome | null>(null);
+  readonly decisionSending = computed(() => this.decisionWrite()?.outcome.s === 'sent');
   readonly editingId = signal<string | null>(null);
   readonly draft = signal<BasisDraft | null>(null);
   /** Day lock (L28): `hover` previews, `locked` pins; every linked view reads `selectedDayIndex`. */
@@ -3577,9 +3612,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   onMeetingDecision(payload: { pointId: string; optionId: string }): void {
     const eventId = this.meetingEventId();
-    if (!eventId) return;
+    if (!eventId || this.meetingWrite()?.s === 'sent') return;
     const note = `Meeting decision · ${payload.pointId} · ${payload.optionId}`;
-    this.api.createDecision({
+    const scope = this.workspace.captureRequestScope();
+    settleWrite(this.api.createDecision({
       scope: 'portfolio',
       target_id: null,
       kind: 'meeting',
@@ -3589,7 +3625,12 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       meeting_event_id: eventId,
       agenda_item_ref: payload.pointId,
       rationale: { origin: 'meeting', option_id: payload.optionId },
-    }).subscribe(() => this.reload());
+    }, STRICT)).subscribe((outcome) => {
+      if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
+      this.meetingWrite.set(outcome);
+      // Recorded or lost: read the agenda back. A refusal changed nothing.
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted' || outcome.s === 'unknown') this.reload();
+    });
   }
 
   eventValue(event: Event): string { return (event.target as HTMLInputElement).value; }
@@ -3687,7 +3728,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     const defaultId = this.defaultViewId();
     const fingerprint = JSON.stringify([snapshot, defaultId]);
     this.savingViews.set(true); this.saveMessage.set('');
-    this.api.putHypervisorViews(snapshot, defaultId).subscribe({
+    this.api.putHypervisorViews(snapshot, defaultId).pipe(timeout({ first: WRITE_TIMEOUT_MS })).subscribe({
       next: (payload) => {
         if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
         const parsed = parseViewsPayload(payload);
@@ -3702,7 +3743,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       },
       error: (error: unknown) => {
         if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
-        this.savingViews.set(false); this.saveMessage.set('hypervisor.v2.product.save_failed');
+        this.savingViews.set(false);
+        // A lost answer may have saved the views: never call it a failure.
+        this.saveMessage.set(writeFailure(error).s === 'unknown' ? 'state.write.unknown' : 'hypervisor.v2.product.save_failed');
         if (error instanceof HttpErrorResponse && error.status === 403) this.canEdit.set(false);
       },
     });
@@ -3746,7 +3789,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       currency: draft.currency,
       status: draft.status,
       note: draft.note || null,
-    }).subscribe({
+    }).pipe(timeout({ first: WRITE_TIMEOUT_MS })).subscribe({
       next: (item) => {
         this.bases.update((list) => list.map((entry) => entry.capability_id === item.capability_id ? { ...entry, ...item } : entry));
         this.editingId.set(null);
@@ -3760,28 +3803,48 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
           this.editingId.set(null);
           return;
         }
-        this.basisError.set(true);
+        this.basisError.set(writeFailure(error).s === 'unknown' ? 'unknown' : 'failed');
       },
     });
   }
 
   scanRecommendations(): void {
+    if (this.scanning()) return;
     this.scanning.set(true);
-    this.api.generateProactiveRecommendations({ since_days: 7 }).subscribe({
-      next: () => {
-        this.scanning.set(false);
-        this.reload();
-      },
-      error: () => this.scanning.set(false),
+    const scope = this.workspace.captureRequestScope();
+    settleWrite(this.api.generateProactiveRecommendations({ since_days: 7 }, STRICT)).subscribe((outcome) => {
+      if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
+      this.scanWrite.set(outcome);
+      if (outcome.s === 'sent') return;
+      this.scanning.set(false);
+      if (outcome.s !== 'failed') this.reload();
     });
   }
 
   accept(row: DecisionRow): void {
-    this.api.acceptDecision(row.id).subscribe(() => this.reload());
+    this.decide(row, 'accept');
   }
 
   reject(row: DecisionRow): void {
-    this.api.rejectDecision(row.id).subscribe(() => this.reload());
+    this.decide(row, 'reject');
+  }
+
+  /**
+   * A decision is said accepted or rejected only once the server confirmed
+   * it. A refusal keeps the row and says why; a lost answer reads the list
+   * back instead of sending again.
+   */
+  private decide(row: DecisionRow, action: 'accept' | 'reject'): void {
+    if (this.decisionSending()) return;
+    const scope = this.workspace.captureRequestScope();
+    const request = action === 'accept'
+      ? this.api.acceptDecision(row.id, {}, STRICT)
+      : this.api.rejectDecision(row.id, {}, STRICT);
+    settleWrite(request).subscribe((outcome) => {
+      if (this.destroyed || !this.workspace.isRequestScopeCurrent(scope)) return;
+      this.decisionWrite.set({ id: row.id, action, outcome });
+      if (outcome.s !== 'sent') this.reload();
+    });
   }
 
   // --- Formatting ---------------------------------------------------------

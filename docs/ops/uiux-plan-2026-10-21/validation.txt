@@ -1,0 +1,58 @@
+Validation locale du candidat UI/UX — 21 octobre 2026
+Base Git: d3517a1559d0374e69c42ad0721f233d2a96a235
+Branche: feat/uiux-plan-completion
+Changements non commités. Empreintes: files.sha256.
+
+Commande: npm run test:unit
+ℹ tests 321
+ℹ suites 0
+ℹ pass 321
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 54338.303393
+
+Commande: NG_BUILD_MAX_WORKERS=1 NODE_OPTIONS=--max-old-space-size=6144 npm run build:prod:offline
+                    | Initial total                 | 927.25 kB |               245.87 kB
+Application bundle generation complete. [79.369 seconds] - 2026-10-21T14:09:58.871Z
+Output location: /workspace/agentium/frontend-ng/dist/agentium
+
+Commande: pytest ciblé (commande détaillée ci-dessous)
+32 passed, 175 warnings in 3.16s
+
+Commande: npm run check:i18n
+i18n OK — 14090 keys across 26 domains, 49 navigation keys, 353 templates and 373 code files scanned, 31 lexicon rules and 6 French-term rules enforced.
+
+Commande: npm run check:nav-links
+check-nav-links (fail-closed): cockpit 0 raw links (A 0 · B 0 · C 0) · allowlist 68
+
+Commande: npm run check:ui-chrome
+check-ui-chrome: 1921 ratchet hit(s) across 203 file(s) · baseline docs/compliance/ui-chrome-baseline.v1.json
+Agentium UI chrome guard OK.
+
+Commande: npm run check:fallbacks
+Fallback budget: 126/126; no unreviewed fallback added.
+
+Commande: node --test scripts/check-fallbacks.spec.mjs scripts/check-ui-chrome.spec.mjs
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 679.825613
+
+Commande: alembic heads
+144_sharepoint_file_outcomes (head)
+
+Backend exécuté depuis backend/ (environnement de test local configuré):
+pytest app/tests/api/test_auth_recovery_availability.py app/tests/api/test_navigation_search.py app/tests/services/test_mission_execution.py app/tests/api/test_uiux_operations.py app/tests/api/test_audit_trail_api.py::test_rule_and_proposal_references_never_resolve_another_workspace app/tests/api/test_audit_trail_api.py::test_audit_uses_frozen_execution_policy_instead_of_edited_current_values app/tests/services/test_sharepoint_file_receipt.py app/tests/services/test_intelligence_cadence.py -q
+
+Limites:
+- Build standard non validé: téléchargement Google Fonts refusé par le sandbox.
+- Build offline: avertissements Angular, dépendance CommonJS dagre et seuils de taille warning; aucun seuil error dépassé. Initial: 927.25 kB (limite error 1 MB).
+- Tests navigateur, axe, fournisseurs, migration réelle, concurrence PostgreSQL/Celery et panel humain non exécutés.
+- Le nombre 321 correspond aux fichiers de tests bundlés par le runner, pas au nombre de leurs assertions.
+- Aucun commit, push ou déploiement.

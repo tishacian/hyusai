@@ -1,4 +1,7 @@
+import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { CommonModule } from '@angular/common';
+import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -132,7 +135,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
   selector: 'app-pr-to-po-studio',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent, WorkBarComponent, WorkAppHeaderComponent],
+  imports: [SpecializedAppContractComponent, CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent, WorkBarComponent, WorkAppHeaderComponent, DecisionRightComponent],
   styleUrl: './work.scss',
   template: `
     <div class="xp-work xp-studio" data-brand-scope data-theme="dark" [ngStyle]="brandStyles()">
@@ -185,6 +188,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
           </a>
         }
       </app-work-app-header>
+    <app-specialized-app-contract application="purchasing" />
 
       <div class="xp-studio-body">
         <main class="xp-studio-main">
@@ -520,7 +524,10 @@ const RAIL_TOOLS: readonly RailTool[] = [
                   </details>
                 }
 
-                @if (gateOpen()) {
+                @if (gateOpen() && !mayDecide(run()?.hitl)) {
+                  <app-decision-right [hitl]="run()?.hitl" />
+                }
+                @if (gateOpen() && mayDecide(run()?.hitl)) {
                   <div class="xp-gate-actions">
                     <button
                       type="button"
@@ -1192,26 +1199,34 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     );
   }
 
+  protected readonly mayDecide = mayDecide;
+
   private decide(action: 'accept' | 'reject', note?: string): void {
     const current = this.run();
-    if (!current || !this.gateOpen() || this.deciding()) return;
+    if (!current || !this.gateOpen() || this.deciding() || !mayDecide(current.hitl)) return;
     this.deciding.set(true);
     this.chatBusy.set(true);
     this.workApi
       .decide(current, action, note ?? this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
-      .subscribe((decided) => {
+      .subscribe((outcome) => {
+        if (outcome.s === 'sent') return;
         this.deciding.set(false);
         this.chatBusy.set(false);
-        if (decided) this.rejecting.set(false);
-        if (!decided) {
-          this.error.set(this.i18n.t('experience.pr_to_po.studio.error.decision_failed'));
-          this.chatDialogue.update((dialogue) =>
-            dialogue && dialogue.stage === 'posting' ? { ...dialogue, stage: 'proposing' } : dialogue,
-          );
+        if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+          this.rejecting.set(false);
+          // The HITL endpoint answers with the pre-resume status; poll the walk.
+          this.follow(current.id);
           return;
         }
-        // The HITL endpoint answers with the pre-resume status; poll the walk.
-        this.follow(current.id);
+        const message = decisionMessage(outcome, action);
+        this.error.set(outcome.s === 'failed' && outcome.status !== 409
+          ? this.i18n.t('experience.pr_to_po.studio.error.decision_failed')
+          : this.i18n.t(message.key, message.params));
+        this.chatDialogue.update((dialogue) =>
+          dialogue && dialogue.stage === 'posting' ? { ...dialogue, stage: 'proposing' } : dialogue,
+        );
+        // A lost or stale answer: read the Run back rather than deciding again.
+        if (outcome.s === 'unknown' || outcome.status === 409) this.follow(current.id);
       });
   }
 

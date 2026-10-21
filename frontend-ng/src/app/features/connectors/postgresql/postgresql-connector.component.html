@@ -1,8 +1,18 @@
+<ck-page-frame [hasActions]="false">
 <div class="pg-page">
   <app-section-header [breadcrumb]="i18n.t('connectors.title')" title="PostgreSQL" icon="database"
     [subtitle]="i18n.t('connectors.pg.subtitle', { name: workspace.current()?.name ?? '' })">
     <ck-back-link [fallback]="{ surface: 'connectors' }" />
   </app-section-header>
+  <app-connector-capabilities connector="postgresql" />
+  @if (sourceDatasetId) {
+    <a class="ck-btn-soft inline-flex px-3 py-2 rounded" [navLink]="{ leaf: 'data-doc', ref: sourceDatasetId, facet: 'lineage' }" data-testid="pg-return-dataset">
+      {{ i18n.t('connectors.pg.provenance_return', { version: sourceDatasetVersion }) }}
+    </a>
+  }
+  @if (provenanceWarning()) {
+    <p role="status" class="pg-notice ck-tone-warn">{{ i18n.t('connectors.pg.provenance_unavailable') }}</p>
+  }
 
   <ng-template #failureTpl let-failure>
     <div class="pg-failure ck-tone-neg" role="alert" data-testid="pg-failure">
@@ -200,3 +210,4 @@
     }
   </section>
 </div>
+</ck-page-frame>

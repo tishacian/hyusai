@@ -684,11 +684,15 @@ export class WorkspaceService {
     );
   }
 
-  restoreWorkspace(slug: string): Observable<{ status: string; message: string }> {
-    return this.http.post<{ status: string; message: string }>(
+  restoreWorkspace(slug: string): Observable<{ status: string; message: string; connections: Array<{id:string;name:string;status:string}> }> {
+    return this.http.post<{ status: string; message: string; connections: Array<{id:string;name:string;status:string}> }>(
       `/api/v1/auth/workspaces/${slug}/restore`,
       {}
     );
+  }
+
+  workspaceReconnectStatus(slug: string): Observable<{connections:Array<{id:string;name:string;status:string}>}> {
+    return this.http.get<{connections:Array<{id:string;name:string;status:string}>}>(`/api/v1/auth/workspaces/${encodeURIComponent(slug)}/reconnection-status`);
   }
 
   leaveWorkspace(slug: string): Observable<{ status: string }> {

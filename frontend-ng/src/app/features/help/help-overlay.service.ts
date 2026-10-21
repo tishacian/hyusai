@@ -55,8 +55,8 @@ export function helpPrefersPanel(width?: number): boolean {
  * Coordinates the global help side-panel (L16).
  *
  * Entry points: title-bar / Work-bar « ? », and `help-guide` nav links on
- * desktop. Narrow viewports and shared `/help/:guideId` URLs use the
- * full-page fallback (Work chrome + named return).
+ * every viewport. Explicit shared `/help/:guideId` URLs retain the
+ * full-page view; opening contextual help never destroys the active form.
  */
 @Injectable({ providedIn: 'root' })
 export class HelpOverlayService {
@@ -86,7 +86,6 @@ export class HelpOverlayService {
 
   /** Open from a `help-guide` link; returns false when the caller should navigate. */
   openFromLink(guideId: string, origin?: HelpOpenOptions): boolean {
-    if (!helpPrefersPanel()) return false;
     this.open({
       guideId: isHelpGuideId(guideId) ? guideId : 'start',
       originLabel: origin?.originLabel,

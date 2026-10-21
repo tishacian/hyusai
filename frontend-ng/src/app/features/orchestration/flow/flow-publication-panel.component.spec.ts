@@ -194,7 +194,7 @@ test('destroying the component cancels activation', () => {
   assert.equal(state.panel.activating(), false);
 });
 
-test('canonical status updates can propagate errors without changing legacy callers', async () => {
+test('canonical status updates preserve errors by default and with a publication precondition', async () => {
   const failure = new HttpErrorResponse({status: 403});
   const calls: unknown[][] = [];
   const injector = Injector.create({providers: [
@@ -204,7 +204,7 @@ test('canonical status updates can propagate errors without changing legacy call
     }}},
   ]});
   const api = injector.get(CanonicalApiService);
-  assert.equal(await firstValueFrom(api.updateSystem('system', {status: 'active'})), null);
+  await assert.rejects(firstValueFrom(api.updateSystem('system', {status: 'active'})), error => error === failure);
   await assert.rejects(firstValueFrom(api.updateSystem('system', {status: 'active'}, {
     expected_published_version_id: 'version', propagateErrors: true,
   })),

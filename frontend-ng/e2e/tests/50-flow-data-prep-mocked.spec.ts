@@ -65,7 +65,7 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
   await page.setViewportSize({width:1440,height:1000});
   const sql=['-- '+Array(80).fill('wide SQL expression').join(' '),...Array.from({length:80},(_,i)=>`SELECT ${i} AS step FROM "in"${i<79?' UNION ALL':';'}`)].join('\n');
   const api=await setup(page,locale,{upstreamNodeTest:true,compiledSql:sql}),original=structuredClone(api.graph());
-  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
   await expect(page.locator('app-flow-node')).toHaveCount(3);
   await page.locator('app-flow-node').filter({hasText:'Préparation SAV'}).click();
   await page.getByTestId('open-prep-workshop').click();
@@ -111,7 +111,7 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
  for(const locale of ['fr','en'] as const)test(`${locale}: preview an existing Run dataset without changing the Flow or its pins`,async({page},info)=>{
   await page.setViewportSize({width:1440,height:1000});
   const api=await setup(page,locale,{upstreamNodeTest:true}),original=structuredClone(api.graph());
-  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
   await expect(page.locator('app-flow-node')).toHaveCount(3);
   await page.locator('app-flow-node').filter({hasText:'Préparation SAV'}).click();
   await page.getByTestId('open-prep-workshop').click();
@@ -162,7 +162,7 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
  for(const locale of ['fr','en'] as const)test(`${locale}: isolated source test feeds the visual workshop without pinning or saving the user draft`,async({page},info)=>{
   await page.setViewportSize({width:1600,height:1100});
   const api=await setup(page,locale,{upstreamNodeTest:true}),original=structuredClone(api.graph());
-  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
   await expect(page.locator('app-flow-node')).toHaveCount(3);
   await page.getByRole('button',{name:locale==='fr'?'Exploiter':'Operate',exact:true}).click();
   await page.getByRole('button',{name:locale==='fr'?"Basculer l'atelier d'essai local":'Toggle local Flow workbench'}).click();
@@ -221,7 +221,7 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
   }
  });
  for(const locale of ['fr','en'] as const)test(`${locale}: author five stable steps, preview, join pins and persist split edges`,async({page},info)=>{
-  test.setTimeout(120000);await page.setViewportSize({width:1600,height:1000});const api=await setup(page,locale);await page.goto(`/systems/${systemId}/flow?lens=build`);await expect(page.locator('app-flow-node')).toHaveCount(2);
+  test.setTimeout(120000);await page.setViewportSize({width:1600,height:1000});const api=await setup(page,locale);await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();await expect(page.locator('app-flow-node')).toHaveCount(2);
   let workshop=await add(page,'prepare');await workshop.getByTestId('prep-input-in').selectOption('customers-v3');
   await workshop.getByTestId('prep-add-select_columns').click();
   await workshop.getByTestId('prep-add-text_transform').click();let params=workshop.locator('.dp-workshop-right app-prep-params');await params.locator('select[multiple]').first().selectOption('name');await params.locator('select').last().selectOption('trim');
@@ -238,7 +238,7 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
   workshop=await add(page,'split');await workshop.getByTestId('prep-output-name-0').fill('Training customers');await workshop.getByTestId('prep-output-name-1').fill('Test customers');await workshop.getByTestId('close-prep-workshop').click();await expect.poll(()=>api.node('split')?.config.params.outputs[1].name).toBe('Test customers');
   // The saved nodes are reloaded at separated positions, so real pointer wiring is deterministic.
   api.graph().nodes.forEach((node:any)=>{const operation=node.config?.params?.spec?.operation;if(operation==='prepare')node.position={x:20,y:30};if(operation==='join')node.position={x:280,y:30};if(operation==='split')node.position={x:280,y:350};});
-  await page.reload();await expect(page.locator('app-flow-node')).toHaveCount(5);await connect(page,api.node('join').id,'out',api.node('split').id,'in');await connect(page,api.node('split').id,'train','sql-train','in');await connect(page,api.node('split').id,'test','sql-test','in');
+  await page.reload();await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();await expect(page.locator('app-flow-node')).toHaveCount(5);await connect(page,api.node('join').id,'out',api.node('split').id,'in');await connect(page,api.node('split').id,'train','sql-train','in');await connect(page,api.node('split').id,'test','sql-test','in');
   await expect.poll(()=>api.graph().edges.map((edge:any)=>[edge.from_port,edge.to_port])).toEqual(expect.arrayContaining([['out','in'],['train','in'],['test','in']]));expect(api.graph().edges.map((edge:any)=>[edge.from_port,edge.to_port])).toEqual(expect.arrayContaining([['out','in'],['train','in'],['test','in']]));
   expect(api.node('split').outputs.map((port:any)=>port.name)).toEqual(['train','test']);expect(api.node('prepare').config.params.spec.params.steps.map((step:any)=>step.id)).toEqual(steps.map((step:any)=>step.id));
   expect(api.writes.filter(write=>/\/runs$|\/publish$|\/executions$/.test(write.path))).toHaveLength(0);await page.screenshot({path:info.outputPath(`data-prep-${locale}.png`),fullPage:true});

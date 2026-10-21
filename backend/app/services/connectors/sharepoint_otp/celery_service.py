@@ -22,8 +22,11 @@ from .client_msal import (
     SharePointMsalAuth,
 )
 from .errors import (
+    SharePointApiError,
+    SharePointAuthError,
     SharePointConnectorError,
     SharePointLoginRequired,
+    SharePointSessionExpired,
 )
 from .ingester import (
     IngestionResult,
@@ -44,12 +47,15 @@ class SyncOutcome:
     result: IngestionResult | None = None
     login_required_detail: str | None = None
     error: str | None = None
+    connection_status: str | None = None
 
 
 def run_sync_from_payload(
     payload,  # SharePointSyncPayload — duck-typed to keep this module light
     *,
     progress: ProgressFn | None = None,
+    file_outcome: Callable[[Path, str], None] | None = None,
+    probe_only: bool = False,
 ) -> SyncOutcome:
     """Execute the ingestion described by ``payload``.
 
@@ -79,23 +85,20 @@ def run_sync_from_payload(
             )
         elif payload.auth_mode == "msal":
             if not payload.client_id or not payload.tenant_host:
-                raise ValueError(
-                    "client_id and tenant_host are required for auth_mode='msal'"
-                )
+                raise ValueError("client_id and tenant_host are required for auth_mode='msal'")
             cfg = MsalAppConfig(
                 client_id=payload.client_id,
                 tenant_host=payload.tenant_host,
             )
             cache_path = session_dir / f"msal_{payload.session_key}.cache"
-            auth = SharePointMsalAuth(
-                cfg, cache_path=cache_path, user_hint=payload.user_hint
-            )
+            auth = SharePointMsalAuth(cfg, cache_path=cache_path, user_hint=payload.user_hint)
             try:
                 auth.acquire_silent()
             except SharePointLoginRequired as exc:
                 return SyncOutcome(
                     status="login_required",
                     login_required_detail=exc.detail,
+                    connection_status="auth_failed",
                 )
             ingester = SharedFolderIngester.for_msal_client(
                 msal_auth=auth,
@@ -106,11 +109,15 @@ def run_sync_from_payload(
         else:
             raise ValueError(f"Unknown auth_mode: {payload.auth_mode!r}")
 
+        if probe_only:
+            ingester.probe()
+            return SyncOutcome(status="completed", connection_status="connected")
+
         def _file_progress(file, target) -> None:
             if progress is not None:
                 progress(f"downloaded {file.name} ({file.size_bytes} B)")
 
-        result = ingester.run(progress=_file_progress)
+        result = ingester.run(progress=_file_progress, file_outcome=file_outcome)
         if progress is not None:
             progress(
                 f"done: {result.files_downloaded}/{result.files_total} files, "
@@ -123,6 +130,22 @@ def run_sync_from_payload(
         return SyncOutcome(
             status="login_required",
             login_required_detail=exc.detail or str(exc),
+            connection_status="auth_failed",
+        )
+    except (SharePointAuthError, SharePointSessionExpired):
+        return SyncOutcome(status="login_required", connection_status="auth_failed")
+    except SharePointApiError as exc:
+        connection_status = (
+            "auth_failed"
+            if exc.status == 401
+            else "access_denied"
+            if exc.status == 403
+            else "unreachable"
+        )
+        return SyncOutcome(
+            status="failed",
+            error="SharePoint resource request failed",
+            connection_status=connection_status,
         )
     except SharePointConnectorError as exc:
         logger.exception("SharePoint connector failure: %s", exc)

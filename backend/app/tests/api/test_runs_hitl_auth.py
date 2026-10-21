@@ -1048,3 +1048,48 @@ def test_agentic_sensitive_routes_reject_non_owner_before_data_or_mutation(db_se
     run.status = "debug_pending"
     db_session.commit()
     assert client.post(f"/runs/{run.id}/step", json={"action": "continue"}).status_code == 404
+
+
+def test_every_pause_projects_the_right_to_decide_and_its_reason(db_session):
+    workspace, initiator, other, _membership, _system, run, decision = _seed_pending_run(
+        db_session
+    )
+
+    owner_view = _client(db_session, workspace, initiator).get(f"/runs/{run.id}")
+    assert owner_view.status_code == 200, owner_view.text
+    assert owner_view.json()["hitl"]["can_decide"] is True
+    assert owner_view.json()["hitl"]["decide_reason"] is None
+
+    # Seeing the Run (or holding the application) is not the right to approve.
+    reader_view = _client(db_session, workspace, other).get(f"/runs/{run.id}")
+    assert reader_view.status_code == 200, reader_view.text
+    assert reader_view.json()["hitl"]["can_decide"] is False
+    assert reader_view.json()["hitl"]["decide_reason"] == "not_authorized"
+
+    decision.expires_at = datetime.utcnow() - timedelta(seconds=1)
+    db_session.commit()
+    expired = _client(db_session, workspace, initiator).get(f"/runs/{run.id}").json()["hitl"]
+    assert (expired["can_decide"], expired["decide_reason"]) == (False, "expired")
+
+    decision.expires_at = None
+    decision.status = "accepted"
+    db_session.commit()
+    decided = _client(db_session, workspace, initiator).get(f"/runs/{run.id}").json()["hitl"]
+    assert (decided["can_decide"], decided["decide_reason"]) == (False, "decided")
+
+
+def test_managed_pause_tells_a_non_admin_that_an_admin_must_decide(db_session):
+    workspace, initiator, _other, membership, _system, run, decision = _seed_pending_run(
+        db_session,
+        managed=True,
+    )
+    # The managed Run is private to admins, so the hint is checked directly.
+    assert runs._hitl_decision_right(
+        db_session, run=run, decision=decision, workspace=workspace, user=initiator,
+    ) == (False, "admin_required")
+
+    membership.role = "admin"
+    membership.role_template = WORKSPACE_ADMIN
+    db_session.commit()
+    hitl = _client(db_session, workspace, initiator).get(f"/runs/{run.id}").json()["hitl"]
+    assert (hitl["can_decide"], hitl["decide_reason"]) == (True, None)

@@ -497,7 +497,45 @@ def _test_huggingface(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> 
         return ("auth_failed" if exc.code == "HF_ACCESS_DENIED" else "error"), exc.code
 
 
+def _test_s3(values: Mapping[str, Any], secrets: Mapping[str, Any]) -> _Outcome:
+    """Read bucket metadata only; do not enumerate, upload or export an object."""
+    if not all(
+        (values.get("bucket"), values.get("access_key_id"), secrets.get("secret_access_key"))
+    ):
+        return "not_configured", None
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+
+    try:
+        client = boto3.client(
+            "s3",
+            region_name=values.get("region") or "us-east-1",
+            aws_access_key_id=values["access_key_id"],
+            aws_secret_access_key=secrets["secret_access_key"],
+            config=Config(
+                connect_timeout=TEST_TIMEOUT_S,
+                read_timeout=TEST_TIMEOUT_S,
+                retries={"max_attempts": 0},
+            ),
+        )
+        try:
+            client.head_bucket(Bucket=values["bucket"])
+        finally:
+            client.close()
+        return "connected", None
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"InvalidAccessKeyId", "SignatureDoesNotMatch", "InvalidToken", "ExpiredToken"}:
+            return "auth_failed", None
+        if code in {"403", "AccessDenied", "AllAccessDisabled"}:
+            # S3 deliberately hides missing buckets behind the same permission response.
+            return "access_denied", None
+        return "unreachable", None
+
+
 _TESTERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], _Outcome]] = {
+    "s3": _test_s3,
     "telegram": _test_telegram,
     "smtp": _test_smtp,
     "postgresql": _test_postgresql,

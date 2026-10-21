@@ -1,3 +1,5 @@
+import { writeFailure } from '@app/shared/ui/load-state';
+import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
 import { NgClass } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
@@ -249,6 +251,7 @@ interface Client360TimelineEvent {
   impact_type?: string | null;
   opportunity_id?: string | null;
   mail_draft_id?: string | null;
+  delivery_status?: 'accepted' | 'declared';
 }
 
 interface Client360CustomerProject {
@@ -508,7 +511,7 @@ interface CampaignDraftsOutcome {
   selector: 'app-client360-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NgClass, GlyphComponent, PageFrameComponent],
+  imports: [SpecializedAppContractComponent, FormsModule, NgClass, GlyphComponent, PageFrameComponent],
   template: `
     <ck-page-frame eyebrow="Andritz / Spare Parts" title="Client360 PDR" [hasActions]="true">
       <button actions type="button" class="icon-button" [title]="i18n.t('client360.refresh')" (click)="refresh()">
@@ -524,6 +527,7 @@ interface CampaignDraftsOutcome {
       </nav>
 
       <section class="c360-workspace">
+    <app-specialized-app-contract application="client360" />
       @if (loading()) {
         <div class="state-line"><ck-glyph name="pulse" [size]="14" color="currentColor" /> {{ i18n.t('client360.loading') }}</div>
       } @else if (error()) {
@@ -1114,7 +1118,7 @@ interface CampaignDraftsOutcome {
                   @for (event of ficheTimeline(); track $index) {
                     <li [ngClass]="timelineKindClass(event.kind)">
                       <span class="c360-timeline-when">{{ formatDateTime(event.at) }}</span>
-                      <span class="c360-timeline-kind">{{ timelineKindLabel(event.kind) }}</span>
+                      <span class="c360-timeline-kind">{{ timelineKindLabel(event.kind, event.delivery_status) }}</span>
                       <span class="c360-timeline-label">{{ event.label }}</span>
                     </li>
                   }
@@ -1356,6 +1360,10 @@ interface CampaignDraftsOutcome {
               </label>
             </div>
             <textarea class="mail-textarea" [ngModel]="draftBody()" (ngModelChange)="draftBody.set($event)"></textarea>
+            <label class="hint" data-testid="client360-draft-review">
+              <input type="checkbox" [checked]="draftIsReviewed()" (change)="reviewDraft($any($event.target).checked)" />
+              {{ i18n.t('client360.mail.review_confirmation') }}
+            </label>
             <div class="mail-actions">
               <button
                 type="button"
@@ -1374,10 +1382,13 @@ interface CampaignDraftsOutcome {
                 }
               </button>
               @if (currentDraft()?.action_item_id) {
-                <button type="button" class="secondary" (click)="markSent()" [disabled]="isSendingMail()">
+                <button type="button" class="secondary" (click)="markSent()" [disabled]="isSendingMail() || !draftIsReviewed()">
                   <ck-glyph name="check" [size]="14" color="currentColor" />
                   {{ i18n.t('client360.mail.mark_sent') }}
                 </button>
+              }
+              @if (mailUnknown()) {
+                <button type="button" class="secondary" (click)="verifyMail()">{{ i18n.t('state.write.verify') }}</button>
               }
               @if (mailStatus()) {
                 <div class="action-status" role="status" aria-live="polite">
@@ -2058,6 +2069,8 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   readonly selectedDirectoryCustomerKey = signal<string | null>(null);
   readonly focusedProjectCode = signal<string | null>(null);
   readonly currentDraft = signal<Client360MailDraft | null>(null);
+  readonly mailUnknown = signal(false);
+  readonly draftReview = signal<string | null>(null);
   readonly draftBody = signal('');
   readonly draftSubject = signal('');
   readonly alertsResponse = signal<Client360AlertsResponse | null>(null);
@@ -3015,6 +3028,8 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     this.selectedDirectoryCustomerKey.set(null);
     this.focusedProjectCode.set(null);
     this.currentDraft.set(null);
+    this.mailUnknown.set(false);
+    this.draftReview.set(null);
     this.alertsResponse.set(null);
     this.mappingsResponse.set(null);
     this.mailSettings.set(null);
@@ -3144,7 +3159,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
 
   markSent(): void {
     const draft = this.currentDraft();
-    if (!draft?.action_item_id) return;
+    if (!draft?.action_item_id || this.mailUnknown() || !this.draftIsReviewed() || this.isSendingMail()) return;
     const scope = this.workspace.captureRequestScope();
     const generation = this.workspaceActionGeneration;
     this.http.patch<ActionResponse>(
@@ -3161,19 +3176,31 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       next: () => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.currentDraft.set({ ...draft, subject: this.draftSubject(), status: 'sent', sent_body: this.draftBody(), sent_at: new Date().toISOString() });
-        this.mailStatus.set('Envoi manuel trace');
+        this.mailStatus.set(this.i18n.t('client360.mail.declared'));
         this.loadOpportunities(false, { scope, generation });
       },
       error: () => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
-        this.error.set('Impossible de mettre a jour le suivi mail');
+        this.error.set(this.i18n.t('client360.mail.tracking_failed'));
       },
     });
   }
 
+  private draftReviewSignature(): string {
+    return JSON.stringify([this.currentDraft()?.id, this.recipientEmail.trim(), this.draftSubject(), this.draftBody()]);
+  }
+
+  draftIsReviewed(): boolean {
+    return !!this.currentDraft() && this.draftReview() === this.draftReviewSignature();
+  }
+
+  reviewDraft(confirmed: boolean): void {
+    this.draftReview.set(confirmed ? this.draftReviewSignature() : null);
+  }
+
   canSendMail(): boolean {
     const draft = this.currentDraft();
-    return Boolean(draft?.id && this.mailSettings()?.configured && this.recipientEmail.trim() && this.draftBody().trim() && !this.sendingMailDraftId());
+    return Boolean(!this.mailUnknown() && this.draftIsReviewed() && draft?.id && this.mailSettings()?.configured && this.recipientEmail.trim() && this.draftBody().trim() && !this.sendingMailDraftId());
   }
 
   isSendingMail(): boolean {
@@ -3185,12 +3212,13 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     const draft = this.currentDraft();
     if (!draft || !this.canSendMail()) return;
     this.sendingMailDraftId.set(draft.id);
-    this.mailStatus.set('Envoi SMTP en cours');
+    this.mailStatus.set(this.i18n.t('client360.mail.sending'));
     const scope = this.workspace.captureRequestScope();
     const generation = this.workspaceActionGeneration;
     this.http.post<MailSendResponse>(
       `/api/v1/client360/mail-drafts/${encodeURIComponent(draft.id)}/send`,
       {
+        reviewed: true,
         to_email: this.recipientEmail.trim(),
         subject: this.draftSubject(),
         body: this.draftBody(),
@@ -3203,14 +3231,35 @@ export class Client360PageComponent implements OnInit, OnDestroy {
         this.draftSubject.set(payload.mail_draft.subject);
         this.draftBody.set(payload.mail_draft.sent_body || payload.mail_draft.generated_body);
         this.sendingMailDraftId.set(null);
-        this.mailStatus.set('Mail envoye via SMTP');
+        this.mailUnknown.set(false);
+        this.mailStatus.set(this.i18n.t(payload.delivery?.status === 'accepted' || payload.delivery?.status === 'sent' ? 'client360.mail.accepted' : 'client360.mail.unconfirmed'));
         this.loadOpportunities(false, { scope, generation });
       },
-      error: () => {
+      error: (error) => {
         if (!this.workspaceActionIsCurrent(scope, generation)) return;
         this.sendingMailDraftId.set(null);
-        this.mailStatus.set('Echec envoi SMTP');
+        const uncertain = writeFailure(error).s === 'unknown' || Number(error?.status) >= 500;
+        this.mailUnknown.set(uncertain);
+        this.mailStatus.set(this.i18n.t(uncertain ? 'client360.mail.unconfirmed' : 'state.write.failed'));
       },
+    });
+  }
+
+  verifyMail(): void {
+    const draft = this.currentDraft();
+    if (!draft?.opportunity_id) return;
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.workspaceActionGeneration;
+    this.http.get<Client360CustomerResponse>(`/api/v1/client360/customers/${encodeURIComponent(draft.opportunity_id)}?include_ai_summary=false`, this.workspaceHttpOptions(scope)).subscribe({
+      next: (response) => {
+        if (!this.workspaceActionIsCurrent(scope, generation)) return;
+        const found = response.mail_drafts.find((row) => row.id === draft.id);
+        if (!found?.sent_at) return;
+        this.currentDraft.set(found);
+        this.mailUnknown.set(false);
+        this.mailStatus.set(this.i18n.t(found.metadata?.['smtp_delivery'] ? 'client360.mail.accepted' : 'client360.mail.declared'));
+      },
+      error: () => { /* A failed read cannot resolve an uncertain send. */ },
     });
   }
 
@@ -3535,11 +3584,12 @@ export class Client360PageComponent implements OnInit, OnDestroy {
     return model ? `Genere via ${summary?.provider ? summary.provider + ':' : ''}${model}` : 'Genere par IA';
   }
 
-  timelineKindLabel(kind: string): string {
+  timelineKindLabel(kind: string, delivery?: 'accepted' | 'declared'): string {
+    if (kind === 'mail_sent') return this.i18n.t(delivery === 'accepted' ? 'client360.mail.accepted' : delivery === 'declared' ? 'client360.mail.declared' : 'client360.mail.unconfirmed');
     const labels: Record<string, string> = {
       opportunity_update: 'Opportunite',
       mail_draft: 'Brouillon',
-      mail_sent: 'Mail envoye',
+      mail_sent: this.i18n.t('client360.mail.unconfirmed'),
       impact_response: 'Reponse',
       impact_quote: 'Devis',
       impact_order: 'Commande',
@@ -3569,7 +3619,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
   labelAlertType(value: string): string {
     const labels: Record<string, string> = {
       due_soon: 'Echeance',
-      long_delivery: 'Delai long',
+      long_delivery: this.i18n.t('client360.alert.type.long_delivery'),
       draft_no_response: 'Relance',
       incomplete_data: 'Donnees',
     };
@@ -3581,7 +3631,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       detected: 'Detectee',
       validated: 'Validee',
       draft_generated: 'Brouillon',
-      sent: 'Envoye',
+      sent: this.i18n.t('client360.mail.tracked'),
       responded: 'Reponse',
       quote_requested: 'Devis',
       won: 'Gagne',
@@ -3621,7 +3671,7 @@ export class Client360PageComponent implements OnInit, OnDestroy {
       recommended_quantity_missing: 'Quantite recommandee manquante',
       installed_quantity_missing: 'Quantite installee manquante',
       customer_location_missing: 'Pays / hub manquant',
-      delivery_time_missing: 'Delai manquant',
+      delivery_time_missing: this.i18n.t('client360.gap.delivery_time_missing'),
     };
     return labels[value] || value;
   }

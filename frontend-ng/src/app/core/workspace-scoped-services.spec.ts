@@ -18,6 +18,7 @@ import {
 import { PermissionsService, type IamMatrix } from './permissions.service';
 import { RagPresetService, type RagPreset } from './rag-preset.service';
 import { RuntimeHealthService } from './runtime-health.service';
+import { DataService } from '../features/data/data.service';
 import {
   SystemsStore,
   type SystemAgent,
@@ -307,4 +308,52 @@ test('SystemsStore pins load/getById to A and exposes no late A system in B', as
       Reflect.deleteProperty(globalThis, 'localStorage');
     }
   }
+});
+
+test('DataService rejects a late A list and cannot clear B loading state', async () => {
+  const workspace = new WorkspaceStub();
+  const responses = [new Subject<unknown>(), new Subject<unknown>()];
+  const slugs: unknown[] = [];
+  let call = 0;
+  const injector = Injector.create({ providers: [
+    DataService,
+    { provide: WorkspaceService, useValue: workspace },
+    { provide: HttpClient, useValue: { get: (_url: string, options: { headers: Record<string, string> }) => {
+      slugs.push(options.headers['X-Workspace-Slug']);
+      return responses[call++];
+    } } },
+  ] });
+  const service = injector.get(DataService);
+  const first = service.refresh();
+  workspace.switchWorkspace();
+  const second = service.refresh();
+  responses[0].next({ datasets: [{ id: 'dataset-a' }], feature: { enabled: true, upload_max_bytes: 10 } });
+  responses[0].complete();
+  await assert.rejects(first, WorkspaceRequestInvalidatedError);
+  assert.deepEqual(service.datasets(), []);
+  assert.equal(service.loading(), true, 'a response from A cannot end B loading');
+  responses[1].next({ datasets: [{ id: 'dataset-b' }], feature: { enabled: true, upload_max_bytes: 20 } });
+  responses[1].complete();
+  assert.equal((await second)[0].id, 'dataset-b');
+  assert.deepEqual(slugs, ['andritz', 'sentinel-ci']);
+  injector.destroy();
+});
+
+test('DataService rejects a late upload and never inserts its row in another workspace', async () => {
+  const workspace = new WorkspaceStub();
+  const response = new Subject<unknown>();
+  const injector = Injector.create({ providers: [
+    DataService,
+    { provide: WorkspaceService, useValue: workspace },
+    { provide: HttpClient, useValue: { post: () => response } },
+  ] });
+  const service = injector.get(DataService);
+  const pending = service.upload(new File(['a,b\n1,2'], 'data.csv'));
+  workspace.switchWorkspace();
+  response.next({ dataset: { id: 'dataset-a' } });
+  response.complete();
+  await assert.rejects(pending, WorkspaceRequestInvalidatedError);
+  assert.deepEqual(service.datasets(), []);
+  assert.equal(service.feature().enabled, false);
+  injector.destroy();
 });

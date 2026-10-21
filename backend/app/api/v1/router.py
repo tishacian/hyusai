@@ -66,15 +66,16 @@ from app.api.v1.endpoints import (
     meetings,
     metrics,
     mission_room,
-    ml_governance,
     ml_explanations,
     ml_exports,
+    ml_governance,
     ml_imports,
     ml_models,
     ml_operations,
     ml_runtime,
     model_portal,
     models,
+    navigation_search,
     observability,
     postgresql,
     presets,
@@ -103,14 +104,19 @@ from app.api.v1.endpoints import (
     webcam_proxy,
     work,
     workspace_app_governance,
+    workspace_experience_activation,
     workspace_jobs,
 )
 
 api_router = APIRouter()
 api_router.include_router(connector_writes.router, prefix="/connector-writes", tags=["connectors"])
 api_router.include_router(connections.router, prefix="/connections", tags=["connectors"])
-api_router.include_router(connector_catalog.router, prefix="/connector-catalog", tags=["connectors"])
-api_router.include_router(connector_governance.router, prefix="/connector-governance", tags=["connectors"])
+api_router.include_router(
+    connector_catalog.router, prefix="/connector-catalog", tags=["connectors"]
+)
+api_router.include_router(
+    connector_governance.router, prefix="/connector-governance", tags=["connectors"]
+)
 
 # Public, secret-free deployment identity used by protected canaries before
 # they authenticate. It deliberately lives at /api/v1/build-info.
@@ -118,6 +124,7 @@ api_router.include_router(build_info.router, prefix="/build-info", tags=["build-
 
 # OmniRAG engine — preserved.
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(workspace_experience_activation.router, prefix="/auth", tags=["auth"])
 api_router.include_router(health.router, prefix="/health", tags=["health"])
 api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
@@ -261,6 +268,9 @@ api_router.include_router(
     typed_calibration.router, prefix="/typed-calibration", tags=["typed-calibration"]
 )
 
-api_router.include_router(connector_watches.router, prefix="/connector-watches", tags=["connector-watches"])
+api_router.include_router(
+    connector_watches.router, prefix="/connector-watches", tags=["connector-watches"]
+)
 
 api_router.include_router(ml_operations.router)
+api_router.include_router(navigation_search.router, prefix="/navigation", tags=["navigation"])

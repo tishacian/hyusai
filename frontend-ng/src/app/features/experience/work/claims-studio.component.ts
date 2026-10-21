@@ -1,7 +1,9 @@
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { firstValueFrom, Subscription, timer } from 'rxjs';
+import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
@@ -27,7 +29,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent, DecisionRightComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -129,8 +131,11 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               @if (machineAidsAllowed()) { <app-run-quality-review [run]="run()" /> }
               @if (machineAidsAllowed() && run()?.status === 'hitl_pending') {
                 <div class="claims-approval"><p>{{ i18n.t('experience.claims.approval_hint') }}</p>
-                  <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy()" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>
-                  <button class="xp-work-btn" [disabled]="busy()" (click)="decide('reject')">{{ i18n.t('experience.claims.reject') }}</button>
+                  <app-decision-right [hitl]="run()?.hitl" />
+                  @if (mayDecide(run()?.hitl)) {
+                  <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy() || !!decisionNotice()?.unknown" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>
+                  <button class="xp-work-btn" [disabled]="busy() || !!decisionNotice()?.unknown" (click)="decide('reject')">{{ i18n.t('experience.claims.reject') }}</button>
+                  }
                 </div>
               } @else if (run()?.status === 'running' || run()?.status === 'pending') { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
               @else if (recordedActions().length) {
@@ -141,6 +146,10 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                 </details>
               } @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
               @if (actionError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.action_error') }}</p> }
+              @if (decisionNotice(); as notice) {
+                <p class="claims-error" data-testid="claims-decision-notice" [attr.role]="notice.role">{{ i18n.t(notice.key, notice.params) }}</p>
+                @if (notice.unknown) { <button class="xp-work-btn" data-testid="claims-decision-verify" [disabled]="busy()" (click)="checkDecision()">{{ i18n.t('state.decision.verify') }}</button> }
+              }
               <p class="claims-quiet">{{ i18n.t('experience.claims.action_notice') }}</p>
               @if (recordedActions().length > 1) { <details class="claims-reexamine"><summary>{{ i18n.t('experience.claims.history') }}</summary>@for (receipt of recordedActions().slice(1); track receipt.receipt_id) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }</details> }
             </aside>
@@ -198,7 +207,11 @@ export class ClaimsStudioComponent {
   }));
   readonly advice = computed(() => selectedAdvice(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly caseData = computed(() => caseDatasets(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
-  readonly busy = signal(false); readonly actionError = signal(false); readonly sourceDocumentId = signal<string | null>(null);
+  protected readonly mayDecide = mayDecide;
+  readonly busy = signal(false); readonly actionError = signal(false);
+  /** The last decision's outcome when it was not recorded, or the check that followed it. */
+  readonly decisionNotice = signal<(DecisionMessage & { unknown: boolean }) | null>(null);
+  readonly sourceDocumentId = signal<string | null>(null);
   readonly projection = computed(() => claimRunProjection(this.machineAidsAllowed() ? this.run() : null));
   readonly recordedActions = computed(() => this.machineAidsAllowed() ? recordedClaimActions(this.detail(), this.projection().proposal) : []);
   readonly sources = computed(() => {
@@ -352,11 +365,38 @@ export class ClaimsStudioComponent {
     });
   }
   async decide(action: 'accept' | 'reject'): Promise<void> {
-    const run = this.run(); if (!run || this.busy() || !this.machineAidsAllowed()) return;
+    const run = this.run(); if (!run || this.busy() || !this.machineAidsAllowed() || this.decisionNotice()?.unknown || !mayDecide(run.hitl)) return;
     this.busy.set(true); this.actionError.set(false);
     const generation = this.generation;
-    try { const updated = await firstValueFrom(this.work.decide(run, action, this.i18n.t('experience.claims.decision_note'))); if (updated && generation === this.generation && this.run()?.id === run.id) this.run.set({ ...run, ...updated, skill_invocations: updated.skill_invocations ?? run.skill_invocations }); }
+    this.decisionNotice.set(null);
+    try {
+      const outcome = await lastValueFrom(this.work.decide(run, action, this.i18n.t('experience.claims.decision_note')));
+      if (generation !== this.generation || this.run()?.id !== run.id) return;
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+        const updated = outcome.value;
+        this.run.set({ ...run, ...updated, skill_invocations: updated.skill_invocations ?? run.skill_invocations });
+      } else {
+        // A lost answer is not a refusal: say which one, and lock until checked.
+        this.decisionNotice.set({ ...decisionMessage(outcome, action), unknown: outcome.s === 'unknown' });
+      }
+    }
     catch { if (generation === this.generation) this.actionError.set(true); } finally { if (generation === this.generation) this.busy.set(false); }
+  }
+  /** Reads the Run back after a lost answer; deciding again is allowed only if it still waits. */
+  async checkDecision(): Promise<void> {
+    const run = this.run(); if (!run || this.busy()) return;
+    const generation = this.generation;
+    this.busy.set(true);
+    try {
+      const check = await lastValueFrom(this.work.checkDecision(run));
+      if (generation !== this.generation || this.run()?.id !== run.id) return;
+      if (check.s === 'recorded' || check.s === 'pending') {
+        this.run.set({ ...run, ...check.run, skill_invocations: check.run.skill_invocations ?? run.skill_invocations });
+        this.decisionNotice.set(check.s === 'pending' ? null : { ...checkMessage(check), unknown: false });
+      } else {
+        this.decisionNotice.set({ ...checkMessage(check), unknown: true });
+      }
+    } finally { if (generation === this.generation) this.busy.set(false); }
   }
   money(value: string | null | undefined, currency: string): string {
     if (value == null || !value.trim() || !/^[A-Z]{3}$/.test(currency) || !Number.isFinite(Number(value))) return this.i18n.t('experience.claims.unknown');

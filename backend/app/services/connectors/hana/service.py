@@ -258,7 +258,10 @@ def _connect(config: Mapping[str, Any]):
             communicationTimeout=DEFAULT_CONNECT_TIMEOUT_MS,
             connectTimeout=CONNECT_TIMEOUT_MS,
         )
-    except Exception:
+    except Exception as exc:
+        code = getattr(exc, "errorcode", None) or (exc.args[0] if exc.args else None)
+        if code == 10:
+            raise HanaConnectorError("HANA_AUTH_FAILED", 502) from None
         raise HanaConnectorError("HANA_CONNECTION_FAILED", 502) from None
 
 
@@ -280,7 +283,10 @@ def test_connection(config: Mapping[str, Any]) -> dict[str, Any]:
             row = cursor.fetchone()
         finally:
             _close(cursor)
-    except Exception:
+    except Exception as exc:
+        code = getattr(exc, "errorcode", None) or (exc.args[0] if exc.args else None)
+        if code == 258:
+            raise HanaConnectorError("HANA_RESOURCE_DENIED", 502) from None
         raise HanaConnectorError("HANA_CONNECTION_FAILED", 502) from None
     finally:
         _close(conn)

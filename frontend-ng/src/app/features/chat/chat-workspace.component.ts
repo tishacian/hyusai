@@ -1,3 +1,4 @@
+import { uploadOutcome, type UploadBatchOutcome } from './chat-upload-outcome';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -354,6 +355,20 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           }
         </div>
 
+        @if (uploadRefusals().length) {
+          <div role="alert" data-testid="chat-upload-refusals">
+            <p>{{ i18n.t('chat.workspace.upload.refused') }}</p>
+            <ul>@for (file of uploadRefusals(); track $index) {
+              <li><strong>{{ file.filename }}</strong> — {{ file.reason || i18n.t('chat.workspace.upload.unconfirmed') }}</li>
+            }</ul>
+          </div>
+        }
+        @if (uploadPending().length) {
+          <div role="status" data-testid="chat-upload-pending">
+            <p>{{ i18n.t('chat.workspace.upload.pending') }}</p>
+            <ul>@for (filename of uploadPending(); track $index) { <li>{{ filename }}</li> }</ul>
+          </div>
+        }
         <!-- Attached docs — each entry carries an expandable "Doc facts"
              panel populated by GET /documents/{id}/metadata. We render
              title + filename, and on docmeta arrival show top keywords
@@ -1058,6 +1073,8 @@ export class ChatWorkspaceComponent implements OnInit {
    * panel can render title / author / pages / tokens / keywords.
    */
   readonly sessionDocs = signal<SessionDoc[]>([]);
+  readonly uploadRefusals = signal<Array<{filename: string; reason: string}>>([]);
+  readonly uploadPending = signal<string[]>([]);
 
   readonly dragging = signal(false);
   readonly uploading = signal(false);
@@ -1189,7 +1206,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private loadSystems(): void {
     const scope = this.workspace.captureRequestScope();
     const generation = this.workspaceGeneration;
-    const subscription = this.canonical.listSystems({ workspaceSlug: scope.workspaceSlug }).subscribe({
+    const subscription = this.canonical.listSystems({ workspaceSlug: scope.workspaceSlug, propagateErrors: true }).subscribe({
       next: (list) => {
         if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         const systems = list || [];
@@ -1289,62 +1306,30 @@ export class ChatWorkspaceComponent implements OnInit {
     // enforce the `chat_document_upload` flag (the KB upload omits this).
     formData.append('source', 'chat_drop_and_ask');
 
-    interface UploadResponse {
-      total: number;
-      successful: number;
-      failed: number;
-      documents?: Array<{
-        document_id: string | null;
-        filename: string | null;
-        status: string | null;
-        chunks_processed: number | null;
-      }>;
-    }
 
     const subscription = this.http
-      .post<UploadResponse>('/api/v1/documents/upload-batch', formData, {
+      .post<UploadBatchOutcome>('/api/v1/documents/upload-batch', formData, {
         headers: this.workspaceHeaders(scope),
       })
       .subscribe({
         next: (res) => {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.uploading.set(false);
-          const addedDocs: SessionDoc[] = (res.documents ?? [])
-            .filter((d) => d.status === 'success')
-            .map((d) => ({
-              id: d.document_id ?? undefined,
-              filename: d.filename ?? 'unknown',
-              metaLoading: !!d.document_id,
-              meta: null,
-            }));
-          // Fallback in case the backend omitted per-doc ids (older deploys
-          // or error path): still surface the filenames so the UI reflects
-          // the drop.
-          if (addedDocs.length === 0) {
-            const fallback = Array.from(files).map<SessionDoc>((f) => ({
-              filename: f.name,
-              metaLoading: false,
-              meta: null,
-            }));
-            this.sessionDocs.update((prev) => [...prev, ...fallback]);
-          } else {
-            this.sessionDocs.update((prev) => [...prev, ...addedDocs]);
-            // Hydrate each newly-indexed doc's docmeta in parallel. Failures
-            // silently leave `meta: null` so the row renders without facts.
-            addedDocs.forEach((doc) => {
-              if (!doc.id) return;
-              this.fetchDocMetadata(doc.id, scope, generation);
-            });
-          }
-          const added = (res.documents ?? [])
-            .filter((d) => d.status === 'success')
-            .map((d) => d.filename ?? '');
-          this.ensureEphemeralContext(
-            added.filter((n): n is string => !!n),
-            scope,
-            generation,
-          );
-          if (res.failed > 0) {
+          const outcome = uploadOutcome(res, Array.from(files, (file) => file.name));
+          this.uploadRefusals.set(outcome.refused);
+          this.uploadPending.set(outcome.pending.map((document) => document.filename || '—'));
+          const addedDocs: SessionDoc[] = outcome.ready.map((document) => ({
+            id: document.document_id ?? undefined,
+            filename: document.filename!,
+            metaLoading: !!document.document_id,
+            meta: null,
+          }));
+          this.sessionDocs.update((previous) => [...previous, ...addedDocs]);
+          addedDocs.forEach((document) => {
+            if (document.id) this.fetchDocMetadata(document.id, scope, generation);
+          });
+          if (addedDocs.length) this.ensureEphemeralContext(addedDocs.map((document) => document.filename), scope, generation);
+          if (outcome.refused.length > 0) {
             this.toast.warning(
               this.i18n.t('chat.workspace.toast.partial', {
                 ok: res.successful,
@@ -1353,7 +1338,7 @@ export class ChatWorkspaceComponent implements OnInit {
               }),
               this.i18n.t('chat.workspace.mode.drop_ask'),
             );
-          } else {
+          } else if (addedDocs.length > 0) {
             this.toast.success(
               this.i18n.t(
                 res.successful === 1
@@ -1368,8 +1353,9 @@ export class ChatWorkspaceComponent implements OnInit {
         error: (err) => {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.uploading.set(false);
+          this.uploadRefusals.set(Array.from(files, (file) => ({ filename: file.name, reason: '' })));
           this.toast.error(
-            err?.error?.detail || this.i18n.t('chat.workspace.toast.upload_failed'),
+             this.i18n.t('chat.workspace.toast.upload_failed'),
             this.i18n.t('chat.workspace.mode.drop_ask'),
           );
         },
@@ -1472,16 +1458,18 @@ export class ChatWorkspaceComponent implements OnInit {
           data_refs: allFilenames,
           environment_state: { collection: 'documents' },
           business_constraints: { source: 'drop_and_ask' },
-        }, { workspaceSlug: scope.workspaceSlug })
+        }, { workspaceSlug: scope.workspaceSlug }, { propagateErrors: true })
         .subscribe({
           next: (ctx) => {
             if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
             if (ctx) return;
-            this.removeSessionDocsByFilename(newDocs);
             this.toast.error(
               this.i18n.t('chat.workspace.toast.attach_failed'),
               this.i18n.t('chat.workspace.mode.drop_ask'),
             );
+          },
+          error: () => {
+            if (this.isWorkspaceContinuationCurrent(scope, generation)) this.toast.error(this.i18n.t('chat.workspace.toast.attach_failed'));
           },
         });
       this.workspaceSubscriptions.add(subscription);
@@ -1495,7 +1483,7 @@ export class ChatWorkspaceComponent implements OnInit {
         business_constraints: { source: 'drop_and_ask' },
         ephemeral: true,
         ttl_hours: 24,
-      }, { workspaceSlug: scope.workspaceSlug })
+      }, { workspaceSlug: scope.workspaceSlug }, { propagateErrors: true })
       .subscribe({
         next: (ctx) => {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
@@ -1503,11 +1491,13 @@ export class ChatWorkspaceComponent implements OnInit {
             this.ephemeralContextId.set(ctx.id);
             return;
           }
-          this.removeSessionDocsByFilename(newDocs);
           this.toast.error(
             this.i18n.t('chat.workspace.toast.context_failed'),
             this.i18n.t('chat.workspace.mode.drop_ask'),
           );
+        },
+        error: () => {
+          if (this.isWorkspaceContinuationCurrent(scope, generation)) this.toast.error(this.i18n.t('chat.workspace.toast.context_failed'));
         },
       });
     this.workspaceSubscriptions.add(subscription);
@@ -1540,7 +1530,7 @@ export class ChatWorkspaceComponent implements OnInit {
         data_refs: nextDocs.map((d) => d.filename),
         environment_state: { collection: 'documents' },
         business_constraints: { source: 'drop_and_ask' },
-      }, { workspaceSlug: scope.workspaceSlug })
+      }, { workspaceSlug: scope.workspaceSlug }, { propagateErrors: true })
       .subscribe({
         next: (ctx) => {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
@@ -1574,7 +1564,7 @@ export class ChatWorkspaceComponent implements OnInit {
     const scope = this.workspace.captureRequestScope();
     const generation = this.workspaceGeneration;
     this.persisting.set(true);
-    const subscription = this.canonical.persistContext(id, { workspaceSlug: scope.workspaceSlug }).subscribe({
+    const subscription = this.canonical.persistContext(id, { workspaceSlug: scope.workspaceSlug }, { propagateErrors: true }).subscribe({
       next: (ctx) => {
         if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         this.persisting.set(false);
@@ -1614,6 +1604,8 @@ export class ChatWorkspaceComponent implements OnInit {
     this.selectedSystemId.set(null);
     this.ephemeralContextId.set(null);
     this.sessionDocs.set([]);
+    this.uploadRefusals.set([]);
+    this.uploadPending.set([]);
     this.dragging.set(false);
     this.uploading.set(false);
     this.uploadingCount.set(0);

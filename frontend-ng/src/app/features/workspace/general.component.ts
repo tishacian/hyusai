@@ -1,9 +1,10 @@
 import { WorkspaceBrandComponent } from './workspace-brand.component';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { WorkspaceExperienceActivationComponent } from './experience-activation.component';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
@@ -19,6 +20,8 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { HelpTooltipComponent } from '@app/shared/cockpit';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { LOADING, settleRead, type LoadState } from '@app/shared/ui/load-state';
 
 const FIELD =
   'flex-1 px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition';
@@ -26,7 +29,7 @@ const FIELD =
 @Component({
   selector: 'app-workspace-general',
   standalone: true,
-  imports: [WorkspaceBrandComponent, FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent, HelpTooltipComponent],
+  imports: [WorkspaceBrandComponent, WorkspaceExperienceActivationComponent, FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent, HelpTooltipComponent, EmptyStateComponent],
   template: `
     <div class="space-y-6">
       <section class="ck-surface rounded-md p-6">
@@ -91,6 +94,8 @@ const FIELD =
               <p class="text-xs text-gray-500 mt-1">{{ i18n.t('workspace.general.slug.hint') }}</p>
             </div>
           </div>
+        } @else if (readState().s !== 'loading') {
+          <app-empty-state [state]="readState()" (retry)="reload()" />
         } @else {
           <div class="space-y-3">
             <app-skeleton height="40px" />
@@ -101,6 +106,7 @@ const FIELD =
 
       @if (detail(); as d) {
         <app-workspace-brand [workspace]="d" [canEdit]="canEdit()" (saved)="detail.set($event)" />
+        <app-workspace-experience-activation [workspace]="d" [canEdit]="canEdit()" />
         <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
             <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
@@ -402,6 +408,7 @@ export class WorkspaceGeneralComponent {
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
   private readonly toastr = inject(ToastrService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly field = FIELD;
 
@@ -411,6 +418,8 @@ export class WorkspaceGeneralComponent {
   );
 
   readonly detail = signal<WorkspaceDetail | null>(null);
+  readonly readState = signal<LoadState<WorkspaceDetail>>(LOADING);
+  private loadGeneration = 0;
   readonly saving = signal(false);
   readonly savingMode = signal(false);
   readonly savingDemoSafe = signal(false);
@@ -508,17 +517,22 @@ export class WorkspaceGeneralComponent {
   }
 
   load(slug: string): void {
-    this.workspaceService.getWorkspace(slug).subscribe({
-      next: (d) => {
-        this.detail.set(d);
-        this.name = d.name;
-      },
-      error: (err) =>
-        this.toastr.error(
-          err?.error?.detail || this.i18n.t('workspace.general.toast.load_failed'),
-          this.i18n.t('workspace.toast.error_title'),
-        ),
+    const generation = ++this.loadGeneration;
+    const scope = this.workspaceService.captureRequestScope();
+    this.detail.set(null);
+    settleRead(this.workspaceService.getWorkspace(slug)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+      if (generation !== this.loadGeneration || !this.workspaceService.isRequestScopeCurrent(scope)) return;
+      this.readState.set(state);
+      if (state.s === 'ready') {
+        this.detail.set(state.value);
+        this.name = state.value.name;
+      }
     });
+  }
+
+  reload(): void {
+    const slug = this.routeSlug();
+    if (slug) this.load(slug);
   }
 
   /** Role values come from the API — translate with a fallback to the raw value. */

@@ -1,3 +1,5 @@
+import { STRICT, WRITE_TIMEOUT_MS, readFailure, settleWrite, writeFailure, writeFailureCause, type LoadState, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,7 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of, type Observable } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, timeout } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
@@ -40,7 +42,6 @@ import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
 } from '@app/shared/cockpit/object-header.component';
-import { SystemsStore } from './systems.store';
 import {
   type AppDef,
   appById,
@@ -143,6 +144,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
     CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
+    WriteOutcomeComponent,
     GlyphComponent,
     HelpTooltipComponent,
     LiveDotComponent,
@@ -163,7 +165,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         <button
           type="button"
           (click)="switchToFlow()"
-          [disabled]="!canSwitchToFlow() || launching()"
+          [disabled]="!canSwitchToFlow() || writeLocked()"
           class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
           [title]="canSwitchToFlow() ? i18n.t('systems.builder.switch_flow.title') : i18n.t('systems.builder.switch_flow.disabled')"
         >
@@ -172,7 +174,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         <button
           type="button"
           (click)="launch()"
-          [disabled]="!allGatesValid() || launching()"
+          [disabled]="!allGatesValid() || writeLocked()"
           class="inline-flex items-center gap-2 px-3 py-2 rounded text-sm font-semibold transition"
           style="background:var(--ck-signal-pos); color:var(--ck-on-signal);"
           [style.opacity]="!allGatesValid() || launching() ? '0.4' : '1'"
@@ -185,6 +187,12 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         </button>
       </span>
     </ck-object-header>
+    <app-write-outcome [outcome]="saveOutcome()" [verifiable]="true" (verify)="verifySave()" />
+    @if (editState(); as state) {
+      @if (state.s === 'error' || state.s === 'denied') {
+        <app-empty-state [state]="state" (retry)="loadEditedSystem()" />
+      }
+    }
 
     <!-- Single-surface canvas: every section is always visible, collapsible,
          gated by a live badge. No prev/next — the operator can zoom into any
@@ -955,7 +963,6 @@ export class SystemBuilderComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly health = inject(RuntimeHealthService);
   private readonly toast = inject(ToastrService);
-  private readonly store = inject(SystemsStore);
   private readonly serializer = inject(FlowSerializerService);
   private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
@@ -1050,6 +1057,11 @@ export class SystemBuilderComponent implements OnInit {
     ]),
   );
   readonly launching = signal(false);
+  readonly saveOutcome = signal<WriteOutcome<System | Context | null> | null>(null);
+  readonly editState = signal<LoadState<System> | null>(null);
+  readonly writeLocked = computed(() => this.launching() || this.saveOutcome()?.s === 'unknown'
+    || (!!this.editState() && this.editState()?.s !== 'ready'));
+  private pendingSave: Partial<System> | null = null;
 
   readonly capabilities = signal<Capability[]>([]);
   readonly loadingCaps = signal(false);
@@ -1158,11 +1170,7 @@ export class SystemBuilderComponent implements OnInit {
       // Edit mode: round-trip an existing System's flow back into the
       // canvas. Sections authored in Flow with custom nodes will be
       // rendered read-only further down.
-      this.canonical.getSystem(editId).subscribe({
-        next: (sys) => {
-          if (sys) this.hydrateFromSystem(sys);
-        },
-      });
+      this.loadEditedSystem();
     } else {
       // Creation mode — no owning System yet; clear the System scope
       // and any stale Run focus. A pre-filled capability_id (coming from
@@ -1212,6 +1220,20 @@ export class SystemBuilderComponent implements OnInit {
       }
       this.loadingCaps.set(false);
       this.loadingCollections.set(false);
+    });
+  }
+
+  loadEditedSystem(): void {
+    const id = this.route.snapshot.queryParamMap.get('systemId');
+    if (!id) return;
+    this.editState.set({ s: 'loading' });
+    this.canonical.getSystem(id, STRICT).subscribe({
+      next: (sys) => {
+        if (!sys) { this.editState.set(readFailure({ status: 404 })); return; }
+        this.hydrateFromSystem(sys);
+        this.editState.set({ s: 'ready', value: sys, at: Date.now() });
+      },
+      error: (error: unknown) => this.editState.set(readFailure(error)),
     });
   }
 
@@ -1403,7 +1425,7 @@ export class SystemBuilderComponent implements OnInit {
    * (e.g. intelligence) remain intact.
    */
   switchToFlow(): void {
-    if (!this.canSwitchToFlow() || this.launching()) return;
+    if (!this.canSwitchToFlow() || this.writeLocked()) return;
     this.launching.set(true);
     const flow: CanonicalFlow = this.serializer.formToFlow(this.draftAsSerializerInput());
     const existing = (this.editingSystem()?.flow_definition ?? {}) as unknown as CanonicalFlow;
@@ -1418,17 +1440,10 @@ export class SystemBuilderComponent implements OnInit {
     const op$ = sid
       ? this.canonical.updateSystem(sid, body, {
           expected_flow_sha256: this.editingSystem()?.flow_sha256,
+          propagateErrors: true,
         })
-      : this.canonical.createSystem(body);
-    op$.subscribe((sys) => {
-      this.launching.set(false);
-      if (!sys) {
-        this.toast.error(
-          this.i18n.t('systems.builder.toast.switch_failed'),
-          this.i18n.t('systems.builder.toast.switch_failed_title'),
-        );
-        return;
-      }
+      : this.canonical.createSystem(body, STRICT);
+    this.saveSystem(op$, body, (sys) => {
       this.toast.info(
         this.i18n.t('systems.builder.toast.switched', { name: sys.name }),
         this.i18n.t('systems.builder.toast.switched_title'),
@@ -1596,7 +1611,8 @@ export class SystemBuilderComponent implements OnInit {
   }
 
   launch(): void {
-    if (!this.allGatesValid() || this.launching()) return;
+    if (!this.allGatesValid() || this.writeLocked()) return;
+    this.pendingSave = null;
     this.launching.set(true);
     const cap = this.selectedCapability();
     const pipeline = this.ragPipelines.find((p) => p.id === this.draft.rag_mode);
@@ -1618,10 +1634,18 @@ export class SystemBuilderComponent implements OnInit {
             name: this.draft.name.trim() || this.i18n.t('systems.builder.context_name_fallback'),
           }),
           data_refs: [...this.draft.collections],
-        })
+        }, undefined, STRICT).pipe(timeout({ first: WRITE_TIMEOUT_MS }))
       : of(null);
 
-    contextOp.subscribe((ctx) => {
+    // A context that could not be created stops the save: a System saved
+    // without the Context its Runs need would look complete and answer blind.
+    contextOp.subscribe({ error: (error: unknown) => this.contextFailed(error), next: (ctx) => {
+      if (!reuseId && this.draft.collections.length > 0 && !ctx) {
+        this.contextFailed({ status: 0 });
+        return;
+      }
+      // A confirmed Context is reused if the subsequent System save fails.
+      if (ctx?.id) this.draft.reuse_context_id = ctx.id;
       // Canonical flow projection. When a System is being edited we
       // preserve the existing `variant` + any `extended` markers so the
       // specialised facets (e.g. intelligence) survive a save.
@@ -1659,40 +1683,67 @@ export class SystemBuilderComponent implements OnInit {
       const op$ = sid
         ? this.canonical.updateSystem(sid, body, {
             expected_flow_sha256: this.editingSystem()?.flow_sha256,
+            propagateErrors: true,
           })
-        : this.canonical.createSystem(body);
-      op$.subscribe((sys) => {
-        this.launching.set(false);
-        if (sys) {
+        : this.canonical.createSystem(body, STRICT);
+      this.saveSystem(op$, body, (sys) => {
           this.toast.success(
             this.i18n.t('systems.builder.toast.live', { name: sys.name }),
             this.i18n.t(sid ? 'systems.builder.toast.saved_title' : 'systems.builder.toast.created_title'),
           );
           void this.router.navigateByUrl(this.navigation.objectUrl('system', sys.id));
-          return;
-        }
-        if (sid) {
-          this.toast.error(
-            this.i18n.t('systems.builder.toast.save_failed'),
-            this.i18n.t('systems.builder.toast.save_failed_title'),
-          );
-          return;
-        }
-        const draft = this.store.createDraft({
-          name: this.draft.name.trim(),
-          description: this.draft.objective.trim(),
-          model: 'gpt-4o-mini',
-          rag_mode: this.draft.rag_mode,
-          skills: cap?.skill_ids ?? [],
-          collections: [...this.draft.collections],
-        });
-        this.toast.warning(
-          this.i18n.t('systems.builder.toast.local_draft'),
-          this.i18n.t('systems.builder.toast.local_draft_title'),
-        );
-        void this.router.navigateByUrl(this.navigation.objectUrl('system', draft.id));
       });
+    } });
+  }
+
+  private saveSystem(request: Observable<System | null>, body: Partial<System>, confirmed: (system: System) => void): void {
+    this.pendingSave = body;
+    const scope = this.workspace.captureRequestScope();
+    settleWrite(request).subscribe((outcome) => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.launching.set(outcome.s === 'sent');
+      if ((outcome.s === 'confirmed' || outcome.s === 'accepted') && !outcome.value) {
+        this.saveOutcome.set({ s: 'unknown', status: null, code: 'empty_answer' });
+        return;
+      }
+      this.saveOutcome.set(outcome);
+      if (outcome.s === 'confirmed' && outcome.value) confirmed(outcome.value);
     });
+  }
+
+  verifySave(): void {
+    const id = this.editingSystemId();
+    if (!id) {
+      // A lost create response carries no resource ID. Let the author inspect
+      // the authoritative catalogue; never invent a local successful System.
+      void this.router.navigateByUrl(this.navigation.resolveLink({ surface: 'systems' }).url);
+      return;
+    }
+    this.canonical.getSystem(id, STRICT).subscribe({
+      next: (system) => {
+        if (system && this.pendingSave && Object.entries(this.pendingSave).every(([key, value]) =>
+          JSON.stringify(system[key as keyof System]) === JSON.stringify(value))) {
+          this.editingSystem.set(system);
+          this.saveOutcome.set({ s: 'confirmed', value: system, at: Date.now() });
+        }
+      },
+      error: () => this.saveOutcome.set({ s: 'unknown', status: null, code: 'verification_failed' }),
+    });
+  }
+
+  private contextFailed(error: unknown): void {
+    this.launching.set(false);
+    const outcome = writeFailure(error);
+    this.saveOutcome.set(outcome);
+    if (outcome.s === 'unknown') {
+      this.toast.warning(this.i18n.t('state.write.unknown'), this.i18n.t('systems.builder.toast.context_failed_title'));
+      return;
+    }
+    const cause = writeFailureCause(outcome);
+    this.toast.error(
+      `${this.i18n.t('systems.builder.toast.context_failed')} ${this.i18n.t(cause.key, cause.params)}`,
+      this.i18n.t('systems.builder.toast.context_failed_title'),
+    );
   }
 
   formatPrice(v: number | null | undefined): string {

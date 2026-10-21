@@ -6,6 +6,9 @@
  */
 
 export const RUNS_FR = {
+  'runs.investigation.evidence_scope': 'Extraits figés lus par cette évaluation. Une source référencée ou configurée ne prouve pas sa lecture dans cette exécution ; un résultat doit être confirmé séparément.',
+  'runs.investigation.source_version': 'Version de la source évaluée',
+  'runs.investigation.version_not_preserved': 'Version non conservée par cette évaluation',
   "runs.correction.unsaved": "Enregistrez vos modifications du Flow avant d’appliquer cette correction.",
   "runs.correction.reference_run": "Exécution de référence",
   "runs.correction.back_to_evidence": "Retrouver le résultat et ses preuves",
@@ -179,6 +182,8 @@ export const RUNS_FR = {
   'runs.provenance.from_trace': 'Depuis la trace {id}',
   'runs.detail.rerun': 'Relancer',
   'runs.detail.rerunning': 'Relance…',
+  'runs.detail.rerun_failed': 'La relance n’a pas démarré.',
+  'runs.detail.override.failed': 'La valeur n’est pas enregistrée.',
   'runs.detail.rerun_hint': "Réexécuter avec la même entrée et le Flow tel qu'il était alors",
   'runs.detail.not_found.title': 'Exécution introuvable',
   'runs.detail.not_found.description':
@@ -272,6 +277,9 @@ export const RUNS_FR = {
  * other, before the guard even runs.
  */
 export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
+  "runs.investigation.evidence_scope": "Frozen excerpts read by this evaluation. A referenced or configured source does not establish that this run read it; a result requires separate confirmation.",
+  "runs.investigation.source_version": "Evaluated source version",
+  "runs.investigation.version_not_preserved": "Version not retained by this evaluation",
   "runs.correction.unsaved": "Save your Flow edits before applying this correction.",
   "runs.correction.reference_run": "Reference Run",
   "runs.correction.back_to_evidence": "Return to the result and its evidence",
@@ -445,6 +453,8 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.provenance.from_trace': 'From trace {id}',
   'runs.detail.rerun': 'Rerun',
   'runs.detail.rerunning': 'Rerunning…',
+  'runs.detail.rerun_failed': 'The rerun did not start.',
+  'runs.detail.override.failed': 'The value was not saved.',
   'runs.detail.rerun_hint': 'Re-execute with the same input and the Flow as it stood then',
   'runs.detail.not_found.title': 'Run not found',
   'runs.detail.not_found.description':

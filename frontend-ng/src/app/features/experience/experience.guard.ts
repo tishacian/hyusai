@@ -4,36 +4,49 @@ import { catchError, map, of } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { type PendingChangesSummary, WorkspaceSwitchService } from '@app/core/workspace-switch.service';
 import { canAccessExperienceStudio, canEditExperienceStudio } from './experience-access';
+import { accessStateUrl } from '@app/features/access-state/access-state.model';
 
-export const experienceV1Guard: CanActivateFn = () => {
+/**
+ * A closed destination leads to the access-state page with the reason, never
+ * to another surface: a silent redirect to /systems or /work hid why (PL02).
+ */
+export const experienceV1Guard: CanActivateFn = (_route, state) => {
   const workspace = inject(WorkspaceService);
   const router = inject(Router);
-  const decide = () =>
-    workspace.experienceV1Enabled() ? true : router.parseUrl('/systems');
+  const from = state?.url ?? null;
+  const decide = () => workspace.experienceV1Enabled()
+    ? true
+    : accessStateUrl(router, 'disabled', { from, feature: 'work' });
 
   if (workspace.workspaces().length > 0) return decide();
   return workspace.loadWorkspaces().pipe(
     map(decide),
-    catchError(() => of(router.parseUrl('/systems'))),
+    catchError(() => of(accessStateUrl(router, 'unverifiable', { from }))),
   );
 };
 
 function studioGuard(edit: boolean): CanActivateFn {
-  return () => {
+  return (_route, state) => {
     const workspace = inject(WorkspaceService);
     const router = inject(Router);
+    const from = state?.url ?? null;
     const decide = () => {
-      if (!workspace.experienceStudioV1Enabled()) return router.parseUrl('/work');
+      if (!workspace.experienceV1Enabled()) {
+        return accessStateUrl(router, 'disabled', { from, feature: 'work' });
+      }
+      if (!workspace.experienceStudioV1Enabled()) {
+        return accessStateUrl(router, 'disabled', { from, feature: 'studio' });
+      }
       const current = workspace.current();
       const allowed = edit
         ? canEditExperienceStudio(current?.role_template, current?.role, workspace.isAdmin())
         : canAccessExperienceStudio(current?.role_template, current?.role, workspace.isAdmin());
-      return allowed ? true : router.parseUrl('/work');
+      return allowed ? true : accessStateUrl(router, 'forbidden', { from, feature: 'studio' });
     };
     if (workspace.workspaces().length > 0) return decide();
     return workspace.loadWorkspaces().pipe(
       map(decide),
-      catchError(() => of(router.parseUrl('/work'))),
+      catchError(() => of(accessStateUrl(router, 'unverifiable', { from }))),
     );
   };
 }

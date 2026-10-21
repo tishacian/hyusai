@@ -40,7 +40,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
-import { Subscription } from 'rxjs';
+import { Subscription, timeout } from 'rxjs';
+import { STRICT, WRITE_TIMEOUT_MS, writeFailure, type WriteOutcome } from '@app/shared/ui/load-state';
 import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
@@ -221,6 +222,7 @@ export class FlowPersistenceService {
   /** The System this builder is bound to, or `null` for the scratchpad. */
   readonly systemId = signal<string | null>(null);
   readonly hydrationReady = signal(false);
+  readonly readOnly = this.store.readOnly;
   readonly hydrationError = signal<string | null>(null);
   readonly promoting = signal(false);
   /** Promotion modal: open flag, draft fields, and in-modal FR error (L20a). */
@@ -228,6 +230,9 @@ export class FlowPersistenceService {
   readonly promoteName = signal('');
   readonly promoteObjective = signal('');
   readonly promotionError = signal<string | null>(null);
+  readonly promotionOutcome = signal<WriteOutcome<System> | null>(null);
+  readonly promotionBlocked = computed(() => this.promoting()
+    || this.promotionOutcome()?.s === 'unknown' || this.promotionOutcome()?.s === 'confirmed');
   /** Hash of the authoritative saved Flow. Execute uses it as both a local
    * readiness gate and the backend optimistic precondition. */
   readonly savedFlowSha256 = signal<string | null>(null);
@@ -294,6 +299,7 @@ export class FlowPersistenceService {
   private readonly errored = signal(false);
   readonly actionsDisabled = computed(
     () =>
+      this.readOnly() ||
       !this.hydrationReady() ||
       this.saving() ||
       this.publishing() ||
@@ -382,6 +388,11 @@ export class FlowPersistenceService {
   constructor() {
     const unregisterWorkspaceReset = this.workspace.registerContextReset((transition) => {
       this.cancelWorkspaceWrites();
+      this.promotionOutcome.set(null);
+      this.promotionError.set(null);
+      this.promoteName.set('');
+      this.promoteObjective.set('');
+      this.promoteModalOpen.set(false);
       if (this.autosaveTimer) {
         clearTimeout(this.autosaveTimer);
         this.autosaveTimer = null;
@@ -433,6 +444,7 @@ export class FlowPersistenceService {
         }
       }
       if (
+        this.readOnly() ||
         !this.hydrationReady() ||
         !dirty ||
         this.saving() ||
@@ -462,6 +474,7 @@ export class FlowPersistenceService {
    *  while a workspace draft/default is an authoritative clean baseline. */
   hydrateScratch(): void {
     if (this.systemId()) return;
+    this.store.setReadOnly(false);
     this.cancelAutosave();
     this.resetReviewGate();
     this.hydrationError.set(null);
@@ -523,6 +536,7 @@ export class FlowPersistenceService {
     this.cancelWorkspaceWrites();
     this.resetReviewGate();
     this.resetPublicationState();
+    this.store.setReadOnly(false);
     try {
       this.store.load(flow);
     } catch {
@@ -580,6 +594,7 @@ export class FlowPersistenceService {
     this.cancelWorkspaceWrites();
     this.resetReviewGate();
     this.resetPublicationState();
+    this.store.setReadOnly(false);
     try {
       this.store.load(flow);
     } catch {
@@ -631,11 +646,34 @@ export class FlowPersistenceService {
     return true;
   }
 
+  /** Read the immutable published graph independently of the editable draft.
+   * No normalization write or validation POST is allowed on this path. */
+  hydratePublishedState(system: System, flowState: SystemFlowState): boolean {
+    const published = flowState.published;
+    const flow = canonicalPersistedFlow(published?.flow_definition);
+    if (flowState.system_id !== system.id || !flow || !published?.version_id || !published.flow_sha256) {
+      this.markHydrationFailed(this.i18n.t('flow.builder.published.unavailable'));
+      return false;
+    }
+    if (!this.hydrateSystem({ ...system, flow_definition: flow as unknown as Record<string, unknown>, flow_sha256: published.flow_sha256 })) return false;
+    this.store.setReadOnly(true);
+    this.publicationMode.set(true);
+    this.publishedVersionId.set(published.version_id);
+    this.publishedVersionNumber.set(published.version_number);
+    this.publishedFlowSha256.set(published.flow_sha256);
+    this.publishedPolicySha256.set(published.control_policy_snapshot_sha256 ?? null);
+    this.publishedExecutionContract.set(published.execution_contract ? structuredClone(published.execution_contract) : null);
+    this.publishedContractReady.set(published.execution_contract_ready === true);
+    this.draftRevision.set(flowState.draft?.revision ?? null);
+    return true;
+  }
+
   /** Execute compares the validation hash to the saved hash. The editor
    * projects a normalized, sidecar-annotated tree; an automation created
    * before that projection was stored would stay locked forever. Persist
    * that tree once so the two bodies are the same. */
   private alignHashedBody(persisted: CanonicalFlow): void {
+    if (this.readOnly()) return;
     const projected = this.serializer.annotateSidecars(this.store.snapshot());
     if (projected.variant !== 'automation_v1' && persisted.variant !== 'automation_v1') {
       return;
@@ -782,6 +820,7 @@ export class FlowPersistenceService {
       return;
     }
     if (
+      this.readOnly() ||
       !this.hydrationReady() ||
       !this.store.dirty() ||
       this.saving() ||
@@ -1028,7 +1067,7 @@ export class FlowPersistenceService {
    * is optional and sent empty when omitted (L20a).
    */
   promoteToSystem(nameOrOptions?: string | { name: string; objective?: string }): void {
-    if (this.systemId() || this.promoting() || !this.hydrationReady()) return;
+    if (this.systemId() || this.promotionBlocked() || !this.hydrationReady()) return;
     const options =
       typeof nameOrOptions === 'string'
         ? { name: nameOrOptions, objective: '' }
@@ -1039,8 +1078,10 @@ export class FlowPersistenceService {
       return;
     }
     const objective = (options?.objective ?? '').trim();
-
+    this.promoteName.set(resolved);
+    this.promoteObjective.set(objective);
     this.promoting.set(true);
+    this.promotionOutcome.set({ s: 'sent' });
     this.promotionError.set(null);
     const scope = this.workspace.captureRequestScope();
     const flow = this.serializer.annotateSidecars(this.store.snapshot());
@@ -1054,15 +1095,20 @@ export class FlowPersistenceService {
         // Durable provenance: the catalog can label these Systems without
         // pattern-matching a name an operator is free to change.
         settings: { origin: 'scratchpad_promote' },
-      })
+      }, STRICT)
+      .pipe(timeout({ first: WRITE_TIMEOUT_MS }))
       .subscribe({
         next: (system) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.promoting.set(false);
           if (!system) {
-            this.promotionError.set(this.i18n.t('flow.promote.error.failed'));
+            this.promotionOutcome.set({ s: 'unknown', status: null, code: 'empty_answer' });
+            this.promotionError.set(this.i18n.t('flow.promote.error.unknown'));
             return;
           }
+          // A created System remains created even if the Flow acknowledgement
+          // is inconsistent or the author edited during the request. Never POST twice.
+          this.promotionOutcome.set({ s: 'confirmed', value: system, at: Date.now() });
 
           const returnedFlow = system.flow_definition;
           const returnedFlowVerified =
@@ -1096,10 +1142,13 @@ export class FlowPersistenceService {
           this.clearDraftForWorkspace(scope.workspaceSlug);
           void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: system.id }));
         },
-        error: () => {
+        error: (error: unknown) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.promoting.set(false);
-          this.promotionError.set(this.i18n.t('flow.promote.error.failed'));
+          const outcome = writeFailure(error);
+          this.promotionOutcome.set(outcome);
+          this.promotionError.set(this.i18n.t(outcome.s === 'unknown'
+            ? 'flow.promote.error.unknown' : 'flow.promote.error.failed'));
         },
         complete: () => {
           if (this.workspace.isRequestScopeCurrent(scope)) this.promoting.set(false);
@@ -1110,16 +1159,17 @@ export class FlowPersistenceService {
 
   openPromoteModal(): void {
     if (this.systemId() || this.promoting() || !this.hydrationReady()) return;
-    this.promotionError.set(null);
-    this.promoteName.set('');
-    this.promoteObjective.set('');
+    if (!this.promotionOutcome()) {
+      this.promotionError.set(null);
+      this.promoteName.set('');
+      this.promoteObjective.set('');
+    }
     this.promoteModalOpen.set(true);
   }
 
   closePromoteModal(): void {
     if (this.promoting()) return;
     this.promoteModalOpen.set(false);
-    this.promotionError.set(null);
   }
 
   confirmPromoteModal(): void {

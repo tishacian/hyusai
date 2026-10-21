@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import { switchMap } from 'rxjs';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CanonicalApiService, type RunSystemSummary } from '@app/core/canonical-api.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -17,6 +17,10 @@ import { canEditExperienceStudio } from './experience-access';
 import { StudioApiService } from './studio/studio-api.service';
 import { inventoryState, type StudioExperience } from './studio/studio-model';
 import { automationSystemBody, selectAutomationSkill } from './hub/automation-draft.model';
+import { StartExampleImportComponent } from './hub/example-import.component';
+import { StartPrerequisitesComponent } from './hub/prerequisites.component';
+import { automationFailure, type AutomationFailure } from './hub/start.model';
+import { wizardQueryParams, wizardReturnTo } from './studio/wizard-route';
 
 @Component({
   selector: 'app-create-hub',
@@ -24,11 +28,14 @@ import { automationSystemBody, selectAutomationSkill } from './hub/automation-dr
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    RouterLink,
     NavLinkDirective,
     EmptyStateComponent,
     GlyphComponent,
     HelpTooltipComponent,
     PageFrameComponent,
+    StartExampleImportComponent,
+    StartPrerequisitesComponent,
   ],
   templateUrl: './create-hub.component.html',
   styleUrl: './create-hub.component.scss',
@@ -39,6 +46,7 @@ export class CreateHubComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
+  private readonly queryParams = toSignal(inject(ActivatedRoute).queryParamMap, { requireSync: true });
   readonly recentApps = signal<StudioExperience[]>([]);
   readonly recentState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly recentSystems = signal<RunSystemSummary[]>([]);
@@ -50,7 +58,8 @@ export class CreateHubComponent {
   ));
   automationPrompt = '';
   readonly automationCreating = signal(false);
-  readonly automationError = signal<string | null>(null);
+  readonly automationError = signal<AutomationFailure | null>(null);
+  readonly modelPortalOpen = this.workspace.modelPortalEnabled;
 
   constructor() {
     this.loadRecent();
@@ -90,36 +99,66 @@ export class CreateHubComponent {
     return label === key ? status : label;
   }
 
+  /** An unfinished creation wizard resumes at its step, not in the editor. */
+  readonly wizardPath = navigationLeafUrl('create-app-new');
+  wizardParams(app: StudioExperience): Record<string, string> {
+    return wizardQueryParams(app.id, app.wizard_step ?? 1);
+  }
+
+  /** Set when the wizard sent the author here to create the missing System. */
+  readonly returnTo = computed(() => {
+    const target = wizardReturnTo(this.queryParams().get('returnTo'));
+    if (!target) return null;
+    const url = new URL(target, 'http://local');
+    const params: Record<string, string> = {};
+    url.searchParams.forEach((value, key) => { params[key] = value; });
+    return { path: url.pathname, params };
+  });
+
+  /** "Start from scratch" or "Start from an example": nothing is imported by default. */
+  readonly start = signal<'zero' | 'example' | null>(null);
+
   createAutomation(): void {
     if (!this.canEdit() || this.automationCreating()) return;
     const prompt = this.automationPrompt.trim() || 'New automation';
+    const scope = this.workspace.captureRequestScope();
     this.automationCreating.set(true);
     this.automationError.set(null);
-    this.canonical
-      .listSkills({ propagateErrors: true })
-      .pipe(
-        switchMap((skills) => {
-          const skill = selectAutomationSkill(skills);
-          if (!skill) throw new Error('automation_llm_unavailable');
-          return this.canonical.createSystem(
-            automationSystemBody(skill, prompt),
-            { propagateErrors: true },
-          );
-        }),
-      )
-      .subscribe({
-        next: (system) => {
+    this.canonical.listSkills({ propagateErrors: true }).subscribe({
+      next: (skills) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        const skill = selectAutomationSkill(skills);
+        if (!skill) {
           this.automationCreating.set(false);
-          if (!system) throw new Error('automation_create_failed');
-          void this.router.navigateByUrl(
-            navigationLeafUrl('system-flow', { ref: system.id }),
-          );
-        },
-        error: () => {
-          this.automationCreating.set(false);
-          this.automationError.set('experience.hub.automation.error');
-        },
-      });
+          this.automationError.set('no_model');
+          return;
+        }
+        this.canonical
+          .createSystem(automationSystemBody(skill, prompt), { propagateErrors: true })
+          .subscribe({
+            next: (system) => {
+              if (!this.workspace.isRequestScopeCurrent(scope)) return;
+              this.automationCreating.set(false);
+              if (!system) {
+                // The server answered without a System: whether one exists is unknown.
+                this.automationError.set('unverifiable');
+                return;
+              }
+              void this.router.navigateByUrl(navigationLeafUrl('system-flow', { ref: system.id }));
+            },
+            error: (error: unknown) => {
+              if (!this.workspace.isRequestScopeCurrent(scope)) return;
+              this.automationCreating.set(false);
+              this.automationError.set(automationFailure('create', error));
+            },
+          });
+      },
+      error: (error: unknown) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.automationCreating.set(false);
+        this.automationError.set(automationFailure('skills', error));
+      },
+    });
   }
 
 }

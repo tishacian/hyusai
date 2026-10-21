@@ -23,7 +23,7 @@
     @if (activity.counts.attempts) {
       <div class="product-chart" data-testid="impact-activity-chart">
         <h3>{{ i18n.t('hypervisor.v2.activity.daily') }}</h3>
-        <ck-chart-stream [series]="chart()" [dayLabels]="dayLabels()" [ticks]="ticks()" [height]="150" [fluid]="true" [lockedDay]="selectedDay()" (dayLock)="selectedDay.set($event)" />
+        <ck-chart-stream [series]="chart()" [discrete]="true" [dayLabels]="dayLabels()" [ticks]="ticks()" [height]="150" [fluid]="true" [lockedDay]="selectedDay()" (dayLock)="selectedDay.set($event)" />
         @if (selected(); as day) { <p role="status">{{ date(day.date) }} · {{ day.attempts }} {{ i18n.t('hypervisor.v2.activity.attempts') }} · {{ day.completed }} {{ i18n.t('hypervisor.v2.activity.completed') }} · {{ day.failed + day.cancelled }} {{ i18n.t('hypervisor.v2.activity.failed_cancelled') }}</p> }
       </div>
     } @else { <p>{{ i18n.t('hypervisor.v2.activity.empty') }}</p> }
@@ -34,7 +34,7 @@
     @if (activity.runs.length) {
       <details><summary>{{ i18n.t('hypervisor.v2.activity.evidence') }}</summary>
         <div class="product-table"><table><thead><tr><th>{{ i18n.t('hypervisor.v2.activity.date') }}</th><th>{{ i18n.t('hypervisor.v2.activity.status') }}</th><th>{{ i18n.t('hypervisor.v2.activity.execution') }}</th></tr></thead><tbody>
-          @for (run of activity.runs; track run.id) { <tr><td>{{ date(run.started_at) }}</td><td>{{ status(run.status) }}</td><td><a [navLink]="{ type: 'run', ref: run.id }">{{ i18n.t('hypervisor.v2.activity.open') }} <span class="sr-only">{{ run.id }}</span></a></td></tr> }
+          @for (run of visibleRuns(); track run.id) { <tr><td>{{ date(run.started_at) }}</td><td>{{ status(run.status) }}</td><td><a [navLink]="{ type: 'run', ref: run.id }">{{ i18n.t('hypervisor.v2.activity.open') }} <span class="sr-only">{{ run.id }}</span></a></td></tr> }
         </tbody></table></div>
       </details>
     }

@@ -7,6 +7,7 @@ import { DefaultUrlSerializer, UrlTree } from '@angular/router';
 import { WorkShellComponent } from './work-shell.component';
 import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { Subject } from 'rxjs';
+import type { DecisionCheck, DecisionOutcome } from '@app/shared/ui/run-decision';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { ApiService } from '@app/core/api.service';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
@@ -19,7 +20,10 @@ function decisionHarness() {
   const run = { id: 'run-a', status: 'hitl_pending', flow_sha256: 'version-a', hitl: {
     decision_id: 'decision-a', decision_status: 'proposed', prompt: 'Share summary?', upstream: { recipient: 'reviewer' },
   } } as unknown as Run;
-  const response = new Subject<Run | null>();
+  const response = new Subject<DecisionOutcome>();
+  const checkStreams: Array<Subject<DecisionCheck>> = [];
+  const follow = new Subject<Run | null>();
+  const checks = () => checkStreams[checkStreams.length - 1];
   const calls: unknown[][] = [];
   const resumed: Run[] = [];
   const decisions: string[] = [];
@@ -28,16 +32,21 @@ function decisionHarness() {
   const shell = Object.assign(Object.create(WorkShellComponent.prototype), {
     reviewedDecisions: signal({}), labelReviews: signal({}), decisionBusy: signal(new Set<string>()),
     decisionError: signal(false), announcement: signal(''), reasonError: signal<string | null>(null),
-    reasons: signal({}), decidedRun: signal<Run | null>(null), pending: signal([run]),
+    reasons: signal({}), decidedRun: signal<Run | null>(null), pending: signal([run]), decisionNotices: signal({}),
+    decidedAction: signal(null), decidedAt: signal(null), decisionEffect: signal(null), effectWatch: null,
     experienceId: signal('app-a'),
     destroy: { onDestroy: (callback: () => void) => { destruction.add(callback); return () => destruction.delete(callback); } },
     i18n: { t: (key: string) => key },
     workspace: { captureRequestScope: () => ({ workspaceId: 'workspace-a' }), isRequestScopeCurrent: () => currentScope },
-    api: { decide: (...args: unknown[]) => { calls.push(args); return response; } },
+    api: {
+      decide: (...args: unknown[]) => { calls.push(args); return response; },
+      checkDecision: () => { const stream = new Subject<DecisionCheck>(); checkStreams.push(stream); return stream; },
+      followRun: () => follow,
+    },
     runtime: { resumeAfterDecision: (value: Run) => resumed.push(value) },
     adoption: { recordDecision: () => decisions.push(run.id) },
   }) as WorkShellComponent;
-  return { shell, run, response, calls, resumed, decisions, switchWorkspace: () => { currentScope = false; }, destroy: () => { for (const callback of destruction) callback(); } };
+  return { shell, run, response, checks, follow, calls, resumed, decisions, switchWorkspace: () => { currentScope = false; }, destroy: () => { for (const callback of destruction) callback(); } };
 }
 
 test('Work requires review of the exact request before a decision and submits it only once', () => {
@@ -50,11 +59,26 @@ test('Work requires review of the exact request before a decision and submits it
   shell.decide(run, 'accept');
   assert.equal(calls.length, 1, 'a double click must not send another decision');
   const continued = { ...run, status: 'running' } as Run;
-  response.next(continued);
+  response.next({ s: 'sent' });
+  response.next({ s: 'confirmed', value: continued, at: 1 });
   assert.deepEqual(resumed, [continued]);
   assert.equal(shell.decidedRun()?.id, run.id);
   assert.deepEqual(shell.pending(), []);
   assert.deepEqual(decisions, [run.id], 'L34 — a saved decision ends the getting-started journey');
+  assert.equal(shell.decidedAction(), 'accept');
+  assert.equal(shell.decisionEffect(), 'following', 'the decision is recorded, its effect not yet');
+});
+
+test('the decision receipt reads the effect apart from the decision', () => {
+  const { shell, run, response, follow } = decisionHarness();
+  shell.reviewDecision(run);
+  shell.decide(run, 'accept');
+  response.next({ s: 'confirmed', value: { ...run, status: 'hitl_pending' } as Run, at: 1 });
+  follow.next({ ...run, status: 'running' } as Run);
+  assert.equal(shell.decisionEffect(), 'following');
+  follow.next({ ...run, status: 'failed' } as Run);
+  assert.equal(shell.decisionEffect(), 'failed');
+  assert.equal(shell.decidedAction(), 'accept', 'a failed effect does not undo the recorded decision');
 });
 
 test('label review remains part of the existing Work approval and rejects without corrections', () => {
@@ -85,7 +109,7 @@ test('a decision response from a former workspace does not resume or expose its 
   shell.reviewDecision(run);
   shell.decide(run, 'accept');
   switchWorkspace();
-  response.next({ ...run, status: 'running' } as Run);
+  response.next({ s: 'confirmed', value: { ...run, status: 'running' } as Run, at: 1 });
   assert.deepEqual(resumed, []);
   assert.equal(shell.decidedRun(), null);
 });
@@ -96,7 +120,7 @@ test('leaving Work cancels decision delivery before it can resume another applic
   shell.decide(run, 'accept');
   destroy();
   assert.equal(response.observed, false);
-  response.next({ ...run, status: 'running' } as Run);
+  response.next({ s: 'confirmed', value: { ...run, status: 'running' } as Run, at: 1 });
   assert.deepEqual(resumed, []);
   assert.equal(shell.decidedRun(), null);
 });
@@ -140,11 +164,35 @@ test('refusal keeps the existing required reason and failed submissions retain t
   shell.setReason(run.id, 'Missing source');
   shell.decide(run, 'reject');
   assert.deepEqual(calls[0], [run, 'reject', 'Missing source']);
-  response.next(null);
+  response.next({ s: 'failed', status: 500, code: null, detail: null });
   assert.equal(shell.pending().length, 1);
   assert.deepEqual(decisions, [], 'a failed decision records nothing');
   assert.equal(shell.decidedRun(), null);
   assert.equal(shell.decisionBusy().size, 0);
+  assert.equal(shell.decisionNotices()[run.id]?.key, 'state.decision.server');
+  assert.equal(shell.decisionLocked(run), false, 'a refusal can be decided again');
+});
+
+test('a lost decision answer is unknown, never refused, and locks the decision until the Run is read back', () => {
+  const { shell, run, response, checks, calls, resumed } = decisionHarness();
+  shell.reviewDecision(run);
+  shell.decide(run, 'accept');
+  response.next({ s: 'unknown', status: null, code: 'network' });
+  assert.equal(shell.decisionNotices()[run.id]?.key, 'state.decision.unknown');
+  assert.equal(shell.decisionLocked(run), true);
+  shell.decide(run, 'accept');
+  assert.equal(calls.length, 1, 'no second decision while the first is unknown');
+  shell.checkDecision(run);
+  checks().next({ s: 'checking' });
+  checks().next({ s: 'pending', run });
+  checks().complete();
+  assert.equal(shell.decisionLocked(run), false, 'still waiting: deciding again is allowed');
+  shell.checkDecision(run);
+  const continued = { ...run, status: 'running' } as Run;
+  checks().next({ s: 'recorded', run: continued });
+  assert.deepEqual(resumed, [continued]);
+  assert.deepEqual(shell.pending(), []);
+  assert.equal(shell.decisionNotices()[run.id], undefined);
 });
 
 test('Work editor links preserve the application ID and release context as router query parameters', () => {

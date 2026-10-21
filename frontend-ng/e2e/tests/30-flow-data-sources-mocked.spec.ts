@@ -63,7 +63,7 @@ async function setup(page: Page, options: { theme?: string; locale?: string; adm
 }
 
 async function openSource(page: Page) {
-  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
   await expect(page.locator('app-flow-node')).toHaveCount(9);
   await page.locator('app-flow-node').filter({ hasText: 'PostgreSQL · Luma Maison' }).click();
   const inspector = page.getByTestId('flow-data-source-inspector');
@@ -158,7 +158,7 @@ test.describe('Flow data sources — isolated end-user QA', () => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     await page.route('**/api/v1/ml-models', async route => { await gate; await route.fallback(); });
-    await page.goto(`/systems/${systemId}/flow?lens=build`);
+    await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
     await expect(page.locator('app-flow-node')).toHaveCount(10);
     await page.locator('app-flow-node').filter({ hasText: 'Prioriser avec le modèle SLA v1' }).click();
     await expect(page.getByTestId('serving-summary')).toBeVisible();
@@ -172,7 +172,7 @@ test.describe('Flow data sources — isolated end-user QA', () => {
   test('the objection strip stays out of the way until there is a run to object to', async ({ page }) => {
     await setup(page, { theme: 'dark', locale: 'fr' });
     await page.route('**/api/v1/systems/*/automation-review', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ runs: [], review: null }) }));
-    await page.goto(`/systems/${systemId}/flow?lens=build`);
+    await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
     await expect(page.locator('app-flow-node')).toHaveCount(9);
     await expect(page.locator('app-review-loop section')).toHaveCount(0);
   });
@@ -182,7 +182,7 @@ test.describe('Flow data sources — isolated end-user QA', () => {
     await setup(page, { theme: 'dark', locale: 'fr' });
     let review: unknown = null;
     await page.route('**/api/v1/systems/*/automation-review', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ runs: [{ id: 'run-2', status: 'completed' }, { id: 'run-1', status: 'completed' }], review }) }));
-    await page.goto(`/systems/${systemId}/flow?lens=build`);
+    await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
     const strip = page.locator('app-review-loop section');
     await expect(strip).toContainText('Émettre une réserve');
     expect((await strip.boundingBox())!.height).toBeLessThanOrEqual(48);
@@ -191,7 +191,7 @@ test.describe('Flow data sources — isolated end-user QA', () => {
     await expect(strip.locator('.review__steps li')).toHaveCount(4);
     await page.screenshot({ path: info.outputPath('review-open.png'), clip: { x: 0, y: 0, width: 1440, height: 520 } });
     review = { id: 'rev-1', system_id: systemId, run_id: 'run-2', note: 'Le remboursement ignore la preuve de livraison.', status: 'open', draft_hash: 'abc' };
-    await page.reload();
+    await page.reload();await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
     await expect(page.locator('app-review-loop [data-testid="review-status"]')).toContainText('Étape 3 sur 4 · Correction');
     await expect(page.locator('app-review-loop q')).toContainText('preuve de livraison');
     await page.screenshot({ path: info.outputPath('review-step3.png'), clip: { x: 0, y: 0, width: 1440, height: 420 } });

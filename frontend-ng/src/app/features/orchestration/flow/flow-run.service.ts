@@ -52,7 +52,19 @@ import {
   FlowManifestService,
   runtimeModeKey,
 } from './flow-manifest.service';
+import { STRICT, settleWrite, writeFailureCause } from '@app/shared/ui/load-state';
 import { FlowPersistenceService } from './flow-persistence.service';
+import {
+  canDecideAgain,
+  checkDecision,
+  checkMessage,
+  decideRun,
+  decisionMessage,
+  type DecisionAction,
+  type DecisionCheck,
+  type DecisionMessage,
+  type DecisionOutcome,
+} from '@app/shared/ui/run-decision';
 import { readNodeRunSummary, type NodeRunSummary } from './flow-node-run.vm';
 import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
 
@@ -163,6 +175,25 @@ export class FlowRunService {
   readonly currentRun = signal<Run | null>(null);
   readonly executing = signal(false);
   readonly hitlResolving = signal(false);
+  /** Outcome of the last decision sent from this editor, and the check that may follow it. */
+  readonly hitlOutcome = signal<{ action: DecisionAction; outcome: DecisionOutcome } | null>(null);
+  readonly hitlCheck = signal<DecisionCheck | null>(null);
+  /** A lost answer blocks a second decision until the Run is read back. */
+  readonly hitlLocked = computed(() => {
+    const last = this.hitlOutcome();
+    if (!last || canDecideAgain(last.outcome)) return false;
+    return last.outcome.s === 'sent' || (last.outcome.s === 'unknown' && this.hitlCheck()?.s !== 'pending');
+  });
+  /** What the approval card says about the last decision, when anything. */
+  readonly hitlNotice = computed<(DecisionMessage & { verifiable: boolean }) | null>(() => {
+    const check = this.hitlCheck();
+    if (check) return { ...checkMessage(check), verifiable: check.s === 'unknown' };
+    const last = this.hitlOutcome();
+    if (!last || last.outcome.s === 'confirmed' || last.outcome.s === 'accepted') return null;
+    const message = decisionMessage(last.outcome, last.action);
+    const verifiable = last.outcome.s === 'unknown' || (last.outcome.s === 'failed' && last.outcome.status === 409);
+    return { ...message, verifiable };
+  });
   readonly debugStepping = signal(false);
   readonly terminalOpen = signal(false);
 
@@ -294,6 +325,8 @@ export class FlowRunService {
     this.currentRun.set(null);
     this.executing.set(false);
     this.hitlResolving.set(false);
+    this.hitlOutcome.set(null);
+    this.hitlCheck.set(null);
     this.debugStepping.set(false);
     this.terminalOpen.set(false);
     this.inputEditorOpen.set(false);
@@ -618,19 +651,18 @@ export class FlowRunService {
     const run = this.currentRun();
     if (!run || run.status !== 'hitl_pending') return;
     if (action === 'accept' && run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReview?.acknowledged) return;
-    if (this.hitlResolving()) return;
+    if (this.hitlResolving() || this.hitlLocked()) return;
     this.hitlResolving.set(true);
+    this.hitlCheck.set(null);
     const scope = this.captureWorkspaceScope();
-    this.canonical.resolveRunHitl(run.id, { action, expected_decision_id: run.hitl?.decision_id,
+    decideRun(this.canonical, run.id, { action, expected_decision_id: run.hitl?.decision_id,
       ...(action === 'accept' && labelReview ? { label_review: labelReview } : {}),
-    }).subscribe({
-      next: (updated) => {
-        if (!this.isWorkspaceScopeCurrent(scope)) return;
-        this.hitlResolving.set(false);
-        if (!updated) {
-          this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.approval_rejected') });
-          return;
-        }
+    }).subscribe((outcome) => {
+      if (!this.isWorkspaceScopeCurrent(scope)) return;
+      this.hitlOutcome.set({ action, outcome });
+      if (outcome.s === 'sent') return;
+      this.hitlResolving.set(false);
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
         this.push({
           tone: action === 'accept' ? 'pos' : 'warn',
           tag: 'HITL',
@@ -640,18 +672,39 @@ export class FlowRunService {
               : 'flow.run.log.approval_declined',
           ),
         });
-        this.currentRun.set(updated);
-        this.executing.set(true);
-        this.status.set('running');
-        this.seenCheckpoints.clear();
-        this.startStreaming(run.id, scope);
-      },
-      error: () => {
-        if (!this.isWorkspaceScopeCurrent(scope)) return;
-        this.hitlResolving.set(false);
-        this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.approval_network') });
-      },
+        this.resumeAfterDecision(outcome.value, scope);
+        return;
+      }
+      // A lost answer is not a refusal: say which one it is.
+      const message = decisionMessage(outcome, action);
+      this.push({ tone: message.tone === 'warn' ? 'warn' : 'neg', tag: outcome.s === 'unknown' ? 'HITL' : 'ERR', text: this.i18n.t(message.key, message.params) });
     });
+  }
+
+  /** Reads the Run back after a lost or stale answer, instead of deciding again. */
+  verifyHitl(): void {
+    const run = this.currentRun();
+    if (!run) return;
+    const scope = this.captureWorkspaceScope();
+    checkDecision(this.canonical, run.id, run.hitl?.decision_id).subscribe((check) => {
+      if (!this.isWorkspaceScopeCurrent(scope)) return;
+      this.hitlCheck.set(check);
+      if (check.s === 'recorded') {
+        this.push({ tone: 'pos', tag: 'HITL', text: this.i18n.t('state.decision.check_recorded') });
+        this.resumeAfterDecision(check.run, scope);
+      } else if (check.s === 'pending') {
+        this.hitlOutcome.set(null);
+        this.currentRun.set(check.run);
+      }
+    });
+  }
+
+  private resumeAfterDecision(updated: Run, scope: WorkspaceRequestScope | null): void {
+    this.currentRun.set(updated);
+    this.executing.set(true);
+    this.status.set('running');
+    this.seenCheckpoints.clear();
+    this.startStreaming(updated.id, scope);
   }
 
   // ---- step debugger ------------------------------------------------------
@@ -666,36 +719,39 @@ export class FlowRunService {
       text: this.i18n.t('flow.run.log.operator_action', { action }),
     });
     const scope = this.captureWorkspaceScope();
-    this.canonical.stepRun(run.id, { action, breakpoints: this._breakpoints() }).subscribe({
-      next: (updated) => {
-        if (!this.isWorkspaceScopeCurrent(scope)) return;
-        this.debugStepping.set(false);
-        if (!updated) {
-          this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.debug_rejected') });
-          return;
-        }
-        if (action === 'stop') {
-          this.executing.set(false);
-          this.status.set('done');
-          this.activeNodeId.set(null);
-          this.currentRun.set(updated);
+    settleWrite(this.canonical.stepRun(run.id, { action, breakpoints: this._breakpoints() }, STRICT)).subscribe((outcome) => {
+      if (outcome.s === 'sent' || !this.isWorkspaceScopeCurrent(scope)) return;
+      this.debugStepping.set(false);
+      const updated = outcome.s === 'confirmed' || outcome.s === 'accepted' ? outcome.value : null;
+      if (!updated) {
+        if (outcome.s === 'unknown' || outcome.s === 'confirmed' || outcome.s === 'accepted') {
+          // The answer was lost: read the Run back instead of stepping again.
+          this.push({ tone: 'warn', tag: 'DEBUG', text: this.i18n.t('state.write.unknown') });
           this.canonical.getRun(run.id).subscribe((r) => {
-            if (!this.isWorkspaceScopeCurrent(scope)) return;
-            if (r) this.currentRun.set(r);
+            if (this.isWorkspaceScopeCurrent(scope) && r) this.currentRun.set(r);
           });
           return;
         }
+        const cause = writeFailureCause(outcome);
+        this.push({ tone: 'neg', tag: 'ERR', text: `${this.i18n.t('flow.run.log.debug_rejected')} ${this.i18n.t(cause.key, cause.params)}` });
+        return;
+      }
+      if (action === 'stop') {
+        this.executing.set(false);
+        this.status.set('done');
+        this.activeNodeId.set(null);
         this.currentRun.set(updated);
-        this.executing.set(true);
-        this.status.set('running');
-        this.seenCheckpoints.clear();
-        this.startStreaming(run.id, scope);
-      },
-      error: () => {
-        if (!this.isWorkspaceScopeCurrent(scope)) return;
-        this.debugStepping.set(false);
-        this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.debug_network') });
-      },
+        this.canonical.getRun(run.id).subscribe((r) => {
+          if (!this.isWorkspaceScopeCurrent(scope)) return;
+          if (r) this.currentRun.set(r);
+        });
+        return;
+      }
+      this.currentRun.set(updated);
+      this.executing.set(true);
+      this.status.set('running');
+      this.seenCheckpoints.clear();
+      this.startStreaming(run.id, scope);
     });
   }
 

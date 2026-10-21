@@ -89,6 +89,7 @@ import {
                 >
                   <span class="ck-vstrip__dot" [attr.data-level]="row.level" aria-hidden="true"></span>
                   <span class="ck-vstrip__msg">{{ message(row) }}</span>
+                  @if (versionLabel()) { <span class="ck-vstrip__tag">{{ versionLabel() }}</span> }
                   @if (row.origin === 'server') {
                     <span
                       class="ck-vstrip__tag"
@@ -114,6 +115,7 @@ export class FlowValidationStripComponent {
   readonly serverIssues = input<ValidationIssueLike[]>([]);
   readonly serverState = input<'idle' | 'scheduled' | 'validating' | 'ready' | 'error'>('idle');
   readonly serverError = input<string | null>(null);
+  readonly versionLabel = input<string | null>(null);
 
   /** Emitted with a node id when a row is clicked — the shell recentres it. */
   readonly focusNode = output<string>();

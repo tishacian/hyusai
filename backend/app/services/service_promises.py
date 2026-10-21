@@ -146,7 +146,35 @@ def receipt_public(row):
         "binding_digest",
         "published_at",
     )
-    return {key: getattr(row, key) for key in fields}
+    result = {key: getattr(row, key) for key in fields}
+    from sqlalchemy.orm import object_session
+
+    session = object_session(row)
+    if session is not None:
+        window = (
+            session.query(ServiceWindow)
+            .filter_by(id=row.window_id, workspace_id=row.workspace_id)
+            .first()
+        )
+        asset = (
+            session.query(AssetVersion)
+            .filter_by(id=row.asset_id, workspace_id=row.workspace_id)
+            .first()
+        )
+        decision = (
+            session.query(Decision)
+            .filter_by(id=row.decision_id, workspace_id=row.workspace_id)
+            .first()
+        )
+        result.update(
+            period_start=window.period_start if window else None,
+            period_end=window.period_end if window else None,
+            asset_version=asset.version if asset else None,
+            published_by=(decision.approved_by or decision.human_confirmed_by)
+            if decision
+            else None,
+        )
+    return result
 
 
 def get_contract(db, workspace_id, contract_id):

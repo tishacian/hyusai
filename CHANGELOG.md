@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased · UI/UX plan integration
+
+- Published Flows open in read mode. Choose Modify to edit a draft; opening a
+  published version no longer saves or aligns a draft automatically. Studio
+  compares concurrent edits before replacement, and rollback names the release,
+  channel and audience before confirmation.
+- Decisions, member role changes and external writes distinguish refusal,
+  failure and an unknown result. A lost response requires verification; it does
+  not announce success or allow a duplicate creation. Application publication
+  and activation show their confirmed receipt and actual audience.
+- Creation can start from an empty workspace. Access failures explain the
+  missing right or prerequisite, and the application wizard can resume after
+  creating its linked System.
+- Data provenance returns to the exact dataset version. Context freshness uses
+  source dates, quality measures show their sample size, and the serving KPI
+  excludes selected models that cannot be called.
+- Impact uses integer counts and exposes assumptions. Missions are explicitly
+  LLM writing tasks: saving does not launch them, attempts retain earlier output,
+  and an interrupted attempt resumes from its persisted checkpoint. Secret
+  changes show observed consumers before confirmation; restoration and account
+  deletion report incomplete outcomes.
+- Connector checks explain their scope; SharePoint and guest deposits retain
+  per-file outcomes. Chat reports partial uploads, capture is reviewed before
+  publication, and specialized applications distinguish their published release
+  from the service revision.
+- Delivery requires migrations 142–144 and the mission worker/beat configuration.
+  These changes are not deployed. Validation results and outstanding
+  browser, provider and human checks are recorded in
+  `docs/ops/uiux-plan-2026-10-21/README.md`.
+
+## 2026-10-20 · Measured finish on shared components
+
+- Work buttons and links share the `.ck-btn` box: anchors such as « Services
+  and deliveries » and the creator link are 32 px high and centred, the title
+  bar glyph sits on its label, and Lucide icons follow their `size` again.
+  Connections and the eight connector pages sit in the standard page frame,
+  wizard groups are 20 px apart, the applications table keeps its actions on
+  one line, Flow outline fields use the shared field and help links are 32 px
+  targets. Visual change only, no behaviour or data change.
+- `check:ui-chrome` now also counts type under 12 px (`--ck-text-meta`); the
+  per-file budget is frozen at today's level and may only go down.
+
 ## 2026-10-17 · Operations tiles read the exhaustive Run series
 
 - When activity series are open, the Operations tiles (runs, completed,

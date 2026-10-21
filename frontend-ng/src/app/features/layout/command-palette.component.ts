@@ -8,9 +8,15 @@ import {
   effect,
   inject,
   signal,
+  type WritableSignal,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { Observable, Subscription, map, of } from 'rxjs';
+import { ApiService } from '@app/core/api.service';
+import { NavigationResolverService } from '@app/core/navigation-resolver.service';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { STRICT, readFailure, settleRead, type LoadState } from '@app/shared/ui/load-state';
+import { catalogLaunchHref, workIdentity, type WorkCatalogItem } from '@app/features/experience/work/work-catalog';
 import {
   CanonicalApiService,
   type Capability,
@@ -40,7 +46,7 @@ interface CommandItem {
   label: string;
   hint: string;
   tone: Tone;
-  kind: 'view' | 'system' | 'capability' | 'run' | 'skill' | 'action' | 'chat' | 'agent' | 'definition';
+  kind: 'view' | 'application' | 'document' | 'collection' | 'connection' | 'system' | 'capability' | 'run' | 'skill' | 'action' | 'chat' | 'agent' | 'definition';
   route: string;
   fragment?: string;
   keywords: string;
@@ -52,6 +58,15 @@ interface CommandItem {
   action?: () => void;
   /** Workspace generation that produced a tenant-owned catalog item. */
   workspaceEpoch?: number;
+}
+
+interface NavigationSearchResult {
+  kind: 'document' | 'collection' | 'connection';
+  id: string;
+  label: string;
+  hint: string;
+  route: string;
+  workspace: { id: string; slug: string; name: string };
 }
 
 /**
@@ -69,7 +84,7 @@ interface CommandItem {
   selector: 'app-command-palette',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent, KbdComponent, TagComponent],
+  imports: [GlyphComponent, KbdComponent, TagComponent, EmptyStateComponent],
   template: `
     @if (open()) {
       <div
@@ -85,6 +100,7 @@ interface CommandItem {
         <div
           role="dialog"
           aria-modal="true"
+          (keydown)="trapFocus($event)"
           [attr.aria-label]="i18n.t('titlebar.palette')"
           (click)="$event.stopPropagation()"
           [style.position]="'absolute'"
@@ -136,15 +152,29 @@ interface CommandItem {
             <span aria-hidden="true"><ck-kbd>ESC</ck-kbd></span>
           </div>
 
-          @if (noMatch()) {
+          <label class="ck-palette-filter">
+            {{ i18n.t('palette.filter.label') }}
+            <select [value]="kindFilter()" (change)="setKindFilter($event)" data-testid="palette-kind-filter">
+              <option value="all">{{ i18n.t('palette.filter.all') }}</option>
+              @for (kind of filterKinds; track kind) {
+                <option [value]="kind">{{ kindLabel(kind) }}</option>
+              }
+            </select>
+          </label>
+          @if (searchFailure(); as state) {
+            <app-empty-state [state]="state" size="sm" (retry)="loadIndex()" />
+          } @else if (filteredOut()) {
+            <p class="ck-palette-filter" data-testid="palette-filtered-out">{{ i18n.t('palette.filter.hidden') }}</p>
+          } @else if (noMatch()) {
             <p
               data-testid="palette-no-match"
               [style.margin]="'0'"
               [style.padding]="'10px 18px 4px'"
               [style.fontSize.px]="12"
               [style.color]="'var(--ck-fg-3)'"
-            >{{ loading() ? i18n.t('common.loading') : i18n.t('palette.empty.query', { query: trimmedQuery() }) }}</p>
+            >{{ i18n.t('palette.empty.query', { query: trimmedQuery() }) }}</p>
           }
+          @if (searchLoading()) { <p class="ck-palette-filter" role="status">{{ i18n.t('common.loading') }}</p> }
 
           <!-- Results -->
           <div
@@ -192,7 +222,7 @@ interface CommandItem {
                     [style.whiteSpace]="r.kind === 'definition' ? 'normal' : 'nowrap'"
                     [style.overflow]="'hidden'"
                     [style.textOverflow]="'ellipsis'"
-                  >{{ r.hint }}</span>
+                  >{{ r.hint }}@if (r.workspaceEpoch !== undefined) { · {{ workspaceLabel() }} }</span>
                 </div>
                 <ck-tag [tone]="r.tone" variant="outline">{{ kindLabel(r.kind) }}</ck-tag>
               </div>
@@ -230,6 +260,8 @@ interface CommandItem {
   styles: [`
     /* The native clear cross is off-brand blue and duplicates Escape. */
     .ck-palette-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+    .ck-palette-filter { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 18px; color: var(--ck-fg-3); font-size: 12px; }
+    .ck-palette-filter select { min-width: 0; max-width: 60%; color: var(--ck-fg-1); background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); padding: 4px; }
     .ck-palette-status {
       position: absolute;
       width: 1px;
@@ -244,6 +276,8 @@ interface CommandItem {
   `],
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {
+  private readonly api = inject(ApiService);
+  private readonly resolver = inject(NavigationResolverService, { optional: true });
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly chatOverlay = inject(ChatOverlayService);
@@ -255,6 +289,15 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   readonly open = signal(false);
   readonly query = signal('');
   readonly loading = signal(false);
+  readonly indexFailure = signal<LoadState<unknown> | null>(null);
+  private readonly remoteFailure = signal<LoadState<unknown> | null>(null);
+  private readonly remoteLoading = signal(false);
+  private readonly remoteResults = signal<NavigationSearchResult[]>([]);
+  readonly searchFailure = computed(() => this.indexFailure() ?? this.remoteFailure());
+  readonly searchLoading = computed(() => this.loading() || this.remoteLoading());
+  readonly kindFilter = signal('all');
+  readonly filterKinds: CommandItem['kind'][] = ['application', 'system', 'capability', 'run', 'skill', 'document', 'collection', 'connection'];
+  readonly workspaceLabel = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || '');
   readonly selectedIndex = signal(0);
   readonly listboxId = 'ck-palette-listbox';
   private returnFocus: HTMLElement | null = null;
@@ -263,11 +306,15 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly runs = signal<Run[]>([]);
   private readonly skills = signal<Skill[]>([]);
   private readonly systems = signal<System[]>([]);
+  private readonly applications = signal<WorkCatalogItem[]>([]);
   private indexSubscriptions = new Subscription();
   private refreshSubscription: Subscription | null = null;
   private indexGeneration = 0;
   private destroyed = false;
   private unregisterContextReset: () => void = () => undefined;
+  private remoteGeneration = 0;
+  private remoteSubscription: Subscription | null = null;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   private get viewCommands(): CommandItem[] {
     const commands: CommandItem[] = [
@@ -370,7 +417,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     return commands;
   }
 
-  private readonly matches = computed(() => {
+  private readonly unfilteredMatches = computed(() => {
     const q = this.query().trim().toLowerCase();
     const workspaceEpoch = this.workspace.contextEpoch();
     const caps: CommandItem[] = this.capabilities().map((c) => ({
@@ -418,7 +465,22 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       keywords: `${run.id} ${run.system_id} ${run.capability_id || ''} ${run.status}`.toLowerCase(),
     }));
 
-    const all = [...this.chatCommands, ...this.viewCommands, ...caps, ...sys, ...runs, ...sks];
+    const apps: CommandItem[] = this.applications().map((app) => ({
+      id: `app.${app.experience.id}`,
+      label: workIdentity(app.experience, app.release).name,
+      hint: workIdentity(app.experience, app.release).description || this.i18n.t('palette.kind.application'),
+      kind: 'application',
+      tone: 'pos',
+      route: catalogLaunchHref(app),
+      keywords: app.experience.slug.toLowerCase(),
+      workspaceEpoch,
+    }));
+    const remote: CommandItem[] = this.remoteResults().map((row) => ({
+      id: `${row.kind}.${row.id}`, kind: row.kind, label: row.label, hint: row.hint,
+      route: row.route, keywords: row.label.toLowerCase(), tone: 'cool', workspaceEpoch,
+    }));
+    const all = [...apps, ...this.chatCommands, ...this.viewCommands, ...remote, ...caps, ...sys, ...runs, ...sks]
+      .filter((item) => !item.route || !this.resolver?.resolve(item.route));
     if (!q) return all;
     return all.filter(
       (c) =>
@@ -429,20 +491,22 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   });
 
   readonly trimmedQuery = computed(() => this.query().trim());
+  private readonly matches = computed(() => this.unfilteredMatches().filter((item) => this.kindFilter() === 'all' || item.kind === this.kindFilter()));
+  readonly filteredOut = computed(() => !this.searchLoading() && !this.searchFailure() && this.kindFilter() !== 'all' && this.matches().length === 0 && this.unfilteredMatches().length > 0);
 
   /** A typed query that no command matches — the agent takes over. */
-  readonly noMatch = computed(() => this.trimmedQuery().length > 0 && this.matches().length === 0);
+  readonly noMatch = computed(() => !this.searchLoading() && !this.searchFailure() && !this.filteredOut() && this.trimmedQuery().length > 0 && this.matches().length === 0);
 
   readonly results = computed(() => {
     const query = this.trimmedQuery();
-    const definitions = query
+    const definitions = query && this.kindFilter() === 'all'
       ? lexiconMatches(query, this.locale()).map((match) => this.definitionCommand(match))
       : [];
     return composePaletteResults(
       query,
       this.matches(),
       definitions,
-      query ? this.askAgentCommand(query) : null,
+      query && this.kindFilter() === 'all' ? this.askAgentCommand(query) : null,
     );
   });
 
@@ -452,7 +516,9 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   /** Polite, only once the reader types: count, or how to reach the agent. */
   readonly announcement = computed(() => {
-    if (!this.trimmedQuery() || this.loading()) return '';
+    if (!this.trimmedQuery() || this.searchLoading()) return '';
+    if (this.searchFailure()) return this.i18n.t('palette.load_failed');
+    if (this.filteredOut()) return this.i18n.t('palette.filter.hidden');
     if (this.noMatch()) return this.i18n.t('palette.announce.fallback');
     return this.i18n.t('palette.footer.results', { count: this.results().length });
   });
@@ -537,43 +603,37 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     this.loadIndex();
   }
 
-  private loadIndex(): void {
+  loadIndex(): void {
     const generation = ++this.indexGeneration;
     const scope = this.workspace.captureRequestScope();
     this.indexSubscriptions.unsubscribe();
     this.indexSubscriptions = new Subscription();
     this.loading.set(true);
+    this.indexFailure.set(null);
     const isCurrent = () => (
       generation === this.indexGeneration
       && this.workspace.isRequestScopeCurrent(scope)
     );
-    this.indexSubscriptions.add(
-      this.canonical.listCapabilities().subscribe((capabilities) => {
-        if (isCurrent()) this.capabilities.set(capabilities);
-      }),
-    );
-    this.indexSubscriptions.add(
-      this.canonical.listSkills().subscribe((skills) => {
-        if (isCurrent()) this.skills.set(skills);
-      }),
-    );
-    this.indexSubscriptions.add(
-      this.canonical.listRuns().subscribe((runs) => {
-        if (isCurrent()) this.runs.set(runs);
-      }),
-    );
-    this.indexSubscriptions.add(
-      this.canonical.listSystems().subscribe({
-        next: (systems) => {
-          if (!isCurrent()) return;
-          this.systems.set(systems);
-          this.loading.set(false);
-        },
-        error: () => {
-          if (isCurrent()) this.loading.set(false);
-        },
-      }),
-    );
+    let pending = 5;
+    const load = <T>(request: Observable<T[]>, target: WritableSignal<T[]>) => {
+      target.set([]);
+      let settled = false;
+      this.indexSubscriptions.add(settleRead(request).subscribe((state) => {
+        if (!isCurrent() || state.s === 'loading') return;
+        if (state.s === 'ready') target.set(state.value);
+        if (state.s === 'error' || state.s === 'denied') this.indexFailure.set(state);
+        if (!settled) { settled = true; pending -= 1; }
+        this.loading.set(pending > 0);
+      }));
+    };
+    load(this.canonical.listCapabilities(STRICT), this.capabilities);
+    load(this.canonical.listSkills(STRICT), this.skills);
+    load(this.canonical.listRuns(), this.runs);
+    load(this.canonical.listSystems({ ...STRICT, workspaceSlug: scope.workspaceSlug }), this.systems);
+    load(this.workspace.experienceV1Enabled()
+      ? this.api.get<{ experiences: WorkCatalogItem[] }>('/work', undefined, { workspaceSlug: scope.workspaceSlug }).pipe(map((result) => result.experiences ?? []))
+      : of([]), this.applications);
+    if (this.query().trim().length >= 2) this.scheduleSearch();
   }
 
   ngOnDestroy(): void {
@@ -583,6 +643,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   private resetWorkspaceIndex(): void {
+    this.clearRemoteSearch();
     this.indexGeneration += 1;
     this.indexSubscriptions.unsubscribe();
     this.indexSubscriptions = new Subscription();
@@ -592,6 +653,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     this.runs.set([]);
     this.skills.set([]);
     this.systems.set([]);
+    this.applications.set([]);
+    this.indexFailure.set(null);
     this.loading.set(false);
     // A workspace switch navigates; focus follows the new page, not the opener.
     this.close(false);
@@ -629,6 +692,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       : null;
     this.open.set(true);
     this.query.set('');
+    this.clearRemoteSearch();
+    this.kindFilter.set('all');
     this.selectedIndex.set(0);
     setTimeout(() => {
       const el = document.querySelector<HTMLInputElement>('app-command-palette input[type="search"]');
@@ -647,6 +712,41 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   onQuery(ev: Event): void {
     this.query.set((ev.target as HTMLInputElement).value);
+    this.scheduleSearch();
+  }
+
+  private clearRemoteSearch(): void {
+    this.remoteGeneration += 1;
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.searchTimer = null;
+    this.remoteSubscription?.unsubscribe();
+    this.remoteSubscription = null;
+    this.remoteResults.set([]);
+    this.remoteFailure.set(null);
+    this.remoteLoading.set(false);
+  }
+
+  private scheduleSearch(): void {
+    this.clearRemoteSearch();
+    const q = this.query().trim();
+    if (q.length < 2) return;
+    const generation = this.remoteGeneration;
+    const scope = this.workspace.captureRequestScope();
+    this.remoteLoading.set(true);
+    this.searchTimer = setTimeout(() => {
+      this.remoteSubscription = this.api.get<{ results: NavigationSearchResult[] }>('/navigation/search', { q, limit: '30' }, { workspaceSlug: scope.workspaceSlug }).subscribe({
+        next: (result) => {
+          if (generation !== this.remoteGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
+          this.remoteResults.set((result.results ?? []).filter((row) => row.workspace.slug === scope.workspaceSlug));
+          this.remoteLoading.set(false);
+        },
+        error: (error: unknown) => {
+          if (generation !== this.remoteGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
+          this.remoteFailure.set(readFailure(error));
+          this.remoteLoading.set(false);
+        },
+      });
+    }, 250);
   }
 
   onKey(ev: KeyboardEvent): void {
@@ -662,10 +762,20 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       ev.preventDefault();
       const r = this.results()[this.selectedIndex()];
       if (r) this.go(r);
-    } else if (ev.key === 'Tab') {
-      // The combobox is the dialog's only stop; Escape leaves (shown as ESC).
-      ev.preventDefault();
     }
+  }
+
+  setKindFilter(event: Event): void {
+    this.kindFilter.set((event.target as HTMLSelectElement).value);
+  }
+
+  trapFocus(event: KeyboardEvent): void {
+    if (event.key !== 'Tab' || !(event.currentTarget instanceof HTMLElement)) return;
+    const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('input, select, button:not([disabled])'));
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }
 
   /** Pointer selection follows real movement only, not a list scrolling under it. */
@@ -698,6 +808,10 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   glyphFor(kind: CommandItem['kind']): 'flow' | 'cube' | 'sliders' | 'bolt' | 'focus' | 'pulse' | 'orbit' | 'ledger' {
     switch (kind) {
       case 'agent':      return 'orbit';
+      case 'application': return 'cube';
+      case 'collection': return 'ledger';
+      case 'document': return 'ledger';
+      case 'connection': return 'sliders';
       case 'definition': return 'ledger';
       case 'system':     return 'flow';
       case 'capability': return 'cube';

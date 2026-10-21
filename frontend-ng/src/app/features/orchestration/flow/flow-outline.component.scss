@@ -180,7 +180,7 @@
     padding: 7px 10px;
     box-sizing: border-box;
     color: var(--ck-fg-3, #8891a0);
-    font-size: 10px;
+    font-size: 12px;
     cursor: pointer;
 
     &:focus-visible {
@@ -212,7 +212,7 @@
     align-items: center;
     gap: 6px;
     color: var(--ck-fg-3, #8891a0);
-    font-size: 10px;
+    font-size: 12px;
   }
 
   input {
@@ -231,7 +231,7 @@
   legend {
     padding: 0 5px;
     color: var(--ck-fg-2, #c8cdd4);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
   }
 
@@ -239,7 +239,7 @@
     display: grid;
     gap: 4px;
     color: var(--ck-fg-3, #8891a0);
-    font-size: 10px;
+    font-size: 12px;
   }
 
   select {
@@ -259,7 +259,7 @@
 .flow-outline__hint {
   margin: 0;
   color: var(--ck-signal-warn, #f5b84a);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -274,7 +274,7 @@
   border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
   border-radius: var(--ck-radius-sm, 4px);
   color: var(--ck-fg-3, #8891a0);
-  font-size: 10px;
+  font-size: 12px;
 
   span {
     min-width: 0;
@@ -282,9 +282,9 @@
   }
 }
 
-.flow-outline button:not(.flow-outline__select),
-.flow-outline input,
-.flow-outline select {
+/* Inputs and selects take the shared `.ck-input` field (14 px, 8 × 12 px
+   padding); only the outline's own buttons keep this local skin. */
+.flow-outline button:not(.flow-outline__select) {
   border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.12));
   border-radius: var(--ck-radius-sm, 4px);
   background: var(--ck-bg-2, #171c23);
@@ -308,7 +308,7 @@
 .flow-outline__empty {
   padding: 14px 10px;
   color: var(--ck-fg-4, #7b8391);
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
 }
 

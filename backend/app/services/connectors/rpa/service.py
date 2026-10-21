@@ -11,7 +11,7 @@ the workspace.
 Generic orchestrator contract (no UiPath SDK):
   POST {base_url}/jobs          → start job
   GET  {base_url}/jobs/{id}     → status / result
-  GET  {base_url}/health        → optional liveness (used by /test)
+  GET  {base_url}/jobs          → read-only authentication and resource check
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import logging
 import os
 import time
 from typing import TYPE_CHECKING, Any, Mapping, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from sqlalchemy.orm import Session as DBSession
@@ -132,9 +132,7 @@ def _decrypt_secret(blob: str) -> str:
     if "ciphertext" in envelope:
         fernet = _fernet_from_env()
         if fernet is None:
-            raise EncryptionNotConfigured(
-                f"{ENV_MASTER_KEY} required to decrypt but is not set."
-            )
+            raise EncryptionNotConfigured(f"{ENV_MASTER_KEY} required to decrypt but is not set.")
         return fernet.decrypt(envelope["ciphertext"].encode("ascii")).decode("utf-8")
     raise ValueError(f"Unknown auth token envelope keys={sorted(envelope)}")
 
@@ -144,7 +142,11 @@ def _envelope_is_sealed(blob: str) -> bool:
         envelope = json.loads(blob)
     except Exception:
         return False
-    return isinstance(envelope, dict) and bool(envelope.get("ciphertext")) and "plaintext" not in envelope
+    return (
+        isinstance(envelope, dict)
+        and bool(envelope.get("ciphertext"))
+        and "plaintext" not in envelope
+    )
 
 
 def reencrypt_auth_token_blob(blob: str) -> str:
@@ -163,8 +165,16 @@ def reencrypt_auth_token_blob(blob: str) -> str:
 def reencrypt_workspace_rpa_token(settings: Any) -> tuple[dict[str, Any], bool]:
     """Rewrite ``connectors.rpa_bridge.auth_token_encrypted`` if it is unsealed."""
     current = dict(settings) if isinstance(settings, Mapping) else {}
-    connectors = dict(current.get("connectors") or {}) if isinstance(current.get("connectors"), Mapping) else {}
-    stored = dict(connectors.get(CONNECTOR_KEY) or {}) if isinstance(connectors.get(CONNECTOR_KEY), Mapping) else {}
+    connectors = (
+        dict(current.get("connectors") or {})
+        if isinstance(current.get("connectors"), Mapping)
+        else {}
+    )
+    stored = (
+        dict(connectors.get(CONNECTOR_KEY) or {})
+        if isinstance(connectors.get(CONNECTOR_KEY), Mapping)
+        else {}
+    )
     if is_ref(stored.get("auth_token_encrypted")):
         return current, False
     blob = str(stored.get("auth_token_encrypted") or "")
@@ -237,11 +247,13 @@ def set_config(db: DBSession, workspace: "Workspace", payload: Mapping[str, Any]
     if not (base_url.startswith("http://") or base_url.startswith("https://")):
         raise ValueError("base_url must start with http:// or https://")
 
+    parsed_url = urlsplit(base_url)
+    if parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment:
+        raise ValueError("base_url must not contain credentials, query parameters or a fragment")
+
     job_mapping = _normalize_job_mapping(payload.get("job_mapping"))
     callback_raw = payload.get("callback_webhook_url")
-    callback_webhook_url = (
-        str(callback_raw).strip() if callback_raw is not None else None
-    )
+    callback_webhook_url = str(callback_raw).strip() if callback_raw is not None else None
     if callback_webhook_url == "":
         callback_webhook_url = None
 
@@ -304,30 +316,50 @@ def resolve_job_key(config: Mapping[str, Any], job_key: str) -> str:
     return mapping.get(key, key)
 
 
+def clear_config(db: DBSession, workspace: "Workspace") -> dict[str, Any]:
+    """Detach this workspace; no future task can resolve its old endpoint."""
+    settings = dict(workspace.settings or {})
+    connectors = dict(settings.get("connectors") or {})
+    connectors.pop(CONNECTOR_KEY, None)
+    settings["connectors"] = connectors
+    workspace.settings = settings
+    flag_modified(workspace, "settings")
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+    return get_config(workspace)
+
+
 def test_connection(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Hit ``GET {base}/health`` (preferred) or fall back to ``GET {base}/jobs``."""
+    """Check saved configuration and resource access without returning upstream data.
+
+    A public health endpoint cannot prove credentials or resource permissions.
+    This read uses the same task collection as execution, without starting a task.
+    """
     base_url = str(config.get("base_url") or "").rstrip("/")
-    if not base_url:
-        raise ValueError("RPA Bridge connector is not fully configured (base_url)")
-    headers = _auth_headers(config)
+    if not base_url or not str(config.get("auth_token") or "").strip():
+        return {"ok": False, "status": "not_configured"}
     started = time.perf_counter()
-    with httpx.Client(timeout=DEFAULT_TIMEOUT_S) as client:
-        health_url = urljoin(base_url.rstrip("/") + "/", "health")
-        response = client.get(health_url, headers=headers)
-        if response.status_code == 404:
-            response = client.get(_jobs_url(base_url), headers=headers)
-        if response.status_code >= 400:
-            raise RuntimeError(
-                f"RPA orchestrator returned HTTP {response.status_code}: {response.text[:300]}"
-            )
-        try:
-            body = response.json()
-        except Exception:
-            body = {"raw": response.text[:200]}
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT_S, follow_redirects=False) as client:
+            response = client.get(_jobs_url(base_url), headers=_auth_headers(config))
+    except (httpx.RequestError, ValueError):
+        return {"ok": False, "status": "unreachable"}
+    status = response.status_code
+    outcome = (
+        "connected"
+        if 200 <= status < 300
+        else "auth_failed"
+        if status == 401
+        else "access_denied"
+        if status == 403
+        else "unsupported"
+        if status in (404, 405)
+        else "unreachable"
+    )
     return {
-        "ok": True,
-        "status_code": response.status_code,
-        "body": body,
+        "ok": outcome == "connected",
+        "status": outcome,
         "duration_ms": int((time.perf_counter() - started) * 1000),
     }
 
@@ -397,9 +429,7 @@ def get_job(config: Mapping[str, Any], job_id: str) -> dict[str, Any]:
             headers=_auth_headers(config),
         )
     if response.status_code >= 400:
-        raise RuntimeError(
-            f"RPA get_job failed HTTP {response.status_code}: {response.text[:300]}"
-        )
+        raise RuntimeError(f"RPA get_job failed HTTP {response.status_code}: {response.text[:300]}")
     try:
         data = response.json()
     except Exception as exc:
@@ -461,8 +491,7 @@ def dispatch_and_poll(
                 break
         else:
             raise TimeoutError(
-                f"RPA job {job_id} did not finish within {timeout:.1f}s "
-                f"(last status={status})"
+                f"RPA job {job_id} did not finish within {timeout:.1f}s (last status={status})"
             )
 
     return {

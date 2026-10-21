@@ -6,6 +6,7 @@
  * `nawa.password_reset` binding and falls back to name-match.
  */
 import { Injectable, inject } from '@angular/core';
+import { decideRun, type DecisionOutcome } from '@app/shared/ui/run-decision';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of, shareReplay } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
@@ -148,8 +149,8 @@ export class NawaItsdService {
    * point of doing it here is that a service desk supervisor never has to enter
    * the platform's own screens to unblock a ticket.
    */
-  resolveHitl(runId: string, action: 'accept' | 'reject', decisionId: string | undefined, note?: string): Observable<Run | null> {
-    return this.canonical.resolveRunHitl(runId, { action, note, expected_decision_id: decisionId });
+  resolveHitl(runId: string, action: 'accept' | 'reject', decisionId: string | undefined, note?: string): Observable<DecisionOutcome> {
+    return decideRun(this.canonical, runId, { action, note, expected_decision_id: decisionId });
   }
 
   /** Recent runs of the System — feeds the replay/history strip. */

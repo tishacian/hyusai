@@ -21,6 +21,12 @@ from app.models.rag_preset import RagPreset
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.systems.bootstrap import (
+    CLIENT360_PDR_CAPABILITY_SLUG,
+    CLIENT360_PDR_SYSTEM_NAME,
+    CLIENT360_PDR_VARIANT,
+    ensure_client360_pdr_system_default,
+)
 from app.tenants.andritz.client360 import pdr as client360_module
 from app.tenants.andritz.client360.pdr import (
     _estimate_unit_price,
@@ -37,8 +43,8 @@ from app.tenants.andritz.client360.pdr import (
     create_mail_draft,
     customer_payload,
     generate_campaign_drafts,
-    list_opportunities,
     list_customers,
+    list_opportunities,
     patch_client360_mail_settings,
     patch_opportunity,
     record_impact,
@@ -46,12 +52,6 @@ from app.tenants.andritz.client360.pdr import (
     send_mail_draft,
     serialize_opportunity,
     summary_payload,
-)
-from app.services.systems.bootstrap import (
-    CLIENT360_PDR_CAPABILITY_SLUG,
-    CLIENT360_PDR_SYSTEM_NAME,
-    CLIENT360_PDR_VARIANT,
-    ensure_client360_pdr_system_default,
 )
 
 
@@ -430,6 +430,19 @@ def test_send_mail_draft_uses_workspace_smtp_and_marks_sent(monkeypatch, db_sess
     db_session.refresh(action)
 
     assert sent_draft.status == "sent"
+    assert sent_draft.meta_data["smtp_delivery"]["status"] == "accepted"
+    assert sent_draft.meta_data["smtp_delivery"]["receipt_confirmed"] is False
+    repeated, _ = send_mail_draft(
+        db_session,
+        workspace,
+        user,
+        draft_id=draft.id,
+        to_email="buyer@example.test",
+        subject="Sujet valide",
+        body="Bonjour,\n\nMessage valide.",
+    )
+    assert repeated.id == sent_draft.id
+    assert len(calls) == 1
     assert sent_draft.sent_body == "Bonjour,\n\nMessage valide."
     assert sent_draft.meta_data["smtp_delivery"]["to_email"] == "buyer@example.test"
     assert sent_action is not None
@@ -908,9 +921,7 @@ def test_directory_unifies_registry_and_engine_customer_keys(db_session) -> None
     db_session.commit()
 
     directory = list_customers(db_session, workspace)
-    septona_items = [
-        item for item in directory["items"] if item["customer_key"] == "septona"
-    ]
+    septona_items = [item for item in directory["items"] if item["customer_key"] == "septona"]
     assert len(septona_items) == 1
     assert septona_items[0]["project_count"] >= 1
     assert septona_items[0]["opportunity_count"] >= 1
@@ -1349,7 +1360,7 @@ def test_opportunity_engine_deduplicates_same_role_and_basename_sources(db_sessi
                 meta_data={
                     "records": [
                         {
-                                "part_family": "wear belts",
+                            "part_family": "wear belts",
                             "recommended_quantity": 1,
                             "periodicity_weeks": 4,
                         }
@@ -1370,7 +1381,7 @@ def test_opportunity_engine_deduplicates_same_role_and_basename_sources(db_sessi
                         {
                             "customer_name": "Septona",
                             "part_reference": "OR-1",
-                                "part_family": "wear belts",
+                            "part_family": "wear belts",
                             "sales_known_qty": 4.0,
                             "sales_known_value": 400.0,
                             "currency": "EUR",
@@ -1392,7 +1403,7 @@ def test_opportunity_engine_deduplicates_same_role_and_basename_sources(db_sessi
                         {
                             "customer_name": "Septona",
                             "part_reference": "OR-1",
-                                "part_family": "wear belts",
+                            "part_family": "wear belts",
                             "sales_known_qty": 1.0,
                             "sales_known_value": 100.0,
                             "currency": "EUR",
@@ -1978,6 +1989,21 @@ def test_customer_timeline_merges_and_sorts_desc() -> None:
     assert "opportunity_update" in kinds
 
 
+def test_customer_timeline_separates_acceptance_and_declared_sending():
+    drafts = [
+        {
+            "id": "smtp",
+            "subject": "Proposal",
+            "sent_at": "2026-10-21T12:00:00",
+            "metadata": {"smtp_delivery": {"status": "accepted"}},
+        },
+        {"id": "manual", "subject": "Proposal", "sent_at": "2026-10-21T11:00:00", "metadata": {}},
+    ]
+    events = build_customer_timeline([], drafts, [])
+    assert [event["delivery_status"] for event in events] == ["accepted", "declared"]
+    assert all(event["receipt_confirmed"] is False for event in events)
+
+
 def test_customer_payload_enriches_summary_tree_and_timeline(db_session) -> None:
     workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     opportunity = _seed_opportunity(
@@ -2070,7 +2096,9 @@ def test_customer_payload_summary_uses_llm_when_configured(monkeypatch, db_sessi
     assert summary["highlights"] == ["Confiance haute"]
 
 
-def _seed_client360_source(db_session, workspace: Workspace, *, source_type: str, role: str, records: list[dict]) -> Client360DataSource:
+def _seed_client360_source(
+    db_session, workspace: Workspace, *, source_type: str, role: str, records: list[dict]
+) -> Client360DataSource:
     row = Client360DataSource(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -2299,9 +2327,7 @@ def test_customer_payload_enriches_projects_machines_purchases_and_next_due(
     assert "JETLACE" in payload["customer"]["technologies"]
 
 
-def test_customer_payload_next_due_empty_without_forecast_module(
-    monkeypatch, db_session
-) -> None:
+def test_customer_payload_next_due_empty_without_forecast_module(monkeypatch, db_session) -> None:
     workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     _seed_opportunity(db_session, workspace, next_due_at=None)
     db_session.commit()

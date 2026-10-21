@@ -91,6 +91,9 @@ const MOST_USED_LIMIT = 5;
         <app-icon class="ck-flow-palette__row-icon" [name]="item.icon" [size]="13" />
         <span class="ck-flow-palette__row-name">{{ itemName(item) }}</span>
         <span class="ck-flow-palette__row-intent">{{ intent(item) }}</span>
+        @if (integrationHint(item); as hint) {
+          <span class="ck-flow-palette__row-intent">{{ i18n.t(hint) }}</span>
+        }
         @if (isInFlow(item)) {
           <span class="ck-flow-palette__row-flag" [title]="i18n.t('flow.palette.row.in_flow.hint')">{{
             i18n.t('flow.palette.row.in_flow')
@@ -725,6 +728,14 @@ export class FlowPaletteComponent {
   protected hazard(item: PaletteItem): string | null {
     const status = item.runtimeStatus;
     return status && status !== 'bound' ? status.replace(/_/g, ' ') : null;
+  }
+
+  protected integrationHint(item: PaletteItem): string | null {
+    if (item.runtimeStatus && item.runtimeStatus !== 'bound') return 'flow.palette.integration.runtime';
+    if (['source.webhook', 'source.sftp_arrival', 'source.connector_watch'].includes(item.type)) return 'flow.palette.integration.connection';
+    if (['tool', 'python', 'sql', 'rpa', 'mcp'].some(kind => item.type.includes(kind))) return 'flow.palette.integration.specialist';
+    if (item.type === 'source.schedule') return 'flow.palette.integration.schedule';
+    return null;
   }
 
   private readonly byRelevance = (a: PaletteItem, b: PaletteItem): number =>

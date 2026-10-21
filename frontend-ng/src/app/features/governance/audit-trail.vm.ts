@@ -8,6 +8,7 @@ export interface AuditLog {
   trace_id?: string | null;
   run_id?: string | null;
   agent_id?: string | null;
+  references?: { rule?: {id:string;name:string;values:Record<string,unknown>;coverage:string;source?:string;revision?:string}; proposal?: {id:string;title:string;status:string}; receipt?: {id:string;destination:string;published_at:string;window_id:string} };
 }
 
 export interface AuditPage {

@@ -15,7 +15,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
-import { Subject } from 'rxjs';
+import { Subject, TimeoutError } from 'rxjs';
 import {
   CanonicalApiService,
   type FlowValidationResponse,
@@ -139,10 +139,10 @@ class CanonicalStub {
       expected_execution_contract_sha256?: string;
     };
   }> = [];
-  readonly createCalls: Array<{ body: Partial<System> }> = [];
+  readonly createCalls: Array<{ body: Partial<System>; opts?: { propagateErrors?: boolean } }> = [];
 
-  createSystem(body: Partial<System>) {
-    this.createCalls.push({ body });
+  createSystem(body: Partial<System>, opts?: { propagateErrors?: boolean }) {
+    this.createCalls.push({ body, opts });
     return this.createSubject.asObservable();
   }
 
@@ -655,6 +655,42 @@ test('bound hydration preserves an explicitly empty Flow without a starter fallb
   }
 });
 
+test('published reading shows only the immutable graph and rejects edits and saves', () => {
+  const harness = makeHarness('system-a');
+  try {
+    const state = publicationState(flow('unpublished-change'));
+    const system: System = { id: 'system-a', name: 'System A', status: 'paused' };
+    assert.equal(harness.service.hydratePublishedState(system, state), true);
+    assert.equal(harness.service.readOnly(), true);
+    assert.equal(harness.store.nodes()[0].id, 'published');
+    const revision = harness.store.revision();
+    harness.store.setSelection('published');
+    harness.store.removeNode('published');
+    harness.store.patchNode('published', { label: 'must not change' });
+    harness.store.undo();
+    harness.store.clear();
+    harness.service.saveNow();
+    assert.equal(harness.store.revision(), revision);
+    assert.equal(harness.store.nodes()[0].id, 'published');
+    assert.equal(harness.canonical.draftSaveCalls.length, 0);
+    assert.equal(harness.canonical.saveCalls.length, 0);
+    assert.equal(harness.service.hydratePublicationState(system, state), true);
+    assert.equal(harness.service.readOnly(), false);
+    assert.equal(harness.store.nodes()[0].id, 'unpublished-change');
+  } finally { harness.cleanup(); }
+});
+
+test('an invalid draft cannot hide a valid published graph', () => {
+  const harness = makeHarness('system-a');
+  try {
+    const state = publicationState(flow('draft'));
+    state.draft.flow_definition = { nodes: 'invalid' };
+    assert.equal(harness.service.hydratePublishedState({ id: 'system-a', name: 'A' }, state), true);
+    assert.equal(harness.store.nodes()[0].id, 'published');
+    assert.equal(harness.canonical.draftSaveCalls.length, 0);
+  } finally { harness.cleanup(); }
+});
+
 test('P1 hydration uses the server draft and never the System compatibility mirror', () => {
   const harness = makeHarness('system-a');
   try {
@@ -1112,7 +1148,7 @@ test('discard is the only non-save path that releases an import hold', () => {
   }
 });
 
-test('failed promotion keeps the local draft and does not navigate away', () => {
+test('an empty promotion acknowledgement is unknown and keeps the local draft', () => {
   const harness = makeHarness();
   try {
     persistWorkspaceFlowDraft(harness.storage, 'workspace-a', flow('draft-a'), 1);
@@ -1122,7 +1158,10 @@ test('failed promotion keeps the local draft and does not navigate away', () => 
 
     assert.deepEqual(harness.navigations, []);
     assert.equal(harness.canonical.saveCalls.length, 0);
-    assert.match(harness.service.promotionError() ?? '', /flow\.promote\.error\.failed/);
+    assert.match(harness.service.promotionError() ?? '', /flow\.promote\.error\.unknown/);
+    assert.equal(harness.service.promotionOutcome()?.s, 'unknown');
+    harness.service.promoteToSystem('System A');
+    assert.equal(harness.canonical.createCalls.length, 1);
     assert.notEqual(
       harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
       null,
@@ -1130,6 +1169,51 @@ test('failed promotion keeps the local draft and does not navigate away', () => 
   } finally {
     harness.cleanup();
   }
+});
+
+for (const failure of [{ status: 0 }, { status: 502 }, { status: 504 }, new TimeoutError()]) {
+  test(`promotion with uncertain delivery (${failure instanceof TimeoutError ? 'deadline' : failure.status}) cannot be resubmitted after reopening`, () => {
+    const harness = makeHarness();
+    try {
+      persistWorkspaceFlowDraft(harness.storage, 'workspace-a', flow('draft-a'), 1);
+      harness.service.hydrateScratch();
+      const before = harness.store.snapshot();
+      harness.service.openPromoteModal();
+      harness.service.promoteName.set('System A');
+      harness.service.promoteObjective.set('Preserve this objective');
+      harness.service.confirmPromoteModal();
+      assert.equal(harness.canonical.createCalls[0].opts?.propagateErrors, true);
+      harness.canonical.createSubject.error(failure);
+      assert.equal(harness.service.promotionOutcome()?.s, 'unknown');
+      assert.equal(harness.service.promotionBlocked(), true);
+      assert.equal(harness.service.promoting(), false);
+      assert.deepEqual(harness.navigations, []);
+      harness.service.closePromoteModal();
+      harness.service.openPromoteModal();
+      assert.equal(harness.service.promoteName(), 'System A');
+      assert.equal(harness.service.promoteObjective(), 'Preserve this objective');
+      harness.service.confirmPromoteModal();
+      assert.equal(harness.canonical.createCalls.length, 1);
+      assert.deepEqual(harness.store.snapshot(), before);
+      assert.notEqual(harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')), null);
+    } finally { harness.cleanup(); }
+  });
+}
+
+test('a confirmed server rejection allows a corrected promotion without losing the fields', () => {
+  const harness = makeHarness();
+  try {
+    harness.service.hydrateScratch();
+    harness.service.promoteToSystem({ name: 'System A', objective: 'My objective' });
+    harness.canonical.createSubject.error({ status: 400 });
+    assert.equal(harness.service.promotionOutcome()?.s, 'failed');
+    assert.equal(harness.service.promotionBlocked(), false);
+    harness.service.closePromoteModal();
+    harness.service.openPromoteModal();
+    assert.equal(harness.service.promoteObjective(), 'My objective');
+    harness.service.promoteToSystem('Corrected name');
+    assert.equal(harness.canonical.createCalls.length, 2);
+  } finally { harness.cleanup(); }
 });
 
 test('promotion acknowledgement for an older revision preserves the newer draft', () => {
@@ -1171,6 +1255,8 @@ test('promotion keeps the draft when the atomic create response cannot prove the
       null,
     );
     assert.match(harness.service.promotionError() ?? '', /flow\.promote\.error\.verify/);
+    harness.service.promoteToSystem('System A');
+    assert.equal(harness.canonical.createCalls.length, 1, 'a successful create with an unverified Flow cannot create twice');
     assert.equal(harness.canonical.saveCalls.length, 0);
   } finally {
     harness.cleanup();

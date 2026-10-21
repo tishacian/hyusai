@@ -112,6 +112,7 @@ class MockApi {
   resolveSubject: Subject<Run | null> | null = null;
   stepSubject: Subject<Run | null> | null = null;
   getRunSubject: Subject<Run | null> | null = null;
+  decisionReceipt: { id: string; status: string } | null = null;
 
   triggerRun(_id: string, payload: RunTriggerRequest) {
     this.triggerRunCalls++;
@@ -134,6 +135,9 @@ class MockApi {
   getRun(_id: string) {
     this.getRunCalls++;
     return this.getRunSubject?.asObservable() ?? of(this.getRunResult);
+  }
+  getDecision(_id: string) {
+    return of(this.decisionReceipt);
   }
   resolveRunHitl(_id: string, body: { action: 'accept' | 'reject' }) {
     this.resolveHitlCalls.push(body);
@@ -552,7 +556,7 @@ test('HITL labels require acknowledgment and use the existing decision endpoint 
   assert.equal(api.resolveHitlCalls.length, 1);
 });
 
-test('HITL: a refused decision does not log an approval or resume', () => {
+test('HITL: a decision the server refused says why and does not resume', () => {
   const { svc, store, api, stream } = makeHarness();
   store.load(validFlow());
   svc.bindSystem('sys-1');
@@ -560,19 +564,69 @@ test('HITL: a refused decision does not log an approval or resume', () => {
   svc.executeOnBackend();
   stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
   const before = svc.log().length;
-  api.resolveResult = null;
+  api.resolveSubject = new Subject<Run | null>();
   svc.resolveHitl('accept');
+  api.resolveSubject.error({ status: 403, error: { detail: 'Forbidden' } });
   assert.equal(svc.status(), 'paused');
   assert.equal(svc.hitlResolving(), false);
-  assert.ok(svc.log().slice(before).some(entry => entry.tag === 'ERR'));
-  assert.ok(!svc.log().slice(before).some(entry => entry.tag === 'HITL'));
+  assert.equal(svc.hitlLocked(), false, 'a refusal leaves the decision open');
+  const added = svc.log().slice(before);
+  assert.ok(added.some(entry => entry.tag === 'ERR' && entry.text === 'state.decision.denied'));
+  assert.ok(!added.some(entry => entry.tag === 'HITL'));
+});
+
+test('HITL: a lost answer is unknown, never "refused by the server", and blocks a second decision until checked', () => {
+  const { svc, store, api, stream } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  api.getRunResult = mkRun('hitl_pending', { hitl: { decision_id: 'gate-1' } });
+  svc.executeOnBackend();
+  stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
+  const before = svc.log().length;
+  api.resolveSubject = new Subject<Run | null>();
+  svc.resolveHitl('accept');
+  api.resolveSubject.error({ status: 0 });
+  const added = svc.log().slice(before);
+  assert.ok(added.some(entry => entry.text === 'state.decision.unknown'));
+  assert.ok(!added.some(entry => entry.text === 'flow.run.log.approval_rejected'));
+  assert.equal(svc.hitlLocked(), true);
+  assert.equal(svc.hitlNotice()?.verifiable, true);
+  api.resolveSubject = null;
+  svc.resolveHitl('accept');
+  assert.equal(api.resolveHitlCalls.length, 1, 'no second decision while the first is unknown');
+
+  // The check finds the pause still waiting: deciding again is allowed.
+  api.getRunSubject = null;
+  api.getRunResult = mkRun('hitl_pending', { hitl: { decision_id: 'gate-1' } });
+  svc.verifyHitl();
+  assert.equal(svc.hitlCheck()?.s, 'pending');
+  assert.equal(svc.hitlLocked(), false);
+});
+
+test('HITL: a check that finds the decision recorded resumes the run without deciding again', () => {
+  const { svc, store, api, stream } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  api.getRunResult = mkRun('hitl_pending', { hitl: { decision_id: 'gate-2' } });
+  svc.executeOnBackend();
+  stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
+  api.resolveSubject = new Subject<Run | null>();
+  svc.resolveHitl('reject');
+  api.resolveSubject.error({ status: 504 });
+  assert.equal(svc.hitlLocked(), true);
+  api.getRunResult = mkRun('running');
+  api.decisionReceipt = { id: 'gate-2', status: 'rejected' };
+  svc.verifyHitl();
+  assert.equal(svc.hitlCheck()?.s, 'recorded');
+  assert.equal(svc.status(), 'running');
+  assert.equal(api.resolveHitlCalls.length, 1);
 });
 
 test('HITL: reject is forwarded; ignored when no pending gate', () => {
   const { svc, store, api, stream } = makeHarness();
   store.load(validFlow());
   svc.bindSystem('sys-1');
-  api.getRunResult = mkRun('hitl_pending', { hitl: { node_id: 'gate' } });
+  api.getRunResult = mkRun('hitl_pending', { hitl: { node_id: 'gate', decision_id: 'gate-r' } });
   svc.executeOnBackend();
   stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
 

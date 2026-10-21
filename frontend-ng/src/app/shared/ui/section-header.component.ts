@@ -17,7 +17,7 @@ import { IconComponent } from './icon.component';
     <header class="ck-section-header pb-5 mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0 flex-1">
         @if (breadcrumb) {
-          <div class="ck-mono ck-accent text-[10px] uppercase tracking-[0.18em] mb-1.5 font-semibold">
+          <div class="ck-mono ck-accent text-xs uppercase tracking-[0.18em] mb-1.5 font-semibold">
             {{ breadcrumb }}
           </div>
         }

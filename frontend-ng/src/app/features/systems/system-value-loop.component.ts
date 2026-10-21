@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { I18nService } from '@app/core/i18n.service';
 import { NavLinkDirective } from '@app/shared/cockpit/nav-link.directive';
 import {
@@ -37,7 +38,7 @@ export interface ValueLoopStepRow {
 export function latestValueLoopSimulation(
   scenario: ValueScenario,
 ): ValueLoopSimulation | null {
-  return scenario.simulations.at(-1) ?? null;
+  return (scenario.approved_simulation_id ? scenario.simulations.find(row => row.id === scenario.approved_simulation_id) : null) ?? scenario.simulations.at(-1) ?? null;
 }
 
 export function latestValueLoopMeasurement(
@@ -51,6 +52,13 @@ export function valueLoopMeasurementLabel(scenario: ValueScenario): string {
   if (measurement?.status === 'measured') return 'Observed evidence';
   if (measurement?.status === 'not_measured') return 'Not measured';
   return latestValueLoopSimulation(scenario) ? 'Simulation only' : 'Baseline outcome';
+}
+
+export function valueLoopGainDemonstrated(scenario: ValueScenario): boolean {
+  const measurement = latestValueLoopMeasurement(scenario);
+  return measurement?.status === 'measured'
+    && measurement.assumption_evaluation?.['causality'] === 'established'
+    && measurement.assumption_evaluation?.['sufficient_follow_up'] === true;
 }
 
 export function valueLoopStepRows(scenario: ValueScenario): ValueLoopStepRow[] {
@@ -113,22 +121,22 @@ export class ValueLoopCommandLedger {
 @Component({
   selector: 'app-system-value-loop',
   standalone: true,
-  imports: [FormsModule, NavLinkDirective],
+  imports: [FormsModule, NavLinkDirective, ConfirmDialogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="value-loop" data-testid="system-value-loop">
       <header class="loop-header">
         <div>
-          <p>Authoritative value loop</p>
+          <p>{{ i18n.t('governance.loop.heading') }}</p>
           <h3>{{ i18n.t('systems.value_loop.steps_chain') }}</h3>
         </div>
         <button type="button" class="secondary" (click)="load()" [disabled]="loading() || busy()">
-          Refresh
+          {{ i18n.t('common.refresh') }}
         </button>
       </header>
 
       @if (loading()) {
-        <div class="state">Loading persisted value evidence…</div>
+        <div class="state">{{ i18n.t('governance.loop.loading') }}</div>
       } @else if (error()) {
         <div class="state error" data-testid="value-loop-error">
           @if (mandatePublicationRequired()) {
@@ -137,15 +145,16 @@ export class ValueLoopCommandLedger {
           } @else { {{ error() }} }
         </div>
       } @else if (!loop()) {
-        <div class="state">Value loop not configured for this System.</div>
+        <div class="state">{{ i18n.t('governance.loop.not_configured') }}</div>
       } @else {
+        @if (loop()?.permissions?.create !== true) { <p role="status">{{ i18n.t('governance.loop.read_only') }}</p> }
         <div class="create-card">
           <div class="create-heading">
-            <strong>{{ scenarios().length ? 'Start another governed scenario' : 'Start the first governed scenario' }}</strong>
-            <small>Only completed Runs with observed value can establish a baseline.</small>
+            <strong>{{ i18n.t(scenarios().length ? 'governance.loop.another' : 'governance.loop.first') }}</strong>
+            <small>{{ i18n.t('governance.loop.baseline_hint') }}</small>
           </div>
           <label>
-            Baseline Run
+            {{ i18n.t('governance.loop.baseline') }}
             <select [(ngModel)]="selectedRunId" data-testid="value-loop-baseline-run">
               @for (run of eligibleRuns(); track run.id) {
                 <option [value]="run.id">{{ run.id }} · {{ run.outcome?.value_source }}</option>
@@ -153,11 +162,11 @@ export class ValueLoopCommandLedger {
             </select>
           </label>
           <label>
-            Decision title
+            {{ i18n.t('governance.loop.decision_title') }}
             <input [(ngModel)]="title" maxlength="255" />
           </label>
           <label class="wide">
-            Objective
+            {{ i18n.t('governance.loop.objective') }}
             <input [(ngModel)]="objective" maxlength="4000" />
           </label>
           <button
@@ -167,11 +176,11 @@ export class ValueLoopCommandLedger {
             [disabled]="busy() || !canCreate()"
             (click)="createScenario()"
           >
-            Create governed scenario
+            {{ i18n.t('governance.loop.create') }}
           </button>
         </div>
         @if (!eligibleRuns().length) {
-          <div class="state">No completed Run with measured value is available.</div>
+          <div class="state">{{ i18n.t('governance.loop.no_baseline') }}</div>
         }
 
         @for (scenario of scenarios(); track scenario.id) {
@@ -182,14 +191,14 @@ export class ValueLoopCommandLedger {
           >
             <header>
               <div>
-                <span class="badge">{{ scenario.status }}</span>
+                <span class="badge">{{ i18n.t('systems.value_loop.status.' + scenario.status) }}</span>
                 <h4>{{ scenario.decision?.title || scenario.objective }}</h4>
-                <small>Baseline Run {{ scenario.source_run_id }}</small>
+                <small>{{ i18n.t('governance.loop.baseline') }} <a [navLink]="{type:'run',ref:scenario.source_run_id}">{{ scenario.source_run_id }}</a></small>
               </div>
               <span class="evidence">{{ measurementLabel(scenario) }}</span>
             </header>
 
-            <div class="steps" aria-label="Value loop progress">
+            <div class="steps" [attr.aria-label]="i18n.t('systems.value_loop.steps_chain')">
               @for (step of stepRows(scenario); track step.label) {
                 <div [class.complete]="step.complete">
                   <span>{{ step.index }}</span>
@@ -200,10 +209,10 @@ export class ValueLoopCommandLedger {
 
             @if (latestSimulation(scenario); as simulation) {
               <div class="evidence-grid">
-                <div><small>Model</small><strong>{{ simulation.model }}</strong></div>
-                <div><small>Confidence</small><strong>{{ formatConfidence(simulation.confidence) }}</strong></div>
-                <div><small>Projected value</small><strong>{{ projectedValue(simulation) }}</strong></div>
-                <div><small>Evidence</small><strong>Simulation, not measurement</strong></div>
+                <div><small>{{ i18n.t('governance.loop.model') }}</small><strong>{{ simulation.model }}</strong></div>
+                <div><small>{{ i18n.t('governance.loop.confidence') }}</small><strong>{{ formatConfidence(simulation.confidence) }}</strong></div>
+                <div><small>{{ i18n.t('governance.loop.projected') }}</small><strong>{{ projectedValue(simulation) }}</strong></div>
+                <div><small>{{ i18n.t('governance.loop.evidence') }}</small><strong>{{ i18n.t('governance.loop.simulation_only') }}</strong></div>
               </div>
             }
 
@@ -214,45 +223,60 @@ export class ValueLoopCommandLedger {
                 [attr.data-assumption-verdict]="measurement.assumption_verdict"
               >
                 <div>
-                  <strong>{{ measurement.status === 'measured' ? 'Measured from a post-action Run' : 'Not measured' }}</strong>
-                  <small>Approved forecast {{ measurement.simulation_id }}</small>
+                  <strong>{{ i18n.t(measurement.status === 'measured' ? 'governance.loop.observed' : 'governance.loop.not_measured') }}</strong>
+                  <small>{{ i18n.t('governance.loop.approved_forecast') }} {{ measurement.simulation_id }}</small>
                 </div>
                 <div class="measurement-verdict">
                   <span>{{ measurement.reason || ('Run ' + measurement.source_run_id) }}</span>
-                  <small>Forecast verdict: {{ measurement.assumption_verdict }}</small>
+                  <small>{{ i18n.t('governance.loop.verdict') }}: {{ verdictLabel(measurement.assumption_verdict) }}</small>
                 </div>
               </div>
             }
 
+            <p role="status">{{ gainLabel(scenario) }}</p>
+            <details><summary>{{ i18n.t('governance.loop.lineage') }}</summary>
+              <dl>
+                <dt>{{ i18n.t('governance.loop.proposal') }}</dt><dd>{{ scenario.decision?.id || '—' }}</dd>
+                <dt>{{ i18n.t('governance.loop.approved_forecast') }}</dt><dd>{{ scenario.approved_simulation_id || '—' }}</dd>
+                <dt>{{ i18n.t('governance.loop.application') }}</dt><dd>{{ scenario.action?.id || '—' }} · {{ scenario.action?.simulation_id || '—' }} · {{ scenario.action?.executed_at || '—' }}</dd>
+                <dt>{{ i18n.t('governance.loop.measurement') }}</dt><dd>{{ latestMeasurement(scenario)?.id || '—' }} · {{ latestMeasurement(scenario)?.action_execution_id || '—' }}</dd>
+              </dl>
+              @if (latestMeasurement(scenario)?.source_run_id; as source) { <a [navLink]="{type:'run',ref:source}">{{ source }}</a> }
+              <details><summary>{{ i18n.t('governance.loop.details') }}</summary><pre class="whitespace-pre-wrap break-words">{{ evidenceDetails(scenario) }}</pre></details>
+            </details>
+            @if (!can(scenario, nextAction(scenario))) { <p>{{ i18n.t('governance.loop.read_only') }}</p> }
             <footer>
               @if (scenario.status === 'decision_proposed' && !latestSimulation(scenario)) {
                 <label class="threshold">
-                  HITL below
+                  {{ i18n.t('governance.loop.hitl') }}
                   <input type="number" min="0" max="1" step="0.05" [(ngModel)]="hitlThreshold" />
                 </label>
-                <button type="button" class="primary" data-testid="value-loop-simulate" [disabled]="busy()" (click)="simulate(scenario)">
-                  Simulate configured actuator
+                <button type="button" class="primary" data-testid="value-loop-simulate" [disabled]="busy() || !can(scenario, 'simulate')" (click)="simulate(scenario)">
+                  {{ i18n.t('governance.loop.simulate') }}
                 </button>
               } @else if (scenario.status === 'simulated') {
-                <button type="button" class="primary" data-testid="value-loop-approve" [disabled]="busy()" (click)="approve(scenario)">
-                  Approve simulation
+                <button type="button" class="primary" data-testid="value-loop-approve" [disabled]="busy() || !can(scenario, 'approve')" (click)="reviewTransition(scenario, 'approve')">
+                  {{ i18n.t('governance.loop.approve') }}
                 </button>
               } @else if (scenario.status === 'approved') {
-                <button type="button" class="danger" data-testid="value-loop-act" [disabled]="busy()" (click)="act(scenario)">
-                  Apply approved guardrail patch
+                <button type="button" class="danger" data-testid="value-loop-act" [disabled]="busy() || !can(scenario, 'act')" (click)="reviewTransition(scenario, 'act')">
+                  {{ i18n.t('governance.loop.act') }}
                 </button>
               } @else if (scenario.status === 'acted') {
-                <button type="button" class="primary" data-testid="value-loop-measure" [disabled]="busy()" (click)="measure(scenario)">
-                  Measure from latest post-action Run
+                <button type="button" class="primary" data-testid="value-loop-measure" [disabled]="busy() || !can(scenario, 'measure')" (click)="measure(scenario)">
+                  {{ i18n.t('governance.loop.measure') }}
                 </button>
               } @else if (scenario.status === 'measured') {
-                <span class="closed">Loop closed by observed evidence</span>
+                <span class="closed">{{ i18n.t('governance.loop.closed') }}</span>
               }
             </footer>
           </article>
         }
       }
     </section>
+    <app-confirm-dialog [open]="pendingTransition() !== null" [title]="i18n.t('governance.loop.confirmation')"
+      [description]="transitionDescription()" [confirmLabel]="i18n.t('common.confirm')"
+      (cancel)="pendingTransition.set(null)" (confirm)="confirmTransition()" />
   `,
   styles: [`
     .value-loop { display:flex; flex-direction:column; gap:14px; margin-top:16px; padding:18px; border:1px solid var(--ck-stroke-soft); border-radius:var(--ck-radius-md); background:var(--ck-bg-panel); }
@@ -305,23 +329,24 @@ export class SystemValueLoopComponent {
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly mandatePublicationRequired = signal(false);
+  readonly pendingTransition = signal<{scenario:ValueScenario; action:'approve'|'act'} | null>(null);
 
   selectedRunId = '';
-  title = 'Optimize the measured outcome';
-  objective = 'Improve measured value while preserving configured guardrails.';
+  title = this.i18n.t('governance.loop.default_title');
+  objective = this.i18n.t('governance.loop.default_goal');
   hitlThreshold = 0.6;
 
   readonly scenarios = computed(() => this.loop()?.items ?? []);
   readonly eligibleRuns = computed(() => this.runs().filter(valueLoopBaselineRunIsEligible));
-  readonly canCreate = computed(() =>
-    !!this.selectedRunId && !!this.title.trim() && !!this.objective.trim(),
-  );
+  canCreate(): boolean {
+    return this.loop()?.permissions?.create === true && this.eligibleRuns().some(run => run.id === this.selectedRunId) && !!this.title.trim() && !!this.objective.trim();
+  }
 
   constructor() {
     effect(() => {
       const systemId = this.systemId();
       const workspaceKey = this.workspaceKey();
-      this.commandLedger.clear();
+      this.commandLedger.clear(); this.pendingTransition.set(null);
       this.busy.set(false);
       this.selectedRunId = '';
       this.loop.set(null);
@@ -353,7 +378,7 @@ export class SystemValueLoopComponent {
         if (!this.isCurrent(sequence, expectedSystem, expectedWorkspace)) return;
         this.loop.set(null);
         this.loading.set(false);
-        this.error.set('The governed value loop is temporarily unavailable.');
+        this.error.set(this.i18n.t('governance.loop.load_error'));
       },
     });
   }
@@ -376,7 +401,7 @@ export class SystemValueLoopComponent {
   simulate(scenario: ValueScenario): void {
     const threshold = Number(this.hitlThreshold);
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-      this.error.set('HITL threshold must be between 0 and 1.');
+      this.error.set(this.i18n.t('governance.loop.threshold_error'));
       return;
     }
     this.runCommand(`simulate:${scenario.id}`, (key) => this.api.simulateValueScenario(
@@ -400,19 +425,19 @@ export class SystemValueLoopComponent {
     const recommended = simulation?.recommended_action;
     const patch = recommended?.patch;
     if (!simulation || recommended?.actuator !== ACTUATOR || !patch) {
-      this.error.set('The approved actuator contract is unavailable.');
+      this.error.set(this.i18n.t('governance.loop.actuator_error'));
       return;
     }
     const numericPatch: Record<string, number> = {};
     for (const [field, value] of Object.entries(patch)) {
       if (typeof value !== 'number' || !Number.isFinite(value)) {
-        this.error.set('The approved actuator patch is invalid.');
+        this.error.set(this.i18n.t('governance.loop.actuator_error'));
         return;
       }
       numericPatch[field] = value;
     }
     if (!Object.keys(numericPatch).length) {
-      this.error.set('The approved actuator patch is empty.');
+      this.error.set(this.i18n.t('governance.loop.actuator_error'));
       return;
     }
     this.runCommand(`act:${scenario.id}`, (key) => this.api.actOnValueScenario(
@@ -435,20 +460,60 @@ export class SystemValueLoopComponent {
   }
 
   measurementLabel(scenario: ValueScenario): string {
-    return valueLoopMeasurementLabel(scenario);
+    const state = valueLoopMeasurementLabel(scenario);
+    const labels: Record<string,string> = {'Observed evidence':'governance.loop.observed','Not measured':'governance.loop.not_measured','Simulation only':'governance.loop.simulation_only','Baseline outcome':'governance.loop.baseline'};
+    return this.i18n.t(labels[state]);
   }
 
   projectedValue(simulation: ValueLoopSimulation): string {
     const value = simulation.projected_outcome['value'];
-    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : 'Not measured';
+    return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(this.i18n.locale(), {maximumFractionDigits:2}) : this.i18n.t('governance.loop.not_measured');
   }
 
   formatConfidence(value: number): string {
-    return `${Math.round(value * 100)}%`;
+    return Number.isFinite(value) && value >= 0 && value <= 1 ? `${Math.round(value * 100)}%` : '—';
   }
 
   stepRows(scenario: ValueScenario): ValueLoopStepRow[] {
     return valueLoopStepRows(scenario);
+  }
+
+  nextAction(scenario:ValueScenario): 'simulate'|'approve'|'act'|'measure' {
+    return scenario.status === 'decision_proposed' ? 'simulate' : scenario.status === 'simulated' ? 'approve' : scenario.status === 'approved' ? 'act' : 'measure';
+  }
+
+  can(scenario:ValueScenario, action:'simulate'|'approve'|'act'|'measure'): boolean {
+    return scenario.permissions?.[action] === true;
+  }
+
+  gainLabel(scenario: ValueScenario): string {
+    return this.i18n.t(valueLoopGainDemonstrated(scenario) ? 'governance.loop.gain_proven' : 'governance.loop.gain_unknown');
+  }
+
+  verdictLabel(value: string): string {
+    const known = ['confirmed','partially_confirmed','not_confirmed','not_evaluable'];
+    return this.i18n.t('governance.loop.' + (known.includes(value) ? value : 'not_evaluable'));
+  }
+
+  evidenceDetails(scenario: ValueScenario): string {
+    return JSON.stringify({approved_simulation_content_sha256:scenario.approved_simulation_content_sha256,
+      simulations:scenario.simulations, baseline:scenario.baseline_outcome,
+      observed:latestValueLoopMeasurement(scenario)?.observed_outcome}, null, 2);
+  }
+
+  reviewTransition(scenario:ValueScenario, action:'approve'|'act'): void {
+    if (!this.busy()) this.pendingTransition.set({scenario,action});
+  }
+
+  transitionDescription(): string {
+    const pending=this.pendingTransition(); if (!pending) return '';
+    const simulation=latestValueLoopSimulation(pending.scenario);
+    return this.i18n.t('governance.loop.confirm_body',{goal:pending.scenario.objective, simulation:simulation?.id || '—',model:simulation?.model || '—',patch:JSON.stringify(simulation?.recommended_action.patch ?? {})});
+  }
+
+  confirmTransition(): void {
+    const pending=this.pendingTransition(); this.pendingTransition.set(null); if (!pending) return;
+    if (pending.action === 'act') this.act(pending.scenario); else this.approve(pending.scenario);
   }
 
   private runCommand<T>(
@@ -474,7 +539,7 @@ export class SystemValueLoopComponent {
         if (!this.isCurrent(sequence, expectedSystem, expectedWorkspace)) return;
         this.busy.set(false);
         this.mandatePublicationRequired.set(error?.error?.detail?.code === 'mandate_publication_required');
-        this.error.set(error?.error?.detail?.message || 'The governed transition failed.');
+        this.error.set(error?.error?.detail?.message || this.i18n.t('governance.loop.write_error'));
       },
     });
   }

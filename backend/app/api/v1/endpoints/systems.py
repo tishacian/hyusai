@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
@@ -41,6 +41,7 @@ from app.models.run import Run
 from app.models.run_schedule import RunSchedule
 from app.models.system import System
 from app.models.tabular import MLModel
+from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.user import User
 from app.models.webhook_hook import WebhookHook
 from app.models.workspace import Workspace, WorkspaceMember
@@ -85,6 +86,7 @@ from app.services.system_catalog_bindings import (
 )
 from app.services.system_perspective import PublishedMandateUnavailable, build_system_perspective
 from app.services.systems import dispatch_readiness, flow_ingress, flow_publication
+from app.services.systems import examples as system_examples
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
@@ -741,8 +743,14 @@ class WebhookHookUpdate(BaseModel):
 def _configure_trigger_identity(db, *, row, body, user, workspace, system):
     try:
         authorize_source_mutation(db, source=row, user=user, workspace=workspace)
-        configure_identity(db, source=row, command=body.execution_identity,
-                           user=user, workspace=workspace, system=system)
+        configure_identity(
+            db,
+            source=row,
+            command=body.execution_identity,
+            user=user,
+            workspace=workspace,
+            system=system,
+        )
     except ExecutionPrincipalError as exc:
         raise HTTPException(403, detail={"code": exc.code}) from None
 
@@ -1088,6 +1096,21 @@ async def list_dispatch_readiness(
     """
     _enforce_system_collection_read(db, user=user, workspace=workspace)
     return dispatch_readiness.workspace_dispatch_readiness(db, workspace=workspace)
+
+
+@router.get("/examples")
+async def list_system_examples(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Built-in examples a creator may import on purpose, with provenance.
+
+    Read-only: nothing is created until the envelope is sent to
+    ``POST /systems/import``. Declared ahead of ``GET /{system_id}``.
+    """
+    _enforce_system_collection_read(db, user=user, workspace=workspace)
+    return {"examples": system_examples.list_examples()}
 
 
 @router.post("")
@@ -1939,6 +1962,7 @@ async def trigger_run(
         )
         db.add(run)
     from app.services.execution.submission import stage_run
+
     durable = stage_run(db, run, s)
     db.commit()
     db.refresh(run)
@@ -2218,21 +2242,7 @@ async def export_system(
     return payload
 
 
-@router.post("/import")
-async def import_system(
-    body: SystemImportBody,
-    workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-):
-    """Create a new System from an exported envelope.
-
-    The flow is validated through the same DAG validator as PATCH, so
-    a malformed envelope cannot sneak a broken chain into the
-    workspace. Skill slugs that don't resolve in the target workspace
-    are reported under ``unresolved_skills`` in the response — the
-    import still succeeds, the operator rebinds manually afterwards.
-    """
+def _enforce_system_import(db: DBSession, *, user: User, workspace: Workspace) -> None:
     enforce_action(
         db,
         user=user,
@@ -2248,6 +2258,77 @@ async def import_system(
         ),
         resource_attrs={"mutation": "import"},
     )
+
+
+@router.post("/import/preview")
+async def preview_system_import(
+    body: SystemImportBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """What ``POST /systems/import`` would create, without creating anything.
+
+    Same authority, envelope validation and skill rebinding as the import, so
+    a creator sees the objects and the unresolved dependencies first, and a
+    refusal shows up before any choice is made.
+    """
+    _enforce_system_import(db, user=user, workspace=workspace)
+    try:
+        create_kwargs, report = export_service.prepare_import(
+            db=db,
+            envelope=body.envelope,
+            workspace_id=workspace.id,
+            target_name=body.target_name,
+        )
+    except export_service.ChainExportError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_envelope", "message": str(exc)},
+        ) from exc
+    flow = create_kwargs.get("flow_definition") or {}
+    issues = dag_validator.validate_flow(flow)
+    nodes = [
+        {
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "kind": node.get("kind"),
+            "skill_slug": (node.get("config") or {}).get("skill_slug")
+            if isinstance(node.get("config"), Mapping)
+            else None,
+        }
+        for node in flow.get("nodes") or []
+        if isinstance(node, Mapping)
+    ]
+    return {
+        "name": create_kwargs["name"],
+        "objective": create_kwargs["objective"],
+        "nodes": nodes,
+        "edge_count": len(flow.get("edges") or []),
+        "resolved_skills": [row["slug"] for row in report.get("resolved_skills", [])],
+        "unresolved_skills": report.get("unresolved_skills", []),
+        "source": report.get("source", {}),
+        "valid": not dag_validator.has_errors(issues),
+        "issues": dag_validator.issues_to_payload(issues),
+    }
+
+
+@router.post("/import")
+async def import_system(
+    body: SystemImportBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Create a new System from an exported envelope.
+
+    The flow is validated through the same DAG validator as PATCH, so
+    a malformed envelope cannot sneak a broken chain into the
+    workspace. Skill slugs that don't resolve in the target workspace
+    are reported under ``unresolved_skills`` in the response — the
+    import still succeeds, the operator rebinds manually afterwards.
+    """
+    _enforce_system_import(db, user=user, workspace=workspace)
     try:
         create_kwargs, report = export_service.prepare_import(
             db=db,
@@ -2408,6 +2489,59 @@ async def list_system_schedules(
         .all()
     )
     return {"schedules": [run_scheduler.serialize_schedule(r) for r in rows]}
+
+
+@router.get("/{system_id}/trigger-deliveries")
+async def list_trigger_deliveries(
+    system_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Read accepted deliveries without exposing input payloads or signing keys.
+
+    The durable claim identifies webhook acceptance; scheduled Runs are already
+    journaled by the scheduler. Authorization is applied before pagination.
+    Duplicate/ignored attempts have no durable row yet and are not fabricated.
+    """
+    system = _get_system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    claimed = exists().where(
+        TriggerEventClaim.run_id == Run.id,
+        TriggerEventClaim.system_id == system_id,
+        TriggerEventClaim.workspace_id == workspace.id,
+    )
+    runs = readable_run_page(
+        db,
+        query=db.query(Run)
+        .filter(
+            Run.workspace_id == workspace.id,
+            Run.system_id == system_id,
+            or_(Run.trigger == "scheduler", claimed),
+        )
+        .order_by(Run.started_at.desc(), Run.id.desc()),
+        limit=limit,
+        user=user,
+        workspace=workspace,
+    )
+    trigger_state = _event_trigger_state(system, db=db)
+    return {
+        "coverage": "accepted_only",
+        "mode": triggers.trigger_mode(system),
+        "enabled": trigger_state["master_enabled"] and not trigger_state["disabled"],
+        "deliveries": [
+            {
+                "id": run.id,
+                "run_id": run.id,
+                "source": "schedule" if run.trigger == "scheduler" else "webhook",
+                "accepted_at": run.started_at.isoformat() if run.started_at else None,
+                "acceptance": "accepted",
+                "execution_status": run.status,
+            }
+            for run in runs
+        ],
+    }
 
 
 @router.post("/{system_id}/schedules", status_code=201)

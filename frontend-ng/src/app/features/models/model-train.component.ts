@@ -170,14 +170,15 @@ export interface TrainSeed {
               >
                 <option value="">{{ i18n.t('models.studio.dataset.placeholder') }}</option>
                 @for (dataset of readyDatasets(); track dataset.id) {
-                  <option [value]="dataset.id">{{ dataset.name }}</option>
+                  <option [value]="dataset.id">{{ dataset.name }} · v{{ dataset.version }}</option>
                 }
               </select>
               @if (dataset(); as ds) {
                 <div class="ck-hint ck-mono">
                   {{
                     i18n.t('models.studio.dataset.meta', {
-                      rows: (ds.row_count ?? 0).toLocaleString(i18n.locale()),
+                      version: ds.version,
+                      rows: ds.row_count == null ? '—' : ds.row_count.toLocaleString(i18n.locale()),
                       columns: ds.column_count ?? 0
                     })
                   }}
@@ -489,6 +490,10 @@ export interface TrainSeed {
                   <app-icon name="alert-triangle" [size]="12" />
                   {{ warningMessage(warning) }}
                 </div>
+              }
+              <p class="ck-hint" data-testid="training-quality-reservation">{{ i18n.t('models.studio.quality_reservation') }}</p>
+              @if (!isForecasting() && !isClustering() && testRows(preview) < 30) {
+                <p class="ck-warning">{{ i18n.t('models.studio.small_test_population', { count: testRows(preview) }) }}</p>
               }
             } @else if (refusalUnplaced(); as message) {
               <div class="ck-refusal">

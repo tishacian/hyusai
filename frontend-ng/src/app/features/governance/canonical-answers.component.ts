@@ -1,11 +1,22 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { map } from 'rxjs/operators';
 import {
   CanonicalApiService,
   type CanonicalAnswerRow,
 } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import {
+  LOADING,
+  STRICT,
+  settleRead,
+  settleWrite,
+  shownValue,
+  type LoadState,
+  type WriteOutcome,
+} from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
@@ -13,7 +24,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
   selector: 'app-canonical-answers',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, EmptyStateComponent, IconComponent, SectionHeaderComponent],
+  imports: [DatePipe, EmptyStateComponent, IconComponent, SectionHeaderComponent, WriteOutcomeComponent],
   template: `
     <app-section-header
       [breadcrumb]="i18n.t('governance.breadcrumb')"
@@ -56,14 +67,27 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
       <p class="text-xs text-gray-500">{{ i18n.t('governance.canonical.count', { count: filteredItems().length }) }}</p>
     </div>
 
+    @if (deleteWrite(); as sent) {
+      <div class="mb-3">
+        <app-write-outcome
+          data-testid="canonical-delete-outcome"
+          [outcome]="sent.outcome"
+          [confirmedLabel]="i18n.t('governance.canonical.delete.confirmed', { question: sent.question })"
+          [failedLabel]="i18n.t('governance.canonical.delete.failed')"
+          [verifiable]="true"
+          (verify)="reload()"
+        />
+      </div>
+    }
+
     <section class="ck-surface rounded-md overflow-hidden">
-      @if (loading()) {
-        <div class="p-6 text-sm text-gray-400">{{ i18n.t('governance.canonical.loading') }}</div>
-      } @else if (!filteredItems().length) {
+      @if (shownState(); as state) {
         <app-empty-state
           icon="shield-check"
-          [title]="i18n.t('governance.canonical.empty.title')"
-          [description]="i18n.t('governance.canonical.empty.description')"
+          [state]="state"
+          [title]="state.s === 'loading' ? i18n.t('governance.canonical.loading') : i18n.t('governance.canonical.empty.title')"
+          [description]="state.s === 'empty' ? i18n.t('governance.canonical.empty.description') : null"
+          (retry)="reload()"
         />
       } @else {
         <ul class="divide-y divide-white/5">
@@ -118,9 +142,11 @@ export class CanonicalAnswersComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   readonly i18n = inject(I18nService);
 
-  readonly loading = signal(false);
-  readonly items = signal<CanonicalAnswerRow[]>([]);
+  /** The list as the server returned it: a failed read is never an empty list. */
+  readonly answers = signal<LoadState<CanonicalAnswerRow[]>>(LOADING);
+  readonly items = computed<CanonicalAnswerRow[]>(() => shownValue(this.answers()) ?? []);
   readonly deletingId = signal<string | null>(null);
+  readonly deleteWrite = signal<{ question: string; outcome: WriteOutcome } | null>(null);
   readonly query = signal('');
   readonly sort = signal<'updated' | 'hits' | 'question'>('updated');
   readonly total = computed(() => this.items().length);
@@ -142,33 +168,53 @@ export class CanonicalAnswersComponent implements OnInit {
     });
   });
 
+  /**
+   * The state to show instead of the list, or null when the list shows. A
+   * search that matches nothing is "no results", not "no answers yet"; a
+   * failed refresh keeps the last list and says it is stale.
+   */
+  readonly shownState = computed<LoadState<unknown> | null>(() => {
+    const state = this.answers();
+    if (state.s === 'error' && state.last) return state;
+    if (state.s !== 'ready') return state;
+    const needle = this.query().trim();
+    if (needle && !this.filteredItems().length) return { s: 'no-results', query: needle };
+    return null;
+  });
+
   ngOnInit(): void {
     this.reload();
   }
 
   reload(): void {
-    this.loading.set(true);
-    this.canonical.listCanonicalAnswers({ limit: 200 }).subscribe({
-      next: (res) => {
-        this.items.set(res?.items ?? []);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.items.set([]);
-        this.loading.set(false);
-      },
+    const previous = this.answers();
+    settleRead(this.canonical.listCanonicalAnswers({ limit: 200 }, STRICT).pipe(map((res) => res?.items ?? [])), {
+      previous,
+    }).subscribe((state) => {
+      // A refresh keeps the list on screen until the server answers.
+      if (state.s === 'loading' && shownValue(previous)) return;
+      this.answers.set(state);
     });
   }
 
   delete(item: CanonicalAnswerRow): void {
+    if (this.deletingId()) return;
     if (!confirm(this.i18n.t('governance.canonical.confirm_delete', { question: item.question }))) return;
     this.deletingId.set(item.id);
-    this.canonical.deleteCanonicalAnswer(item.id).subscribe({
-      next: () => {
-        this.deletingId.set(null);
-        this.items.update((rows) => rows.filter((row) => row.id !== item.id));
-      },
-      error: () => this.deletingId.set(null),
+    settleWrite(this.canonical.deleteCanonicalAnswer(item.id, STRICT)).subscribe((outcome) => {
+      this.deleteWrite.set({ question: item.question, outcome });
+      if (outcome.s === 'sent') return;
+      this.deletingId.set(null);
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+        const state = this.answers();
+        if (state.s === 'ready') {
+          const rows = state.value.filter((row) => row.id !== item.id);
+          this.answers.set(rows.length ? { ...state, value: rows } : { s: 'empty', at: Date.now() });
+        }
+      } else if (outcome.s === 'unknown') {
+        // The answer may be gone already: read the list back, never resend.
+        this.reload();
+      }
     });
   }
 

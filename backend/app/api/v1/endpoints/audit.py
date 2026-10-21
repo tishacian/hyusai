@@ -6,6 +6,7 @@ never see another's audit trail. `actor` is always controlled server-side:
 generic audit events use the authenticated identity while privacy-preserving
 navigation telemetry uses a non-identifying constant.
 """
+
 from __future__ import annotations
 
 import re
@@ -30,8 +31,8 @@ from app.core.auth import get_current_user, get_current_workspace
 from app.core.logging import get_logger
 from app.db.base import get_db
 from app.models.audit import AuditLog
-from app.models.run import Run, SkillInvocation
 from app.models.decision import Decision
+from app.models.run import Run, SkillInvocation
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_access import enforce_audit_read
@@ -196,10 +197,7 @@ _PRIVACY_ROUTE_TEMPLATES = {
     "/hypervisor/mission-room/agenda/meeting/:id",
 }
 _CATALOG_UI_ROUTES = {
-    route
-    for surface in SURFACE_METADATA
-    for route in surface.ui_routes
-    if route.startswith("/")
+    route for surface in SURFACE_METADATA for route in surface.ui_routes if route.startswith("/")
 }
 _NAVIGATION_ROUTE_TEMPLATES = tuple(
     sorted(
@@ -296,8 +294,7 @@ def _canonical_navigation_route(route: str) -> str:
         if len(path_segments) >= len(template_segments):
             continue
         if all(
-            not template_segments[index].startswith(":")
-            and template_segments[index] == segment
+            not template_segments[index].startswith(":") and template_segments[index] == segment
             for index, segment in enumerate(path_segments)
         ):
             return "/" + "/".join(path_segments)
@@ -305,8 +302,7 @@ def _canonical_navigation_route(route: str) -> str:
     known_roots = {
         segments[0]
         for template in _NAVIGATION_ROUTE_TEMPLATES
-        if (segments := _route_segments(template))
-        and not segments[0].startswith(":")
+        if (segments := _route_segments(template)) and not segments[0].startswith(":")
     }
     safe_segments = (
         [path_segments[0], *(":segment" for _ in path_segments[1:])]
@@ -567,7 +563,9 @@ def _cursor(value: str) -> tuple[datetime, str]:
         raise HTTPException(422, "Invalid audit cursor") from exc
 
 
-def _audit_run_ids(db: Session, logs: list[AuditLog], workspace: Workspace, user: User) -> dict[str, str]:
+def _audit_run_ids(
+    db: Session, logs: list[AuditLog], workspace: Workspace, user: User
+) -> dict[str, str]:
     """Resolve persisted execution references, never guess from a trace string."""
     from app.services.run_access import readable_runs
 
@@ -575,17 +573,34 @@ def _audit_run_ids(db: Session, logs: list[AuditLog], workspace: Workspace, user
     decision_ids = set()
     for log in logs:
         details = log.details if isinstance(log.details, dict) else {}
-        candidates[log.id] = [value for value in (
-            log.trace_id, details.get("run_id"), details.get("canonical_run_id"),
-            details.get("new_run_id"), details.get("invocation_id"),
-            details.get("skill_invocation_id"),
-        ) if isinstance(value, str) and value]
+        candidates[log.id] = [
+            value
+            for value in (
+                log.trace_id,
+                details.get("run_id"),
+                details.get("canonical_run_id"),
+                details.get("new_run_id"),
+                details.get("invocation_id"),
+                details.get("skill_invocation_id"),
+            )
+            if isinstance(value, str) and value
+        ]
         if isinstance(details.get("decision_id"), str):
             decision_ids.add(details["decision_id"])
-    decisions = {row.id: row.target_id for row in db.query(Decision).filter(
-        Decision.workspace_id == workspace.id, Decision.scope == "run",
-        Decision.id.in_(decision_ids),
-    ).all()} if decision_ids else {}
+    decisions = (
+        {
+            row.id: row.target_id
+            for row in db.query(Decision)
+            .filter(
+                Decision.workspace_id == workspace.id,
+                Decision.scope == "run",
+                Decision.id.in_(decision_ids),
+            )
+            .all()
+        }
+        if decision_ids
+        else {}
+    )
     for log in logs:
         details = log.details if isinstance(log.details, dict) else {}
         decision_id = details.get("decision_id")
@@ -595,12 +610,23 @@ def _audit_run_ids(db: Session, logs: list[AuditLog], workspace: Workspace, user
     refs = {ref for values in candidates.values() for ref in values}
     if not refs:
         return {}
-    invocations = dict(db.query(SkillInvocation.id, SkillInvocation.run_id).join(
-        Run, Run.id == SkillInvocation.run_id,
-    ).filter(Run.workspace_id == workspace.id, SkillInvocation.id.in_(refs)).all())
-    runs = db.query(Run).filter(
-        Run.workspace_id == workspace.id, Run.id.in_(refs | set(invocations.values())),
-    ).all()
+    invocations = dict(
+        db.query(SkillInvocation.id, SkillInvocation.run_id)
+        .join(
+            Run,
+            Run.id == SkillInvocation.run_id,
+        )
+        .filter(Run.workspace_id == workspace.id, SkillInvocation.id.in_(refs))
+        .all()
+    )
+    runs = (
+        db.query(Run)
+        .filter(
+            Run.workspace_id == workspace.id,
+            Run.id.in_(refs | set(invocations.values())),
+        )
+        .all()
+    )
     visible = {run.id for run in readable_runs(db, runs=runs, user=user, workspace=workspace)}
     resolved = {}
     for log_id, values in candidates.items():
@@ -610,6 +636,109 @@ def _audit_run_ids(db: Session, logs: list[AuditLog], workspace: Workspace, user
                 resolved[log_id] = run_id
                 break
     return resolved
+
+
+def _audit_references(db, log, workspace, user, visible_run_id=None):
+    """Resolve only same-workspace evidence; arbitrary detail identifiers are never URLs."""
+    from app.api.v1.endpoints.control_plane import _readable_policy_rows
+    from app.models.policy import AdaptivePolicy, ControlPolicy
+    from app.models.service_contract import DeliveryReceipt
+    from app.services.decision_access import readable_decisions
+    from app.services.service_promises import receipt_public
+
+    workspace_id = workspace.id
+    details = log.details if isinstance(log.details, dict) else {}
+    result = {}
+    policy_id = (
+        details.get("policy_id")
+        or details.get("control_policy_id")
+        or details.get("adaptive_policy_id")
+    )
+    if isinstance(policy_id, str):
+        for model in (ControlPolicy, AdaptivePolicy):
+            policy = db.query(model).filter_by(id=policy_id, workspace_id=workspace_id).first()
+            if policy and _readable_policy_rows(
+                db,
+                workspace=workspace,
+                user=user,
+                resource_kind="control_policy" if model is ControlPolicy else "adaptive_policy",
+                rows=[policy],
+            ):
+                fields = (
+                    (
+                        "max_cost_per_decision",
+                        "max_latency_ms",
+                        "mandatory_hitl_if_confidence_below",
+                        "allowed_models",
+                    )
+                    if model is ControlPolicy
+                    else (
+                        "enabled",
+                        "adaptation_level",
+                        "triggers",
+                        "allowed_actions",
+                        "constraints",
+                    )
+                )
+                result["rule"] = {
+                    "id": policy.id,
+                    "name": policy.name,
+                    "values": {key: getattr(policy, key) for key in fields},
+                    "coverage": "unknown",
+                    "source": "current_configuration",
+                }
+                break
+    if visible_run_id:
+        from app.services.control_policy_snapshot import validate_frozen_control_policy
+
+        run = db.query(Run).filter_by(id=visible_run_id, workspace_id=workspace_id).first()
+        snapshot = (run.execution_contract or {}).get("control_policy_snapshot") if run else None
+        if snapshot:
+            try:
+                frozen = validate_frozen_control_policy(
+                    snapshot, workspace_id=workspace_id, system_id=run.system_id
+                )
+            except (TypeError, ValueError):
+                frozen = None
+            if frozen and frozen.get("policy"):
+                policy = frozen["policy"]
+                result["rule"] = {
+                    "id": policy["policy_id"],
+                    "name": policy.get("name") or policy["policy_id"],
+                    "values": {
+                        key: policy.get(key)
+                        for key in (
+                            "max_cost_per_decision",
+                            "max_latency_ms",
+                            "mandatory_hitl_if_confidence_below",
+                            "allowed_models",
+                        )
+                    },
+                    "coverage": "unknown",
+                    "source": "frozen_execution",
+                    "revision": frozen["sha256"],
+                }
+    proposal_id = details.get("decision_id") or details.get("proposal_id")
+    if isinstance(proposal_id, str):
+        proposal = db.query(Decision).filter_by(id=proposal_id, workspace_id=workspace_id).first()
+        if proposal and readable_decisions(
+            db, decisions=[proposal], user=user, workspace=workspace
+        ):
+            result["proposal"] = {
+                "id": proposal.id,
+                "title": proposal.title,
+                "status": proposal.status,
+                "approved_by": proposal.approved_by,
+                "applied_at": proposal.applied_at,
+            }
+    receipt_id = details.get("receipt_id") or details.get("delivery_receipt_id")
+    if isinstance(receipt_id, str):
+        receipt = (
+            db.query(DeliveryReceipt).filter_by(id=receipt_id, workspace_id=workspace_id).first()
+        )
+        if receipt:
+            result["receipt"] = receipt_public(receipt)
+    return result
 
 
 @router.get("")
@@ -646,35 +775,71 @@ async def list_audit_logs(
     if until:
         query = query.filter(AuditLog.timestamp <= _utc(until))
     if trace_id:
-        invocation_ids = [row[0] for row in db.query(SkillInvocation.id).join(
-            Run, Run.id == SkillInvocation.run_id,
-        ).filter(Run.workspace_id == workspace.id, Run.id == trace_id).all()]
-        decision_ids = [row[0] for row in db.query(Decision.id).filter(
-            Decision.workspace_id == workspace.id, Decision.scope == "run",
-            Decision.target_id == trace_id,
-        ).all()]
-        query = query.filter(or_(AuditLog.trace_id.in_([trace_id, *invocation_ids]), *(
-            AuditLog.details[key].as_string() == trace_id
-            for key in ("run_id", "canonical_run_id", "new_run_id")
-        ), *(
-            AuditLog.details[key].as_string().in_(invocation_ids)
-            for key in ("invocation_id", "skill_invocation_id")
-        ), AuditLog.details["decision_id"].as_string().in_(decision_ids)))
+        invocation_ids = [
+            row[0]
+            for row in db.query(SkillInvocation.id)
+            .join(
+                Run,
+                Run.id == SkillInvocation.run_id,
+            )
+            .filter(Run.workspace_id == workspace.id, Run.id == trace_id)
+            .all()
+        ]
+        decision_ids = [
+            row[0]
+            for row in db.query(Decision.id)
+            .filter(
+                Decision.workspace_id == workspace.id,
+                Decision.scope == "run",
+                Decision.target_id == trace_id,
+            )
+            .all()
+        ]
+        query = query.filter(
+            or_(
+                AuditLog.trace_id.in_([trace_id, *invocation_ids]),
+                *(
+                    AuditLog.details[key].as_string() == trace_id
+                    for key in ("run_id", "canonical_run_id", "new_run_id")
+                ),
+                *(
+                    AuditLog.details[key].as_string().in_(invocation_ids)
+                    for key in ("invocation_id", "skill_invocation_id")
+                ),
+                AuditLog.details["decision_id"].as_string().in_(decision_ids),
+            )
+        )
     if severity:
         query = query.filter(AuditLog.severity == severity)
     if search:
         from sqlalchemy import String, cast
-        query = query.filter(or_(*(
-            column.icontains(search, autoescape=True)
-            for column in (AuditLog.event_type, AuditLog.actor, AuditLog.agent_id,
-                           AuditLog.trace_id, cast(AuditLog.details, String))
-        )))
+
+        query = query.filter(
+            or_(
+                *(
+                    column.icontains(search, autoescape=True)
+                    for column in (
+                        AuditLog.event_type,
+                        AuditLog.actor,
+                        AuditLog.agent_id,
+                        AuditLog.trace_id,
+                        cast(AuditLog.details, String),
+                    )
+                )
+            )
+        )
     total = query.count()
     if before:
         timestamp, row_id = _cursor(before)
-        query = query.filter(or_(AuditLog.timestamp < timestamp, and_(
-            AuditLog.timestamp == timestamp, AuditLog.id < row_id,
-        )))
+        query = query.filter(
+            or_(
+                AuditLog.timestamp < timestamp,
+                and_(
+                    AuditLog.timestamp == timestamp,
+                    AuditLog.id < row_id,
+                ),
+            )
+        )
     rows = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(limit + 1).all()
     logs = rows[:limit]
     run_ids = _audit_run_ids(db, logs, workspace, user)
@@ -691,6 +856,7 @@ async def list_audit_logs(
                 "run_id": run_ids.get(log.id),
                 "agent_id": log.agent_id,
                 "severity": log.severity,
+                "references": _audit_references(db, log, workspace, user, run_ids.get(log.id)),
             }
             for log in logs
         ],
@@ -707,16 +873,9 @@ async def audit_summary(
     db: Session = Depends(get_db),
 ):
     enforce_audit_read(db, user=user, workspace=workspace)
-    total = (
-        db.query(AuditLog)
-        .filter(AuditLog.workspace_id == workspace.id)
-        .count()
-    )
+    total = db.query(AuditLog).filter(AuditLog.workspace_id == workspace.id).count()
     event_types = (
-        db.query(AuditLog.event_type)
-        .filter(AuditLog.workspace_id == workspace.id)
-        .distinct()
-        .all()
+        db.query(AuditLog.event_type).filter(AuditLog.workspace_id == workspace.id).distinct().all()
     )
     return {
         "total_events": total,

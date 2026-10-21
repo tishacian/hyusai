@@ -40,6 +40,9 @@ const NAMED_EXEMPTIONS = [
   'hypervisor/mission-room',
   // Retired alias kept reachable as a redirect; the lexicon retires the word.
   'work/pr-to-po/desk',
+  // Access-state page (plan lot 4): reached from guards and unknown addresses
+  // with a reason, never a destination of the navigation.
+  'unavailable',
 ];
 
 const REQUIRED_LEAVES = [

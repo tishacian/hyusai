@@ -19,6 +19,7 @@ import { ToastrService } from 'ngx-toastr';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { scheduleInstant, schedulePayload, validScheduleTimezone } from './flow-triggers.vm';
 
@@ -54,6 +55,14 @@ interface WebhookHook {
 type LoadState = 'loading' | 'loaded' | 'error';
 type TriggerKind = 'schedule' | 'webhook';
 type IdentityCommand = 'current_user' | 'none';
+interface TriggerDelivery {
+  id: string;
+  run_id: string;
+  source: 'schedule' | 'webhook';
+  accepted_at: string | null;
+  acceptance: 'accepted';
+  execution_status: string;
+}
 
 function publicationIdentityError(error: unknown): string | null {
   const code = (error as { error?: { detail?: { code?: unknown } } } | null)?.error?.detail?.code;
@@ -70,6 +79,22 @@ function publicationIdentityError(error: unknown): string | null {
   styleUrl: './flow-trigger-controls.component.scss',
   template: `
     <section class="ck-trig">
+      <details class="ck-trig__journal" [open]="journalOpen()" data-testid="trigger-deliveries">
+        <summary>{{ i18n.t('flow.triggers.deliveries.title') }}</summary>
+        <p class="ck-trig__muted">{{ i18n.t('flow.triggers.deliveries.coverage') }}</p>
+        @if (deliveryLoad() === 'loaded') {
+          <p class="ck-trig__muted">{{ i18n.t(kind() === 'schedule' ? 'flow.triggers.deliveries.scheduled' : !deliveryEnabled() ? 'flow.triggers.deliveries.disabled' : deliveryMode() === 'dry_run' ? 'flow.triggers.deliveries.simulation' : 'flow.triggers.deliveries.live') }}</p>
+          <ul class="ck-trig__list">@for (delivery of visibleDeliveries(); track delivery.id) {
+            <li class="ck-trig__row"><span>{{ delivery.accepted_at }} · {{ i18n.t('flow.triggers.deliveries.accepted') }}</span>
+              <span>{{ i18n.t('flow.triggers.deliveries.status.' + deliveryStatus(delivery.execution_status)) }}</span>
+              <a [navLink]="{ type: 'run', ref: delivery.run_id }">{{ i18n.t('flow.triggers.deliveries.open') }}</a>
+            </li>
+          } @empty { <li>{{ i18n.t('flow.triggers.deliveries.empty') }}</li> }</ul>
+        } @else {
+          <p role="status">{{ i18n.t(deliveryLoad() === 'error' ? 'flow.triggers.deliveries.error' : 'flow.triggers.schedules.loading') }}</p>
+        }
+        <button type="button" class="ck-trig__linkbtn" (click)="reloadDeliveries()">{{ i18n.t('flow.triggers.retry') }}</button>
+      </details>
       @if (kind() === 'schedule') {
         <span class="ck-trig__label">{{ i18n.t('flow.triggers.schedules') }}</span>
         <p class="ck-trig__muted">{{ i18n.t('flow.triggers.schedules.execution_note') }}</p>
@@ -329,9 +354,16 @@ export class FlowTriggersPanelComponent {
   private readonly api = inject(ApiService);
   private readonly toastr = inject(ToastrService);
   readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService, { optional: true });
+  readonly deliveries = signal<TriggerDelivery[]>([]);
+  readonly deliveryLoad = signal<LoadState>('loading');
+  readonly deliveryMode = signal<string>('unknown');
+  readonly deliveryEnabled = signal(false);
+  private deliveryGeneration = 0;
 
   readonly systemId = input.required<string>();
-  readonly kind = input<'schedule' | 'webhook'>('schedule');
+  readonly kind = input<'schedule' | 'webhook' | 'all'>('schedule');
+  readonly journalOpen = input(false);
 
   readonly schedules = signal<RunSchedule[]>([]);
   readonly hooks = signal<WebhookHook[]>([]);
@@ -369,14 +401,31 @@ export class FlowTriggersPanelComponent {
       this.newSchedUseMyAccess = false;
       this.newHookUseMyAccess = false;
       if (id) {
+        this.reloadDeliveries();
         if (kind === 'schedule') this.fetchSchedules(id);
-        else this.fetchHooks(id);
+        else if (kind === 'webhook') this.fetchHooks(id);
       }
     });
   }
 
   nextFire(schedule: RunSchedule): string {
     return scheduleInstant(schedule.next_fire_at, this.i18n.locale(), schedule.timezone);
+  }
+
+  visibleDeliveries(): TriggerDelivery[] { return this.deliveries().filter(row => this.kind() === 'all' || row.source === this.kind()); }
+  deliveryStatus(value: string): string {
+    return ['completed', 'failed', 'cancelled', 'simulated', 'pending', 'running', 'hitl_pending'].includes(value) ? value : 'unknown';
+  }
+  reloadDeliveries(): void {
+    const id = this.systemId(); if (!id) return;
+    const generation = ++this.deliveryGeneration;
+    const scope = this.workspace?.captureRequestScope();
+    const current = () => generation === this.deliveryGeneration && id === this.systemId() && (!scope || this.workspace!.isRequestScopeCurrent(scope));
+    this.deliveryLoad.set('loading'); this.deliveries.set([]);
+    this.api.get<{ deliveries: TriggerDelivery[]; mode: string; enabled: boolean }>(`/systems/${encodeURIComponent(id)}/trigger-deliveries`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: result => { if (current()) { this.deliveries.set(result.deliveries ?? []); this.deliveryMode.set(result.mode); this.deliveryEnabled.set(result.enabled === true); this.deliveryLoad.set('loaded'); } },
+      error: () => { if (current()) this.deliveryLoad.set('error'); },
+    });
   }
 
   hasPayload(payload: Record<string, unknown>): boolean {

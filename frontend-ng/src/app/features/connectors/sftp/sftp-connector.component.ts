@@ -1,3 +1,9 @@
+import { Observable, type MonoTypeOperatorFunction } from 'rxjs';
+import { guardWorkspaceRequest } from '@app/core/workspace-request-scope';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
 import { IngestionStatusComponent } from '../../knowledge/ingestion-status.component';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -12,6 +18,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface DepositLink {
   id: string;
@@ -296,14 +303,15 @@ const BULK_PROMOTE_LIMIT = 25;
 @Component({
   selector: 'app-sftp-connector',
   standalone: true,
-  imports: [IngestionStatusComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
+  imports: [WriteOutcomeComponent, ConnectorCapabilitiesComponent, PageFrameComponent, IngestionStatusComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
-      breadcrumb="Connectors"
-      title="SFTP / Secure Deposit"
+      [breadcrumb]="i18n.t('connectors.title')"
+      [title]="i18n.t('deposit.sftp.title')"
       icon="inbox"
-      [subtitle]="'Create external drop links for ' + workspaceName() + '. Files land in this workspace staging queue until manually promoted to Knowledge.'"
+      [subtitle]="i18n.t('deposit.sftp.subtitle', { name: workspaceName() })"
     >
       <button
         type="button"
@@ -312,10 +320,16 @@ const BULK_PROMOTE_LIMIT = 25;
         [disabled]="loading()"
       >
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
+        {{ i18n.t('deposit.sftp.copy.refresh') }}
       </button>
       <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
+    <app-connector-capabilities connector="sftp" />
+    <app-write-outcome [outcome]="writeOutcome()" [verifiable]="true" (verify)="load()" />
+    @if (writeOutcome()?.s === 'unknown') {
+      <p class="mb-4 text-sm text-amber-100">{{ i18n.t('deposit.sftp.unknown_recovery') }}</p>
+    }
+
 
     @if (error()) {
       <div class="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-400/25">
@@ -325,7 +339,7 @@ const BULK_PROMOTE_LIMIT = 25;
 
     @if (health() && !secureDepositEnabled()) {
       <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
-        Secure Deposit is not enabled for {{ workspaceName() }}. Existing queues and links remain workspace-scoped; enable the capability before creating external upload links here.
+        {{ i18n.t('deposit.sftp.disabled_workspace', { name: workspaceName() }) }}
       </div>
     }
 
@@ -333,14 +347,14 @@ const BULK_PROMOTE_LIMIT = 25;
       <section class="mb-5 rounded-md bg-cyan-500/10 p-4 ring-1 ring-cyan-400/30">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="min-w-0">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.share_once') }}</p>
+            <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.share_once') }}</p>
             <h2 class="mt-1 text-sm font-semibold text-white">{{ link.label }}</h2>
             <p class="mt-2 break-all font-mono text-xs text-cyan-100">{{ absoluteUrl(link.public_url) }}</p>
             <p class="mt-2 break-all font-mono text-xs text-amber-100">
               {{ i18n.t('deposit.sftp.password_label') }}:
               {{ revealSecretPassword() ? (link.generated_password || '—') : '••••••••' }}
             </p>
-            <p class="mt-2 text-[11px] text-gray-300">{{ i18n.t('deposit.sftp.share_once_hint') }}</p>
+            <p class="mt-2 text-xs text-gray-300">{{ i18n.t('deposit.sftp.share_once_hint') }}</p>
           </div>
           <div class="flex shrink-0 flex-wrap gap-2">
             <button type="button" class="rounded bg-white/10 px-3 py-2 text-xs text-white ring-1 ring-white/15 hover:bg-white/15" (click)="copy(absoluteUrl(link.public_url), i18n.t('deposit.sftp.copied_url'))">
@@ -363,11 +377,11 @@ const BULK_PROMOTE_LIMIT = 25;
     <section class="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
       <div class="min-w-0 space-y-5 2xl:max-w-[360px]">
         <section class="ck-surface t-elevated rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">New external access</p>
-          <h2 class="mt-1 text-base font-semibold text-white">Create deposit link</h2>
+          <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.new_external_access') }}</p>
+          <h2 class="mt-1 text-base font-semibold text-white">{{ i18n.t('deposit.sftp.copy.create_deposit_link') }}</h2>
           <form class="mt-4 space-y-4" (ngSubmit)="createLink()">
             <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Label</span>
+              <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.sftp.copy.label') }}</span>
               <input
                 name="label"
                 [(ngModel)]="draftLabel"
@@ -378,7 +392,7 @@ const BULK_PROMOTE_LIMIT = 25;
             </label>
             <div class="grid grid-cols-2 gap-3">
               <label class="block min-w-0">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Max MB</span>
+                <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.sftp.copy.max_mb') }}</span>
                 <input
                   name="max"
                   type="number"
@@ -390,7 +404,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 />
               </label>
               <label class="block min-w-0">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Expires</span>
+                <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.sftp.copy.expires') }}</span>
                 <input
                   name="expires"
                   type="date"
@@ -401,15 +415,15 @@ const BULK_PROMOTE_LIMIT = 25;
               </label>
             </div>
             <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Extensions</span>
+              <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.sftp.copy.extensions') }}</span>
               <input
                 name="extensions"
                 [(ngModel)]="draftExtensions"
                 [disabled]="!secureDepositEnabled()"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                placeholder="Leave empty for all file types"
+                [placeholder]="i18n.t('deposit.sftp.field_hint_0')"
               />
-              <span class="mt-1 block text-xs text-gray-500">Leave empty to accept ZIP and any other extension.</span>
+              <span class="mt-1 block text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.leave_empty_to_accept_zip_and_any_other_extension') }}</span>
             </label>
             <button
               type="submit"
@@ -417,7 +431,7 @@ const BULK_PROMOTE_LIMIT = 25;
               [disabled]="saving() || !secureDepositEnabled()"
             >
               <app-icon name="plus" [size]="15" />
-              Create link
+              {{ i18n.t('deposit.sftp.copy.create_link') }}
             </button>
           </form>
         </section>
@@ -425,19 +439,19 @@ const BULK_PROMOTE_LIMIT = 25;
         <section class="ck-surface t-elevated rounded-md p-5">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Target collection</p>
-              <h2 class="mt-1 text-base font-semibold text-white">Knowledge destination</h2>
+              <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.target_collection') }}</p>
+              <h2 class="mt-1 text-base font-semibold text-white">{{ i18n.t('deposit.sftp.copy.knowledge_destination') }}</h2>
             </div>
             <a
               [navLink]="{ leaf: 'knowledge-doc', ref: targetCollectionSlug() }"
-              class="inline-flex shrink-0 items-center gap-1.5 rounded bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
             >
               <app-icon name="external-link" [size]="12" />
-              Open
+              {{ i18n.t('deposit.sftp.copy.open') }}
             </a>
           </div>
           <label class="mt-3 block">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Existing collection</span>
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.sftp.copy.existing_collection') }}</span>
             <select
               name="collectionPicker"
               [ngModel]="targetCollectionSlug()"
@@ -446,17 +460,17 @@ const BULK_PROMOTE_LIMIT = 25;
               class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
             >
               @if (knowledgeCollectionOptions().length === 0) {
-                <option [value]="targetCollectionSlug()">{{ knowledgeCollectionsLoading() ? 'Loading collections…' : 'No collection found' }}</option>
+                <option [value]="targetCollectionSlug()">{{ knowledgeCollectionsLoading() ? i18n.t('deposit.sftp.collections_loading') : i18n.t('deposit.sftp.collections_empty') }}</option>
               }
               @for (collection of knowledgeCollectionOptions(); track collection.slug) {
                 <option [value]="collection.slug">
-                  {{ collection.name || collection.slug }}{{ collection.name && collection.name !== collection.slug ? ' · ' + collection.slug : '' }}{{ collection.status ? ' · ' + collection.status : '' }}{{ collection.chunk_count !== undefined && collection.chunk_count !== null ? ' · ' + collection.chunk_count + ' chunks' : '' }}
+                  {{ collection.name || collection.slug }}{{ collection.name && collection.name !== collection.slug ? ' · ' + collection.slug : '' }}{{ collection.status ? ' · ' + collection.status : '' }}{{ collection.chunk_count !== undefined && collection.chunk_count !== null ? ' · ' + i18n.t('deposit.sftp.fragments_plain', { count: collection.chunk_count }) : '' }}
                 </option>
               }
             </select>
           </label>
           <label class="mt-3 block">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Collection slug / manual override</span>
+            <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.sftp.copy.collection_slug_manual_override') }}</span>
             <input
               name="collection"
               [ngModel]="collectionSlug"
@@ -465,51 +479,51 @@ const BULK_PROMOTE_LIMIT = 25;
             />
           </label>
           @if (selectedKnowledgeCollection(); as selected) {
-            <div class="mt-2 rounded bg-cyan-500/[0.06] px-3 py-2 text-[11px] text-cyan-100 ring-1 ring-cyan-400/15">
+            <div class="mt-2 rounded bg-cyan-500/[0.06] px-3 py-2 text-xs text-cyan-100 ring-1 ring-cyan-400/15">
               <span class="font-semibold">{{ selected.name || selected.slug }}</span>
-              <span class="text-cyan-200/70"> · {{ selected.status || 'status unknown' }}</span>
-              <span class="text-cyan-200/70"> · {{ selected.document_count || 0 }} docs</span>
-              <span class="text-cyan-200/70"> · {{ selected.chunk_count || 0 }} chunks</span>
+              <span class="text-cyan-200/70"> · {{ selected.status || i18n.t('deposit.sftp.status_unknown') }}</span>
+              <span class="text-cyan-200/70"> {{ i18n.t('deposit.sftp.documents_count', { count: selected.document_count || 0 }) }}</span>
+              <span class="text-cyan-200/70"> {{ i18n.t('deposit.sftp.fragments_count', { count: selected.chunk_count || 0 }) }}</span>
             </div>
           } @else if (knowledgeCollectionOptions().length > 0) {
-            <div class="mt-2 rounded bg-amber-500/[0.06] px-3 py-2 text-[11px] text-amber-100 ring-1 ring-amber-400/15">
-              This slug is not in the current Knowledge collection list. It can still be used as a manual promotion target, but the collection link may be missing until it is created.
+            <div class="mt-2 rounded bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-400/15">
+              {{ i18n.t('deposit.sftp.copy.this_slug_is_not_in_the_current_knowledge_collection_list_it_can_still') }}
             </div>
           }
           <div class="mt-4 rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
             @if (targetCollection(); as collection) {
               <div class="flex items-center justify-between gap-3">
-                <span class="rounded px-2 py-1 text-[11px] ring-1" [ngClass]="collection.exists ? statusClass('promoted') : 'bg-amber-500/10 text-amber-100 ring-amber-500/25'">
+                <span class="rounded px-2 py-1 text-xs ring-1" [ngClass]="collection.exists ? statusClass('promoted') : 'bg-amber-500/10 text-amber-100 ring-amber-500/25'">
                   {{ collection.exists ? collection.status : 'missing' }}
                 </span>
                 <button
                   type="button"
-                  class="rounded px-2 py-1 text-[11px] text-gray-300 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                  class="rounded px-2 py-1 text-xs text-gray-300 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
                   [disabled]="indexingAssistLoading() || knowledgeJobsLoading()"
                   (click)="refreshTargetCollection()"
                 >
                   <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="indexingAssistLoading() || knowledgeJobsLoading()" />
-                  Refresh
+                  {{ i18n.t('deposit.sftp.copy.refresh') }}
                 </button>
               </div>
-              <div class="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-400">
-                <span>Sources</span>
+              <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-400">
+                <span>{{ i18n.t('deposit.sftp.copy.sources') }}</span>
                 <span class="text-right font-mono text-gray-200">{{ collection.source_count }}</span>
-                <span>Chunks</span>
+                <span>{{ i18n.t('deposit.sftp.copy.chunks') }}</span>
                 <span class="text-right font-mono text-gray-200">{{ collection.chunk_count }}</span>
-                <span>Errors</span>
+                <span>{{ i18n.t('deposit.sftp.copy.errors') }}</span>
                 <span class="text-right font-mono" [ngClass]="collection.error_sources > 0 ? 'text-red-200' : 'text-gray-200'">{{ collection.error_sources }}</span>
-                <span>Latest job</span>
+                <span>{{ i18n.t('deposit.sftp.copy.latest_job') }}</span>
                 <span class="truncate text-right text-gray-200">{{ knowledgeJobLabel(latestKnowledgeJob()) }}</span>
               </div>
             } @else {
-              <p class="text-xs text-gray-500">Refresh the target collection to load its indexing status.</p>
+              <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.refresh_the_target_collection_to_load_its_indexing_status') }}</p>
               <button
                 type="button"
-                class="mt-3 rounded px-2.5 py-1.5 text-[11px] text-gray-200 ring-1 ring-white/10 hover:bg-white/5"
+                class="mt-3 rounded px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/5"
                 (click)="refreshTargetCollection()"
               >
-                Load collection status
+                {{ i18n.t('deposit.sftp.copy.load_collection_status') }}
               </button>
             }
           </div>
@@ -519,11 +533,11 @@ const BULK_PROMOTE_LIMIT = 25;
       <div class="min-w-0 space-y-5">
         <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
-            <h2 class="text-sm font-semibold text-white">Deposit links</h2>
-            <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ links().length }} links</span>
+            <h2 class="text-sm font-semibold text-white">{{ i18n.t('deposit.sftp.copy.deposit_links') }}</h2>
+            <span class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.link_count', { count: links().length }) }}</span>
           </div>
           @if (links().length === 0) {
-            <div class="p-8 text-center text-sm text-gray-500">No deposit links yet.</div>
+            <div class="p-8 text-center text-sm text-gray-500">{{ i18n.t('deposit.sftp.copy.no_deposit_links_yet') }}</div>
           } @else {
             <ul class="divide-y divide-white/5">
               @for (link of links(); track link.id) {
@@ -532,24 +546,24 @@ const BULK_PROMOTE_LIMIT = 25;
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
                         <h3 class="truncate text-sm font-semibold text-white">{{ link.label }}</h3>
-                        <span class="rounded px-2 py-0.5 text-[10px] ring-1" [class]="link.status === 'active' ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20' : 'bg-white/5 text-gray-400 ring-white/10'">
-                          {{ link.status }}
+                        <span class="rounded px-2 py-0.5 text-xs ring-1" [class]="link.status === 'active' ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20' : 'bg-white/5 text-gray-400 ring-white/10'">
+                          {{ i18n.t('deposit.link_status.' + link.status) }}
                         </span>
                       </div>
-                      <p class="mt-1 truncate font-mono text-[11px] text-gray-500">{{ absoluteUrl(link.public_url) }}</p>
+                      <p class="mt-1 truncate font-mono text-xs text-gray-500">{{ absoluteUrl(link.public_url) }}</p>
                     </div>
                     <div class="flex shrink-0 flex-wrap gap-2">
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="copy(absoluteUrl(link.public_url), 'URL copied')">
-                        <app-icon name="copy" [size]="12" /> Copy URL
+                        <app-icon name="copy" [size]="12" /> {{ i18n.t('deposit.sftp.copy.copy_url') }}
                       </button>
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="focusLinkQueue(link.id)">
-                        <app-icon name="list-filter" [size]="12" /> Queue
+                        <app-icon name="list-filter" [size]="12" /> {{ i18n.t('deposit.sftp.copy.queue') }}
                       </button>
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="rotate(link)">
-                        <app-icon name="rotate-cw" [size]="12" /> Rotate
+                        <app-icon name="rotate-cw" [size]="12" /> {{ i18n.t('deposit.sftp.copy.rotate') }}
                       </button>
                       <button type="button" class="rounded bg-red-500/10 px-3 py-1.5 text-xs text-red-200 ring-1 ring-red-500/20 hover:bg-red-500/15" (click)="revoke(link)" [disabled]="link.status !== 'active'">
-                        <app-icon name="x-circle" [size]="12" /> Revoke
+                        <app-icon name="x-circle" [size]="12" /> {{ i18n.t('deposit.sftp.copy.revoke') }}
                       </button>
                     </div>
                   </div>
@@ -562,9 +576,9 @@ const BULK_PROMOTE_LIMIT = 25;
         <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Indexing assist</p>
-              <h2 class="mt-1 text-sm font-semibold text-white">Promotion readiness and indexing pipeline</h2>
-              <p class="mt-1 text-xs text-gray-500">Analyze the current file view, promote only recommended candidates, then track Knowledge ingestion.</p>
+              <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.indexing_assist') }}</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">{{ i18n.t('deposit.sftp.copy.promotion_readiness_and_indexing_pipeline') }}</h2>
+              <p class="mt-1 text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.analyze_the_current_file_view_promote_only_recommended_candidates_then') }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <button
@@ -574,19 +588,19 @@ const BULK_PROMOTE_LIMIT = 25;
                 (click)="analyzeCurrentView()"
               >
                 <app-icon name="file-search" [size]="13" [class.animate-spin]="indexingAssistLoading()" />
-                Analyze current view
+                {{ i18n.t('deposit.sftp.copy.analyze_current_view') }}
               </button>
               <button
                 type="button"
                 class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
                 [disabled]="recommendedBatchFiles().length === 0 || bulkPromoting() || saving()"
                 (click)="promoteBatch()"
-                title="Promote files explicitly recommended by the latest indexing assist run."
+                [title]="i18n.t('deposit.sftp.field_hint_1')"
               >
                 <app-icon name="archive-restore" [size]="13" />
-                {{ bulkPromoting() ? 'Promoting recommended' : 'Recommended batch' }}
+                {{ bulkPromoting() ? i18n.t('deposit.sftp.batch_sending') : i18n.t('deposit.sftp.batch_recommended') }}
                 @if (recommendedBatchFiles().length > 0) {
-                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ recommendedBatchFiles().length }}</span>
+                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-xs">{{ recommendedBatchFiles().length }}</span>
                 }
               </button>
               <button
@@ -596,14 +610,14 @@ const BULK_PROMOTE_LIMIT = 25;
                 (click)="loadIndexingMonitor()"
               >
                 <app-icon name="activity" [size]="13" [class.animate-spin]="knowledgeJobsLoading()" />
-                Refresh pipeline
+                {{ i18n.t('deposit.sftp.copy.refresh_pipeline') }}
               </button>
               <a
                 [navLink]="{ leaf: 'knowledge-doc', ref: targetCollectionSlug() }"
                 class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
               >
                 <app-icon name="external-link" [size]="13" />
-                Open collection
+                {{ i18n.t('deposit.sftp.copy.open_collection') }}
               </a>
             </div>
           </div>
@@ -618,13 +632,13 @@ const BULK_PROMOTE_LIMIT = 25;
             <div class="border-b border-emerald-400/15 bg-emerald-500/10 px-5 py-3">
               <div class="flex flex-col gap-2 text-sm text-emerald-100 sm:flex-row sm:items-center sm:justify-between">
                 <span>
-                  {{ banner.count }} file{{ banner.count === 1 ? '' : 's' }} queued to {{ banner.collection_slug }}
+                  {{ i18n.t('deposit.sftp.queued_collection', { count: banner.count, collection: banner.collection_slug }) }}
                   @if (banner.job_id) {
-                    <span class="font-mono text-[11px] text-emerald-200/70">· job {{ banner.job_id }}</span>
+                    <span class="font-mono text-xs text-emerald-200/70">{{ i18n.t('deposit.sftp.operation_id', { id: banner.job_id }) }}</span>
                   }
                 </span>
                 <a [navLink]="{ leaf: 'knowledge-doc', ref: banner.collection_slug }" class="inline-flex w-fit items-center gap-1.5 rounded bg-emerald-400/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-300/20 hover:bg-emerald-400/15">
-                  Open collection
+                  {{ i18n.t('deposit.sftp.copy.open_collection') }}
                   <app-icon name="external-link" [size]="12" />
                 </a>
               </div>
@@ -635,24 +649,24 @@ const BULK_PROMOTE_LIMIT = 25;
             <div class="min-w-0 space-y-4">
               <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">View files</p>
+                  <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.view_files') }}</p>
                   <p class="mt-1 text-lg font-semibold text-white">{{ assistCandidateFiles().length }}</p>
-                  <p class="text-[11px] text-gray-500">analyzed on request</p>
+                  <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.analyzed_on_request') }}</p>
                 </div>
                 <div class="rounded bg-emerald-500/[0.06] p-3 ring-1 ring-emerald-500/15">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-emerald-300">Recommended</p>
+                  <p class="ck-mono text-xs uppercase tracking-wider text-emerald-300">{{ i18n.t('deposit.sftp.copy.recommended') }}</p>
                   <p class="mt-1 text-lg font-semibold text-white">{{ indexingAssist()?.summary?.recommended_count || 0 }}</p>
-                  <p class="text-[11px] text-gray-500">{{ formatBytes(indexingAssist()?.summary?.recommended_bytes || 0) }}</p>
+                  <p class="text-xs text-gray-500">{{ formatBytes(indexingAssist()?.summary?.recommended_bytes || 0) }}</p>
                 </div>
                 <div class="rounded bg-amber-500/[0.06] p-3 ring-1 ring-amber-500/15">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-300">Inspect</p>
+                  <p class="ck-mono text-xs uppercase tracking-wider text-amber-300">{{ i18n.t('deposit.sftp.copy.inspect') }}</p>
                   <p class="mt-1 text-lg font-semibold text-white">{{ indexingAssist()?.summary?.inspect_archive_count || 0 }}</p>
-                  <p class="text-[11px] text-gray-500">archives or uncertain files</p>
+                  <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.archives_or_uncertain_files') }}</p>
                 </div>
                 <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Skipped</p>
+                  <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.skipped') }}</p>
                   <p class="mt-1 text-lg font-semibold text-white">{{ (indexingAssist()?.summary?.unsupported_count || 0) + (indexingAssist()?.summary?.already_promoted_count || 0) }}</p>
-                  <p class="text-[11px] text-gray-500">unsupported or already promoted</p>
+                  <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.unsupported_or_already_promoted') }}</p>
                 </div>
               </div>
 
@@ -660,8 +674,8 @@ const BULK_PROMOTE_LIMIT = 25;
                 @if (assist.recommendations.length) {
                 <div class="rounded-md bg-white/[0.02] ring-1 ring-white/10">
                   <div class="flex items-center justify-between border-b border-white/5 px-4 py-3">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">Recommendations</h3>
-                    <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ assist.summary.found_files || 0 }} files</span>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">{{ i18n.t('deposit.sftp.copy.recommendations') }}</h3>
+                    <span class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.file_count', { count: assist.summary.found_files || 0 }) }}</span>
                   </div>
                   <ul class="max-h-72 divide-y divide-white/5 overflow-auto">
                     @for (rec of assist.recommendations.slice(0, 12); track rec.file_id) {
@@ -669,14 +683,14 @@ const BULK_PROMOTE_LIMIT = 25;
                         <div class="min-w-0">
                           <div class="flex min-w-0 flex-wrap items-center gap-2">
                             <p class="truncate text-sm font-semibold text-white">{{ basename(rec.filename || rec.file_id) }}</p>
-                            <span class="rounded px-2 py-0.5 text-[10px] ring-1" [ngClass]="assistBadgeClass(rec.recommendation)">
+                            <span class="rounded px-2 py-0.5 text-xs ring-1" [ngClass]="assistBadgeClass(rec.recommendation)">
                               {{ rec.label }}
                             </span>
                           </div>
                           <p class="mt-1 line-clamp-2 text-xs text-gray-400">{{ rec.reason }}</p>
                           @if (rec.archive) {
-                            <p class="mt-1 truncate font-mono text-[10px] text-gray-500">
-                              ZIP docs {{ rec.archive.supported_document_count }} · {{ rec.archive.supported_extensions.join(', ') || 'no supported extension' }}
+                            <p class="mt-1 truncate font-mono text-xs text-gray-500">
+                              ZIP docs {{ rec.archive.supported_document_count }} · {{ rec.archive.supported_extensions.join(', ') || i18n.t('deposit.sftp.no_extension') }}
                             </p>
                           }
                         </div>
@@ -684,12 +698,12 @@ const BULK_PROMOTE_LIMIT = 25;
                           @if (rec.recommendation === 'inspect_archive') {
                             @if (fileLookup().get(rec.file_id); as archiveFile) {
                               <button type="button" class="rounded px-2.5 py-1.5 text-xs text-amber-100 ring-1 ring-amber-500/20 hover:bg-amber-500/10" (click)="openZipArchive(archiveFile)">
-                                Browse ZIP
+                                {{ i18n.t('deposit.sftp.copy.browse_zip') }}
                               </button>
                             }
                           }
                           @if (rec.eligible_for_batch) {
-                            <span class="rounded bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200 ring-1 ring-emerald-500/20">In batch</span>
+                            <span class="rounded bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 ring-1 ring-emerald-500/20">{{ i18n.t('deposit.sftp.copy.in_batch') }}</span>
                           }
                         </div>
                       </li>
@@ -698,12 +712,12 @@ const BULK_PROMOTE_LIMIT = 25;
                 </div>
                 } @else {
                   <div class="rounded-md bg-white/[0.02] p-4 text-sm text-gray-500 ring-1 ring-white/10">
-                    No recommendation for the current analysis.
+                    {{ i18n.t('deposit.sftp.copy.no_recommendation_for_the_current_analysis') }}
                   </div>
                 }
               } @else {
                 <div class="rounded-md bg-white/[0.02] p-4 text-sm text-gray-500 ring-1 ring-white/10">
-                  Run indexing assist on the current folder or search results to prepare a recommended promotion batch.
+                  {{ i18n.t('deposit.sftp.copy.run_indexing_assist_on_the_current_folder_or_search_results_to_prepare') }}
                 </div>
               }
             </div>
@@ -711,14 +725,14 @@ const BULK_PROMOTE_LIMIT = 25;
             <div class="min-w-0 rounded-md bg-cyan-500/[0.04] p-4 ring-1 ring-cyan-400/20">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Indexing pipeline</p>
+                  <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.indexing_pipeline') }}</p>
                   <h3 class="mt-1 text-sm font-semibold text-white">{{ knowledgeJobLabel(latestKnowledgeJob()) }}</h3>
                   <p class="mt-1 truncate text-xs text-gray-500">{{ targetCollectionSlug() }}</p>
                 </div>
                 @if (activeKnowledgeJobs().length > 0) {
-                  <span class="inline-flex items-center gap-1.5 rounded bg-cyan-500/10 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-100 ring-1 ring-cyan-500/25">
+                  <span class="inline-flex items-center gap-1.5 rounded bg-cyan-500/10 px-2 py-1 text-xs uppercase tracking-wider text-cyan-100 ring-1 ring-cyan-500/25">
                     <app-icon name="loader-2" [size]="12" class="animate-spin" />
-                    {{ activeKnowledgeJobs().length }} active
+                    {{ i18n.t('deposit.sftp.active_count', { count: activeKnowledgeJobs().length }) }}
                   </span>
                 }
               </div>
@@ -730,34 +744,34 @@ const BULK_PROMOTE_LIMIT = 25;
               <div class="mt-4 grid grid-cols-4 gap-2">
                 <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
                   <p class="font-mono text-sm text-white">{{ indexingJobCount('queued') }}</p>
-                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Queued</p>
+                  <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.queued') }}</p>
                 </div>
                 <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
                   <p class="font-mono text-sm text-white">{{ indexingJobCount('running') }}</p>
-                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Running</p>
+                  <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.running') }}</p>
                 </div>
                 <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
                   <p class="font-mono text-sm text-white">{{ indexingJobCount('completed') }}</p>
-                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Done</p>
+                  <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.done') }}</p>
                 </div>
                 <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
                   <p class="font-mono text-sm text-white">{{ indexingJobCount('failed') }}</p>
-                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Failed</p>
+                  <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.failed') }}</p>
                 </div>
               </div>
               @if (targetCollection(); as collection) {
                 <div class="mt-4 grid grid-cols-3 gap-2 text-center">
                   <div class="rounded bg-black/20 p-2 ring-1 ring-white/10">
                     <p class="font-mono text-sm text-white">{{ collection.source_count }}</p>
-                    <p class="text-[10px] uppercase tracking-wider text-gray-500">Sources</p>
+                    <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.sources') }}</p>
                   </div>
                   <div class="rounded bg-black/20 p-2 ring-1 ring-white/10">
                     <p class="font-mono text-sm text-white">{{ collection.chunk_count }}</p>
-                    <p class="text-[10px] uppercase tracking-wider text-gray-500">Chunks</p>
+                    <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.chunks') }}</p>
                   </div>
                   <div class="rounded bg-black/20 p-2 ring-1 ring-white/10">
                     <p class="font-mono text-sm" [ngClass]="collection.error_sources > 0 ? 'text-red-200' : 'text-white'">{{ collection.error_sources }}</p>
-                    <p class="text-[10px] uppercase tracking-wider text-gray-500">Errors</p>
+                    <p class="text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.errors') }}</p>
                   </div>
                 </div>
               }
@@ -768,9 +782,9 @@ const BULK_PROMOTE_LIMIT = 25;
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <p class="truncate text-xs font-semibold text-white">{{ job.stage || job.kind }}</p>
-                        <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ job.id }}</p>
+                        <p class="mt-1 truncate font-mono text-xs text-gray-500">{{ job.id }}</p>
                       </div>
-                      <span class="rounded px-2 py-1 text-[10px] ring-1" [ngClass]="knowledgeJobClass(job.status)">
+                      <span class="rounded px-2 py-1 text-xs ring-1" [ngClass]="knowledgeJobClass(job.status)">
                         {{ job.status }}
                       </span>
                     </div>
@@ -778,12 +792,12 @@ const BULK_PROMOTE_LIMIT = 25;
                       <div class="h-full rounded bg-cyan-300" [style.width.%]="job.progress || (job.status === 'completed' ? 100 : 0)"></div>
                     </div>
                     @if (job.error) {
-                      <p class="mt-2 line-clamp-2 text-[11px] text-red-200">{{ job.error }}</p>
+                      <p class="mt-2 line-clamp-2 text-xs text-red-200">{{ job.error }}</p>
                     }
                   </li>
                 } @empty {
                   <li class="rounded bg-black/20 p-4 text-sm text-gray-500 ring-1 ring-white/10">
-                    No indexing job found for this target collection yet.
+                    {{ i18n.t('deposit.sftp.copy.no_indexing_job_found_for_this_target_collection_yet') }}
                   </li>
                 }
               </ul>
@@ -794,13 +808,13 @@ const BULK_PROMOTE_LIMIT = 25;
         <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">SFTP operations</p>
-              <h2 class="mt-1 text-sm font-semibold text-white">Live upload monitor</h2>
-              <p class="mt-1 text-xs text-gray-500">Workspace-scoped SFTP transfers, reconciliation checks and cleanup jobs.</p>
+              <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.sftp_operations') }}</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">{{ i18n.t('deposit.sftp.copy.live_upload_monitor') }}</h2>
+              <p class="mt-1 text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.workspace_scoped_sftp_transfers_reconciliation_checks_and_cleanup_jobs') }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <label class="flex items-center gap-2 text-xs text-gray-400">
-                <span>Stale after</span>
+                <span>{{ i18n.t('deposit.sftp.copy.stale_after') }}</span>
                 <input
                   type="number"
                   min="1"
@@ -809,7 +823,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   [(ngModel)]="staleAfterHours"
                   class="w-20 rounded bg-black/30 border border-white/10 px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
-                <span>h</span>
+                <span>{{ i18n.t('deposit.sftp.copy.h') }}</span>
               </label>
               <button
                 type="button"
@@ -818,7 +832,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 (click)="loadOperations()"
               >
                 <app-icon name="refresh-cw" [size]="13" [class.animate-spin]="operationsLoading()" />
-                Refresh ops
+                {{ i18n.t('deposit.sftp.copy.refresh_ops') }}
               </button>
               <button
                 type="button"
@@ -827,7 +841,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 (click)="runReconciliationCheck()"
               >
                 <app-icon name="shield-check" [size]="13" />
-                Run check
+                {{ i18n.t('deposit.sftp.copy.run_check') }}
               </button>
               <button
                 type="button"
@@ -836,7 +850,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 (click)="quarantineFromDryRun()"
               >
                 <app-icon name="archive" [size]="13" />
-                Move to quarantine
+                {{ i18n.t('deposit.sftp.copy.move_to_quarantine') }}
               </button>
             </div>
           </div>
@@ -850,33 +864,33 @@ const BULK_PROMOTE_LIMIT = 25;
           <div class="grid gap-3 border-b border-white/5 px-5 py-4 md:grid-cols-2 xl:grid-cols-5">
             @if (operationsSummary(); as summary) {
               <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Receiving</p>
+                <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.receiving') }}</p>
                 <p class="mt-1 text-lg font-semibold text-white">{{ summary.active_count }}</p>
-                <p class="text-[11px] text-gray-500">{{ formatBytes(summary.temporary_size_bytes) }} temp</p>
+                <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.temporary_size', { size: formatBytes(summary.temporary_size_bytes) }) }}</p>
               </div>
               <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Idle</p>
+                <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.idle') }}</p>
                 <p class="mt-1 text-lg font-semibold text-white">{{ summary.idle_count }}</p>
-                <p class="text-[11px] text-gray-500">{{ summary.stale_count }} stale</p>
+                <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.stale_count', { count: summary.stale_count }) }}</p>
               </div>
               <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Unattributed</p>
+                <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.unattributed') }}</p>
                 <p class="mt-1 text-lg font-semibold text-white">{{ summary.unattributed_partial_count }}</p>
-                <p class="text-[11px] text-gray-500">{{ formatBytes(summary.unattributed_partial_size_bytes) }}</p>
+                <p class="text-xs text-gray-500">{{ formatBytes(summary.unattributed_partial_size_bytes) }}</p>
               </div>
               <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Last received</p>
-                <p class="mt-1 truncate text-sm font-semibold text-white">{{ summary.last_received_filename || 'None' }}</p>
-                <p class="text-[11px] text-gray-500">{{ summary.last_received_at ? (summary.last_received_at | date:'short') : 'No file yet' }}</p>
+                <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.last_received') }}</p>
+                <p class="mt-1 truncate text-sm font-semibold text-white">{{ summary.last_received_filename || i18n.t('deposit.sftp.none') }}</p>
+                <p class="text-xs text-gray-500">{{ summary.last_received_at ? (summary.last_received_at | date:'short') : i18n.t('deposit.sftp.no_file') }}</p>
               </div>
               <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Last check</p>
+                <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.last_check') }}</p>
                 <p class="mt-1 text-lg font-semibold text-white">{{ latestReconciliation().orphan_files || 0 }}</p>
-                <p class="text-[11px] text-gray-500">orphans · {{ latestReconciliation().stale_partials || 0 }} stale</p>
+                <p class="text-xs text-gray-500">{{ i18n.t('deposit.sftp.orphan_stale', { count: latestReconciliation().stale_partials || 0 }) }}</p>
               </div>
             } @else {
               <div class="col-span-full rounded bg-white/[0.03] p-4 text-sm text-gray-500 ring-1 ring-white/10">
-                Operations snapshot is loading.
+                {{ i18n.t('deposit.sftp.copy.operations_snapshot_is_loading') }}
               </div>
             }
           </div>
@@ -889,24 +903,24 @@ const BULK_PROMOTE_LIMIT = 25;
                     <app-icon name="upload-cloud" [size]="16" />
                   </span>
                   <div class="min-w-0">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Live uploads</p>
+                    <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.live_uploads') }}</p>
                     <h3 class="mt-0.5 truncate text-sm font-semibold text-white">
-                      {{ liveUploads().length > 0 ? liveUploads().length + ' active transfer' + (liveUploads().length === 1 ? '' : 's') : 'No active SFTP transfer' }}
+                      {{ i18n.t('deposit.sftp.transfer_count', { count: liveUploads().length }) }}
                     </h3>
                   </div>
                 </div>
-                <span class="ck-mono inline-flex w-fit items-center rounded px-2 py-1 text-[10px] uppercase tracking-wider ring-1"
+                <span class="ck-mono inline-flex w-fit items-center rounded px-2 py-1 text-xs uppercase tracking-wider ring-1"
                   [ngClass]="liveUploads().length > 0 ? 'bg-cyan-500/10 text-cyan-100 ring-cyan-400/25' : 'bg-white/5 text-gray-400 ring-white/10'"
                 >
-                  {{ liveUploads().length }} tracked
+                  {{ i18n.t('deposit.sftp.tracked_count', { count: liveUploads().length }) }}
                 </span>
               </div>
               @if (liveUploads().length === 0) {
                 <div class="mt-4 rounded bg-black/20 p-4 text-sm text-gray-300 ring-1 ring-white/10">
-                  No live SFTP upload right now.
+                  {{ i18n.t('deposit.sftp.no_live') }}
                   @if (operationsSummary(); as summary) {
                     <p class="mt-1 text-xs text-gray-500">
-                      Last received: {{ summary.last_received_filename || 'None' }}
+                      {{ i18n.t('deposit.sftp.last_received', { name: summary.last_received_filename || i18n.t('deposit.sftp.none') }) }}
                     </p>
                   }
                 </div>
@@ -916,14 +930,14 @@ const BULK_PROMOTE_LIMIT = 25;
                     <li class="grid gap-3 bg-black/10 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_130px_110px_120px] lg:items-center">
                       <div class="min-w-0">
                         <p class="truncate text-sm font-semibold text-white">{{ upload.filename }}</p>
-                        <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ upload.temp_name }}</p>
-                        <p class="mt-1 truncate text-[11px] text-gray-500">{{ upload.link_label || 'Unknown link' }}</p>
+                        <p class="mt-1 truncate font-mono text-xs text-gray-500">{{ upload.temp_name }}</p>
+                        <p class="mt-1 truncate text-xs text-gray-500">{{ upload.link_label || i18n.t('deposit.sftp.link_unknown') }}</p>
                       </div>
-                      <span class="rounded px-2 py-1 text-[11px] ring-1" [class]="uploadStatusClass(upload.status)">
+                      <span class="rounded px-2 py-1 text-xs ring-1" [class]="uploadStatusClass(upload.status)">
                         {{ uploadStatusLabel(upload.status) }}
                       </span>
                       <span class="text-xs text-gray-400">{{ formatBytes(upload.size_bytes) }}</span>
-                      <span class="text-xs text-gray-400">idle {{ formatDuration(upload.idle_seconds) }}</span>
+                      <span class="text-xs text-gray-400">{{ i18n.t('deposit.sftp.idle_duration', { duration: formatDuration(upload.idle_seconds) }) }}</span>
                     </li>
                   }
                 </ul>
@@ -931,38 +945,38 @@ const BULK_PROMOTE_LIMIT = 25;
             </div>
             <div class="min-w-0">
               <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">Reconciliation</h3>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">{{ i18n.t('deposit.sftp.copy.reconciliation') }}</h3>
                 @if (lastDryRunJob(); as dryJob) {
-                  <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ dryJob.completed_at ? (dryJob.completed_at | date:'short') : dryJob.status }}</span>
+                  <span class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ dryJob.completed_at ? (dryJob.completed_at | date:'short') : dryJob.status }}</span>
                 }
               </div>
               <div class="rounded bg-white/[0.03] p-4 ring-1 ring-white/10">
                 @if (lastDryRunJob(); as dryJob) {
-                  <p class="text-sm font-semibold text-white">Dry-run {{ dryJob.status }}</p>
+                  <p class="text-sm font-semibold text-white">{{ i18n.t('deposit.sftp.check_status', { status: dryJob.status }) }}</p>
                   <p class="mt-2 text-xs text-gray-400">
-                    {{ quarantineCandidateCount() }} quarantine candidate{{ quarantineCandidateCount() === 1 ? '' : 's' }}
+                    {{ i18n.t('deposit.sftp.quarantine_candidates', { count: quarantineCandidateCount() }) }}
                     · {{ formatBytes(quarantineCandidateBytes()) }}
                   </p>
-                  <div class="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-400">
-                    <span>Stale partials</span>
+                  <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-400">
+                    <span>{{ i18n.t('deposit.sftp.copy.stale_partials') }}</span>
                     <span class="text-right font-mono">{{ resultCount(dryJob, 'stale_partials') }}</span>
-                    <span>Orphan files</span>
+                    <span>{{ i18n.t('deposit.sftp.copy.orphan_files') }}</span>
                     <span class="text-right font-mono">{{ resultCount(dryJob, 'orphan_files') }}</span>
-                    <span>Missing DB files</span>
+                    <span>{{ i18n.t('deposit.sftp.copy.missing_db_files') }}</span>
                     <span class="text-right font-mono">{{ resultCount(dryJob, 'missing_db_files') }}</span>
-                    <span>Pending rows</span>
+                    <span>{{ i18n.t('deposit.sftp.copy.pending_rows') }}</span>
                     <span class="text-right font-mono">{{ resultCount(dryJob, 'pending_rows') }}</span>
                   </div>
                 } @else {
-                  <p class="text-sm font-semibold text-white">No dry-run yet</p>
-                  <p class="mt-2 text-xs text-gray-500">No completed reconciliation check for this workspace.</p>
+                  <p class="text-sm font-semibold text-white">{{ i18n.t('deposit.sftp.copy.no_dry_run_yet') }}</p>
+                  <p class="mt-2 text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.no_completed_reconciliation_check_for_this_workspace') }}</p>
                 }
                 @if (lastOperationsJobs().length > 0) {
                   <div class="mt-4 border-t border-white/10 pt-3">
-                    <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Recent jobs</p>
+                    <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.recent_jobs') }}</p>
                     <ul class="space-y-1.5">
                       @for (job of lastOperationsJobs().slice(0, 3); track job.id) {
-                        <li class="flex items-center justify-between gap-3 text-[11px] text-gray-400">
+                        <li class="flex items-center justify-between gap-3 text-xs text-gray-400">
                           <span class="truncate">{{ job.input_ref?.['mode'] || job.title }}</span>
                           <span class="rounded px-1.5 py-0.5 font-mono ring-1" [ngClass]="job.status === 'completed' ? 'text-emerald-200 ring-emerald-500/20 bg-emerald-500/10' : job.status === 'failed' ? 'text-red-200 ring-red-500/20 bg-red-500/10' : 'text-cyan-200 ring-cyan-500/20 bg-cyan-500/10'">
                             {{ job.status }}
@@ -980,9 +994,9 @@ const BULK_PROMOTE_LIMIT = 25;
         <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Workspace staging queue</p>
-              <h2 class="mt-1 text-sm font-semibold text-white">{{ workspaceName() }} received files</h2>
-              <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
+              <p class="ck-mono text-xs uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.copy.workspace_staging_queue') }}</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">{{ i18n.t('deposit.sftp.workspace_files', { name: workspaceName() }) }}</h2>
+              <p class="mt-1 text-xs text-gray-500">{{ i18n.t('deposit.sftp.copy.files_from_all_visible_deposit_links_stay_here_until_manual_promotion') }}</p>
             </div>
             <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <button
@@ -990,12 +1004,12 @@ const BULK_PROMOTE_LIMIT = 25;
                 class="inline-flex w-full items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40 sm:w-auto"
                 [disabled]="recommendedBatchFiles().length === 0 || bulkPromoting() || saving()"
                 (click)="promoteBatch()"
-                title="Promote up to 25 files recommended by the latest indexing assist run."
+                [title]="i18n.t('deposit.sftp.field_hint_2')"
               >
                 <app-icon name="archive-restore" [size]="13" />
-                {{ bulkPromoting() ? 'Promoting recommended' : 'Recommended batch' }}
+                {{ bulkPromoting() ? i18n.t('deposit.sftp.batch_sending') : i18n.t('deposit.sftp.batch_recommended') }}
                 @if (recommendedBatchFiles().length > 0) {
-                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ recommendedBatchFiles().length }}</span>
+                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-xs">{{ recommendedBatchFiles().length }}</span>
                 }
               </button>
               <button
@@ -1005,10 +1019,10 @@ const BULK_PROMOTE_LIMIT = 25;
                 (click)="downloadArchive()"
               >
                 <app-icon name="download" [size]="13" />
-                {{ downloading() ? 'Preparing ZIP' : 'Download ZIP' }}
+                {{ downloading() ? i18n.t('deposit.sftp.zip_preparing') : i18n.t('deposit.sftp.zip_download') }}
               </button>
               <label class="relative min-w-0 sm:w-64">
-                <span class="sr-only">Search staged files</span>
+                <span class="sr-only">{{ i18n.t('deposit.sftp.copy.search_staged_files') }}</span>
                 <app-icon name="search" [size]="13" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                 <input
                   type="search"
@@ -1016,39 +1030,39 @@ const BULK_PROMOTE_LIMIT = 25;
                   [ngModel]="queueSearch()"
                   (ngModelChange)="setQueueSearch($event)"
                   class="w-full rounded bg-black/30 border border-white/10 py-2 pl-8 pr-3 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                  placeholder="Search path or checksum"
+                  [placeholder]="i18n.t('deposit.sftp.field_hint_3')"
                 />
               </label>
               <label class="min-w-0 sm:w-40">
-                <span class="sr-only">Filter staging queue by status</span>
+                <span class="sr-only">{{ i18n.t('deposit.sftp.copy.filter_staging_queue_by_status') }}</span>
                 <select
                   name="queueStatusFilter"
                   [ngModel]="statusFilter()"
                   (ngModelChange)="setStatusFilter($event)"
                   class="sftp-select w-full"
                 >
-                  <option value="received">Received</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="promoted">Promoted</option>
-                  <option value="all">All statuses</option>
+                  <option value="received">{{ i18n.t('deposit.sftp.copy.received') }}</option>
+                  <option value="rejected">{{ i18n.t('deposit.sftp.copy.rejected') }}</option>
+                  <option value="promoted">{{ i18n.t('deposit.sftp.copy.promoted') }}</option>
+                  <option value="all">{{ i18n.t('deposit.sftp.copy.all_statuses') }}</option>
                 </select>
               </label>
               <label class="min-w-0 sm:w-56">
-                <span class="sr-only">Filter staging queue by deposit link</span>
+                <span class="sr-only">{{ i18n.t('deposit.sftp.copy.filter_staging_queue_by_deposit_link') }}</span>
                 <select
                   name="queueFilter"
                   [ngModel]="selectedLinkId()"
                   (ngModelChange)="setSelectedLink($event)"
                   class="sftp-select w-full"
                 >
-                  <option value="">All deposit links</option>
+                  <option value="">{{ i18n.t('deposit.sftp.copy.all_deposit_links') }}</option>
                   @for (link of links(); track link.id) {
                     <option [value]="link.id">{{ link.label }}</option>
                   }
                 </select>
               </label>
-              <span class="ck-mono whitespace-nowrap text-[10px] uppercase tracking-wider text-gray-500">
-                {{ filteredFiles().length }} / {{ files().length }} files
+              <span class="ck-mono whitespace-nowrap text-xs uppercase tracking-wider text-gray-500">
+                {{ i18n.t('deposit.sftp.filtered_count', { count: filteredFiles().length, total: files().length }) }}
               </span>
             </div>
           </div>
@@ -1057,40 +1071,40 @@ const BULK_PROMOTE_LIMIT = 25;
               @for (summary of queueStatusSummaries(); track summary.status) {
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11px] font-semibold ring-1 transition"
+                  class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold ring-1 transition"
                   [ngClass]="statusSummaryClass(summary.status, statusFilter() === summary.status)"
                   (click)="setStatusFilter(summary.status)"
                   [title]="summary.label + ': ' + summary.count + ' files · ' + formatBytes(summary.sizeBytes)"
                 >
                   <span>{{ summary.label }}</span>
                   <span class="font-mono">{{ summary.count }}</span>
-                  <span class="font-mono text-[10px] opacity-70">{{ formatBytes(summary.sizeBytes) }}</span>
+                  <span class="font-mono text-xs opacity-70">{{ formatBytes(summary.sizeBytes) }}</span>
                 </button>
               }
             </div>
-            <div class="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-gray-500">
+            <div class="flex min-w-0 flex-wrap items-center gap-2 text-xs text-gray-500">
               @if (hiddenByStatusCount() > 0) {
                 <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">
-                  {{ hiddenByStatusCount() }} hidden by status filter
+                  {{ i18n.t('deposit.sftp.hidden_count', { count: hiddenByStatusCount() }) }}
                 </span>
                 <button
                   type="button"
                   class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5"
                   (click)="setStatusFilter('all')"
                 >
-                  Show all
+                  {{ i18n.t('deposit.sftp.copy.show_all') }}
                 </button>
               }
               <span class="truncate">
-                Scope: {{ scopedFiles().length }} files · {{ formatBytes(scopeSizeBytes()) }}
+                {{ i18n.t('deposit.sftp.scope_count', { count: scopedFiles().length, size: formatBytes(scopeSizeBytes()) }) }}
               </span>
             </div>
           </div>
           @if (files().length === 0) {
-            <div class="p-8 text-center text-sm text-gray-500">No staged files.</div>
+            <div class="p-8 text-center text-sm text-gray-500">{{ i18n.t('deposit.sftp.copy.no_staged_files') }}</div>
           } @else {
             <div class="flex flex-col gap-3 border-b border-white/5 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
-              <nav class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs" aria-label="Staging folder path">
+              <nav class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs" [attr.aria-label]="i18n.t('deposit.sftp.field_hint_4')">
                 @for (crumb of folderCrumbs(); track crumb.path) {
                   <button
                     type="button"
@@ -1105,21 +1119,21 @@ const BULK_PROMOTE_LIMIT = 25;
                   }
                 }
               </nav>
-              <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+              <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                 @if (queueSearch().trim()) {
-                  <span>Search results across the selected queue</span>
-                  <button type="button" class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5" (click)="clearQueueSearch()">Clear search</button>
+                  <span>{{ i18n.t('deposit.sftp.copy.search_results_across_the_selected_queue') }}</span>
+                  <button type="button" class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5" (click)="clearQueueSearch()">{{ i18n.t('deposit.sftp.copy.clear_search') }}</button>
                 } @else if (currentFolder()) {
                   <button type="button" class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5" (click)="goToParentFolder()">
-                    <app-icon name="arrow-left" [size]="12" /> Up
+                    <app-icon name="arrow-left" [size]="12" /> {{ i18n.t('deposit.sftp.copy.up') }}
                   </button>
                 } @else {
-                  <span>Browse folders before promoting individual files.</span>
+                  <span>{{ i18n.t('deposit.sftp.copy.browse_folders_before_promoting_individual_files') }}</span>
                 }
                 <span class="rounded bg-white/5 px-2 py-1 text-gray-300 ring-1 ring-white/10">
                   {{ queueRangeLabel() }}
                 </span>
-                <label class="sr-only" for="queuePageSize">Rows per page</label>
+                <label class="sr-only" for="queuePageSize">{{ i18n.t('deposit.sftp.copy.rows_per_page') }}</label>
                 <select
                   id="queuePageSize"
                   name="queuePageSize"
@@ -1137,10 +1151,10 @@ const BULK_PROMOTE_LIMIT = 25;
                   [disabled]="currentQueuePage() <= 1"
                   (click)="previousQueuePage()"
                 >
-                  <app-icon name="chevron-left" [size]="12" /> Prev
+                  <app-icon name="chevron-left" [size]="12" /> {{ i18n.t('deposit.sftp.copy.prev') }}
                 </button>
-                <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
-                  Page {{ currentQueuePage() }} / {{ totalQueuePages() }}
+                <span class="ck-mono text-xs uppercase tracking-wider text-gray-500">
+                  {{ i18n.t('deposit.sftp.page_count', { current: currentQueuePage(), total: totalQueuePages() }) }}
                 </span>
                 <button
                   type="button"
@@ -1148,7 +1162,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   [disabled]="currentQueuePage() >= totalQueuePages()"
                   (click)="nextQueuePage()"
                 >
-                  Next <app-icon name="chevron-right" [size]="12" />
+                  {{ i18n.t('deposit.sftp.copy.next') }} <app-icon name="chevron-right" [size]="12" />
                 </button>
               </div>
             </div>
@@ -1167,10 +1181,10 @@ const BULK_PROMOTE_LIMIT = 25;
                         </span>
                         <span class="min-w-0">
                           <span class="block truncate text-sm font-semibold text-white">{{ item.name }}</span>
-                          <span class="mt-1 block truncate font-mono text-[10px] text-gray-500">{{ item.path }}</span>
+                          <span class="mt-1 block truncate font-mono text-xs text-gray-500">{{ item.path }}</span>
                         </span>
                       </div>
-                      <span class="text-xs text-gray-400">{{ item.count }} files</span>
+                      <span class="text-xs text-gray-400">{{ i18n.t('deposit.sftp.item_files', { count: item.count }) }}</span>
                       <span class="flex items-center justify-end gap-2 text-xs text-gray-400">
                         {{ formatBytes(item.sizeBytes) }}
                         <app-icon name="chevron-right" [size]="14" />
@@ -1180,19 +1194,19 @@ const BULK_PROMOTE_LIMIT = 25;
                     <div class="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.75fr)_132px_112px_220px] xl:items-center">
                       <div class="min-w-0">
                         <h3 class="truncate text-sm font-semibold text-white">{{ item.name }}</h3>
-                        <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ item.path }}</p>
-                        <p class="mt-1 truncate font-mono text-[10px] text-gray-600">{{ file.sha256 }}</p>
+                        <p class="mt-1 truncate font-mono text-xs text-gray-500">{{ item.path }}</p>
+                        <p class="mt-1 truncate font-mono text-xs text-gray-600">{{ file.sha256 }}</p>
                         @if (assistRecommendation(file.id); as assist) {
-                          <p class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-gray-400">
-                            <span class="rounded px-2 py-0.5 text-[10px] ring-1" [ngClass]="assistBadgeClass(assist.recommendation)">
+                          <p class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-gray-400">
+                            <span class="rounded px-2 py-0.5 text-xs ring-1" [ngClass]="assistBadgeClass(assist.recommendation)">
                               {{ assist.label }}
                             </span>
                             <span class="truncate">{{ assist.reason }}</span>
                           </p>
                         }
                         @if (file.status === 'promoted' && file.promoted_collection_slug) {
-                          <p class="mt-1 truncate text-[11px] text-emerald-300/80">
-                            Indexed target ·
+                          <p class="mt-1 truncate text-xs text-emerald-300/80">
+                            {{ i18n.t('deposit.sftp.copy.indexed_target') }}
                             <a [navLink]="{ leaf: 'knowledge-doc', ref: file.promoted_collection_slug }" class="underline decoration-emerald-300/30 underline-offset-2 hover:text-emerald-100">
                               {{ file.promoted_collection_slug }}
                             </a>
@@ -1202,22 +1216,22 @@ const BULK_PROMOTE_LIMIT = 25;
                           </p>
                         }
                         @if (file.status === 'rejected' && file.rejection_reason) {
-                          <p class="mt-1 line-clamp-2 text-[11px] text-amber-200/80">
+                          <p class="mt-1 line-clamp-2 text-xs text-amber-200/80">
                             {{ file.rejection_reason }}
                           </p>
                         }
                       </div>
                       <div class="min-w-0">
                         <p class="truncate text-xs font-medium text-gray-200">{{ linkLabel(file.access_link_id) }}</p>
-                        <p class="mt-1 truncate text-[11px] text-gray-500">Created by {{ linkCreator(file.access_link_id) }}</p>
+                        <p class="mt-1 truncate text-xs text-gray-500">{{ i18n.t('deposit.sftp.created_by', { name: linkCreator(file.access_link_id) }) }}</p>
                       </div>
                       <div class="text-xs text-gray-400">
-                        <span class="block text-[10px] uppercase tracking-wider text-gray-600 xl:hidden">Uploaded</span>
-                        {{ file.uploaded_at ? (file.uploaded_at | date:'short') : 'Unknown' }}
+                        <span class="block text-xs uppercase tracking-wider text-gray-600 xl:hidden">{{ i18n.t('deposit.sftp.copy.uploaded') }}</span>
+                        {{ file.uploaded_at ? (file.uploaded_at | date:'short') : i18n.t('deposit.sftp.unknown') }}
                       </div>
                       <div class="flex items-center gap-3 xl:justify-end">
-                        <span class="rounded px-2 py-1 text-[11px] ring-1" [class]="statusClass(file.status)">
-                          {{ file.status }}
+                        <span class="rounded px-2 py-1 text-xs ring-1" [class]="statusClass(file.status)">
+                          {{ i18n.t('deposit.file_status.' + file.status) }}
                         </span>
                         <span class="text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</span>
                       </div>
@@ -1225,7 +1239,7 @@ const BULK_PROMOTE_LIMIT = 25;
                         <button
                           type="button"
                           class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
-                          [title]="isZipFile(file) ? 'Browse ZIP archive' : 'Preview file'"
+                          [title]="isZipFile(file) ? i18n.t('deposit.sftp.zip_browse') : i18n.t('deposit.sftp.file_preview')"
                           [disabled]="file.status === 'rejected'"
                           (click)="previewFile(file)"
                         >
@@ -1234,7 +1248,7 @@ const BULK_PROMOTE_LIMIT = 25;
                         <button
                           type="button"
                           class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
-                          title="Download file"
+                          [title]="i18n.t('deposit.sftp.field_hint_5')"
                           [disabled]="file.status === 'rejected' || downloadingFileId() === file.id"
                           (click)="downloadFile(file)"
                         >
@@ -1247,7 +1261,7 @@ const BULK_PROMOTE_LIMIT = 25;
                           (click)="promote(file)"
                         >
                           <app-icon name="archive-restore" [size]="13" />
-                          {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
+                          {{ file.status === 'promoted' ? i18n.t('deposit.sftp.promoted') : i18n.t('deposit.sftp.promote') }}
                         </button>
                       </div>
                     </div>
@@ -1270,8 +1284,8 @@ const BULK_PROMOTE_LIMIT = 25;
 
     <app-drawer
       [open]="previewOpen()"
-      [title]="archiveMode() ? (previewFileTarget()?.filename ?? 'Archive browser') : (previewFileTarget()?.filename ?? 'File preview')"
-      subtitle="Secure Deposit staging"
+      [title]="archiveMode() ? (previewFileTarget()?.filename ?? i18n.t('deposit.sftp.archive_browser')) : (previewFileTarget()?.filename ?? i18n.t('deposit.sftp.preview'))"
+      sub[title]="i18n.t('deposit.sftp.field_hint_6')"
       [icon]="archiveMode() ? 'folder-open' : 'eye'"
       [width]="archiveMode() ? 1040 : 760"
       (close)="closePreview()"
@@ -1281,14 +1295,14 @@ const BULK_PROMOTE_LIMIT = 25;
           <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-white">{{ basename(archiveFile.filename) }}</p>
-              <p class="mt-1 font-mono text-[11px] text-gray-500">{{ archiveFile.filename }} · {{ formatBytes(archiveFile.size_bytes) }}</p>
+              <p class="mt-1 font-mono text-xs text-gray-500">{{ archiveFile.filename }} · {{ formatBytes(archiveFile.size_bytes) }}</p>
             </div>
             <button
               type="button"
               class="inline-flex items-center justify-center gap-1.5 rounded bg-cyan-500 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-400"
               (click)="downloadFile(archiveFile)"
             >
-              <app-icon name="download" [size]="13" /> Download ZIP
+              <app-icon name="download" [size]="13" /> {{ i18n.t('deposit.sftp.copy.download_zip') }}
             </button>
           </div>
         }
@@ -1304,24 +1318,24 @@ const BULK_PROMOTE_LIMIT = 25;
         } @else if (archiveData(); as archive) {
           <div class="mb-3 grid gap-3 md:grid-cols-3">
             <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Files</p>
+              <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.files') }}</p>
               <p class="mt-1 text-lg font-semibold text-white">{{ archive.total_files }}</p>
             </div>
             <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Uncompressed</p>
+              <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.uncompressed') }}</p>
               <p class="mt-1 text-lg font-semibold text-white">{{ formatBytes(archive.total_size_bytes) }}</p>
             </div>
             <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Current folder</p>
-              <p class="mt-1 truncate text-sm font-semibold text-white">{{ archive.path || 'Root' }}</p>
+              <p class="ck-mono text-xs uppercase tracking-wider text-gray-500">{{ i18n.t('deposit.sftp.copy.current_folder') }}</p>
+              <p class="mt-1 truncate text-sm font-semibold text-white">{{ archive.path || i18n.t('deposit.sftp.root') }}</p>
             </div>
           </div>
           @if (archive.truncated) {
             <p class="mb-3 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">
-              Listing truncated to {{ archive.max_entries }} entries.
+              {{ i18n.t('deposit.sftp.archive_truncated', { count: archive.max_entries }) }}
             </p>
           }
-          <nav class="mb-3 flex min-w-0 flex-wrap items-center gap-1.5 text-xs" aria-label="Archive folder path">
+          <nav class="mb-3 flex min-w-0 flex-wrap items-center gap-1.5 text-xs" [attr.aria-label]="i18n.t('deposit.sftp.field_hint_7')">
             @for (crumb of archiveCrumbs(); track crumb.path) {
               <button
                 type="button"
@@ -1339,7 +1353,7 @@ const BULK_PROMOTE_LIMIT = 25;
           <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
             <div class="min-h-[360px] overflow-hidden rounded ring-1 ring-white/10">
               @if (archive.items.length === 0) {
-                <div class="p-8 text-center text-sm text-gray-500">No files in this archive folder.</div>
+                <div class="p-8 text-center text-sm text-gray-500">{{ i18n.t('deposit.sftp.copy.no_files_in_this_archive_folder') }}</div>
               } @else {
                 <ul class="max-h-[68vh] divide-y divide-white/5 overflow-auto">
                   @for (item of archive.items; track item.kind + ':' + item.path) {
@@ -1355,7 +1369,7 @@ const BULK_PROMOTE_LIMIT = 25;
                         </span>
                         <span class="min-w-0">
                           <span class="block truncate text-sm font-semibold text-white">{{ item.name }}</span>
-                          <span class="mt-1 block truncate font-mono text-[10px] text-gray-500">{{ item.path }}</span>
+                          <span class="mt-1 block truncate font-mono text-xs text-gray-500">{{ item.path }}</span>
                         </span>
                       </button>
                       <div class="text-xs text-gray-400">
@@ -1370,7 +1384,7 @@ const BULK_PROMOTE_LIMIT = 25;
                           <button
                             type="button"
                             class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
-                            title="Preview archive member"
+                            [title]="i18n.t('deposit.sftp.field_hint_8')"
                             [disabled]="!item.previewable || item.encrypted || archivePreviewLoading()"
                             (click)="previewArchiveMember(item)"
                           >
@@ -1379,7 +1393,7 @@ const BULK_PROMOTE_LIMIT = 25;
                           <button
                             type="button"
                             class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
-                            title="Download archive member"
+                            [title]="i18n.t('deposit.sftp.field_hint_9')"
                             [disabled]="item.encrypted || archiveDownloadingPath() === item.path"
                             (click)="downloadArchiveMember(item)"
                           >
@@ -1407,7 +1421,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div class="min-w-0">
                     <p class="truncate text-sm font-semibold text-white">{{ basename(preview.filename) }}</p>
-                    <p class="mt-1 truncate font-mono text-[11px] text-gray-500">{{ archivePreviewPath() }} · {{ formatBytes(preview.size_bytes) }}</p>
+                    <p class="mt-1 truncate font-mono text-xs text-gray-500">{{ archivePreviewPath() }} · {{ formatBytes(preview.size_bytes) }}</p>
                   </div>
                   <button
                     type="button"
@@ -1415,12 +1429,12 @@ const BULK_PROMOTE_LIMIT = 25;
                     [disabled]="!archivePreviewPath()"
                     (click)="archivePreviewPath() && downloadArchiveMemberPath(archivePreviewPath()!)"
                   >
-                    <app-icon name="download" [size]="13" /> Download
+                    <app-icon name="download" [size]="13" /> {{ i18n.t('deposit.sftp.copy.download') }}
                   </button>
                 </div>
                 @if (preview.kind === 'html') {
                   @if (preview.truncated) {
-                    <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+                    <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">{{ i18n.t('deposit.sftp.copy.preview_truncated_to_the_first_megabyte') }}</p>
                   }
                   <iframe
                     sandbox=""
@@ -1429,19 +1443,19 @@ const BULK_PROMOTE_LIMIT = 25;
                     class="h-[58vh] w-full rounded bg-white ring-1 ring-white/10"
                   ></iframe>
                   <details class="mt-3 rounded bg-black/20 p-3 text-xs text-gray-300 ring-1 ring-white/10">
-                    <summary class="cursor-pointer text-gray-200">Source</summary>
-                    <pre class="mt-3 max-h-56 overflow-auto font-mono text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ preview.content }}</pre>
+                    <summary class="cursor-pointer text-gray-200">{{ i18n.t('deposit.sftp.copy.source') }}</summary>
+                    <pre class="mt-3 max-h-56 overflow-auto font-mono text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ preview.content }}</pre>
                   </details>
                 } @else if (preview.kind === 'text') {
                   @if (preview.truncated) {
-                    <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+                    <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">{{ i18n.t('deposit.sftp.copy.preview_truncated_to_the_first_megabyte') }}</p>
                   }
-                  <pre class="max-h-[58vh] overflow-auto rounded bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
+                  <pre class="max-h-[58vh] overflow-auto rounded bg-black/30 p-3 font-mono text-xs leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
                 } @else if (preview.kind === 'spreadsheet') {
                   <div class="mb-2 flex items-center justify-between text-xs text-gray-400">
-                    <span>Sheet: {{ preview.sheet_name || 'Sheet 1' }}</span>
+                    <span>{{ i18n.t('deposit.sftp.sheet', { name: preview.sheet_name || i18n.t('deposit.sftp.sheet_default') }) }}</span>
                     @if (preview.truncated) {
-                      <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">Preview truncated</span>
+                      <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">{{ i18n.t('deposit.sftp.copy.preview_truncated') }}</span>
                     }
                   </div>
                   <div class="max-h-[58vh] overflow-auto rounded ring-1 ring-white/10">
@@ -1465,12 +1479,12 @@ const BULK_PROMOTE_LIMIT = 25;
                   <iframe [src]="previewPdfUrl()!" class="h-[58vh] w-full rounded bg-black/30 ring-1 ring-white/10"></iframe>
                 } @else {
                   <div class="rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
-                    Inline preview is not available for this archive member.
+                    {{ i18n.t('deposit.sftp.copy.inline_preview_is_not_available_for_this_archive_member') }}
                   </div>
                 }
               } @else {
                 <div class="rounded bg-black/20 p-4 text-sm text-gray-400 ring-1 ring-white/10">
-                  Select a previewable file in the archive.
+                  {{ i18n.t('deposit.sftp.copy.select_a_previewable_file_in_the_archive') }}
                 </div>
               }
             </div>
@@ -1489,20 +1503,20 @@ const BULK_PROMOTE_LIMIT = 25;
           <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-white">{{ basename(preview.filename) }}</p>
-              <p class="mt-1 font-mono text-[11px] text-gray-500">{{ preview.content_type }} · {{ formatBytes(preview.size_bytes) }}</p>
+              <p class="mt-1 font-mono text-xs text-gray-500">{{ preview.content_type }} · {{ formatBytes(preview.size_bytes) }}</p>
             </div>
             <button
               type="button"
               class="inline-flex items-center justify-center gap-1.5 rounded bg-cyan-500 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-400"
               (click)="previewFileTarget() && downloadFile(previewFileTarget()!)"
             >
-              <app-icon name="download" [size]="13" /> Download
+              <app-icon name="download" [size]="13" /> {{ i18n.t('deposit.sftp.copy.download') }}
             </button>
           </div>
 
           @if (preview.kind === 'html') {
             @if (preview.truncated) {
-              <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+              <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">{{ i18n.t('deposit.sftp.copy.preview_truncated_to_the_first_megabyte') }}</p>
             }
             <iframe
               sandbox=""
@@ -1511,19 +1525,19 @@ const BULK_PROMOTE_LIMIT = 25;
               class="h-[70vh] w-full rounded bg-white ring-1 ring-white/10"
             ></iframe>
             <details class="mt-3 rounded bg-black/20 p-3 text-xs text-gray-300 ring-1 ring-white/10">
-              <summary class="cursor-pointer text-gray-200">Source</summary>
-              <pre class="mt-3 max-h-64 overflow-auto font-mono text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ preview.content }}</pre>
+              <summary class="cursor-pointer text-gray-200">{{ i18n.t('deposit.sftp.copy.source') }}</summary>
+              <pre class="mt-3 max-h-64 overflow-auto font-mono text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ preview.content }}</pre>
             </details>
           } @else if (preview.kind === 'text') {
             @if (preview.truncated) {
-              <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+              <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">{{ i18n.t('deposit.sftp.copy.preview_truncated_to_the_first_megabyte') }}</p>
             }
-            <pre class="max-h-[70vh] overflow-auto rounded bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
+            <pre class="max-h-[70vh] overflow-auto rounded bg-black/30 p-3 font-mono text-xs leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
           } @else if (preview.kind === 'spreadsheet') {
             <div class="mb-2 flex items-center justify-between text-xs text-gray-400">
-              <span>Sheet: {{ preview.sheet_name || 'Sheet 1' }}</span>
+              <span>{{ i18n.t('deposit.sftp.sheet', { name: preview.sheet_name || i18n.t('deposit.sftp.sheet_default') }) }}</span>
               @if (preview.truncated) {
-                <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">Preview truncated</span>
+                <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">{{ i18n.t('deposit.sftp.copy.preview_truncated') }}</span>
               }
             </div>
             <div class="max-h-[70vh] overflow-auto rounded ring-1 ring-white/10">
@@ -1547,12 +1561,13 @@ const BULK_PROMOTE_LIMIT = 25;
             <iframe [src]="previewPdfUrl()!" class="h-[70vh] w-full rounded bg-black/30 ring-1 ring-white/10"></iframe>
           } @else {
             <div class="rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
-              Inline preview is not available for this file type or size. Download the file to inspect it locally.
+              {{ i18n.t('deposit.sftp.copy.inline_preview_is_not_available_for_this_file_type_or_size_download_th') }}
             </div>
           }
         }
       }
     </app-drawer>
+    </ck-page-frame>
   `,
   styles: [`
     .sftp-select {
@@ -1578,7 +1593,7 @@ const BULK_PROMOTE_LIMIT = 25;
     .sftp-select-sm {
       min-height: 1.75rem;
       padding: 0.25rem 1.75rem 0.25rem 0.625rem;
-      font-size: 0.6875rem;
+      font-size: 0.75rem;
     }
 
     .sftp-select:focus {
@@ -1592,12 +1607,13 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
   private readonly workspace = inject(WorkspaceService);
+  private readonly context = new WorkspaceViewContext(this.workspace, () => this.resetWorkspace(), () => { this.resetWorkspaceDefaults(); this.load(); });
   private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
 
   readonly health = signal<SecureDepositHealth | null>(null);
-  readonly workspaceName = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace');
+  readonly workspaceName = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || this.i18n.t('connectors.hana.current_workspace'));
   readonly workspaceSlug = computed(() => this.workspace.current()?.slug || this.workspace.currentSlug() || 'workspace');
   readonly secureDepositEnabled = computed(() => this.health()?.enabled ?? false);
   readonly links = signal<DepositLink[]>([]);
@@ -1606,6 +1622,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly revealSecretPassword = signal(false);
   readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly writeOutcome = signal<WriteOutcome | null>(null);
   readonly bulkPromoting = signal(false);
   readonly downloading = signal(false);
   readonly downloadingFileId = signal<string | null>(null);
@@ -1713,7 +1730,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   });
   readonly folderCrumbs = computed<FolderCrumb[]>(() => {
     const parts = this.currentFolder().split('/').filter(Boolean);
-    const crumbs: FolderCrumb[] = [{ label: 'Root', path: '' }];
+    const crumbs: FolderCrumb[] = [{ label: this.i18n.t('deposit.sftp.root'), path: '' }];
     parts.reduce((path, part) => {
       const next = path ? `${path}/${part}` : part;
       crumbs.push({ label: part, path: next });
@@ -1723,7 +1740,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   });
   readonly archiveCrumbs = computed<FolderCrumb[]>(() => {
     const parts = this.archivePath().split('/').filter(Boolean);
-    const crumbs: FolderCrumb[] = [{ label: 'Root', path: '' }];
+    const crumbs: FolderCrumb[] = [{ label: this.i18n.t('deposit.sftp.root'), path: '' }];
     parts.reduce((path, part) => {
       const next = path ? `${path}/${part}` : part;
       crumbs.push({ label: part, path: next });
@@ -1770,6 +1787,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.context.destroy();
     if (this.operationsPollId) {
       clearInterval(this.operationsPollId);
       this.operationsPollId = null;
@@ -1782,6 +1800,60 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.revokePreviewObjectUrl();
   }
 
+  private inWorkspace<T>(): MonoTypeOperatorFunction<T> {
+    const request = this.context.captureRequest();
+    return guardWorkspaceRequest(() => this.context.isCurrent(request));
+  }
+
+  private resetWorkspace(): void {
+    this.revokePreviewObjectUrl();
+    this.health.set(null);
+    this.links.set([]);
+    this.files.set([]);
+    this.secretLink.set(null);
+    this.revealSecretPassword.set(false);
+    this.loading.set(false);
+    this.saving.set(false);
+    this.writeOutcome.set(null);
+    this.bulkPromoting.set(false);
+    this.downloading.set(false);
+    this.downloadingFileId.set(null);
+    this.operations.set(null);
+    this.operationsLoading.set(false);
+    this.operationsError.set(null);
+    this.reconciliationRunning.set(false);
+    this.indexingAssist.set(null);
+    this.indexingAssistLoading.set(false);
+    this.indexingAssistError.set(null);
+    this.knowledgeJobs.set([]);
+    this.knowledgeJobsLoading.set(false);
+    this.indexingMonitorError.set(null);
+    this.error.set(null);
+    this.previewOpen.set(false);
+    this.previewLoading.set(false);
+    this.previewError.set(null);
+    this.previewFileTarget.set(null);
+    this.previewData.set(null);
+    this.previewObjectUrl.set(null);
+    this.previewPdfUrl.set(null);
+    this.previewHtmlSrcdoc.set(null);
+    this.archiveMode.set(false);
+    this.archiveLoading.set(false);
+    this.archiveData.set(null);
+    this.archivePath.set('');
+    this.archivePreviewLoading.set(false);
+    this.archivePreviewError.set(null);
+    this.archivePreviewPath.set(null);
+    this.archiveDownloadingPath.set(null);
+    this.selectedLinkId.set('');
+    this.currentFolder.set('');
+    this.queueSearch.set('');
+    this.knowledgeCollections.set([]);
+    this.knowledgeCollectionsLoading.set(false);
+    this.draftLabel = ''; this.draftExpires = ''; this.draftExtensions = ''; this.collectionSlug = '';
+    this.collectionSlugTouched = false; this.lastPassiveIndexingPollAt = 0; this.resetQueueViewport();
+  }
+
   dismissSecretLink(): void {
     this.secretLink.set(null);
     this.revealSecretPassword.set(false);
@@ -1790,23 +1862,23 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   load(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.api.get<SecureDepositHealth>('/sftp/health').subscribe({
+    this.api.get<SecureDepositHealth>('/sftp/health').pipe(this.inWorkspace()).subscribe({
       next: (res) => this.health.set(res),
-      error: () => this.health.set(null),
+      error: () => { this.health.set(null); this.error.set(this.i18n.t('deposit.sftp.read_failed')); },
     });
-    this.api.get<{ links: DepositLink[] }>('/sftp/links').subscribe({
+    this.api.get<{ links: DepositLink[] }>('/sftp/links').pipe(this.inWorkspace()).subscribe({
       next: (res) => {
         this.links.set(res.links || []);
         this.loading.set(false);
       },
       error: (err) => {
-        this.error.set(this.errorMessage(err, 'Unable to load deposit links.'));
+        this.error.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_load_deposit_links')));
         this.loading.set(false);
       },
     });
-    this.api.get<{ files: DepositFile[] }>('/sftp/deposits').subscribe({
+    this.api.get<{ files: DepositFile[] }>('/sftp/deposits').pipe(this.inWorkspace()).subscribe({
       next: (res) => this.files.set(res.files || []),
-      error: () => this.files.set([]),
+      error: () => this.error.set(this.i18n.t('deposit.sftp.read_failed')),
     });
     this.loadOperations(true);
     this.loadKnowledgeCollections();
@@ -1816,7 +1888,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
 
   loadKnowledgeCollections(): void {
     this.knowledgeCollectionsLoading.set(true);
-    this.api.get<KnowledgeCollectionsResponse>('/documents/collections').subscribe({
+    this.api.get<KnowledgeCollectionsResponse>('/documents/collections').pipe(this.inWorkspace()).subscribe({
       next: (res) => {
         const seen = new Set<string>();
         const items: KnowledgeCollectionItem[] = [];
@@ -1863,13 +1935,13 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.operationsError.set(null);
     this.api
       .get<SftpOperations>('/sftp/operations', { stale_after_hours: String(this.staleAfterHours || 24) })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (res) => {
           this.operations.set(res);
           this.operationsLoading.set(false);
         },
         error: (err) => {
-          this.operationsError.set(this.errorMessage(err, 'Unable to load SFTP operations.'));
+          this.operationsError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_load_sftp_operations')));
           this.operationsLoading.set(false);
         },
       });
@@ -1886,7 +1958,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         collection_slug: this.targetCollectionSlug(),
         file_ids: selectedFiles.map((file) => file.id),
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (res) => {
           this.indexingAssist.set(res);
           if (res.collection?.jobs?.length) {
@@ -1895,7 +1967,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.indexingAssistLoading.set(false);
         },
         error: (err) => {
-          this.indexingAssistError.set(this.errorMessage(err, 'Unable to analyze indexing readiness.'));
+          this.indexingAssistError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_analyze_indexing_readiness')));
           this.indexingAssistLoading.set(false);
         },
       });
@@ -1913,7 +1985,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         collection_id: collection,
         limit: '8',
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (res) => {
           this.knowledgeJobs.set(res.items || []);
           this.indexingMonitorError.set(null);
@@ -1922,7 +1994,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         error: (err) => {
           this.knowledgeJobs.set([]);
           if (!silent) {
-            this.indexingMonitorError.set(this.errorMessage(err, 'Unable to load indexing jobs.'));
+            this.indexingMonitorError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_load_indexing_jobs')));
           }
           this.knowledgeJobsLoading.set(false);
         },
@@ -1944,7 +2016,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   analyzeCurrentView(): void {
     const files = this.assistCandidateFiles();
     if (!files.length) {
-      this.toast.info('Open a folder or search files before running indexing assist.', 'Indexing Assist');
+      this.toast.info(this.i18n.t('deposit.sftp.message.open_a_folder_or_search_files_before_running_indexing_assist'), this.i18n.t('deposit.sftp.message.indexing_assist'));
       this.loadIndexingAssist(false, []);
       return;
     }
@@ -1971,179 +2043,110 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         mode: 'dry_run',
         stale_after_hours: Number(this.staleAfterHours) || 24,
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (res) => {
-          this.toast.info(`Reconciliation ${res.job.status}`, 'SFTP Operations');
+          this.toast.info(this.i18n.t('deposit.sftp.reconciliation_status', { status: res.job.status }), this.i18n.t('deposit.sftp.message.sftp_operations'));
           this.reconciliationRunning.set(false);
           this.loadOperations();
         },
         error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to start reconciliation.'), 'SFTP Operations');
+          this.toast.error(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_start_reconciliation')), this.i18n.t('deposit.sftp.message.sftp_operations'));
           this.reconciliationRunning.set(false);
         },
       });
   }
 
   quarantineFromDryRun(): void {
+    if (this.writeBlocked() || this.reconciliationRunning()) return;
     const job = this.lastDryRunJob();
     if (!job || this.quarantineCandidateCount() <= 0) {
-      this.toast.info('Run a reconciliation check before moving files to quarantine.', 'SFTP Operations');
+      this.toast.info(this.i18n.t('deposit.sftp.message.run_a_reconciliation_check_before_moving_files_to_quarantine'), this.i18n.t('deposit.sftp.message.sftp_operations'));
       return;
     }
-    const accepted = window.confirm(
-      `Move ${this.quarantineCandidateCount()} stale/orphan item(s) (${this.formatBytes(this.quarantineCandidateBytes())}) to quarantine?\n\nNo active upload or recent file will be touched.`,
-    );
-    if (!accepted) return;
+    if (!window.confirm(this.i18n.t('deposit.sftp.quarantine_effect', { count: this.quarantineCandidateCount() }))) return;
     this.reconciliationRunning.set(true);
-    this.api
-      .post<{ job: WorkspaceJob }>('/sftp/operations/reconcile', {
-        mode: 'quarantine',
-        stale_after_hours: Number(this.staleAfterHours) || 24,
-        confirm_from_job_id: job.id,
-      })
-      .subscribe({
-        next: (res) => {
-          this.toast.success(`Quarantine ${res.job.status}`, 'SFTP Operations');
-          this.reconciliationRunning.set(false);
-          this.loadOperations();
-        },
-        error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to move files to quarantine.'), 'SFTP Operations');
-          this.reconciliationRunning.set(false);
-        },
-      });
+    this.performWrite(this.api.post<{ job: WorkspaceJob }>('/sftp/operations/reconcile', {
+      mode: 'quarantine', stale_after_hours: Number(this.staleAfterHours) || 24, confirm_from_job_id: job.id,
+    }), () => this.loadOperations());
+  }
+
+  private writeBlocked(): boolean {
+    return this.saving() || this.bulkPromoting() || this.writeOutcome()?.s === 'unknown';
+  }
+
+  private performWrite<T>(request: Observable<T>, confirmed: (value: T) => void, accepted = false): void {
+    const scope = this.workspace.captureRequestScope();
+    settleWrite(request, { accepted: () => accepted }).pipe(this.inWorkspace()).subscribe(outcome => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.writeOutcome.set(outcome);
+      this.saving.set(outcome.s === 'sent');
+      if (outcome.s !== 'sent') { this.bulkPromoting.set(false); this.reconciliationRunning.set(false); }
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') confirmed(outcome.value);
+    });
   }
 
   createLink(): void {
-    if (!this.secureDepositEnabled()) {
-      this.toast.error('Secure Deposit is not enabled for this workspace.', 'Secure Deposit');
-      return;
-    }
-    this.saving.set(true);
-    this.api
-      .post<{ link: DepositLink }>('/sftp/links', {
-        label: this.draftLabel || 'External deposit',
-        expires_at: this.draftExpires ? new Date(`${this.draftExpires}T23:59:59`).toISOString() : null,
-        max_file_size_mb: Number(this.draftMaxMb) || 100,
-        allowed_extensions: this.parseExtensions(),
-      })
-      .subscribe({
-        next: (res) => {
-          this.revealSecretPassword.set(false);
-          this.secretLink.set(res.link);
-          this.toast.success('Deposit link created', 'Secure Deposit');
-          this.saving.set(false);
-          this.load();
-        },
-        error: (err) => {
-          this.error.set(this.errorMessage(err, 'Unable to create deposit link.'));
-          this.saving.set(false);
-        },
-      });
+    if (this.writeBlocked() || !this.secureDepositEnabled()) return;
+    this.performWrite(this.api.post<{ link: DepositLink }>('/sftp/links', {
+      label: this.draftLabel || this.i18n.t('deposit.sftp.message.external_deposit'),
+      expires_at: this.draftExpires ? new Date(`${this.draftExpires}T23:59:59`).toISOString() : null,
+      max_file_size_mb: Number(this.draftMaxMb) || 100,
+      allowed_extensions: this.parseExtensions(),
+    }), res => {
+      this.revealSecretPassword.set(false); this.secretLink.set(res.link); this.load();
+    });
   }
 
   rotate(link: DepositLink): void {
-    this.saving.set(true);
-    this.api.post<{ link: DepositLink }>(`/sftp/links/${link.id}/rotate`, {}).subscribe({
-      next: (res) => {
-        this.revealSecretPassword.set(false);
-        this.secretLink.set(res.link);
-        this.toast.info('Password rotated', 'Secure Deposit');
-        this.saving.set(false);
-        this.load();
-      },
-      error: () => {
-        this.toast.error('Unable to rotate password', 'Secure Deposit');
-        this.saving.set(false);
-      },
+    if (this.writeBlocked() || !window.confirm(this.i18n.t('deposit.sftp.rotate_effect'))) return;
+    this.performWrite(this.api.post<{ link: DepositLink }>(`/sftp/links/${link.id}/rotate`, {}), res => {
+      this.revealSecretPassword.set(false); this.secretLink.set(res.link); this.load();
     });
   }
 
   revoke(link: DepositLink): void {
-    this.saving.set(true);
-    this.api.post<{ link: DepositLink }>(`/sftp/links/${link.id}/revoke`, {}).subscribe({
-      next: () => {
-        this.toast.info('Deposit link revoked', 'Secure Deposit');
-        this.saving.set(false);
-        this.load();
-      },
-      error: () => {
-        this.toast.error('Unable to revoke link', 'Secure Deposit');
-        this.saving.set(false);
-      },
+    // Revocation remains available to close an access whose password rotation is uncertain.
+    if (this.saving() || !window.confirm(this.i18n.t('deposit.sftp.revoke_effect'))) return;
+    this.performWrite(this.api.post<{ link: DepositLink }>(`/sftp/links/${link.id}/revoke`, {}), () => {
+      if (this.secretLink()?.id === link.id) this.dismissSecretLink();
+      this.load();
     });
   }
 
   promote(file: DepositFile): void {
+    if (this.writeBlocked()) return;
     const collection = this.targetCollectionSlug();
-    this.saving.set(true);
-    this.api
-      .post<{ file: DepositFile }>(`/sftp/deposits/${file.id}/promote`, {
-        collection_slug: collection,
-      })
-      .subscribe({
-        next: (res) => {
-          const promoted = res.file;
-          const result = promoted.promotion_result || {};
-          this.lastPromotionBanner.set({
-            collection_slug: promoted.promoted_collection_slug || collection,
-            job_id: (promoted.worker_job_id || (result['job_id'] as string | undefined)) ?? null,
-            count: 1,
-          });
-          this.toast.success('File promoted to Knowledge ingestion', 'Secure Deposit');
-          this.saving.set(false);
-          this.load();
-          this.loadIndexingAssist(true, []);
-          this.loadIndexingMonitor(true);
-        },
-        error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to promote file'), 'Secure Deposit');
-          this.saving.set(false);
-        },
+    this.performWrite(this.api.post<{ file: DepositFile }>(`/sftp/deposits/${file.id}/promote`, {
+      collection_slug: collection,
+    }), res => {
+      const promoted = res.file;
+      const result = promoted.promotion_result || {};
+      this.lastPromotionBanner.set({
+        collection_slug: promoted.promoted_collection_slug || collection,
+        job_id: (promoted.worker_job_id || (result['job_id'] as string | undefined)) ?? null,
+        count: 1,
       });
+      this.load(); this.loadIndexingAssist(true, []); this.loadIndexingMonitor(true);
+    }, true);
   }
 
   promoteBatch(): void {
+    if (this.writeBlocked()) return;
     const files = this.recommendedBatchFiles();
     if (!files.length) {
-      this.toast.info('Run indexing assist first, then promote the recommended files.', 'Secure Deposit');
+      this.toast.info(this.i18n.t('deposit.sftp.message.run_indexing_assist_first_then_promote_the_recommended_files'), this.i18n.t('deposit.sftp.message.secure_deposit'));
       return;
     }
     const collection = this.targetCollectionSlug();
-    const summary = this.indexingAssist()?.summary;
-    const accepted = window.confirm(
-      `Promote ${files.length} recommended file(s) to "${collection}"?\n\nEstimated volume: ${this.formatBytes(summary?.recommended_bytes || 0)}.\nInspect: ${summary?.inspect_archive_count || 0}. Unsupported/skipped: ${summary?.unsupported_count || 0}.\n\nA single Knowledge worker job will index the batch.`,
-    );
-    if (!accepted) return;
-
+    if (!window.confirm(this.i18n.t('deposit.sftp.batch_effect', { count: files.length, collection }))) return;
     this.bulkPromoting.set(true);
-    this.api
-      .post<{ files: DepositFile[]; skipped: { file_id: string; filename: string; reason: string }[]; result: { job_id?: string } }>(
-        '/sftp/deposits/promote-bulk',
-        {
-          collection_slug: collection,
-          file_ids: files.map((file) => file.id),
-        },
-      )
-      .subscribe({
-        next: (res) => {
-          const skipped = res.skipped?.length ? `, ${res.skipped.length} skipped` : '';
-          this.lastPromotionBanner.set({
-            collection_slug: collection,
-            job_id: res.result?.job_id || null,
-            count: res.files?.length || files.length,
-          });
-          this.toast.success(`${res.files?.length || files.length} files queued${skipped}`, 'Secure Deposit');
-          this.bulkPromoting.set(false);
-          this.load();
-          this.loadIndexingAssist(true, []);
-          this.loadIndexingMonitor(true);
-        },
-        error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to promote batch'), 'Secure Deposit');
-          this.bulkPromoting.set(false);
-        },
-      });
+    this.performWrite(this.api.post<{ files: DepositFile[]; skipped: { file_id: string; filename: string; reason: string }[]; result: { job_id?: string } }>(
+      '/sftp/deposits/promote-bulk', { collection_slug: collection, file_ids: files.map(file => file.id) },
+    ), res => {
+      this.lastPromotionBanner.set({ collection_slug: collection, job_id: res.result?.job_id || null, count: res.files?.length ?? 0 });
+      this.toast.info(this.i18n.t('deposit.sftp.batch_receipt', { count: res.files?.length ?? 0, skipped: res.skipped?.length ?? 0 }), this.i18n.t('deposit.sftp.message.secure_deposit'));
+      this.load(); this.loadIndexingAssist(true, []); this.loadIndexingMonitor(true);
+    }, true);
   }
 
   downloadArchive(): void {
@@ -2162,20 +2165,20 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         observe: 'response',
         responseType: 'blob',
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (response) => {
           const blob = response.body;
           if (!blob) {
-            this.toast.error('Empty archive response', 'Secure Deposit');
+            this.toast.error(this.i18n.t('deposit.sftp.message.empty_archive_response'), this.i18n.t('deposit.sftp.message.secure_deposit'));
             this.downloading.set(false);
             return;
           }
           this.saveBlob(blob, this.archiveFilename(response.headers.get('content-disposition')));
-          this.toast.success('Archive download started', 'Secure Deposit');
+          this.toast.success(this.i18n.t('deposit.sftp.message.archive_download_started'), this.i18n.t('deposit.sftp.message.secure_deposit'));
           this.downloading.set(false);
         },
         error: (err) => {
-          this.error.set(this.errorMessage(err, 'Unable to download staging archive.'));
+          this.error.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_download_staging_archive')));
           this.downloading.set(false);
         },
       });
@@ -2193,7 +2196,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.previewError.set(null);
     this.previewFileTarget.set(file);
     this.clearPreviewData();
-    this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/preview`).subscribe({
+    this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/preview`).pipe(this.inWorkspace()).subscribe({
       next: (preview) => {
         this.setPreviewData(preview);
         if (preview.kind === 'image' || preview.kind === 'pdf') {
@@ -2203,7 +2206,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         this.previewLoading.set(false);
       },
       error: (err) => {
-        this.previewError.set(this.errorMessage(err, 'Unable to load file preview.'));
+        this.previewError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_load_file_preview')));
         this.previewLoading.set(false);
       },
     });
@@ -2223,14 +2226,14 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.archivePreviewError.set(null);
     this.archivePreviewLoading.set(false);
     this.archiveLoading.set(true);
-    this.api.get<ZipArchiveBrowser>(`/sftp/deposits/${file.id}/archive`, { path }).subscribe({
+    this.api.get<ZipArchiveBrowser>(`/sftp/deposits/${file.id}/archive`, { path }).pipe(this.inWorkspace()).subscribe({
       next: (archive) => {
         this.archiveData.set(archive);
         this.archivePath.set(archive.path || path || '');
         this.archiveLoading.set(false);
       },
       error: (err) => {
-        this.previewError.set(this.errorMessage(err, 'Unable to browse ZIP archive.'));
+        this.previewError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_browse_zip_archive')));
         this.archiveLoading.set(false);
       },
     });
@@ -2250,7 +2253,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.archivePreviewError.set(null);
     this.archivePreviewLoading.set(true);
     this.clearPreviewData();
-    this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/archive/member/preview`, { path: item.path }).subscribe({
+    this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/archive/member/preview`, { path: item.path }).pipe(this.inWorkspace()).subscribe({
       next: (preview) => {
         this.setPreviewData(preview);
         if (preview.kind === 'image' || preview.kind === 'pdf') {
@@ -2260,7 +2263,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         this.archivePreviewLoading.set(false);
       },
       error: (err) => {
-        this.archivePreviewError.set(this.errorMessage(err, 'Unable to preview archive member.'));
+        this.archivePreviewError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_preview_archive_member')));
         this.archivePreviewLoading.set(false);
       },
     });
@@ -2281,11 +2284,11 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         observe: 'response',
         responseType: 'blob',
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (response) => {
           const blob = response.body;
           if (!blob) {
-            this.toast.error('Empty file response', 'Secure Deposit');
+            this.toast.error(this.i18n.t('deposit.sftp.message.empty_file_response'), this.i18n.t('deposit.sftp.message.secure_deposit'));
             this.archiveDownloadingPath.set(null);
             return;
           }
@@ -2293,7 +2296,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.archiveDownloadingPath.set(null);
         },
         error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to download archive member.'), 'Secure Deposit');
+          this.toast.error(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_download_archive_member')), this.i18n.t('deposit.sftp.message.secure_deposit'));
           this.archiveDownloadingPath.set(null);
         },
       });
@@ -2323,11 +2326,11 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         observe: 'response',
         responseType: 'blob',
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (response) => {
           const blob = response.body;
           if (!blob) {
-            this.toast.error('Empty file response', 'Secure Deposit');
+            this.toast.error(this.i18n.t('deposit.sftp.message.empty_file_response'), this.i18n.t('deposit.sftp.message.secure_deposit'));
             this.downloadingFileId.set(null);
             return;
           }
@@ -2335,7 +2338,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.downloadingFileId.set(null);
         },
         error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to download file.'), 'Secure Deposit');
+          this.toast.error(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_download_file')), this.i18n.t('deposit.sftp.message.secure_deposit'));
           this.downloadingFileId.set(null);
         },
       });
@@ -2348,7 +2351,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   copy(value: string, label: string): void {
     navigator.clipboard?.writeText(value).then(
       () => this.toast.success(label, 'Clipboard'),
-      () => this.toast.error('Copy failed', 'Clipboard'),
+      () => this.toast.error(this.i18n.t('deposit.sftp.message.copy_failed'), 'Clipboard'),
     );
   }
 
@@ -2420,7 +2423,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   linkLabel(linkId: string): string {
-    return this.linkLookup().get(linkId)?.label || 'Unknown deposit link';
+    return this.linkLookup().get(linkId)?.label || this.i18n.t('deposit.sftp.message.unknown_deposit_link');
   }
 
   linkCreator(linkId: string): string {
@@ -2457,12 +2460,12 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   knowledgeJobLabel(job: KnowledgeWorkerJob | null): string {
-    if (!job) return 'No job yet';
-    if (job.status === 'queued') return 'Promotion queued';
-    if (job.status === 'running') return 'Indexing running';
-    if (job.status === 'completed') return 'Indexed';
-    if (job.status === 'failed') return 'Indexing failed';
-    return 'Indexing cancelled';
+    if (!job) return this.i18n.t('deposit.sftp.message.no_job_yet');
+    if (job.status === 'queued') return this.i18n.t('deposit.sftp.message.promotion_queued');
+    if (job.status === 'running') return this.i18n.t('deposit.sftp.message.indexing_running');
+    if (job.status === 'completed') return this.i18n.t('deposit.sftp.indexed');
+    if (job.status === 'failed') return this.i18n.t('deposit.sftp.message.indexing_failed');
+    return this.i18n.t('deposit.sftp.message.indexing_cancelled');
   }
 
   fileIndexingState(file: DepositFile): string | null {
@@ -2472,16 +2475,16 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     }
     const status = this.promotionIndexingStatus(file);
     if (!status) return null;
-    if (status === 'queued') return 'Promotion queued';
-    if (status === 'running' || status === 'ingesting') return 'Indexing running';
-    if (status === 'completed' || status === 'indexed' || status === 'ready') return 'Indexed';
-    if (status === 'failed' || status === 'error') return 'Indexing failed';
+    if (status === 'queued') return this.i18n.t('deposit.sftp.message.promotion_queued');
+    if (status === 'running' || status === 'ingesting') return this.i18n.t('deposit.sftp.message.indexing_running');
+    if (status === 'completed' || status === 'indexed' || status === 'ready') return this.i18n.t('deposit.sftp.indexed');
+    if (status === 'failed' || status === 'error') return this.i18n.t('deposit.sftp.message.indexing_failed');
     return status;
   }
 
   uploadStatusLabel(status: SftpLiveUpload['status']): string {
-    if (status === 'stale_candidate') return 'Stale candidate';
-    if (status === 'idle') return 'Idle';
+    if (status === 'stale_candidate') return this.i18n.t('deposit.sftp.message.stale_candidate');
+    if (status === 'idle') return this.i18n.t('deposit.sftp.idle');
     return 'Receiving';
   }
 
@@ -2547,7 +2550,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         params: new HttpParams().set('path', path).set('disposition', 'inline'),
         responseType: 'blob',
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (blob) => {
           const url = URL.createObjectURL(blob);
           this.previewObjectUrl.set(url);
@@ -2555,7 +2558,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.archivePreviewLoading.set(false);
         },
         error: (err) => {
-          this.archivePreviewError.set(this.errorMessage(err, 'Unable to load inline archive preview.'));
+          this.archivePreviewError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_load_inline_archive_preview')));
           this.archivePreviewLoading.set(false);
         },
       });
@@ -2631,7 +2634,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         params: new HttpParams().set('disposition', 'inline'),
         responseType: 'blob',
       })
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (blob) => {
           const url = URL.createObjectURL(blob);
           this.previewObjectUrl.set(url);
@@ -2639,7 +2642,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.previewLoading.set(false);
         },
         error: (err) => {
-          this.previewError.set(this.errorMessage(err, 'Unable to load inline preview.'));
+          this.previewError.set(this.errorMessage(err, this.i18n.t('deposit.sftp.message.unable_to_load_inline_preview')));
           this.previewLoading.set(false);
         },
       });
@@ -2672,7 +2675,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
 
   private resetWorkspaceDefaults(): void {
     if (!this.draftLabel.trim()) {
-      this.draftLabel = `${this.workspaceName()} external upload`;
+      this.draftLabel = this.i18n.t('deposit.sftp.default_link_name', { name: this.workspaceName() });
     }
     if (!this.collectionSlug.trim()) {
       this.collectionSlug = this.defaultCollectionSlug();
@@ -2775,10 +2778,10 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
 
   private buildStatusSummaries(files: DepositFile[]): QueueStatusSummary[] {
     const initial: Record<QueueStatusFilter, QueueStatusSummary> = {
-      all: { status: 'all', label: 'All', count: 0, sizeBytes: 0 },
-      received: { status: 'received', label: 'Received', count: 0, sizeBytes: 0 },
-      promoted: { status: 'promoted', label: 'Promoted', count: 0, sizeBytes: 0 },
-      rejected: { status: 'rejected', label: 'Rejected', count: 0, sizeBytes: 0 },
+      all: { status: 'all', label: this.i18n.t('deposit.sftp.all'), count: 0, sizeBytes: 0 },
+      received: { status: 'received', label: this.i18n.t('deposit.sftp.received'), count: 0, sizeBytes: 0 },
+      promoted: { status: 'promoted', label: this.i18n.t('deposit.sftp.promoted'), count: 0, sizeBytes: 0 },
+      rejected: { status: 'rejected', label: this.i18n.t('deposit.sftp.rejected'), count: 0, sizeBytes: 0 },
     };
     for (const file of files) {
       const size = file.size_bytes || 0;

@@ -1,4 +1,8 @@
+import { runIsSettled } from '../runtime/model';
+import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { RetrainingContextComponent } from '@app/features/models/retraining-context.component';
+import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { retrainingReviewReady } from '@app/features/models/retraining-evidence.vm';
 import { appearanceLogo, appearanceStyles, brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
 import { AdoptionService } from '@app/core/adoption.service';
@@ -76,6 +80,8 @@ const POLL_MS = 8000;
     RunMandateComponent,
     WorkBarComponent,
     WorkAppHeaderComponent,
+    DecisionRightComponent,
+    RunQualityReviewComponent,
   ],
   styleUrl: './work.scss',
   template: `
@@ -174,7 +180,15 @@ const POLL_MS = 8000;
             @if (activePage() === validationsPage) {
               <section class="xp-work-hitl" [attr.aria-label]="i18n.t('experience.work.validations')">
                 @if (decidedRun(); as decided) {
-                  <div class="xp-work-note" role="status">
+                  <!-- The decision is one thing, what it set in motion another (W04, W06). -->
+                  <div class="xp-work-note" role="status" data-testid="work-decision-receipt">
+                    <p>
+                      <strong>{{ i18n.t(decidedAction() === 'reject' ? 'state.decision.recorded_reject' : decidedAction() === 'accept' ? 'state.decision.recorded_accept' : 'state.decision.check_recorded') }}</strong>
+                      @if (decidedAt(); as at) { {{ i18n.t('experience.work.receipt.at', { time: formatReceiptTime(at) }) }} }
+                    </p>
+                    @if (decisionEffect(); as effect) {
+                      <p data-testid="work-decision-effect" [attr.data-effect]="effect">{{ i18n.t('experience.work.receipt.effect.' + effect) }}</p>
+                    }
                     <p>{{ i18n.t('workMandate.recorded') }}</p>
                     <app-run-mandate [runId]="decided.id" [compact]="true" />
                   </div>
@@ -205,6 +219,8 @@ const POLL_MS = 8000;
                       <p>{{ run.hitl?.prompt }}</p>
                     }
                     <app-run-mandate [runId]="run.id" [compact]="true" />
+                    <!-- Who may decide is said before any action, reviewing included. -->
+                    <app-decision-right [hitl]="run.hitl" />
                     @if (!decisionAvailable(run)) {
                       <p class="xp-work-note" role="status">{{ i18n.t('workMandate.unavailable') }}</p>
                     } @else if (!isReviewed(run)) {
@@ -212,10 +228,13 @@ const POLL_MS = 8000;
                     }
                     @if (isReviewed(run)) {
                       <app-work-decision-context [run]="run" [showRunLink]="canInspectRuns()" />
+                      <!-- The Judge's reserve stays above the decision, details closed or not. -->
+                      <app-run-quality-review [run]="run" />
                     @if (run.hitl?.prompt_kind === 'approve_model_retraining') { <ck-retraining-context [binding]="run.hitl?.model_retraining" /> }
                     @if (run.hitl?.prompt_kind === 'review_dataset_labels') {
                       <app-dataset-label-review [runId]="run.id" [decisionId]="run.hitl?.decision_id ?? ''" [disabled]="decisionBusy().has(run.id)" (submissionChange)="setLabelReview(run, $event)" />
                     }
+                    @if (mayDecide(run.hitl)) {
                     <label>
                       {{ i18n.t('experience.work.validations.reason') }}
                       <textarea
@@ -227,7 +246,7 @@ const POLL_MS = 8000;
                       <button
                         type="button"
                         class="xp-work-btn xp-work-btn-primary"
-                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run) || (run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReviewFor(run)) || (run.hitl?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(run.hitl?.model_retraining))"
+                        [disabled]="decisionBusy().has(run.id) || decisionLocked(run) || !decisionAvailable(run) || (run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReviewFor(run)) || (run.hitl?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(run.hitl?.model_retraining))"
                         (click)="decide(run, 'accept')"
                       >
                         {{ i18n.t('experience.work.validations.approve') }}
@@ -235,7 +254,7 @@ const POLL_MS = 8000;
                       <button
                         type="button"
                         class="xp-work-btn"
-                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run)"
+                        [disabled]="decisionBusy().has(run.id) || decisionLocked(run) || !decisionAvailable(run)"
                         (click)="decide(run, 'reject')"
                       >
                         {{ i18n.t('experience.work.validations.refuse') }}
@@ -243,6 +262,17 @@ const POLL_MS = 8000;
                     </div>
                     @if (reasonError() === run.id) {
                       <p class="xp-work-note" role="alert">{{ i18n.t('experience.work.validations.reason_required') }}</p>
+                    }
+                    }
+                    @if (decisionNotices()[run.id]; as notice) {
+                      <div class="xp-work-note" data-testid="work-decision-notice" [attr.data-tone]="notice.tone" [attr.role]="notice.role">
+                        <p>{{ i18n.t(notice.key, notice.params) }}</p>
+                        @if (notice.verifiable) {
+                          <button type="button" class="xp-work-btn" data-testid="work-decision-verify" [disabled]="decisionBusy().has(run.id)" (click)="checkDecision(run)">
+                            {{ i18n.t('state.decision.verify') }}
+                          </button>
+                        }
+                      </div>
                     }
                     }
                   </article>
@@ -325,10 +355,18 @@ export class WorkShellComponent {
   readonly announcement = signal('');
   readonly decisionBusy = signal<ReadonlySet<string>>(new Set());
   readonly decisionError = signal(false);
+  /** Per Run: the last decision that was not recorded (refused, lost, stale), or its check. */
+  readonly decisionNotices = signal<Readonly<Record<string, DecisionMessage & { locked: boolean; verifiable: boolean }>>>({});
   readonly reviewedDecisions = signal<Record<string, string>>({});
   readonly labelReviews = signal<Record<string, LabelReviewSubmission | null>>({});
   readonly decidedRun = signal<Run | null>(null);
+  readonly decidedAction = signal<'accept' | 'reject' | null>(null);
+  readonly decidedAt = signal<number | null>(null);
+  /** What the Run did after the decision, read apart from the decision itself. */
+  readonly decisionEffect = signal<'following' | 'completed' | 'failed' | 'unknown' | null>(null);
+  private effectWatch: Subscription | null = null;
   readonly decisionAvailable = workDecisionAvailable;
+  protected readonly mayDecide = mayDecide;
   private readonly navigationProfile = inject(NavigationProfileService);
   readonly canInspectRuns = computed(() => {
     const profile = this.navigationProfile.effective();
@@ -439,7 +477,7 @@ export class WorkShellComponent {
   }
 
   decide(run: Run, action: 'accept' | 'reject'): void {
-    if (this.decisionBusy().has(run.id)) return;
+    if (this.decisionBusy().has(run.id) || this.decisionLocked(run) || !mayDecide(run.hitl)) return;
     if (action === 'accept' && run.hitl?.prompt_kind === 'approve_model_retraining' && !retrainingReviewReady(run.hitl?.model_retraining)) return;
     const labelReview = this.labelReviewFor(run);
     if (action === 'accept' && run.hitl?.prompt_kind === 'review_dataset_labels' && !labelReview) return;
@@ -460,35 +498,115 @@ export class WorkShellComponent {
     const experienceId = this.experienceId();
     const request = action === 'accept' && labelReview
       ? this.api.decide(run, action, note, labelReview) : this.api.decide(run, action, note);
-    request.pipe(takeUntilDestroyed(this.destroy)).subscribe((updated) => {
+    request.pipe(takeUntilDestroyed(this.destroy)).subscribe((outcome) => {
       if (!this.workspace.isRequestScopeCurrent(scope) || this.experienceId() !== experienceId) return;
+      if (outcome.s === 'sent') return;
       this.decisionBusy.update((current) => {
         const next = new Set(current);
         next.delete(run.id);
         return next;
       });
-      if (!updated) {
-        this.decisionError.set(true);
-        this.announcement.set(this.i18n.t('experience.work.validations.error'));
+      if (outcome.s !== 'confirmed' && outcome.s !== 'accepted') {
+        // A refusal, a lost answer and a stale pause each say what they are;
+        // a lost answer locks the buttons until the Run is read back.
+        const message = decisionMessage(outcome, action);
+        const unknown = outcome.s === 'unknown';
+        const stale = outcome.s === 'failed' && outcome.status === 409;
+        this.setDecisionNotice(run.id, { ...message, locked: unknown, verifiable: unknown || stale });
+        this.announcement.set(this.i18n.t(message.key, message.params));
         return;
       }
-      this.runtime.resumeAfterDecision(updated);
-      this.decidedRun.set(updated);
-      // L34 — a real decision on agent work ends the client getting-started journey.
-      this.adoption.recordDecision();
-      this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
-      this.announcement.set(
-        this.i18n.t(
-          action === 'accept'
-            ? 'experience.work.validations.approved'
-            : 'experience.work.validations.refused',
-          { title },
-        ),
-      );
-      queueMicrotask(() => {
-        const next = this.workMain?.nativeElement.querySelector<HTMLElement>('.xp-work-hitl article button');
-        (next ?? this.workMain?.nativeElement)?.focus();
+      this.setDecisionNotice(run.id, null);
+      this.recordDecided(run, outcome.value, action, title);
+    });
+  }
+
+  /** Reads the Run back after a lost or stale answer, instead of deciding again. */
+  checkDecision(run: Run): void {
+    if (this.decisionBusy().has(run.id)) return;
+    const scope = this.workspace.captureRequestScope();
+    const experienceId = this.experienceId();
+    this.decisionBusy.update((current) => new Set([...current, run.id]));
+    this.api.checkDecision(run).pipe(takeUntilDestroyed(this.destroy)).subscribe((check) => {
+      if (!this.workspace.isRequestScopeCurrent(scope) || this.experienceId() !== experienceId) return;
+      if (check.s === 'checking') return;
+      this.decisionBusy.update((current) => {
+        const next = new Set(current);
+        next.delete(run.id);
+        return next;
       });
+      const message = checkMessage(check);
+      this.announcement.set(this.i18n.t(message.key));
+      if (check.s === 'recorded') {
+        this.setDecisionNotice(run.id, null);
+        this.runtime.resumeAfterDecision(check.run);
+        this.decidedRun.set(check.run);
+        this.decidedAction.set(null);
+        this.decidedAt.set(null);
+        this.followEffect(check.run.id);
+        this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
+      } else if (check.s === 'pending') {
+        this.setDecisionNotice(run.id, { ...message, locked: false, verifiable: false });
+      } else {
+        this.setDecisionNotice(run.id, { ...message, locked: true, verifiable: true });
+      }
+    });
+  }
+
+  private followEffect(runId: string): void {
+    this.effectWatch?.unsubscribe();
+    this.decisionEffect.set('following');
+    const scope = this.workspace.captureRequestScope();
+    this.effectWatch = this.api.followRun(runId).pipe(takeUntilDestroyed(this.destroy)).subscribe({
+      next: (current) => {
+        if (!this.workspace.isRequestScopeCurrent(scope) || this.decidedRun()?.id !== runId) return;
+        if (!current || current.status === 'hitl_pending' || !runIsSettled(current.status)) return;
+        this.decisionEffect.set(current.status === 'completed' ? 'completed' : 'failed');
+      },
+      error: () => {
+        if (this.workspace.isRequestScopeCurrent(scope) && this.decidedRun()?.id === runId) this.decisionEffect.set('unknown');
+      },
+    });
+  }
+
+  formatReceiptTime(at: number): string {
+    const locale = this.i18n.locale() === 'fr' ? 'fr-FR' : 'en-GB';
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
+  }
+
+  decisionLocked(run: Run): boolean {
+    return this.decisionNotices()[run.id]?.locked === true;
+  }
+
+  private setDecisionNotice(runId: string, notice: (DecisionMessage & { locked: boolean; verifiable: boolean }) | null): void {
+    this.decisionNotices.update((current) => {
+      const next = { ...current };
+      if (notice) next[runId] = notice;
+      else delete next[runId];
+      return next;
+    });
+  }
+
+  private recordDecided(run: Run, updated: Run, action: 'accept' | 'reject', title: string): void {
+    this.runtime.resumeAfterDecision(updated);
+    this.decidedRun.set(updated);
+    this.decidedAction.set(action);
+    this.decidedAt.set(Date.now());
+    this.followEffect(updated.id);
+    // L34 — a real decision on agent work ends the client getting-started journey.
+    this.adoption.recordDecision();
+    this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
+    this.announcement.set(
+      this.i18n.t(
+        action === 'accept'
+          ? 'experience.work.validations.approved'
+          : 'experience.work.validations.refused',
+        { title },
+      ),
+    );
+    queueMicrotask(() => {
+      const next = this.workMain?.nativeElement.querySelector<HTMLElement>('.xp-work-hitl article button');
+      (next ?? this.workMain?.nativeElement)?.focus();
     });
   }
 
@@ -619,6 +737,11 @@ export class WorkShellComponent {
     this.reviewedDecisions.set({});
     this.labelReviews.set({});
     this.decidedRun.set(null);
+    this.decidedAction.set(null);
+    this.decidedAt.set(null);
+    this.decisionEffect.set(null);
+    this.effectWatch?.unsubscribe();
+    this.effectWatch = null;
     this.boundSystemIds.set([]);
     this.validationWatch?.unsubscribe();
     this.validationWatch = null;
@@ -630,6 +753,7 @@ export class WorkShellComponent {
     this.announcement.set('');
     this.decisionBusy.set(new Set());
     this.decisionError.set(false);
+    this.decisionNotices.set({});
     this.showValidations.set(false);
     this.pinMismatch.set(false);
     this.experienceId.set(null);

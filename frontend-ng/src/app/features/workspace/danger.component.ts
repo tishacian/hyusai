@@ -1,6 +1,6 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
@@ -8,11 +8,12 @@ import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
 import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+import { NavLinkDirective } from '@app/shared/cockpit';
 
 @Component({
   selector: 'app-workspace-danger',
   standalone: true,
-  imports: [IconComponent, ConfirmDialogComponent],
+  imports: [IconComponent, ConfirmDialogComponent, NavLinkDirective],
   template: `
     <div class="space-y-6">
       <section class="ck-surface rounded-md p-6">
@@ -54,6 +55,8 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               {{ i18n.t('workspace.danger.delete.description_before') }}
               <strong class="text-white">{{ i18n.t('workspace.danger.delete.description_days') }}</strong>{{ i18n.t('workspace.danger.delete.description_after') }}
             </p>
+            <p>{{ i18n.t('governance.workspace.archive_scope') }}</p>
+            @if (restoreDeadline()) { <p>{{ i18n.t('governance.workspace.restore_until', { date: restoreDeadline() }) }}</p> }
           </div>
         </div>
 
@@ -86,6 +89,15 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
           </button>
         }
       </section>
+      @if (connections() !== null) {
+        <section class="ck-surface rounded-md p-6" data-testid="workspace-reconnections">
+          <h3>{{ i18n.t('governance.workspace.connections') }}</h3>
+          <p>{{ i18n.t('governance.workspace.reconnect_hint') }}</p>
+          <ul>@for (connection of connections(); track connection.id) { <li>{{ connection.name }} · {{ i18n.t(connection.status === 'verified' ? 'governance.workspace.verified' : 'governance.workspace.reconnect') }}</li> }</ul>
+          <a [navLink]="{leaf:'connector-connections'}">{{ i18n.t('governance.workspace.open_connections') }}</a>
+          <button type="button" (click)="checkConnections()">{{ i18n.t('common.refresh') }}</button>
+        </section>
+      }
     </div>
 
     <app-confirm-dialog
@@ -102,7 +114,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
     <app-confirm-dialog
       [open]="deleteOpen()"
       [title]="i18n.t('workspace.danger.delete.confirm_title')"
-      [description]="i18n.t('workspace.danger.delete.confirm_description')"
+      [description]="i18n.t('workspace.danger.delete.confirm_description') + ' ' + i18n.t('governance.workspace.archive_scope')"
       [confirmLabel]="i18n.t('workspace.danger.delete.confirm_cta')"
       [confirmPhrase]="detail()?.name || ''"
       tone="danger"
@@ -118,6 +130,7 @@ export class WorkspaceDangerComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly routeSlug = toSignal(
     this.route.parent!.paramMap.pipe(map((p) => p.get('slug') ?? null)),
@@ -130,20 +143,28 @@ export class WorkspaceDangerComponent {
   readonly restoring = signal(false);
   readonly leaveOpen = signal(false);
   readonly deleteOpen = signal(false);
+  readonly connections = signal<Array<{id:string;name:string;status:string}> | null>(null);
+  readonly restoreDeadline = computed(() => {
+    const deleted = this.detail()?.deleted_at;
+    return deleted ? new Date(new Date(deleted).getTime() + 30 * 86400000).toLocaleString(this.i18n.locale()) : '';
+  });
 
   readonly isOwner = computed(() => this.detail()?.role === 'owner');
 
   constructor() {
     effect(() => {
       const slug = this.routeSlug();
+      this.detail.set(null); this.connections.set(null);
+      this.leaveOpen.set(false); this.deleteOpen.set(false);
+      this.leaving.set(false); this.deleting.set(false); this.restoring.set(false);
       if (slug) this.load(slug);
     });
   }
 
   load(slug: string): void {
-    this.workspaceService.getWorkspace(slug).subscribe({
-      next: (d) => this.detail.set(d),
-      error: () => this.detail.set(null),
+    this.workspaceService.getWorkspace(slug).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { if (this.routeSlug() === slug) this.detail.set(d); },
+      error: () => { if (this.routeSlug() === slug) this.detail.set(null); },
     });
   }
 
@@ -152,8 +173,9 @@ export class WorkspaceDangerComponent {
     if (!slug) return;
     this.leaveOpen.set(false);
     this.leaving.set(true);
-    this.workspaceService.leaveWorkspace(slug).subscribe({
+    this.workspaceService.leaveWorkspace(slug).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
+        if (this.routeSlug() !== slug) return;
         this.leaving.set(false);
         this.toastr.success(
           this.i18n.t('workspace.danger.toast.left'),
@@ -162,6 +184,7 @@ export class WorkspaceDangerComponent {
         void this.router.navigateByUrl(navigationLeafUrl('workspace-list'));
       },
       error: (err) => {
+        if (this.routeSlug() !== slug) return;
         this.leaving.set(false);
         this.toastr.error(
           err?.error?.detail || this.i18n.t('workspace.danger.toast.leave_failed'),
@@ -177,8 +200,9 @@ export class WorkspaceDangerComponent {
     if (!slug || !d) return;
     this.deleteOpen.set(false);
     this.deleting.set(true);
-    this.workspaceService.deleteWorkspace(slug, d.name).subscribe({
+    this.workspaceService.deleteWorkspace(slug, d.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
+        if (this.routeSlug() !== slug) return;
         this.deleting.set(false);
         this.toastr.success(
           this.i18n.t('workspace.danger.toast.deleted', { name: d.name }),
@@ -187,6 +211,7 @@ export class WorkspaceDangerComponent {
         void this.router.navigateByUrl(navigationLeafUrl('workspace-list'));
       },
       error: (err) => {
+        if (this.routeSlug() !== slug) return;
         this.deleting.set(false);
         this.toastr.error(
           err?.error?.detail || this.i18n.t('workspace.danger.toast.delete_failed'),
@@ -200,9 +225,11 @@ export class WorkspaceDangerComponent {
     const slug = this.routeSlug();
     if (!slug) return;
     this.restoring.set(true);
-    this.workspaceService.restoreWorkspace(slug).subscribe({
-      next: () => {
+    this.workspaceService.restoreWorkspace(slug).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (result) => {
+        if (this.routeSlug() !== slug) return;
         this.restoring.set(false);
+        this.connections.set(result.connections ?? []);
         this.load(slug);
         this.workspaceService.loadWorkspaces().subscribe();
         this.toastr.success(
@@ -211,6 +238,7 @@ export class WorkspaceDangerComponent {
         );
       },
       error: (err) => {
+        if (this.routeSlug() !== slug) return;
         this.restoring.set(false);
         this.toastr.error(
           err?.error?.detail || this.i18n.t('workspace.danger.toast.restore_failed'),
@@ -218,5 +246,10 @@ export class WorkspaceDangerComponent {
         );
       },
     });
+  }
+
+  checkConnections(): void {
+    const slug = this.routeSlug(); if (!slug) return;
+    this.workspaceService.workspaceReconnectStatus(slug).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: result => { if (this.routeSlug() === slug) this.connections.set(result.connections); }, error: () => { if (this.routeSlug() === slug) this.toastr.error(this.i18n.t('governance.workspace.check_failed')); } });
   }
 }

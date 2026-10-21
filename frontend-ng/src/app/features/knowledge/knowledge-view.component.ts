@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  OnDestroy,
   computed,
   inject,
   signal,
@@ -19,8 +20,9 @@ import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin, Observable, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { EMPTY, forkJoin, Observable, of, type MonoTypeOperatorFunction } from 'rxjs';
+import { catchError, map, filter, finalize, tap } from 'rxjs/operators';
+import { LOADING, readFailure, readValue, type LoadState } from '@app/shared/ui/load-state';
 import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
@@ -32,6 +34,7 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { LensService } from '@app/core/lens';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import { ApiService, DocumentFactItem, KnowledgeGuide, TableFactItem } from '@app/core/api.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 import {
@@ -281,13 +284,17 @@ type KbTabId = KnowledgeFacetId;
       </button>
       <ck-back-link />
     </ck-object-header>
+    @for (panel of ['collection', 'stats', 'guides', 'bindings']; track panel) {
+      @if (panelFailed(panel)) { <app-empty-state [state]="panelStates()[panel]" (retry)="loadAll()" /> }
+    }
 
-    @if (!loading() && ['created', 'ready'].includes(collectionStatus()) && docCount() === 0 && chunkCount() === 0) {
+
+    @if (!panelFailed('collection') && !panelFailed('stats') && !loading() && ['created', 'ready'].includes(collectionStatus()) && docCount() === 0 && chunkCount() === 0) {
       <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-warn" style="border-color:rgba(245, 184, 74, 0.25); background:rgba(245, 184, 74, 0.10);">
         {{ i18n.t('capture.kb.collection_empty') }}
       </div>
     }
-    @if (!loadingBindings() && bindings().length === 0) {
+    @if (!panelFailed('bindings') && !loadingBindings() && bindings().length === 0) {
       <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-cool" style="border-color:rgba(125, 211, 252, 0.20); background:rgba(125, 211, 252, 0.10);">
         {{ i18n.t('capture.kb.no_system_binding') }}
       </div>
@@ -383,13 +390,15 @@ type KbTabId = KnowledgeFacetId;
           <article class="ck-surface rounded-md p-5">
             <div class="ck-label" style="color:var(--ck-signal-cool);">Index health</div>
             <h3 class="mt-1 text-base font-semibold ck-fg-1">Collection diagnostics</h3>
-            @if (loadingDiagnostics()) {
+            @if (panelFailed('diagnostics')) {
+              <app-empty-state [state]="panelStates()['diagnostics']" (retry)="loadDiagnostics()" />
+            } @else if (loadingDiagnostics()) {
               <p class="mt-3 text-sm ck-fg-3">
                 <app-icon name="loader-2" [size]="14" class="mr-2 inline-block animate-spin" />
                 Loading corpus diagnostics…
               </p>
             }
-            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm" [hidden]="panelFailed('diagnostics')">
               @for (row of diagnosticRows(); track row.label) {
                 <div class="ck-inset rounded p-3">
                   <dt class="ck-label">{{ row.label }}</dt>
@@ -827,7 +836,9 @@ type KbTabId = KnowledgeFacetId;
             </div>
           </div>
 
-          @if (loadingChunks()) {
+          @if (panelFailed('chunks')) {
+            <app-empty-state [state]="panelStates()['chunks']" (retry)="loadChunks(chunkOffset())" />
+          } @else if (loadingChunks()) {
             <div class="p-5 text-center ck-fg-3 text-sm">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading chunks…
@@ -919,7 +930,9 @@ type KbTabId = KnowledgeFacetId;
             </button>
           </div>
 
-          @if (loadingDocumentFacts()) {
+          @if (panelFailed('documents')) {
+            <app-empty-state [state]="panelStates()['documents']" (retry)="loadDocumentFacts(documentFactOffset())" />
+          } @else if (loadingDocumentFacts()) {
             <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading document structure…
@@ -1019,7 +1032,9 @@ type KbTabId = KnowledgeFacetId;
               </select>
             </label>
           </div>
-          @if (loadingDocumentFacts()) {
+          @if (panelFailed('documents')) {
+            <app-empty-state [state]="panelStates()['documents']" (retry)="loadDocumentFacts(documentFactOffset())" />
+          } @else if (loadingDocumentFacts()) {
             <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading document facts…
@@ -1157,7 +1172,9 @@ type KbTabId = KnowledgeFacetId;
               </select>
             </label>
           </div>
-          @if (loadingOcrFacts()) {
+          @if (panelFailed('ocr')) {
+            <app-empty-state [state]="panelStates()['ocr']" (retry)="loadOcrFacts()" />
+          } @else if (loadingOcrFacts()) {
             <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading OCR evidence…
@@ -1286,7 +1303,9 @@ type KbTabId = KnowledgeFacetId;
               {{ i18n.t('capture.kb.facts_shown', { shown: visibleTableFacts().length, total: tableFactTotal() }) }}
             </div>
           }
-          @if (loadingTableFacts()) {
+          @if (panelFailed('tables')) {
+            <app-empty-state [state]="panelStates()['tables']" (retry)="loadTableFacts(tableFactOffset())" />
+          } @else if (loadingTableFacts()) {
             <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               {{ i18n.t('capture.kb.loading_facts') }}
@@ -1731,7 +1750,31 @@ type KbTabId = KnowledgeFacetId;
     .ck-li::before { color: var(--ck-signal-cool); }
   `],
 })
-export class KnowledgeViewComponent implements OnInit {
+export class KnowledgeViewComponent implements OnInit, OnDestroy {
+  readonly panelStates = signal<Record<string, LoadState<unknown>>>({});
+  private readonly panelRequests = new Map<string, number>();
+  panelFailed(panel: string): boolean {
+    const state = this.panelStates()[panel];
+    return state?.s === 'error' || state?.s === 'denied';
+  }
+  private panelRead<T>(panel: string, done: () => void): MonoTypeOperatorFunction<T> {
+    const scope = this.view.captureRequest();
+    const request = (this.panelRequests.get(panel) ?? 0) + 1;
+    this.panelRequests.set(panel, request);
+    const current = () => this.view.isCurrent(scope) && this.panelRequests.get(panel) === request;
+    const previous = this.panelStates()[panel];
+    this.panelStates.update(states => ({ ...states, [panel]: LOADING }));
+    return source => source.pipe(
+      filter(() => current()),
+      tap(value => this.panelStates.update(states => ({ ...states, [panel]: readValue(value) }))),
+      catchError(error => {
+        if (current()) this.panelStates.update(states => ({ ...states, [panel]: readFailure(error, previous) }));
+        return EMPTY;
+      }),
+      finalize(() => { if (current()) done(); }),
+    );
+  }
+
   readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -1855,25 +1898,49 @@ export class KnowledgeViewComponent implements OnInit {
   readonly guideMarkdown = signal('');
   readonly editingGuideKey = signal<string | null>(null);
   private tableFactReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly view = new WorkspaceViewContext(this.workspace, () => {
+    this.panelRequests.clear(); this.panelStates.set({});
+    this.title.set(this.kbId); this.closePreview();
+    this.sources.set([]); this.chunks.set([]); this.bindings.set([]);
+    this.tableFacts.set([]); this.documentFacts.set([]); this.ocrFacts.set([]);
+    this.knowledgeGuides.set([]); this.knowledgeScopes.set([]);
+    this.diagnostics.set(null); this.retrievalArtifactJob.set(null);
+    this.artifactJobLaunching.set(null); this.artifactJobError.set(null);
+    this.docCount.set(0); this.chunkCount.set(0); this.sourceTotal.set(0);
+    this.sourceGlobalTotal.set(0); this.chunkTotal.set(0);
+    this.tableFactTotal.set(0); this.documentFactTotal.set(0); this.ocrFactTotal.set(0);
+    this.vectorDim.set(null); this.vectorDbType.set(''); this.collectionStatus.set('');
+    this.embeddingModel.set(''); this.chunkingMethod.set('');
+    this.globalTopSources.set([]); this.sourceKinds.set({}); this.sourceExtensions.set({});
+    this.sourceStatuses.set({}); this.chunkBuckets.set({}); this.chunkPercentiles.set({});
+    this.tableFactByType.set({}); this.documentFactByType.set({}); this.ocrFactByType.set({});
+    this.guideTitle.set(''); this.guideMarkdown.set(''); this.editingGuideKey.set(null);
+    this.loading.set(true); this.loadingSources.set(true); this.loadingBindings.set(true);
+    this.chatScopesLoading.set(true); this.sourceLoadError.set(false);
+    if (this.tableFactReloadTimer) clearTimeout(this.tableFactReloadTimer);
+  }, () => { this.loadAll(); this.ensureFacetData(this.activeTab()); });
+
+  ngOnDestroy(): void { this.view.destroy(); }
+
 
   readonly lens = this.lensService.lens;
 
   readonly kpis = computed<CkObjectKpi[]>(() => [
     {
       label: 'Docs',
-      value: this.loading() ? '…' : String(this.docCount()),
+      value: this.panelFailed('collection') ? '—' : this.loading() ? '…' : String(this.docCount()),
       tone: 'cool',
       hint: 'Source documents ingested into this collection.',
     },
     {
       label: 'Chunks',
-      value: this.loading() ? '…' : String(this.chunkCount()),
+      value: this.panelFailed('stats') ? '—' : this.loading() ? '…' : String(this.chunkCount()),
       tone: 'neutral',
       hint: 'Vector chunks currently indexed.',
     },
     {
       label: 'Bindings',
-      value: this.loadingBindings() ? '…' : String(this.bindings().length),
+      value: this.panelFailed('bindings') ? '—' : this.loadingBindings() ? '…' : String(this.bindings().length),
       tone: this.bindings().length > 0 ? 'cool' : 'neutral',
       hint: 'Systems consuming this knowledge base.',
     },
@@ -2009,12 +2076,12 @@ export class KnowledgeViewComponent implements OnInit {
   readonly diagnosticRows = computed(() => [
     {
       label: 'Documents',
-      value: this.loading() ? '…' : String(this.docCount()),
+      value: this.panelFailed('collection') ? '—' : this.loading() ? '…' : String(this.docCount()),
       hint: 'Source files tracked in this collection.',
     },
     {
       label: 'Chunks',
-      value: this.loading() ? '…' : String(this.chunkCount()),
+      value: this.panelFailed('stats') ? '—' : this.loading() ? '…' : String(this.chunkCount()),
       hint: 'Semantic chunks available to vector retrieval.',
     },
     {
@@ -2039,7 +2106,7 @@ export class KnowledgeViewComponent implements OnInit {
     },
     {
       label: 'Bindings',
-      value: this.loadingBindings() ? '…' : String(this.bindings().length),
+      value: this.panelFailed('bindings') ? '—' : this.loadingBindings() ? '…' : String(this.bindings().length),
       hint: 'Systems using this collection.',
     },
   ]);
@@ -2081,6 +2148,7 @@ export class KnowledgeViewComponent implements OnInit {
 
   ngOnInit(): void {
     this.kbId = this.route.snapshot.paramMap.get('kbId') ?? '';
+    this.sourceQuery.set(this.route.snapshot.queryParamMap.get('q') ?? '');
     this.title.set(this.kbId || 'Knowledge base');
     const rawFacet =
       this.route.snapshot.queryParamMap.get('facet')
@@ -2226,7 +2294,7 @@ export class KnowledgeViewComponent implements OnInit {
     this.loadingDiagnostics.set(true);
     this.http
       .get<CollectionDiagnosticsPayload>(`${this.base}/collections/${encodeURIComponent(this.kbId)}/diagnostics`)
-      .pipe(catchError(() => of<CollectionDiagnosticsPayload | null>(null)))
+      .pipe(this.panelRead('diagnostics', () => this.loadingDiagnostics.set(false)))
       .subscribe((payload) => {
         if (payload) this.applyDiagnostics(payload);
         this.loadingDiagnostics.set(false);
@@ -2242,6 +2310,7 @@ export class KnowledgeViewComponent implements OnInit {
 
   launchRetrievalArtifactJob(kind: 'summary_index_rebuild' | 'sparse_index_rebuild' | 'qdrant_sparse_reindex'): void {
     if (!this.kbId || this.artifactJobLaunching()) return;
+    const request = this.view.captureRequest();
     this.artifactJobLaunching.set(kind);
     this.artifactJobError.set(null);
     this.http
@@ -2249,10 +2318,11 @@ export class KnowledgeViewComponent implements OnInit {
         kind,
       })
       .pipe(catchError((err) => {
-        this.artifactJobError.set(err?.error?.detail || 'Could not launch retrieval artifact job.');
+        if (this.view.isCurrent(request)) this.artifactJobError.set(err?.error?.detail || 'Could not launch retrieval artifact job.');
         return of<WorkerJobPayload | null>(null);
       }))
       .subscribe((job) => {
+        if (!this.view.isCurrent(request)) return;
         this.artifactJobLaunching.set(null);
         if (!job) return;
         this.retrievalArtifactJob.set(job);
@@ -2266,15 +2336,17 @@ export class KnowledgeViewComponent implements OnInit {
 
   private pollRetrievalArtifactJob(jobId: string, attempt = 0): void {
     if (attempt > 90) return;
+    const request = this.view.captureRequest();
     window.setTimeout(() => {
+      if (!this.view.isCurrent(request)) return;
       this.http
         .get<WorkerJobPayload>(`${this.base}/jobs/${encodeURIComponent(jobId)}`)
         .pipe(catchError((err) => {
-          this.artifactJobError.set(err?.error?.detail || 'Could not refresh retrieval artifact job.');
+          if (this.view.isCurrent(request)) this.artifactJobError.set(err?.error?.detail || 'Could not refresh retrieval artifact job.');
           return of<WorkerJobPayload | null>(null);
         }))
         .subscribe((job) => {
-          if (!job) return;
+          if (!this.view.isCurrent(request) || !job) return;
           this.retrievalArtifactJob.set(job);
           if (job.status === 'queued' || job.status === 'running') {
             this.pollRetrievalArtifactJob(jobId, attempt + 1);
@@ -2340,7 +2412,7 @@ export class KnowledgeViewComponent implements OnInit {
     if (docId) url += `&document_id=${encodeURIComponent(docId)}`;
     this.http
       .get<ChunksPayload>(url)
-      .pipe(catchError(() => of<ChunksPayload>({ count: 0, offset: safeOffset, has_more: false, chunks: [] })))
+      .pipe(this.panelRead('chunks', () => this.loadingChunks.set(false)))
       .subscribe((payload) => {
         this.chunks.set(payload.chunks ?? []);
         this.chunkOffset.set(safeOffset);
@@ -2361,10 +2433,11 @@ export class KnowledgeViewComponent implements OnInit {
       .get<InventoryPayload>(
         this.sourceInventoryUrl(safeOffset),
       )
-      .subscribe({
-        next: (payload) => this.applyInventoryPage(payload, safeOffset),
-        error: () => { this.sourceLoadError.set(true); this.loadingSources.set(false); },
-      });
+      .pipe(this.panelRead('sources', () => {
+        this.loadingSources.set(false);
+        this.sourceLoadError.set(this.panelFailed('sources'));
+      }))
+      .subscribe(payload => this.applyInventoryPage(payload, safeOffset));
   }
 
   private applyInventoryPage(payload: InventoryPayload, requestedOffset: number): void {
@@ -2425,7 +2498,7 @@ export class KnowledgeViewComponent implements OnInit {
     this.loadingSources.set(false);
   }
 
-  private loadAll(): void {
+  loadAll(): void {
     if (!this.kbId) {
       this.loading.set(false);
       this.loadingSources.set(false);
@@ -2436,7 +2509,7 @@ export class KnowledgeViewComponent implements OnInit {
 
     this.http
       .get<CollectionsPayload>(`${this.base}/collections`)
-      .pipe(catchError(() => of<CollectionsPayload>({})))
+      .pipe(this.panelRead('collection', () => this.loading.set(false)))
       .subscribe((meta) => {
         const metaItem = (meta.items || []).find((item) => item.slug === this.kbId);
         this.title.set(metaItem?.name || this.kbId || 'Knowledge base');
@@ -2458,11 +2531,11 @@ export class KnowledgeViewComponent implements OnInit {
     forkJoin({
       guides: this.api
         .listKnowledgeGuides({ current_only: false })
-        .pipe(catchError(() => of({ items: [] }))),
+        ,
       scopes: this.api
         .get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes')
-        .pipe(catchError(() => of({ scopes: [] }))),
-    }).subscribe(({ guides, scopes }) => {
+        ,
+    }).pipe(this.panelRead('guides', () => this.chatScopesLoading.set(false))).subscribe(({ guides, scopes }) => {
       this.knowledgeGuides.set(guides.items || []);
       this.knowledgeScopes.set(scopes.scopes || []);
       this.chatScopesLoading.set(false);
@@ -2471,7 +2544,7 @@ export class KnowledgeViewComponent implements OnInit {
 
     this.http
       .get<StatsPayload>(`${this.base}/stats?collection_name=${q}`)
-      .pipe(catchError(() => of<StatsPayload>({})))
+      .pipe(this.panelRead('stats', () => undefined))
       .subscribe((stats) => {
         if (stats.total_chunks !== undefined) {
           this.chunkCount.set(stats.total_chunks);
@@ -2482,7 +2555,9 @@ export class KnowledgeViewComponent implements OnInit {
         }
       });
 
-    this.canonical.listSystems().subscribe({
+    this.canonical.listSystems({ propagateErrors: true }).pipe(
+      this.panelRead('bindings', () => this.loadingBindings.set(false)),
+    ).subscribe({
       next: (systems) => {
         const bound = (systems ?? []).filter((s) => {
           const flow = (s.flow_definition ?? {}) as Record<string, unknown>;
@@ -2513,7 +2588,7 @@ export class KnowledgeViewComponent implements OnInit {
         limit: this.tableFactPageSize,
         offset: safeOffset,
       })
-      .pipe(catchError(() => of({ items: [] } as any)))
+      .pipe(this.panelRead('tables', () => this.loadingTableFacts.set(false)))
       .subscribe((payload) => {
         this.tableFacts.set(payload.items || []);
         this.tableFactTotal.set(payload.total ?? payload.total_returned ?? payload.items?.length ?? 0);
@@ -2613,7 +2688,7 @@ export class KnowledgeViewComponent implements OnInit {
         limit: this.documentFactPageSize,
         offset: safeOffset,
       })
-      .pipe(catchError(() => of({ items: [] } as any)))
+      .pipe(this.panelRead('documents', () => this.loadingDocumentFacts.set(false)))
       .subscribe((payload) => {
         this.documentFacts.set(payload.items || []);
         this.documentFactTotal.set(payload.total ?? payload.total_returned ?? payload.items?.length ?? 0);
@@ -2670,7 +2745,7 @@ export class KnowledgeViewComponent implements OnInit {
         );
 
     request
-      .pipe(catchError(() => of({ items: [] } as any)))
+      .pipe(this.panelRead('ocr', () => this.loadingOcrFacts.set(false)))
       .subscribe((payload) => {
         this.ocrFacts.set(this.dedupeOcrFacts(payload.items || []));
         this.ocrFactTotal.set(payload.total ?? payload.total_returned ?? payload.items?.length ?? 0);

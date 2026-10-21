@@ -36,9 +36,9 @@ export type PhosphorWeight = 'duotone';
         flex-shrink: 0;
         line-height: 1;
       }
+      /* No 1em rule here: it overrode the explicit size input. */
       :host ::ng-deep svg {
-        width: 1em;
-        height: 1em;
+        display: block;
       }
       :host.ck-icon--duotone ::ng-deep .ph-duotone-secondary {
         opacity: var(--ck-icon-duotone-secondary, 0.2);

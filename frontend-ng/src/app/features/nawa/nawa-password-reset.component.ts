@@ -1,3 +1,7 @@
+import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
+import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
+import { I18nService } from '@app/core/i18n.service';
+import { decisionMessage } from '@app/shared/ui/run-decision';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -94,12 +98,13 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
   selector: 'app-nawa-password-reset',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [SpecializedAppContractComponent,
     RouterLink,
     GlyphComponent,
     NawaCreatorBannerComponent,
     NawaThemeToggleComponent,
     ThinkingOrbComponent,
+    DecisionRightComponent,
   ],
   styleUrls: ['./nawa-theme.scss', './nawa-password-reset.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
@@ -117,6 +122,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
       <app-nawa-theme-toggle />
       <a class="nawa-link" routerLink="/nawa/itsd">Back to the catalogue</a>
     </header>
+    <app-specialized-app-contract application="itsd" [simulation]="true" />
 
     <div class="nawa-body pr-layout">
       <aside class="pr-panel nawa-card">
@@ -337,6 +343,8 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                 Nothing has been changed on the account. Your decision is recorded in the audit
                 ledger under your own account.
               </p>
+              <app-decision-right [hitl]="run()?.hitl" />
+              @if (mayDecide(run()?.hitl)) {
               <div class="pr-gate-actions">
                 <button
                   type="button"
@@ -360,6 +368,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
                   <span class="nawa-note">Recording the decision…</span>
                 }
               </div>
+              }
             </div>
           }
 
@@ -475,6 +484,8 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
 })
 export class NawaPasswordResetComponent implements OnDestroy {
   private readonly service = inject(NawaItsdService);
+  protected readonly mayDecide = mayDecide;
+  private readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
 
@@ -676,15 +687,17 @@ export class NawaPasswordResetComponent implements OnDestroy {
    */
   protected decide(action: 'accept' | 'reject'): void {
     const run = this.run();
-    if (!run || this.resolving()) return;
+    if (!run || this.resolving() || !mayDecide(run.hitl)) return;
     this.resolving.set(true);
     this.errorText.set(null);
-    this.service.resolveHitl(run.id, action, run.hitl?.decision_id).subscribe((acknowledged) => {
-      if (acknowledged) return;
+    this.service.resolveHitl(run.id, action, run.hitl?.decision_id).subscribe((outcome) => {
+      if (outcome.s === 'sent' || outcome.s === 'confirmed' || outcome.s === 'accepted') return;
+      // A lost answer is not a refusal. The poll, still alive on the paused
+      // run, shows whether it went through; deciding again is safe because the
+      // server answers 409 to a decision it no longer waits for.
       this.resolving.set(false);
-      this.errorText.set(
-        'The decision was not recorded. Check your rights on this workspace, then try again.',
-      );
+      const message = decisionMessage(outcome, action);
+      this.errorText.set(this.i18n.t(message.key, message.params));
     });
   }
 

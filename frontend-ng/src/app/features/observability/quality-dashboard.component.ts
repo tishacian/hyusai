@@ -15,6 +15,7 @@ import { Subject, Subscription, takeUntil } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
 import { observabilityText, observabilityNumber } from './observability-labels';
+import { qualitySample } from './quality-sample';
 import { observabilitySystemId, observabilityPeriod, observabilityAnchor } from './observability-facets';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { PublicBenchPanelComponent } from './public-bench-panel.component';
@@ -198,6 +199,7 @@ const PALETTE = {
           </div>
           <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
             {{ i18n.t('runs.investigation.method') }}: {{ t.totals.threshold_coverage ?? 0 }} / {{ t.totals.runs_evaluated }}
+            @if ((t.totals.threshold_coverage ?? 0) < 30) { <p class="ck-warn">{{ i18n.t('observability.quality.small_sample') }}</p> }
           </div>
         </div>
 
@@ -308,6 +310,7 @@ const PALETTE = {
                 </span>
                 <span [style.fontSize.px]="11" [style.color]="'var(--ck-fg-4)'">
                   {{i18n.t('observability.quality.applicable',{count:item.evaluated})}}
+                  @if (item.evaluated < 30) { <span class="ck-warn block">{{ i18n.t('observability.quality.small_sample') }}</span> }
                 </span>
               </div>
               <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="4">
@@ -352,6 +355,7 @@ const PALETTE = {
       <ck-stat-readout variant="tile"
         [label]="i18n.t('observability.quality.drift')"
         [value]="driftDisplay()"
+        [hint]="sampleHint(driftSample().count)"
         unit="%"
         icon="waves"
         [trend]="driftTrend()"
@@ -559,17 +563,13 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
     const total = buckets.reduce((acc, b) => acc + (b.observed_composite_count ?? 0), 0);
     return total > 0 ? this.number(weighted / total,1) : '—';
   });
-  readonly unsupportedClaimsAverage = computed<number | null>(() => {
-    const buckets = (this.trend()?.series ?? []).filter(b => b.avg_hallucination != null);
-    if (buckets.length) {
-      const weighted = buckets.reduce((acc, b) => acc + (b.avg_hallucination ?? 0) * (b.observed_hallucination_count ?? 0), 0);
-      const total = buckets.reduce((acc, b) => acc + (b.observed_hallucination_count ?? 0), 0);
-      if (total > 0) return weighted / total;
-    }
-    const rows = this.history().filter((row) => typeof row.hallucination_rate === 'number');
-    if (!rows.length) return null;
-    return rows.reduce((acc, row) => acc + (row.hallucination_rate ?? 0), 0) / rows.length;
-  });
+  readonly unsupportedSample = computed(() => qualitySample(this.trend()?.series?.length
+    ? this.trend()!.series.map(b => ({ value: b.avg_hallucination, count: b.observed_hallucination_count }))
+    : this.history().map(row => ({ value: row.hallucination_rate, count: row.hallucination_rate == null ? 0 : 1 }))));
+  readonly unsupportedClaimsAverage = computed(() => this.unsupportedSample().value);
+  readonly driftSample = computed(() => qualitySample(this.trend()?.series?.length
+    ? this.trend()!.series.map(b => ({ value: b.avg_drift, count: b.observed_drift_count }))
+    : this.history().map(row => ({ value: row.drift_rate, count: row.drift_rate == null ? 0 : 1 }))));
   readonly trendHealthTone = computed<'pos' | 'warn' | 'neg'>(() => {
     const rate = this.trend()?.totals.breach_rate;
     if (rate == null) return 'warn';
@@ -645,15 +645,18 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   });
 
   readonly unsupportedClaimsHint = computed(() => {
-    const latest = this.latest()?.hallucination_rate;
-    if (typeof latest !== 'number') return this.i18n.t('observability.quality.average_hint',{period:this.periodLabel()});
-    return this.i18n.t('observability.quality.latest_hint',{period:this.periodLabel(),rate:this.number(latest*100,1)});
+    return this.sampleHint(this.unsupportedSample().count);
   });
 
   readonly driftDisplay = computed(() => {
-    const v = this.latest()?.drift_rate;
+    const v = this.driftSample().value;
     return typeof v === 'number' ? this.number(v*100,1) : '—';
   });
+
+  sampleHint(count: number): string {
+    const sample = this.i18n.t('observability.quality.sample_count', { count });
+    return count < 30 ? `${sample} · ${this.i18n.t('observability.quality.small_sample')}` : sample;
+  }
 
   readonly compositeTrend = computed<'up' | 'down' | null>(() => {
     const hist = this.history();

@@ -1,9 +1,9 @@
 """Task execution engine for autonomous agent missions"""
-import asyncio
+
+import copy
 import json
 import time
 import uuid
-from datetime import datetime
 from typing import AsyncGenerator
 
 from app.core.config import settings
@@ -41,13 +41,16 @@ class TaskEngine:
     def _get_llm(self):
         if self._llm is None:
             from app.llm.llm import LLM
+
             self._llm = LLM(provider=settings.default_provider, api_key=settings.openai_api_key)
         return self._llm
 
     async def plan_mission(self, description: str) -> list[dict]:
         llm = self._get_llm()
         prompt = PLAN_PROMPT.format(mission=description)
-        result = await llm.complete(prompt=prompt, model="gpt-4o-mini", temperature=0.3, max_tokens=1000)
+        result = await llm.complete(
+            prompt=prompt, model="gpt-4o-mini", temperature=0.3, max_tokens=1000
+        )
         try:
             text = result.strip()
             if text.startswith("```"):
@@ -58,29 +61,50 @@ class TaskEngine:
         except Exception as e:
             logger.error(f"Failed to parse plan: {e}")
         return [
-            {"title": "Analyze request", "description": "Understand the mission scope", "type": "analysis"},
-            {"title": "Research", "description": "Gather relevant information", "type": "rag_query"},
-            {"title": "Synthesize", "description": "Compile findings into a report", "type": "synthesis"},
+            {
+                "title": "Analyze request",
+                "description": "Understand the mission scope",
+                "type": "analysis",
+            },
+            {
+                "title": "Research",
+                "description": "Gather relevant information",
+                "type": "rag_query",
+            },
+            {
+                "title": "Synthesize",
+                "description": "Compile findings into a report",
+                "type": "synthesis",
+            },
         ]
 
-    async def execute_task(self, task_id: str, description: str, agent_id: str = None) -> AsyncGenerator[dict, None]:
+    async def execute_task(
+        self,
+        task_id: str,
+        description: str,
+        agent_id: str = None,
+        *,
+        resume_steps: list[dict] | None = None,
+    ) -> AsyncGenerator[dict, None]:
         start_time = time.time()
 
         yield {"type": "task_status", "task_id": task_id, "status": "planning", "progress": 0}
 
-        steps = await self.plan_mission(description)
-        step_records = []
+        steps = [] if resume_steps else await self.plan_mission(description)
+        step_records = copy.deepcopy(resume_steps or [])
         for i, s in enumerate(steps):
-            step_records.append({
-                "id": str(uuid.uuid4())[:8],
-                "num": i + 1,
-                "title": s.get("title", f"Step {i+1}"),
-                "description": s.get("description", ""),
-                "step_type": s.get("type", "analysis"),
-                "status": "pending",
-                "result": None,
-                "duration_ms": None,
-            })
+            step_records.append(
+                {
+                    "id": str(uuid.uuid4())[:8],
+                    "num": i + 1,
+                    "title": s.get("title", f"Step {i + 1}"),
+                    "description": s.get("description", ""),
+                    "step_type": s.get("type", "analysis"),
+                    "status": "pending",
+                    "result": None,
+                    "duration_ms": None,
+                }
+            )
 
         yield {
             "type": "task_plan",
@@ -94,6 +118,11 @@ class TaskEngine:
         previous_results = ""
 
         for i, step in enumerate(step_records):
+            if step.get("status") == "completed":
+                previous_results += (
+                    f"\n\n### Step {i + 1}: {step['title']}\n{step.get('result', '')}"
+                )
+                continue
             step_start = time.time()
             step["status"] = "running"
 
@@ -123,12 +152,12 @@ class TaskEngine:
                 step["result"] = result
                 step["status"] = "completed"
             except Exception as e:
-                logger.error(f"Step {i+1} failed: {e}")
+                logger.error(f"Step {i + 1} failed: {e}")
                 step["result"] = f"Error: {str(e)}"
                 step["status"] = "failed"
 
             step["duration_ms"] = round((time.time() - step_start) * 1000)
-            previous_results += f"\n\n### Step {i+1}: {step['title']}\n{step.get('result', '')}"
+            previous_results += f"\n\n### Step {i + 1}: {step['title']}\n{step.get('result', '')}"
 
             yield {
                 "type": "task_step_complete",
@@ -159,6 +188,7 @@ class TaskEngine:
 
 
 _engine = None
+
 
 def get_task_engine() -> TaskEngine:
     global _engine

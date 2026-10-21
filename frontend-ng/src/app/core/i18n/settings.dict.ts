@@ -203,6 +203,11 @@ export const SETTINGS_FR = {
   'presets.evaluation.dimensions.error.json': 'JSON invalide : {message}',
   'presets.evaluation.tag.unsaved': 'Modifications non enregistrées',
   'presets.evaluation.tag.synced': 'Synchronisé',
+  'presets.evaluation.empty.title': 'Aucun seuil défini',
+  'presets.evaluation.thresholds.off': 'L’auto-évaluation est désactivée : activez-la pour modifier les seuils.',
+  'presets.evaluation.empty.description': 'Le serveur n’a renvoyé aucun réglage d’évaluation pour ce workspace. Rechargez la page ; si rien ne change, prévenez un administrateur.',
+  'presets.evaluation.save.confirmed': 'Seuils enregistrés.',
+  'presets.evaluation.save.failed': 'Les seuils ne sont pas enregistrés.',
   'presets.evaluation.scope.hint':
     "Portée workspace — ces seuils s'appliquent à chaque exécution de ce workspace, sauf surcharge au niveau système ou capability.",
   'presets.evaluation.queue.cta': 'Voir la file de revue',
@@ -464,6 +469,11 @@ export const SETTINGS_EN: Record<keyof typeof SETTINGS_FR, string> = {
   'presets.evaluation.dimensions.error.json': 'Invalid JSON: {message}',
   'presets.evaluation.tag.unsaved': 'Unsaved changes',
   'presets.evaluation.tag.synced': 'Synced',
+  'presets.evaluation.empty.title': 'No thresholds defined',
+  'presets.evaluation.thresholds.off': 'Self-evaluation is off: turn it on to change the thresholds.',
+  'presets.evaluation.empty.description': 'The server returned no evaluation settings for this workspace. Reload the page; if nothing changes, tell an administrator.',
+  'presets.evaluation.save.confirmed': 'Thresholds saved.',
+  'presets.evaluation.save.failed': 'The thresholds were not saved.',
   'presets.evaluation.scope.hint':
     'Workspace scope — these thresholds apply to every run in this workspace unless a system/capability-level override exists.',
   'presets.evaluation.queue.cta': 'View review queue',

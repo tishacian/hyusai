@@ -131,3 +131,24 @@ test('help panel template exposes search, see-also and full-page affordances', (
   assert.match(source, /openFullPage/);
   assert.match(source, /help-panel-full-page/);
 });
+
+test('contextual help links open in place on a narrow viewport', () => {
+  const previous = globalThis.window;
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { innerWidth: 320 } });
+  let navigated = false;
+  const injector = Injector.create({ providers: [
+    HelpOverlayService,
+    { provide: WorkspaceService, useValue: new WorkspaceStub() },
+    { provide: Router, useValue: { url: '/work/request', navigateByUrl: () => { navigated = true; } } },
+  ] });
+  try {
+    const overlay = injector.get(HelpOverlayService);
+    assert.equal(overlay.openFromLink('systems', { originLabel: 'Request', originUrl: '/work/request' }), true);
+    assert.equal(overlay.isOpen(), true);
+    overlay.close();
+    assert.equal(navigated, false);
+  } finally {
+    injector.destroy();
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: previous });
+  }
+});

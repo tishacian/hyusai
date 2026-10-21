@@ -304,3 +304,12 @@
     background: color-mix(in srgb, var(--ck-signal-neg) 12%, transparent);
   }
 }
+
+/* Outcome of the last decision (lot 2a): a failure, a lost answer, a check. */
+.ck-term__card-meta[data-tone='neg'] { color: var(--ck-status-neg-fg); }
+.ck-term__card-meta[data-tone='warn'] { color: var(--ck-status-warn-fg); }
+.ck-term__card-meta[data-tone='ok'] { color: var(--ck-status-ok-fg); }
+.ck-term__card-meta[data-tone='neg'],
+.ck-term__card-meta[data-tone='warn'],
+.ck-term__card-meta[data-tone='ok'],
+.ck-term__card-meta[data-tone='neutral'] { flex-wrap: wrap; gap: var(--ck-space-2); }

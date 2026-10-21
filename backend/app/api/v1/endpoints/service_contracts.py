@@ -8,6 +8,8 @@ from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.db.base import get_db
 from app.models.service_contract import (
+    AssetQualification,
+    AssetVersion,
     ServiceContract,
     ServiceIncident,
     ServiceWindow,
@@ -75,6 +77,41 @@ def list_contracts(
         .order_by(ServiceContract.created_at.desc(), ServiceContract.id)
     )
     return _page(query, services.contract_public, offset, limit)
+
+
+@router.get("/qualification-policies")
+def qualification_policies(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Named, tenant-scoped choices from recorded qualifications; digests remain stable."""
+    _access(db, workspace, user, admin=True)
+    rows = (
+        db.query(AssetQualification, AssetVersion)
+        .join(AssetVersion, AssetVersion.id == AssetQualification.asset_id)
+        .filter(
+            AssetQualification.workspace_id == workspace.id,
+            AssetVersion.workspace_id == workspace.id,
+        )
+        .order_by(AssetQualification.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    choices = {}
+    for qualification, asset in rows:
+        policy = qualification.policy_json or {}
+        choices.setdefault(
+            qualification.policy_digest,
+            {
+                "digest": qualification.policy_digest,
+                "name": policy.get("name")
+                or policy.get("title")
+                or f"{asset.logical_key} · v{qualification.version}",
+                "created_at": qualification.created_at,
+            },
+        )
+    return {"items": list(choices.values())}
 
 
 @router.post("")

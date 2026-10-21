@@ -200,11 +200,11 @@ test('automation mode exposes Run directly and keeps Publish as the second verb'
   assert.match(styles, /\.ck-flow-toolbar__meta,\s*\n\s*\.ck-flow-toolbar__revision \{\s*\n\s*display: none;/);
 });
 
-test('a reservation stays on the open system, including one that is not an automation', () => {
+test('a reservation stays on the editable system and cannot start from published reading', () => {
   const builder = source('flow-builder.component.ts');
   assert.match(
     builder,
-    /@if \(systemId\(\); as boundSystemId\) \{\s*<app-review-loop \[systemId\]="boundSystemId" \/>/,
+    /@if \(persistence\.hydrationReady\(\) && !persistence\.readOnly\(\) && systemId\(\); as boundSystemId\) \{\s*<app-review-loop \[systemId\]="boundSystemId" \/>/,
   );
 });
 
@@ -353,7 +353,7 @@ test('builder mounts one ephemeral workbench and never exposes it on scratchpad'
   const persistence = source('flow-persistence.service.ts');
   assert.match(builder, /\[workbenchAvailable\]="!!systemId\(\)"/);
   assert.match(builder, /@if \(workbenchOpen\(\)\) \{\s*<app-flow-workbench-panel/);
-  assert.match(builder, /if \(!this\.systemId\(\) \|\| !this\.persistence\.hydrationReady\(\)\) return/);
+  assert.match(builder, /if \(!this\.systemId\(\) \|\| !this\.persistence\.hydrationReady\(\) \|\| this\.persistence\.readOnly\(\)\) return/);
   assert.match(builder, /this\.run\.terminalOpen\.set\(false\)/);
   assert.match(builder, /this\.persistence\.setWorkbenchAutosaveHold\(open\)/);
   assert.match(builder, /\(close\)="closeWorkbench\(\)"/);
@@ -408,4 +408,13 @@ test('version preview is semantic while unloaded rows are explicitly count-only'
     /\[disabled\]="previewStatus\(v\) === 'loading'"/,
     'every row can load or retry its exact semantic payload, with duplicate requests fenced',
   );
+});
+
+
+test('unknown promotion links to a catalogue in a new tab while keeping resubmission blocked', () => {
+  const toolbar = source('flow-toolbar.component.ts');
+  assert.match(toolbar, /\[disabled\]="persistence\.promotionBlocked\(\) \|\| !persistence\.promoteName\(\)\.trim\(\)"/);
+  assert.match(toolbar, /\[navLink\]="\{ surface: 'systems' \}" target="_blank" rel="noopener noreferrer" data-testid="flow-promote-verify"/);
+  assert.ok(FLOW_EN['flow.promote.verify_catalog'].trim());
+  assert.ok(FLOW_EN['flow.promote.error.unknown'].trim());
 });

@@ -109,7 +109,7 @@ test('Secrets page lists the route workspace on init', () => {
   }
 });
 
-test('Creating a secret sends the value once and clears the field before the response', () => {
+test('Creating a secret retains the value until server confirmation', () => {
   const { injector, component, api } = harness();
   const response = new Subject<SecretMeta>();
   api.createResult = response.asObservable();
@@ -120,9 +120,10 @@ test('Creating a secret sends the value once and clears the field before the res
     component.newName.set('openai-key');
     component.create();
     assert.deepEqual(api.createBodies, [{ name: 'openai-key', value: VALUE, kind: 'api_key', scope: 'workspace' }]);
-    assert.equal(component.newValue(), '');
+    assert.equal(component.newValue(), VALUE);
     response.next(meta());
     response.complete();
+    assert.equal(component.newValue(), '');
     assert.equal(component.newName(), '');
     assert.equal(api.listCalls.length, 2);
   } finally {
@@ -130,7 +131,7 @@ test('Creating a secret sends the value once and clears the field before the res
   }
 });
 
-test('A backend code becomes a translated message and the typed value stays cleared', () => {
+test('A backend rejection preserves the typed value for correction', () => {
   const { injector, component, api } = harness();
   api.createResult = throwError(() => ({ error: { detail: { code: 'SECRET_NAME_TAKEN' } } }));
   try {
@@ -140,11 +141,28 @@ test('A backend code becomes a translated message and the typed value stays clea
     assert.equal(component.error(), 'SECRET_NAME_TAKEN');
     assert.equal(component.errorLabel('SECRET_NAME_TAKEN'), component.i18n.t('resources.secrets.error.secret_name_taken'));
     assert.equal(component.errorLabel('SOMETHING_NEW'), component.i18n.t('resources.secrets.error.unknown'));
-    assert.equal(component.newValue(), '');
+    assert.equal(component.newValue(), VALUE);
     assert.equal(component.busy(), false);
   } finally {
     injector.destroy();
   }
+});
+
+test('rotation and version destruction list consumers before an explicit confirmation', () => {
+  const { injector, component, api } = harness();
+  try {
+    const secret = component.secrets()[0];
+    component.startRotate(secret); component.rotateValue.set(VALUE);
+    component.prepareAction(secret, 'rotate');
+    assert.equal(api.rotateCalls.length, 0);
+    assert.match(component.actionDescription(), /openai/);
+    component.confirmAction();
+    assert.equal(api.rotateCalls.length, 1);
+    component.prepareAction(secret, 'destroy', 1);
+    assert.equal(api.destroyCalls.length, 0);
+    component.confirmAction();
+    assert.deepEqual(api.destroyCalls, [{id:'s1',version:1}]);
+  } finally { injector.destroy(); }
 });
 
 test('Rotation, history and destruction go through the registry API', () => {

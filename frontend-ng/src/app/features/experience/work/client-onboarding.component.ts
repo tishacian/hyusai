@@ -1,3 +1,4 @@
+import { STRICT } from '@app/shared/ui/load-state';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -548,13 +549,19 @@ export class ClientOnboardingComponent {
       business_constraints: { source: 'client_onboarding', collection_id: src.id },
       ephemeral: true,
       ttl_hours: 24,
-    }, { workspaceSlug: scope.workspaceSlug }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((context) => {
-      if (!this.workspace.isRequestScopeCurrent(scope) || this.contextFor !== src.id) return;
-      if (!context?.id || context.environment_state?.['collection'] !== src.slug) {
+    }, { workspaceSlug: scope.workspaceSlug }, STRICT).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (context) => {
+        if (!this.workspace.isRequestScopeCurrent(scope) || this.contextFor !== src.id) return;
+        if (!context?.id || context.environment_state?.['collection'] !== src.slug) {
+          this.contextError.set(true);
+          return;
+        }
+        this.contextId.set(context.id);
+      },
+      error: () => {
+        if (!this.workspace.isRequestScopeCurrent(scope) || this.contextFor !== src.id) return;
         this.contextError.set(true);
-        return;
-      }
-      this.contextId.set(context.id);
+      },
     });
   }
 

@@ -1,14 +1,23 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
+import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
+import type { Skill } from '@app/core/canonical-api.service';
+import { judgeGraphSources, judgeOutputPaths, nextRubricVersion } from './typed-judge-guidance';
 import { changeQuestionType, newQuestion, JUDGE_BUDGET_LIMITS, validateJudgeDraft, type QuestionType, type TypedJudgeDraft, type TypedQuestion } from './dataops.models';
 
 @Component({
   selector: 'app-typed-judge-editor', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
   template: `
     <p class="dp-note">{{ i18n.t('dataops.judge.contract_hint') }}</p>
-    <div class="dp-grid">@for (field of rubricFields; track field) {
-      <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + field) }}</span><input class="dp-input" [value]="value()[field]" (input)="rubric(field, val($event))" /></label>
-    }</div>
+    <p class="dp-note">{{ i18n.t('flow.judge.guidance.identity') }} · {{ value().rubric_id }} · {{ value().rubric_version }}</p>
+    <button type="button" class="dp-button" (click)="rubric('rubric_version', nextVersion())">{{ i18n.t('flow.judge.guidance.next', { version: nextVersion() }) }}</button>
+    <details><summary>{{ i18n.t('dataops.advanced') }}</summary>
+      <div class="dp-grid">@for (field of rubricFields; track field) {
+        <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + field) }}</span><input class="dp-input" [value]="value()[field]" (input)="rubric(field, val($event))" /></label>
+      }</div>
+      <label class="dp-field"><span>{{ i18n.t('flow.judge.guidance.json') }}</span><textarea class="dp-input" rows="8" [value]="jsonValue()" (change)="applyJson(val($event))"></textarea></label>
+      @if (jsonError()) { <p class="dp-error" role="alert">{{ i18n.t('flow.judge.guidance.invalid_json') }}</p> }
+    </details>
     <details class="dp-section"><summary>{{ i18n.t('dataops.judge.run_evidence') }}</summary>
       <p class="dp-note">{{ i18n.t('dataops.judge.run_evidence_hint') }}</p>
       <label class="dp-check"><input type="checkbox" [checked]="!!value().run_evidence" (change)="runEvidence(checked($event))" />{{ i18n.t('dataops.judge.run_evidence_enable') }}</label>
@@ -16,9 +25,14 @@ import { changeQuestionType, newQuestion, JUDGE_BUDGET_LIMITS, validateJudgeDraf
         @for (source of binding.sources; track $index; let n = $index) {
           <section class="dp-section">
             <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_id') }}</span><input class="dp-input" [value]="source.id" (input)="evidenceField(n, 'id', val($event))" /></label>
-            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_skill') }}</span><input class="dp-input" [value]="source.skill_slug" (input)="evidenceField(n, 'skill_slug', val($event))" /></label>
-            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_node') }}</span><input class="dp-input" [value]="source.node_id ?? ''" (input)="evidenceField(n, 'node_id', val($event))" /></label>
-            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_paths') }}</span><textarea class="dp-input" rows="3" [value]="source.paths.join('\n')" (change)="evidencePaths(n, val($event))"></textarea></label>
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_skill') }}</span><select class="dp-input" [value]="source.skill_slug" (change)="selectEvidenceSkill(n, val($event))"><option value="">{{ i18n.t('flow.judge.guidance.choose') }}</option>@for (slug of sourceSkills(); track slug) { <option [value]="slug">{{ skillName(slug) }}</option> }</select></label>
+            <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_node') }}</span><select class="dp-input" [value]="source.node_id ?? ''" (change)="evidenceField(n, 'node_id', val($event))"><option value="">{{ i18n.t('flow.judge.guidance.choose') }}</option>@for (node of sourceNodes(source.skill_slug); track node.nodeId) { <option [value]="node.nodeId">{{ node.label }}</option> }</select></label>
+            @if (hasOutputContract(source.skill_slug)) {
+              <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_paths') }}</span><select class="dp-input" multiple (change)="selectEvidencePaths(n, selected($event))">@for (path of outputPaths(source.skill_slug); track path) { <option [value]="path" [selected]="source.paths.includes(path)">{{ path }}</option> }</select></label>
+            } @else {
+              <p class="dp-note">{{ i18n.t('flow.judge.guidance.free_path') }}</p>
+              <label class="dp-field"><span>{{ i18n.t('dataops.judge.evidence_paths') }}</span><textarea class="dp-input" rows="3" [value]="source.paths.join('\n')" (change)="evidencePaths(n, val($event))"></textarea></label>
+            }
             <button type="button" class="dp-button" [disabled]="binding.sources.length <= 1" (click)="removeEvidence(n)">{{ i18n.t('dataops.remove') }}</button>
           </section>
         }
@@ -72,13 +86,43 @@ import { changeQuestionType, newQuestion, JUDGE_BUDGET_LIMITS, validateJudgeDraf
 })
 export class TypedJudgeEditorComponent {
   readonly i18n = inject(I18nService); readonly value = input.required<TypedJudgeDraft>(); readonly valueChange = output<TypedJudgeDraft>();
+  readonly graph = input<CanonicalFlowNode[]>([]);
+  readonly nodeId = input('');
+  readonly skills = input<Skill[]>([]);
+  readonly sources = computed(() => judgeGraphSources(this.graph(), this.nodeId()));
+  readonly sourceSkills = computed(() => [...new Set(this.sources().map(source => source.skillSlug))]);
+  readonly nextVersion = computed(() => nextRubricVersion(this.value().rubric_version));
+  readonly jsonValue = computed(() => JSON.stringify(this.value(), null, 2));
+  readonly jsonError = signal(false);
   readonly types: QuestionType[] = ['boolean', 'choice', 'multi_choice', 'score', 'probability'];
   readonly rubricFields = ['rubric_id', 'rubric_version'] as const;
   readonly budgetFields = ['max_calls', 'max_tokens', 'max_cost_usd', 'max_output_tokens', 'timeout_s', 'max_prompt_bytes'] as const;
   readonly tariffText = ['provider', 'model', 'reference'] as const; readonly tariffNumbers = ['input_per_million', 'output_per_million'] as const;
   readonly budgetLimits = JUDGE_BUDGET_LIMITS;
   readonly nativeKinds = ['document_set', 'dataset', 'model'] as const;
-  readonly errors = computed(() => validateJudgeDraft(this.value()));
+  readonly errors = computed(() => [
+    ...validateJudgeDraft(this.value()),
+    ...(this.value().run_evidence?.sources.some(source => this.hasOutputContract(source.skill_slug) && source.paths.some(path => !this.outputPaths(source.skill_slug).includes(path))) ? ['flow.judge.guidance.invalid_path'] : []),
+  ]);
+  sourceNodes(slug: string) { return this.sources().filter(source => source.skillSlug === slug); }
+  skillName(slug: string): string { return this.skills().find(skill => skill.slug === slug)?.name ?? slug; }
+  hasOutputContract(slug: string): boolean { const schema = this.skills().find(skill => skill.slug === slug)?.output_schema; return !!schema && Object.keys(schema).length > 0; }
+  outputPaths(slug: string): string[] { return judgeOutputPaths(this.skills().find(skill => skill.slug === slug)?.output_schema); }
+  selectEvidenceSkill(n: number, slug: string): void {
+    if (!this.sourceSkills().includes(slug)) return;
+    this.change(draft => { if (draft.run_evidence) draft.run_evidence.sources[n] = { ...draft.run_evidence.sources[n], skill_slug: slug, node_id: this.sourceNodes(slug)[0]?.nodeId ?? null, paths: [] }; });
+  }
+  selectEvidencePaths(n: number, paths: string[]): void {
+    const slug = this.value().run_evidence?.sources[n]?.skill_slug;
+    if (slug && paths.every(path => this.outputPaths(slug).includes(path))) this.evidencePaths(n, paths.join('\n'));
+  }
+  applyJson(raw: string): void {
+    try {
+      const draft = JSON.parse(raw) as TypedJudgeDraft;
+      if (validateJudgeDraft(draft).length || draft.run_evidence?.sources.some(source => this.hasOutputContract(source.skill_slug) && source.paths.some(path => !this.outputPaths(source.skill_slug).includes(path)))) throw new Error('invalid');
+      this.jsonError.set(false); this.valueChange.emit(draft);
+    } catch { this.jsonError.set(true); }
+  }
   val(event: Event): string { return (event.target as HTMLInputElement).value; }
   checked(event: Event): boolean { return (event.target as HTMLInputElement).checked; }
   number(event: Event): number { const text = this.val(event); return text.trim() ? Number(text) : Number.NaN; }

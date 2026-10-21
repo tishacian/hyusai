@@ -290,7 +290,7 @@ Outcome, decision, simulation, immutable approval snapshot, bounded actuation an
 - **api / PASS** — [Atomic Run outcome override boundary](../backend/app/api/v1/endpoints/runs.py)
 - **api / PASS** — [Portfolio value-loop aggregation](../backend/app/api/v1/endpoints/hypervisor.py)
 - **api / PASS** — [Server-managed Showcase seed marker](../backend/app/api/v1/endpoints/auth.py)
-- **frontend / FAIL** — [Steer value-loop evidence UI](../frontend-ng/src/app/features/systems/system-value-loop.component.ts); 1 literal(s) missing
+- **frontend / FAIL** — [Steer value-loop evidence UI](../frontend-ng/src/app/features/systems/system-value-loop.component.ts); 5 literal(s) missing
 - **frontend / PASS** — [Portfolio Capability count avoids Run substitution](../frontend-ng/src/app/features/hypervisor/hypervisor-impact.ts)
 - **tests / PASS** — [Value-loop transaction and evidence semantics](../backend/app/tests/services/test_value_loop.py)
 - **tests / PASS** — [Current-authority API boundary](../backend/app/tests/api/test_value_loop_api.py)

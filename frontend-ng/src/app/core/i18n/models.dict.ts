@@ -15,6 +15,11 @@
  */
 
 export const MODELS_FR = {
+  'models.detail.selected': 'Version sélectionnée',
+  'models.availability.qualification': 'Les métriques observées ne constituent pas une qualification de l’usage prévu.',
+  "models.studio.quality_reservation": "Cette préparation ne conclut pas à la qualité : la séparation des populations et les preuves de contamination doivent être vérifiées sur le résultat.",
+  "models.studio.small_test_population": "Test prévu sur {count} lignes : population limitée, aucune conclusion de qualité.",
+  'models.list.selected_unavailable': 'v{version} sélectionnée, non appelable',
   "models.governance.retention_disabled": "La purge automatique est désactivée sur la plateforme. La durée ci-dessous sera appliquée après son activation.",
   "models.governance.store_call": "Conserver les entrées de cet appel si la politique du workspace l’autorise",
   "models.governance.rotate": "Renouveler",
@@ -930,7 +935,7 @@ export const MODELS_FR = {
   'models.studio.close': 'Fermer',
   'models.studio.dataset.label': 'Jeu de données',
   'models.studio.dataset.placeholder': 'Choisir un jeu de données',
-  'models.studio.dataset.meta': '{rows} lignes · {columns} colonnes',
+  'models.studio.dataset.meta': 'v{version} · {rows} lignes · {columns} colonnes',
   'models.studio.dataset.sample': 'Ce que le modèle va lire',
   'models.studio.target.label': 'Colonne à prédire',
   'models.studio.target.placeholder': 'Choisir la colonne',
@@ -1776,6 +1781,11 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
+  'models.detail.selected': 'Selected version',
+  'models.availability.qualification': 'Observed metrics do not establish qualification for the intended use.',
+  "models.studio.quality_reservation": "This preparation makes no quality conclusion: population separation and leakage evidence must be checked on the result.",
+  "models.studio.small_test_population": "Planned test on {count} rows: limited population, no quality conclusion.",
+  "models.list.selected_unavailable": "v{version} selected, not callable",
   "models.governance.retention_disabled": "Automatic purge is disabled on the platform. The period below will apply after it is enabled.",
   "models.governance.store_call": "Store this call’s inputs if the workspace policy allows it",
   "models.governance.rotate": "Rotate",
@@ -2685,7 +2695,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.studio.close': 'Close',
   'models.studio.dataset.label': 'Dataset',
   'models.studio.dataset.placeholder': 'Choose a dataset',
-  'models.studio.dataset.meta': '{rows} rows · {columns} columns',
+  'models.studio.dataset.meta': 'v{version} · {rows} rows · {columns} columns',
   'models.studio.dataset.sample': 'What the model will read',
   'models.studio.target.label': 'Column to predict',
   'models.studio.target.placeholder': 'Choose the column',

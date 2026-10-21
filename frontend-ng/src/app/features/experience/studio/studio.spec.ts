@@ -310,7 +310,10 @@ test('release and rollback requests carry the state reviewed by the author', () 
   assert.match(EDITOR_SOURCE, /releaseId: targetReleaseId/);
   assert.match(EDITOR_SOURCE, /expectedCurrentReleaseId: deployment\.release_id/);
   assert.match(EDITOR_SOURCE, /expectedDeploymentUpdatedAt/);
-  assert.match(EDITOR_SOURCE, /lifecycleBusy\(\) \|\| !deployment\.previous_release_id \|\| !deployment\.updated_at/);
+  assert.match(EDITOR_SOURCE, /\(click\)="rollbackCandidate\.set\(deployment\)"/);
+  assert.match(EDITOR_SOURCE, /\[description\]="rollbackDescription\(\)"/);
+  assert.match(EDITOR_SOURCE, /if \(conflict\) this\.reloadDeployments\(\)/);
+  assert.match(EDITOR_SOURCE, /lifecycleBusy\(\) \|\| deploymentsState\(\) !== 'ready' \|\| !deployment\.previous_release_id \|\| !deployment\.updated_at/);
 });
 
 test('deployment compares the channel head captured when review opens', () => {

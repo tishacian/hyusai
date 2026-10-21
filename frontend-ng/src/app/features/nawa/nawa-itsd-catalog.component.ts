@@ -1,3 +1,4 @@
+import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -52,7 +53,7 @@ interface CatalogRow {
   selector: 'app-nawa-itsd-catalog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [SpecializedAppContractComponent,
     DecimalPipe,
     NgTemplateOutlet,
     FormsModule,
@@ -76,6 +77,7 @@ interface CatalogRow {
       <div class="nawa-header-spacer"></div>
       <app-nawa-theme-toggle />
     </header>
+    <app-specialized-app-contract application="itsd" />
 
     <div class="nawa-body">
       <div class="catalog-controls">

@@ -1,7 +1,9 @@
 import { BrandAppearanceEditorComponent } from '@app/shared/brand-appearance-editor.component';
 import type { BrandAppearance } from '@app/core/brand-appearance';
 import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, signal, viewChild } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { forkJoin } from 'rxjs';
+import { accessReasonFromError, accessStateUrl } from '@app/features/access-state/access-state.model';
 import { HelpTooltipComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -29,6 +31,15 @@ import {
   type ExperiencePattern,
 } from './studio-model';
 import type { System } from '@app/core/canonical-api.service';
+import {
+  resumeStep,
+  slugProblem,
+  slugProblemFromCode,
+  wizardQueryParams,
+  wizardStepFromParam,
+  wizardUrl,
+  type SlugProblem,
+} from './wizard-route';
 import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
 
 @Component({
@@ -47,11 +58,21 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
         <div class="xp-wizard-title">
           <strong>{{ i18n.t('experience.wizard.title') }}</strong>
           <span>{{ i18n.t(experienceId() ? 'experience.wizard.created' : 'experience.wizard.not_created') }}</span>
+          @switch (wizardSave()) {
+            @case ('saving') { <span role="status" data-testid="wizard-progress" data-state="saving">{{ i18n.t('experience.wizard.progress.saving') }}</span> }
+            @case ('saved') { <span role="status" data-testid="wizard-progress" data-state="saved">{{ i18n.t('experience.wizard.progress.saved') }}</span> }
+            @case ('error') {
+              <span role="alert" data-testid="wizard-progress" data-state="error">
+                {{ i18n.t('experience.wizard.progress.error') }}
+                <button type="button" class="xp-link-btn" (click)="persistWizard()">{{ i18n.t('common.retry') }}</button>
+              </span>
+            }
+          }
         </div>
         <button
           type="button"
           class="xp-btn"
-          [disabled]="busy() || stagedBindings().length > 0 || (step() === 3 && !canFinish())"
+          [disabled]="busy() || resumeState() !== 'idle' || (step() === 3 && !canFinish())"
           (click)="saveAndClose()"
         >
           {{ i18n.t(experienceId() ? 'experience.wizard.save_close' : 'experience.wizard.close') }}
@@ -80,6 +101,14 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
           <p class="xp-note" role="status">{{ message }}</p>
         }
 
+      @if (resumeState() === 'loading') {
+        <p class="xp-hint" role="status" data-testid="wizard-resuming">{{ i18n.t('experience.wizard.resume.loading') }}</p>
+      } @else if (resumeState() === 'error') {
+        <div class="xp-error" role="alert" data-testid="wizard-resume-error">
+          <p>{{ i18n.t('experience.wizard.resume.error') }}</p>
+          <button type="button" class="xp-btn" (click)="retryResume()">{{ i18n.t('experience.wizard.retry') }}</button>
+        </div>
+      } @else {
       @switch (step()) {
         @case (1) {
           <label class="xp-field" for="xp-wiz-name">
@@ -112,11 +141,32 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
               }
             </select>
           </label>
-          @if (slug()) {
-            <p class="xp-hint">{{ i18n.t('experience.wizard.slug') }} · /work/{{ slug() }}</p>
-          } @else {
-            <p class="xp-hint">{{ i18n.t('experience.wizard.slug.pending') }}</p>
-          }
+          <label class="xp-field" for="xp-wiz-slug">
+            <span>{{ i18n.t('experience.wizard.slug.label') }}</span>
+            <span class="xp-slug-input">
+              <span aria-hidden="true">/work/</span>
+              <input
+                id="xp-wiz-slug"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="120"
+                [value]="slug()"
+                [placeholder]="i18n.t('experience.wizard.slug.pending')"
+                [attr.aria-invalid]="slugIssue() ? 'true' : null"
+                [attr.aria-describedby]="slugIssue() ? 'xp-wiz-slug-error' : 'xp-wiz-slug-hint'"
+                (input)="onSlug($event)"
+                data-testid="wizard-slug"
+              />
+            </span>
+            @if (slugIssue(); as issue) {
+              <small id="xp-wiz-slug-error" class="xp-field-error" role="alert" data-testid="wizard-slug-error" [attr.data-kind]="issue">
+                {{ i18n.t('experience.wizard.slug.error.' + issue) }}
+              </small>
+            } @else {
+              <small id="xp-wiz-slug-hint" class="xp-hint">{{ i18n.t('experience.wizard.slug.hint') }}</small>
+            }
+          </label>
 
           <div class="xp-cards" role="radiogroup" [attr.aria-label]="i18n.t('experience.wizard.pattern.aria')">
             @for (pattern of patterns; track pattern; let i = $index) {
@@ -142,6 +192,7 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
                 </span>
                 <p>{{ i18n.t('experience.wizard.pattern.' + pattern + '.body') }}</p>
                 <p class="xp-choice-eg">{{ i18n.t('experience.wizard.pattern.' + pattern + '.example') }}</p>
+                <p class="xp-choice-not">{{ i18n.t('experience.wizard.pattern.' + pattern + '.not') }}</p>
               </button>
             }
             @if (homeDoc()) {
@@ -197,7 +248,18 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
                   </button>
                 </div>
               } @else if (systems().length === 0) {
-                <p class="xp-hint">{{ i18n.t('experience.wizard.bind.none_published') }}</p>
+                <div class="xp-bind-empty" data-testid="wizard-no-system">
+                  <p class="xp-hint">{{ i18n.t('experience.wizard.bind.none_published') }}</p>
+                  <p class="xp-hint">{{ i18n.t('experience.wizard.bind.create_system.hint') }}</p>
+                  <div class="xp-foot-end">
+                    <button type="button" class="xp-btn" (click)="createSystemAndReturn()" data-testid="wizard-create-system">
+                      {{ i18n.t('experience.wizard.bind.create_system') }}
+                    </button>
+                    <button type="button" class="xp-btn" (click)="loadSystems()" data-testid="wizard-refresh-systems">
+                      {{ i18n.t('experience.wizard.bind.refresh_systems') }}
+                    </button>
+                  </div>
+                </div>
               } @else if (visibleSystems().length === 0) {
                 <p class="xp-hint">{{ i18n.t('experience.wizard.bind.no_match') }}</p>
               }
@@ -400,6 +462,7 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
           }
         </div>
       </footer>
+      }
       </div>
     </section>
   `,
@@ -409,6 +472,7 @@ export class ExperienceWizardComponent {
   private readonly api = inject(StudioApiService);
   private readonly home = inject(SystemHomeService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly navigation = inject(ZoomContextService);
   private readonly wizardHeading = viewChild<ElementRef<HTMLHeadingElement>>('wizardHeading');
 
@@ -461,6 +525,20 @@ export class ExperienceWizardComponent {
   readonly audience = signal<string[]>([]);
   readonly groups = signal<string[]>([]);
   readonly wholeWorkspace = signal(false);
+  /** Resuming an application whose wizard was left unfinished (`?draft=`). */
+  readonly resumeState = signal<'idle' | 'loading' | 'error'>('idle');
+  /** Whether the server holds the current step, staged bindings and audience. */
+  readonly wizardSave = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  readonly slugServerIssue = signal<SlugProblem | null>(null);
+  private readonly ownSlug = signal<string | null>(null);
+  private wizardSaveGeneration = 0;
+  readonly slugIssue = computed<SlugProblem | null>(() => {
+    const server = this.slugServerIssue();
+    if (server) return server;
+    if (!this.slugDirty() || !this.slug()) return null;
+    const own = this.ownSlug();
+    return slugProblem(this.slug(), this.taken().filter((item) => item !== own));
+  });
   readonly homePreview = computed(() => this.home.preview());
   readonly homeDoc = computed(() => this.home.document());
   readonly visibleSystems = computed(() => {
@@ -494,10 +572,121 @@ export class ExperienceWizardComponent {
     });
     this.loadBindings();
     this.loadSystems();
+    const params = this.route.snapshot.queryParamMap;
+    const draft = params.get('draft');
+    if (draft) this.resume(draft, wizardStepFromParam(params.get('step')));
   }
 
   canNext(): boolean {
-    return this.name().trim().length > 0;
+    return this.name().trim().length > 0 && !this.slugIssue() && this.resumeState() === 'idle';
+  }
+
+  onSlug(event: Event): void {
+    this.slugDirty.set(true);
+    this.slugServerIssue.set(null);
+    this.slug.set(this.inputValue(event).trim().toLowerCase());
+  }
+
+  retryResume(): void {
+    const draft = this.route.snapshot.queryParamMap.get('draft');
+    if (draft) this.resume(draft, wizardStepFromParam(this.route.snapshot.queryParamMap.get('step')));
+  }
+
+  /**
+   * Reopen an unfinished wizard at the step the server kept: name, form,
+   * address, bindings already chosen and audience come back as they were.
+   */
+  private resume(id: string, requested: number | null): void {
+    this.resumeState.set('loading');
+    forkJoin({ detail: this.api.getExperience(id), wizard: this.api.getWizard(id) }).subscribe({
+      next: ({ detail, wizard }) => {
+        if (!wizard) {
+          // Already finalised: the application lives in the editor now.
+          void this.router.navigateByUrl(this.navigation.leafUrl('create-app-edit', { ref: id }), { replaceUrl: true });
+          return;
+        }
+        this.experienceId.set(detail.id);
+        this.name.set(detail.name);
+        this.description.set(detail.description ?? '');
+        this.emblem.set(detail.emblem || '◇');
+        this.slug.set(detail.slug);
+        this.ownSlug.set(detail.slug);
+        this.slugDirty.set(true);
+        if ((this.patterns as readonly string[]).includes(detail.pattern)) {
+          this.selectedPattern.set(detail.pattern as ExperiencePattern);
+        }
+        if (detail.languages?.length) this.langs.set([...detail.languages]);
+        const theme = (detail.theme ?? {}) as { mode?: unknown; appearance?: unknown };
+        if (typeof theme.mode === 'string') this.themeMode.set(theme.mode);
+        if (theme.appearance && typeof theme.appearance === 'object') this.appearance.set(theme.appearance as BrandAppearance);
+        this.draftRevision.set(detail.draft?.revision ?? 1);
+        this.experienceUpdatedAt.set(detail.updated_at ?? null);
+        this.stagedBindings.set(wizard.staged_bindings ?? []);
+        const keys = [...(detail.draft?.binding_keys ?? [])];
+        for (const row of wizard.staged_bindings ?? []) {
+          if (!keys.includes(row.binding_key)) keys.push(row.binding_key);
+        }
+        this.selectedKeys.set(keys);
+        this.audience.set([...(wizard.audience?.roles ?? [])]);
+        this.groups.set([...(wizard.audience?.groups ?? [])]);
+        this.wholeWorkspace.set(wizard.audience?.whole_workspace === true);
+        this.resumeState.set('idle');
+        this.wizardSave.set('saved');
+        const step = resumeStep(wizard.step, requested);
+        this.step.set(step);
+        this.syncUrl();
+        if (step >= 2) this.loadEntries();
+        queueMicrotask(() => this.wizardHeading()?.nativeElement.focus());
+      },
+      error: (err) => {
+        const access = accessReasonFromError(err);
+        if (access.reason !== 'unverifiable') {
+          void this.router.navigateByUrl(
+            accessStateUrl(this.router, access.reason, { from: this.router.url, feature: access.feature }),
+            { replaceUrl: true },
+          );
+          return;
+        }
+        this.resumeState.set('error');
+      },
+    });
+  }
+
+  /** Keep the step and the application in the address, so a reload lands here. */
+  private syncUrl(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: wizardQueryParams(this.experienceId(), this.step()),
+      replaceUrl: true,
+    });
+  }
+
+  /** Save the step, staged bindings and audience on the server. */
+  persistWizard(): void {
+    const id = this.experienceId();
+    if (!id) return;
+    const generation = ++this.wizardSaveGeneration;
+    this.wizardSave.set('saving');
+    this.api.saveWizard(id, {
+      step: this.step(),
+      stagedBindings: this.stagedBindings(),
+      audience: { roles: this.audience(), groups: this.groups(), whole_workspace: this.wholeWorkspace() },
+    }).subscribe({
+      next: () => { if (generation === this.wizardSaveGeneration) this.wizardSave.set('saved'); },
+      error: () => { if (generation === this.wizardSaveGeneration) this.wizardSave.set('error'); },
+    });
+  }
+
+  /**
+   * No published System to bind: create one from Créer, which offers the way
+   * back here. The wizard's progress is already on the server.
+   */
+  createSystemAndReturn(): void {
+    const id = this.experienceId();
+    if (!id) return;
+    void this.router.navigate([this.navigation.surfaceUrl('create')], {
+      queryParams: { returnTo: wizardUrl(id, 2) },
+    });
   }
 
   canAdvance(): boolean {
@@ -657,6 +846,7 @@ export class ExperienceWizardComponent {
     };
     this.stagedBindings.update((list) => [...list, row]);
     this.selectedKeys.update((keys) => [...keys, row.binding_key]);
+    this.persistWizard();
   }
 
   onName(event: Event): void {
@@ -763,19 +953,44 @@ export class ExperienceWizardComponent {
   }
 
   closeWizard(): void {
-    const hasLocalChoices = !!this.experienceId() && (this.step() > 1 || this.stagedBindings().length > 0);
+    // Choices the server holds are not lost by closing; only unsaved ones are.
+    const hasLocalChoices = !!this.experienceId()
+      && (this.step() > 1 || this.stagedBindings().length > 0)
+      && this.wizardSave() !== 'saved';
     if (hasLocalChoices && !globalThis.confirm(this.i18n.t('experience.wizard.discard_confirm'))) return;
     void this.router.navigateByUrl(this.navigation.surfaceUrl('create-apps'));
   }
 
   private goToStep(step: number): void {
     this.step.set(step);
+    this.syncUrl();
+    this.persistWizard();
     queueMicrotask(() => this.wizardHeading()?.nativeElement.focus());
   }
 
   saveAndClose(): void {
     if (this.stagedBindings().length > 0) {
-      this.error.set(this.i18n.t('experience.wizard.bind.finish_to_save'));
+      // Staged bindings are kept with the wizard's progress; they become
+      // workspace bindings only when the draft is finalised.
+      const id = this.experienceId();
+      if (!id) return;
+      this.busy.set(true);
+      this.wizardSave.set('saving');
+      this.api.saveWizard(id, {
+        step: this.step(),
+        stagedBindings: this.stagedBindings(),
+        audience: { roles: this.audience(), groups: this.groups(), whole_workspace: this.wholeWorkspace() },
+      }).subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.wizardSave.set('saved');
+          void this.router.navigateByUrl(this.navigation.surfaceUrl('create-apps'));
+        },
+        error: () => {
+          this.busy.set(false);
+          this.wizardSave.set('error');
+        },
+      });
       return;
     }
     if (!this.experienceId()) {
@@ -916,9 +1131,11 @@ export class ExperienceWizardComponent {
     if (current.includes(key)) {
       this.selectedKeys.set(current.filter((item) => item !== key));
       this.stagedBindings.update((rows) => rows.filter((row) => row.binding_key !== key));
+      this.persistWizard();
       return;
     }
     this.selectedKeys.set([...current, key]);
+    this.persistWizard();
   }
 
   toggleLang(code: string): void {
@@ -930,6 +1147,7 @@ export class ExperienceWizardComponent {
     this.wholeWorkspace.set(false);
     const current = this.audience();
     this.audience.set(current.includes(role) ? current.filter((item) => item !== role) : [...current, role]);
+    this.persistWizard();
   }
 
   onGroups(event: Event): void {
@@ -939,6 +1157,7 @@ export class ExperienceWizardComponent {
       .filter((item, index, all) => !!item && all.indexOf(item) === index);
     this.groups.set(groups);
     if (groups.length > 0) this.wholeWorkspace.set(false);
+    this.persistWizard();
   }
 
   toggleWholeWorkspace(): void {
@@ -948,6 +1167,7 @@ export class ExperienceWizardComponent {
       this.audience.set([]);
       this.groups.set([]);
     }
+    this.persistWizard();
   }
 
   systemName(id: string): string {
@@ -1026,6 +1246,7 @@ export class ExperienceWizardComponent {
       next: (row) => {
         this.experienceId.set(row.id);
         this.slug.set(row.slug);
+        this.ownSlug.set(row.slug);
         this.draftRevision.set(row.draft?.revision ?? this.draftRevision());
         this.experienceUpdatedAt.set(row.updated_at ?? null);
         if (this.stagedBindings().length > 0) {
@@ -1036,7 +1257,14 @@ export class ExperienceWizardComponent {
         }
       },
       error: (err) => {
-        this.error.set(studioError(this.i18n, err, 'experience.wizard.error'));
+        const slugIssue = slugProblemFromCode(apiCode(err));
+        if (slugIssue) {
+          // Explained under the address field, where it can be fixed.
+          this.slugServerIssue.set(slugIssue);
+          this.slugDirty.set(true);
+        } else {
+          this.error.set(studioError(this.i18n, err, 'experience.wizard.error'));
+        }
         this.busy.set(false);
       },
     });

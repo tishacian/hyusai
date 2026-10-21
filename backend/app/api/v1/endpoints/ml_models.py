@@ -91,6 +91,7 @@ from app.services.tabular_predict import (
     revoke_api_key,
     serialize_api_key,
     serving_block,
+    serving_readiness,
     unpublish_skill,
 )
 
@@ -98,7 +99,11 @@ router = APIRouter()
 
 
 def _raise_tabular(exc: TabularError) -> None:
-    headers = {"Retry-After": str((exc.details or {}).get("retry_after", 60))} if exc.status_code == 429 else None
+    headers = (
+        {"Retry-After": str((exc.details or {}).get("retry_after", 60))}
+        if exc.status_code == 429
+        else None
+    )
     raise HTTPException(status_code=exc.status_code, detail=exc.payload(), headers=headers) from exc
 
 
@@ -200,7 +205,15 @@ async def list_models(
     badges = badges_for(db, models)
     return {
         "permissions": ml_permissions.capabilities(db, workspace, user),
-        "models": [serialize_model(row, monitor_status=badges.get(row.id)) for row in models],
+        # The selected alias is not evidence that its artifact can be called.
+        # Reuse the detail page's metadata preflight without loading model bytes.
+        "models": [
+            {
+                **serialize_model(row, monitor_status=badges.get(row.id)),
+                **serving_readiness(db, row),
+            }
+            for row in models
+        ],
         "catalog": catalog_payload(db, workspace_id=workspace.id),
     }
 
@@ -506,7 +519,9 @@ async def cancel_model_training(
     try:
         ml_permissions.require(db, "cancel", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="cancel_requested", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="cancel_requested", workspace_id=workspace.id, actor=user.id, model=model
+        )
     except TabularError as exc:
         _raise_tabular(exc)
     model = request_cancel(db, model)
@@ -526,6 +541,7 @@ async def promote_model(
         ml_permissions.require(db, "promote", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
         from app.services.ml_promotion import request as request_promotion
+
         model, decision = request_promotion(db, model=model, workspace=workspace, user=user)
     except TabularError as exc:
         _raise_tabular(exc)
@@ -546,7 +562,9 @@ async def remove_model(
     try:
         ml_permissions.require(db, "delete", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="delete", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="delete", workspace_id=workspace.id, actor=user.id, model=model
+        )
     except TabularError as exc:
         _raise_tabular(exc)
     return {"deleted": delete_model(db, model)}
@@ -635,12 +653,17 @@ def predict_caller(
 
     if x_api_key:
         try:
-            key, model = authenticate_key(db, x_api_key, client_ip=request.client.host if request.client else None)
+            key, model = authenticate_key(
+                db, x_api_key, client_ip=request.client.host if request.client else None
+            )
         except TabularError as exc:
             _raise_tabular(exc)
         return PredictCaller(
-            workspace_id=model.workspace_id, kind="api_key", lineage=str(model.slug),
-            key_id=key.id, pinned_version=key.pinned_version
+            workspace_id=model.workspace_id,
+            kind="api_key",
+            lineage=str(model.slug),
+            key_id=key.id,
+            pinned_version=key.pinned_version,
         )
 
     user = get_current_user(credentials=credentials, db=db)
@@ -672,7 +695,11 @@ async def predict(
         model = get_model(db, model_id=model_id, workspace_id=caller.workspace_id)
         caller.authorize(model)
         if caller.pinned_version is not None and body.version not in (None, caller.pinned_version):
-            raise TabularError(code="ML_KEY_VERSION_DENIED", message="This key is pinned to another model version.", status_code=403)
+            raise TabularError(
+                code="ML_KEY_VERSION_DENIED",
+                message="This key is pinned to another model version.",
+                status_code=403,
+            )
         answer = await run_in_threadpool(
             predict_rows,
             db,
@@ -680,7 +707,8 @@ async def predict(
             body.records(),
             version=caller.pinned_version or body.version,
             caller=caller.kind,
-            key_id=caller.key_id, store=body.store,
+            key_id=caller.key_id,
+            store=body.store,
             explain=body.explain,
             explain_method=body.explain_method,
             interval_level=body.interval_level,
@@ -736,7 +764,11 @@ async def forecast(
         model = get_model(db, model_id=model_id, workspace_id=caller.workspace_id)
         caller.authorize(model)
         if caller.pinned_version is not None and body.version not in (None, caller.pinned_version):
-            raise TabularError(code="ML_KEY_VERSION_DENIED", message="This key is pinned to another model version.", status_code=403)
+            raise TabularError(
+                code="ML_KEY_VERSION_DENIED",
+                message="This key is pinned to another model version.",
+                status_code=403,
+            )
         answer = await run_in_threadpool(
             request_forecast,
             db,
@@ -746,7 +778,8 @@ async def forecast(
             inputs=body.inputs,
             version=caller.pinned_version or body.version,
             caller=caller.kind,
-            key_id=caller.key_id, store=body.store,
+            key_id=caller.key_id,
+            store=body.store,
             explain=body.params.explain,
         )
     except TabularError as exc:
@@ -788,7 +821,9 @@ async def associate_forecast_actuals(
     try:
         ml_permissions.require(db, "policy", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="actuals_changed", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="actuals_changed", workspace_id=workspace.id, actor=user.id, model=model
+        )
         await run_in_threadpool(
             associate, db, model=model, workspace=workspace, user=user, body=body
         )
@@ -814,7 +849,9 @@ async def configure_monitoring(
     try:
         ml_permissions.require(db, "policy", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="monitoring_changed", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="monitoring_changed", workspace_id=workspace.id, actor=user.id, model=model
+        )
         await run_in_threadpool(
             configure, db, model=model, workspace=workspace, user=user, body=body
         )
@@ -861,7 +898,9 @@ async def configure_shadow(
     try:
         ml_permissions.require(db, "shadow", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="shadow_changed", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="shadow_changed", workspace_id=workspace.id, actor=user.id, model=model
+        )
         if not can_configure_mlops(db, workspace=workspace, user=user):
             raise TabularError(
                 code="ML_SHADOW_FORBIDDEN",
@@ -889,7 +928,9 @@ async def post_feedback(
     try:
         ml_permissions.require(db, "feedback", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="feedback", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="feedback", workspace_id=workspace.id, actor=user.id, model=model
+        )
         row = attach_feedback(
             db,
             model=model,
@@ -921,7 +962,11 @@ async def get_prediction_samples(
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
         row = get_prediction(db, prediction_id=prediction_id, workspace_id=workspace.id)
         if row.slug != model.slug:
-            raise TabularError(code="ML_PREDICTION_WRONG_MODEL", message="That prediction belongs to another model.", status_code=409)
+            raise TabularError(
+                code="ML_PREDICTION_WRONG_MODEL",
+                message="That prediction belongs to another model.",
+                status_code=409,
+            )
         return {"prediction": serialize_prediction(row)}
     except TabularError as exc:
         _raise_tabular(exc)
@@ -939,7 +984,9 @@ async def post_feedback_dataset(
     try:
         ml_permissions.require(db, "feedback", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="feedback_dataset", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="feedback_dataset", workspace_id=workspace.id, actor=user.id, model=model
+        )
         dataset = materialize_labeled(db, model=model, created_by=getattr(user, "id", None))
     except TabularError as exc:
         _raise_tabular(exc)
@@ -987,9 +1034,15 @@ async def create_key(
         ml_permissions.require(db, "keys", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
         row, secret = mint_api_key(
-            db, model=model, name=body.name, created_by=getattr(user, "id", None),
-            expires_at=body.expires_at, pinned_version=body.pinned_version, allowed_cidrs=body.allowed_cidrs,
-            rotate_key_id=body.rotate_key_id, overlap_hours=body.overlap_hours,
+            db,
+            model=model,
+            name=body.name,
+            created_by=getattr(user, "id", None),
+            expires_at=body.expires_at,
+            pinned_version=body.pinned_version,
+            allowed_cidrs=body.allowed_cidrs,
+            rotate_key_id=body.rotate_key_id,
+            overlap_hours=body.overlap_hours,
             audit_ip=request.client.host if request.client else None,
         )
     except TabularError as exc:
@@ -1012,7 +1065,15 @@ async def revoke_key(
     try:
         ml_permissions.require(db, "keys", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="key_revoked", workspace_id=workspace.id, actor=user.id, model=model, ip=request.client.host if request.client else None, after={"key_id": key_id})
+        ml_permissions.audit(
+            db,
+            action="key_revoked",
+            workspace_id=workspace.id,
+            actor=user.id,
+            model=model,
+            ip=request.client.host if request.client else None,
+            after={"key_id": key_id},
+        )
         revoke_api_key(db, model=model, key_id=key_id)
     except TabularError as exc:
         _raise_tabular(exc)
@@ -1031,7 +1092,9 @@ async def publish(
     try:
         ml_permissions.require(db, "publish", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="published", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="published", workspace_id=workspace.id, actor=user.id, model=model
+        )
         skill = publish_as_skill(db, model=model, created_by=getattr(user, "id", None))
     except TabularError as exc:
         _raise_tabular(exc)
@@ -1053,7 +1116,9 @@ async def unpublish(
     try:
         ml_permissions.require(db, "publish", workspace, user)
         model = get_model(db, model_id=model_id, workspace_id=workspace.id)
-        ml_permissions.audit(db, action="unpublished", workspace_id=workspace.id, actor=user.id, model=model)
+        ml_permissions.audit(
+            db, action="unpublished", workspace_id=workspace.id, actor=user.id, model=model
+        )
         withdrawn = unpublish_skill(db, model=model)
     except TabularError as exc:
         _raise_tabular(exc)

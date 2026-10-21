@@ -83,6 +83,8 @@ import {
     }
     .help-guide-back {
       display: inline-flex;
+      align-items: center;
+      min-height: 32px;
       margin-bottom: 1rem;
       color: var(--ck-signal-cool, #67d5f6);
       text-decoration: none;
@@ -91,7 +93,7 @@ import {
     .help-guide-back:hover { text-decoration: underline; }
     .help-guide-crumb {
       margin: 0 0 0.75rem;
-      font-size: 10px;
+      font-size: 12px;
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--ck-fg-4);
@@ -132,6 +134,7 @@ import {
       color: var(--ck-signal-cool, #67d5f6);
       text-decoration: underline;
       cursor: pointer;
+      min-height: 32px;
       padding: 0;
       font-size: 0.95rem;
     }

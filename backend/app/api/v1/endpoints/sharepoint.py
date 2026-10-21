@@ -61,9 +61,7 @@ class SharePointSyncRequest(BaseModel):
     )
     folder_server_relative_url: str = Field(
         ...,
-        description=(
-            "Target folder, e.g. '/sites/107645/Shared Documents/Test_partage_externe'."
-        ),
+        description=("Target folder, e.g. '/sites/107645/Shared Documents/Test_partage_externe'."),
     )
     sharing_url: str | None = Field(
         None,
@@ -107,6 +105,7 @@ class SharePointJobSummary(BaseModel):
     ingested_count: int = 0
     ingest_failed_count: int = 0
     collection_name: str | None = None
+    file_outcomes: dict | None = None
     login_required_detail: str | None = None
     error: str | None = None
     output_dir: str | None = None
@@ -129,6 +128,7 @@ def _job_to_summary(job: SharePointSyncJob) -> SharePointJobSummary:
         ingested_count=job.ingested_count or 0,
         ingest_failed_count=job.ingest_failed_count or 0,
         collection_name=job.collection_name,
+        file_outcomes=getattr(job, "file_outcomes", None),
         login_required_detail=job.login_required_detail,
         error=job.error,
         output_dir=job.output_dir,
@@ -151,9 +151,7 @@ def _scoped_session_key(workspace: Workspace, session_key: str) -> str:
     return f"ws_{workspace.id}__{safe_key}"
 
 
-def _resolve_output_dir(
-    workspace: Workspace, request: SharePointSyncRequest
-) -> Path:
+def _resolve_output_dir(workspace: Workspace, request: SharePointSyncRequest) -> Path:
     if request.output_dir:
         return Path(request.output_dir)
     safe_key = request.session_key.replace("/", "_").replace(":", "_")
@@ -206,6 +204,7 @@ def _ingest_downloaded_files(
     workspace_id: str,
     workspace_slug: str,
     collection_name: str,
+    file_outcome=None,
 ) -> tuple[int, int]:
     """Pipe every freshly downloaded file through the RAG pipeline.
 
@@ -247,6 +246,9 @@ def _ingest_downloaded_files(
             workspace_slug,
             collection_name,
         )
+        if file_outcome is not None:
+            for path in result.downloaded_paths:
+                file_outcome(Path(path), "ingest_failed")
         return 0, len(result.downloaded_paths)
 
     import asyncio
@@ -274,11 +276,13 @@ def _ingest_downloaded_files(
                     output_dir,
                 )
                 failed += 1
+                if file_outcome is not None:
+                    file_outcome(abs_path, "ingest_failed")
                 continue
+            if file_outcome is not None:
+                file_outcome(abs_path, "ingesting")
             try:
-                outcome_ingest = loop.run_until_complete(
-                    doc_service.ingest_document(str(abs_path))
-                )
+                outcome_ingest = loop.run_until_complete(doc_service.ingest_document(str(abs_path)))
             except Exception:  # noqa: BLE001 — parser/embedder can throw
                 logger.exception(
                     "SharePoint ingest failed for %s (collection=%s)",
@@ -286,18 +290,22 @@ def _ingest_downloaded_files(
                     collection_name,
                 )
                 failed += 1
+                if file_outcome is not None:
+                    file_outcome(abs_path, "ingest_failed")
                 continue
             # DocumentService.ingest_document returns a dict shaped
             # {status, document_id, chunks_processed, ...}. Treat any
             # non-"error" status as success — this includes the
             # "already indexed" fast path when the file hash matches.
-            status_val = (
-                outcome_ingest.get("status") if isinstance(outcome_ingest, dict) else None
-            )
-            if status_val == "error":
-                failed += 1
-            else:
+            status_val = outcome_ingest.get("status") if isinstance(outcome_ingest, dict) else None
+            if status_val in {"success", "indexed", "already_indexed", "completed", "skipped"}:
                 ingested += 1
+                if file_outcome is not None:
+                    file_outcome(abs_path, "ingested")
+            else:
+                failed += 1
+                if file_outcome is not None:
+                    file_outcome(abs_path, "ingest_failed")
     finally:
         try:
             loop.close()
@@ -339,11 +347,19 @@ def _run_sync_job(
         user_hint=request.user_hint,
     )
 
+    from app.services.connectors.sharepoint_otp.receipt import FileOutcomeLog, relative_filename
+
+    receipt = FileOutcomeLog()
+
+    def _file_outcome(path: Path, state: str) -> None:
+        data = receipt.record(relative_filename(path, output_dir), state)
+        _update_job_row(job_id, file_outcomes=data)
+
     def _progress(msg: str) -> None:
         _update_job_row(job_id, progress=str(msg)[:120])
 
     try:
-        outcome = run_sync_from_payload(payload, progress=_progress)
+        outcome = run_sync_from_payload(payload, progress=_progress, file_outcome=_file_outcome)
     except Exception as exc:  # noqa: BLE001 - we persist failures
         logger.exception("SharePoint sync job %s crashed", job_id)
         _update_job_row(
@@ -384,6 +400,7 @@ def _run_sync_job(
             workspace_id=workspace_id,
             workspace_slug=workspace_slug,
             collection_name=request.collection_name,
+            file_outcome=_file_outcome,
         )
         _update_job_row(
             job_id,
@@ -456,6 +473,37 @@ def _run_sync_job(
 # ---- routes -------------------------------------------------------------
 
 
+@router.post("/test")
+def test_sharepoint_connection(
+    request: SharePointSyncRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> dict:
+    """Authenticate and list a folder without downloading or starting a sync."""
+    _require_admin_role(db, user, workspace)
+    if (
+        not request.folder_server_relative_url
+        or (request.auth_mode == "session" and not request.sharing_url)
+        or (request.auth_mode == "msal" and (not request.client_id or not request.tenant_host))
+    ):
+        return {"ok": False, "status": "not_configured"}
+    from types import SimpleNamespace
+
+    from app.services.connectors.sharepoint_otp.celery_service import run_sync_from_payload
+
+    payload = SimpleNamespace(
+        **request.model_dump(exclude={"session_key", "output_dir", "prune_local_files"}),
+        session_key=_scoped_session_key(workspace, request.session_key),
+        output_dir=_resolve_output_dir(workspace, request),
+        prune_local_files=False,
+        session_dir=Path(settings.sharepoint_session_dir),
+    )
+    outcome = run_sync_from_payload(payload, probe_only=True)
+    state = outcome.connection_status or "unreachable"
+    return {"ok": state == "connected", "status": state}
+
+
 @router.post(
     "/sync",
     status_code=status.HTTP_202_ACCEPTED,
@@ -474,9 +522,7 @@ def enqueue_sharepoint_sync(
             status_code=400,
             detail="sharing_url is required when auth_mode='session'.",
         )
-    if request.auth_mode == "msal" and (
-        not request.client_id or not request.tenant_host
-    ):
+    if request.auth_mode == "msal" and (not request.client_id or not request.tenant_host):
         raise HTTPException(
             status_code=400,
             detail="client_id and tenant_host are required when auth_mode='msal'.",
@@ -590,9 +636,7 @@ def upload_sharepoint_session(
     try:
         session = SharePointSession.from_dict(body.session_dict)
     except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid session payload: {exc}"
-        ) from exc
+        raise HTTPException(status_code=400, detail=f"Invalid session payload: {exc}") from exc
 
     if not session.storage_state:
         raise HTTPException(
