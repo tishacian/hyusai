@@ -191,31 +191,27 @@ test.describe('Measured finish — shared geometry', () => {
     });
   }
 
-  // `knownIssue`: a serious axe finding that predates this lot and lives in a
-  // file another lot owns. `test.fail` keeps it visible and turns red the day
-  // it is fixed, so the marker gets removed instead of forgotten.
   const MATRIX = [
-    { path: '/work', readySelector: '#work-launcher-title', surface: 'work', knownIssue: '' },
+    { path: '/work', readySelector: '#work-launcher-title', surface: 'work' },
     {
       path: '/connectors/connections', readySelector: 'ck-page-frame h1', surface: 'connectors',
-      knownIssue: 'scrollable-region-focusable on the shell command-bar footer under 768 px',
     },
     {
       path: '/create/apps', readySelector: '.xp-table', surface: 'studio',
-      knownIssue: 'scrollable-region-focusable on the shell command-bar footer under 768 px',
     },
     {
       path: '/create/apps/new', readySelector: '.xp-wizard-body', surface: 'studio',
-      knownIssue: 'scrollable-region-focusable on the command-bar footer and the wizard steps under 768 px',
     },
   ] as const;
   for (const screen of MATRIX) {
     test(`${screen.path} passes the accessibility matrix, 320 px included`, async ({ page }, testInfo) => {
-      test.fail(!!screen.knownIssue, screen.knownIssue);
       test.setTimeout(240_000);
       await install(page, 'dark', 'en');
       await page.goto(screen.path);
-      await runAccessibilityMatrix({ page, testInfo, path: screen.path, readySelector: screen.readySelector, surface: screen.surface });
+      await runAccessibilityMatrix({
+        page, testInfo, path: screen.path, readySelector: screen.readySelector, surface: screen.surface,
+        reflowSelectors: screen.path === '/create/apps' ? ['.xp-search input'] : [],
+      });
     });
   }
 });

@@ -65,7 +65,7 @@ def execution_public(row):
 
 
 def queue_execution(db, task, user_id, *, confirm_rerun=False):
-    # All launch/resume writers lock this same task before selecting its attempts.
+    # Concurrent launches serialize on the parent before selecting attempts.
     db.query(Task).filter_by(id=task.id, workspace_id=task.workspace_id).with_for_update().one()
     active = (
         db.query(TaskExecution)
@@ -121,7 +121,9 @@ def queue_execution(db, task, user_id, *, confirm_rerun=False):
 
 
 def resume_execution(db, task, execution_id):
-    db.query(Task).filter_by(id=task.id, workspace_id=task.workspace_id).with_for_update().one()
+    # Workers checkpoint/recover an attempt before updating its parent task.
+    # Take these locks in the same order so a concurrent resume cannot deadlock
+    # with the worker while waiting to learn the attempt's current state.
     row = (
         db.query(TaskExecution)
         .filter_by(id=execution_id, task_id=task.id, workspace_id=task.workspace_id)
@@ -132,6 +134,7 @@ def resume_execution(db, task, execution_id):
         row.status = "interrupted"
     if row is None or row.status != "interrupted":
         raise MissionConflict("MISSION_NOT_INTERRUPTED")
+    db.query(Task).filter_by(id=task.id, workspace_id=task.workspace_id).with_for_update().one()
     row.status = "queued"
     row.error = None
     row.fence += 1

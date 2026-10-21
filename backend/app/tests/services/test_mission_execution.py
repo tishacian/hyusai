@@ -219,3 +219,25 @@ def test_revocation_during_model_call_fences_heartbeat_and_future_checkpoint(db_
     db_session.refresh(task)
     assert row.status == task.status == "failed"
     assert row.steps[0]["result"] == "retained" and row.artifacts == {}
+
+
+def test_new_mission_formats_the_json_example_before_calling_the_model():
+    import asyncio
+    import json
+
+    from app.services.tasks.engine import TaskEngine
+
+    expected = [{"title": "Evidence", "description": "Read sources", "type": "analysis"}]
+    prompts = []
+
+    class Model:
+        async def complete(self, *, prompt, **kwargs):
+            prompts.append(prompt)
+            return json.dumps(expected)
+
+    engine = TaskEngine()
+    engine._llm = Model()
+    assert asyncio.run(engine.plan_mission("Analyse {workspace}")) == expected
+    assert len(prompts) == 1
+    assert '[{"title": "...", "description": "...", "type": "..."}]' in prompts[0]
+    assert "Mission: Analyse {workspace}" in prompts[0]

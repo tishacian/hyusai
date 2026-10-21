@@ -1,6 +1,6 @@
 import { WorkspaceBrandComponent } from './workspace-brand.component';
 import { WorkspaceExperienceActivationComponent } from './experience-activation.component';
-import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -512,7 +512,7 @@ export class WorkspaceGeneralComponent {
   constructor() {
     effect(() => {
       const slug = this.routeSlug();
-      if (slug) this.load(slug);
+      if (slug) untracked(() => this.load(slug));
     });
   }
 

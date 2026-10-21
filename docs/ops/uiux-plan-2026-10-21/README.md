@@ -1,6 +1,6 @@
 # Intégration du plan UI/UX — 21 octobre 2026
 
-**Statut : candidat implémenté, non déployé, recette complète non acquise.** Ce dossier décrit le code présent et les preuves obtenues ; il ne constitue ni une certification des 58 stories, ni un feu vert de mise en production.
+**Bilan avant déploiement : candidat implémenté, recette complète non acquise.** Ce dossier conserve les preuves obtenues avant la livraison. La version a depuis été déployée par l'utilisateur ; les contrôles en service et corrections suivants figurent dans la [recette après déploiement](../uiux-recette-2026-10-21.md). Aucun de ces bilans ne certifie à lui seul les 58 stories.
 
 ## Révision et périmètre
 

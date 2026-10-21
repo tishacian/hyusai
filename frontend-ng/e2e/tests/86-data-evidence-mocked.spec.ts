@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test.use({ serviceWorkers: 'block', video: 'off', viewport: { width: 1440, height: 900 } });
+
 /** Local-only lot 6: failed knowledge reads, callable models, exact provenance. */
 const workspace = { id: 'ws-data', slug: 'data-evidence', name: 'Data evidence', role: 'admin', role_template: 'workspace_admin', settings: { features: {} } };
 const user = { id: 'u-data', email: 'data@example.test', role: 'admin', is_active: true, workspaces: [workspace] };
@@ -39,10 +41,10 @@ async function install(page: Page, chunks: Answer = { status: 200, body: { chunk
       { id: 'old', name: 'Old source v1', version: 1, updated_at: new Date().toISOString(), source_dates: [{ ref: 'manual', updated_at: '2000-01-01T00:00:00Z' }], data_refs: ['manual'], memory_refs: [] },
     ]);
     if (path === '/connectors') return json(route, { can_configure: true, connectors: [{ id: 'postgresql', configured: true, values: { host: 'db.example.test', database: 'erp', username: 'reader', sslmode: 'verify-full' }, secrets_set: { password: true } }] });
-    if (path === '/connectors/postgresql/catalog') return json(route, { tables: [{ schema: 'finance', name: 'invoices', kind: 'table' }, { schema: 'public', name: 'invoices', kind: 'table' }], datasets_enabled: true, limits: { import_rows: 1000 } });
+    if (path === '/connectors/postgresql/catalog') return json(route, { tables: [{ schema: 'finance', name: 'invoices', kind: 'table' }, { schema: 'public', name: 'invoices', kind: 'table' }], checked_at: '2026-10-21T10:00:00Z', datasets_enabled: true, limits: { import_rows: 1000 } });
     if (path === '/connectors/postgresql/table') {
       tables.push(`${url.searchParams.get('schema')}.${url.searchParams.get('table')}`);
-      return json(route, { schema: 'finance', table: 'invoices', fingerprint: 'fp', columns: [{ name: 'amount', type: 'double', supported: true }] });
+      return json(route, { schema: 'finance', table: 'invoices', fingerprint: 'fp', columns: [{ name: 'amount', kind: 'float', dtype: 'double precision', supported: true, as_text: false, primary_key: false }] });
     }
     return json(route, route.request().method() === 'GET' && (path.endsWith('s') || path.includes('items')) ? [] : {});
   });
@@ -51,9 +53,11 @@ async function install(page: Page, chunks: Answer = { status: 200, body: { chunk
 
 test.describe('Lot 6: data, knowledge and model evidence', () => {
   test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1', 'Local mocked contract only');
-  test.use({ serviceWorkers: 'block', video: 'off', viewport: { width: 1440, height: 900 } });
   test('knowledge displays returned frozen chunks', async ({ page }) => {
-    await install(page, { status: 200, body: { chunks: [{ point_id: 'p1', text: 'Frozen source excerpt', document_filename: 'manual.pdf' }], total: 1 } });
+    await install(page, { status: 200, body: {
+      chunks: [{ point_id: 'p1', content: 'Frozen source excerpt', content_length: 21, truncated: false, document_filename: 'manual.pdf', chunk_index: 0 }],
+      count: 1, offset: 0, has_more: false, total: 1, total_is_exact: true,
+    } });
     await page.goto('/knowledge/manual?facet=chunks');
     await expect(page.locator('app-knowledge-view')).toContainText('Frozen source excerpt');
     await expect(page.getByTestId('load-state-error')).toHaveCount(0);
@@ -94,6 +98,10 @@ test.describe('Lot 6: data, knowledge and model evidence', () => {
     await page.goto('/connectors/postgresql?sourceDatabase=erp&sourceSchema=finance&sourceTable=invoices&datasetId=dataset-v3&datasetVersion=3');
     await expect(page.getByTestId('pg-selected-table')).toHaveText('finance.invoices');
     expect(tables).toEqual(['finance.invoices']);
-    await expect(page.getByTestId('pg-return-dataset')).toHaveAttribute('href', /\/data\/dataset-v3\?facet=lineage/);
+    const backToDataset = page.getByTestId('pg-return-dataset');
+    await expect(backToDataset).toContainText('version 3');
+    const destination = new URL((await backToDataset.getAttribute('href'))!, page.url());
+    expect(destination.pathname).toBe('/data/dataset-v3');
+    expect(destination.searchParams.get('facet')).toBe('lineage');
   });
 });

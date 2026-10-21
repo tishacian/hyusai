@@ -13,6 +13,7 @@ interface MatrixOptions {
   testInfo: TestInfo;
   path: string;
   readySelector: string;
+  reflowSelectors?: readonly string[];
   surface: 'studio' | 'work' | 'connectors';
 }
 
@@ -22,6 +23,7 @@ interface MatrixEntry {
   viewport: string;
   viewport_width: number;
   page_scroll_width: number;
+  reflow_bounds: Array<{ selector: string; left: number; right: number }>;
   reduced_motion: boolean;
   active_motion: string[];
   axe_violations: Array<{
@@ -50,6 +52,7 @@ export async function runAccessibilityMatrix({
   testInfo,
   path,
   readySelector,
+  reflowSelectors = [],
   surface,
 }: MatrixOptions): Promise<AccessibilityMatrixEvidence> {
   const entries: MatrixEntry[] = [];
@@ -120,6 +123,14 @@ export async function runAccessibilityMatrix({
           };
         }, readySelector);
 
+        const reflowBounds = await Promise.all(reflowSelectors.map(async (selector) => {
+          await expect(page.locator(selector)).toBeVisible();
+          return page.locator(selector).evaluate((element, name) => {
+            const rect = element.getBoundingClientRect();
+            return { selector: name, left: rect.left, right: rect.right };
+          }, selector);
+        }));
+
         const axe = await new AxeBuilder({ page })
           .withTags(WCAG_AA_TAGS)
           .analyze();
@@ -145,6 +156,11 @@ export async function runAccessibilityMatrix({
         if (layout.rootLeft === null || layout.rootLeft < -1 || layout.rootRight! > layout.clientWidth + 1) {
           failures.push(`${tag}: ${readySelector} is clipped by the viewport`);
         }
+        for (const bounds of reflowBounds) {
+          if (bounds.left < -1 || bounds.right > layout.clientWidth + 1) {
+            failures.push(`${tag}: ${bounds.selector} is clipped by the viewport`);
+          }
+        }
         if (!layout.reducedMotion || layout.activeMotion.length > 0) {
           failures.push(`${tag}: reduced motion leaves ${layout.activeMotion.join(', ') || 'media mismatch'}`);
         }
@@ -158,6 +174,7 @@ export async function runAccessibilityMatrix({
           viewport: viewport.label,
           viewport_width: viewport.width,
           page_scroll_width: layout.scrollWidth,
+          reflow_bounds: reflowBounds,
           reduced_motion: true,
           active_motion: layout.activeMotion,
           axe_violations: violations,

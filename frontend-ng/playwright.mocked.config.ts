@@ -13,7 +13,16 @@ process.env['E2E_OPERATIONS_FIXTURE'] = '1';
 
 export default defineConfig({
   testDir: './e2e/tests',
-  testMatch: '**/*-mocked.spec.ts',
+  testMatch: [
+    '**/*-mocked.spec.ts',
+    // These local API fixtures predate the common filename suffix.
+    '**/06-andritz-mocked-shell.spec.ts',
+    '**/16-flow-builder-authoring-contract.spec.ts',
+    '**/17-connector-honesty-contract.spec.ts',
+    '**/17-flow-palette-density.spec.ts',
+    '**/22-model-portal-contract.spec.ts',
+    '**/31-impact-product-blocks.spec.ts',
+  ],
   outputDir: './e2e/results/mocked',
   forbidOnly: !!process.env['CI'],
   fullyParallel: false,

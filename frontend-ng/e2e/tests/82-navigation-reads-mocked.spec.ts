@@ -5,21 +5,22 @@ const user = { id: 'reader', email: 'reader@example.com', is_active: true, role:
 const app = { experience: { id: 'invoice-app', slug: 'invoice-app', name: 'Invoice validation', pattern: 'queue' }, channel: 'live', release: { id: 'release-1', identity_snapshot: { name: 'Invoice validation' } } };
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
-async function install(page: Page, locale: 'fr' | 'en') {
+async function install(page: Page, locale: 'fr' | 'en', authenticated = true) {
   if (!['localhost', '127.0.0.1'].includes(new URL(String(test.info().project.use.baseURL)).hostname)) throw new Error('Local fixtures only');
   let sessionsFail = true;
   let recoveryFail = true;
   let paletteFail = true;
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort('blockedbyclient'));
-  await page.addInitScript(({ locale, slug }) => {
-    localStorage.setItem('agentium_token', 'Bearer mocked-navigation');
+  await page.addInitScript(({ locale, slug, authenticated }) => {
+    if (authenticated) localStorage.setItem('agentium_token', 'Bearer mocked-navigation');
+    else localStorage.removeItem('agentium_token');
     localStorage.setItem('agentium_workspace_slug', slug);
     localStorage.setItem('agentium_locale', locale);
-  }, { locale, slug: workspace.slug });
+  }, { locale, slug: workspace.slug, authenticated });
   await page.route('**/api/v1/**', route => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
-    if (path === '/auth/validate') return json(route, { valid: true, user_id: user.id, email: user.email, role: user.role });
-    if (path === '/auth/me') return json(route, user); // MFA is intentionally unknown, not false.
+    if (path === '/auth/validate') return authenticated ? json(route, { valid: true, user_id: user.id, email: user.email, role: user.role }) : json(route, { valid: false }, 401);
+    if (path === '/auth/me') return authenticated ? json(route, user) : json(route, { detail: 'Unauthenticated' }, 401); // MFA is intentionally unknown, not false.
     if (path === '/auth/workspaces') return json(route, [workspace]);
     if (path === `/auth/workspaces/${workspace.slug}`) return json(route, workspace);
     if (path === '/auth/sessions') return json(route, sessionsFail ? { detail: { code: 'sessions_unavailable' } } : [], sessionsFail ? 502 : 200);
@@ -50,7 +51,7 @@ for (const locale of ['fr', 'en'] as const) {
   });
 
   test(`password recovery never claims success after an unavailable server (${locale})`, async ({ page }) => {
-    const fixtures = await install(page, locale);
+    const fixtures = await install(page, locale, false);
     await page.goto('/auth/password-reset');
     await page.locator('input[type=email]').fill('reader@example.com');
     await page.locator('button[type=submit]').click();
@@ -77,7 +78,8 @@ for (const locale of ['fr', 'en'] as const) {
     await expect(palette.locator('[role=option][data-kind=application]')).toContainText('Invoice validation');
     await expect(palette.locator('[role=option][data-kind=application]')).toContainText('Navigation');
     await palette.locator('select').selectOption('system');
-    await expect(palette.locator('[role=status]')).toContainText(locale === 'fr' ? 'filtre' : 'filter');
+    await expect(palette.getByTestId('palette-filtered-out')).toContainText(locale === 'fr' ? 'filtre' : 'filter');
+    await expect(palette.locator('[role=status][aria-atomic=true]')).toContainText(locale === 'fr' ? 'filtre' : 'filter');
     await page.keyboard.press('Escape');
     await expect(palette.getByRole('dialog')).toHaveCount(0);
     await expect(opener).toBeFocused();

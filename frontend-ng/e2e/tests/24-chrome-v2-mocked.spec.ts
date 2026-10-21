@@ -146,6 +146,19 @@ async function mockCockpit(page: Page): Promise<void> {
     if (path === '/runs' && method === 'GET') return json(route, { runs: [] });
     if (path === '/systems' && method === 'GET') return json(route, { systems });
     if (path === `/systems/${SYSTEM_ID}` && method === 'GET') return json(route, system);
+    if (path === `/systems/${SYSTEM_ID}/operational-metrics` && method === 'GET') {
+      return json(route, {
+        system_id: SYSTEM_ID, objective: null, demonstration: false, complete: true,
+        can_edit: true, run_ids: [], period_start: '2026-08-25T08:00:00', period_end: '2026-09-24T08:00:00',
+        metrics: [
+          { metric: 'completed_volume', value: 0, unit: 'runs', source: 'runs.status' },
+          { metric: 'mean_duration_ms', value: null, unit: 'ms', source: 'runs.duration_ms' },
+          { metric: 'human_waits', value: 0, unit: 'runs', source: 'runs.status:hitl_pending' },
+          { metric: 'human_validation_rate', value: null, unit: '%', source: 'decisions.human_confirmed_by,human_confirmed_at,status' },
+          { metric: 'measured_cost_usd', value: null, unit: 'USD', source: 'skill_invocations.cost,cost_measured' },
+        ].map(metric => ({ ...metric, sample_count: 0, delta: null, complete: metric.metric !== 'measured_cost_usd' })),
+      });
+    }
     if (path === `/systems/${SYSTEM_ID}` && method === 'PATCH') {
       const body = request.postDataJSON() as { flow_definition?: unknown };
       return json(route, { ...system, flow_definition: body.flow_definition, flow_sha256: '2'.repeat(64) });
@@ -708,7 +721,7 @@ test.describe('Chrome v2 — mocked', () => {
       await expect(page.locator('#main-content h1').first()).toBeVisible({ timeout: 30_000 });
 
       await page.keyboard.press('ControlOrMeta+k');
-      const input = page.getByRole('combobox');
+      const input = page.getByRole('combobox', { name: 'Rechercher une commande, une destination ou poser une question' });
       await expect(input).toBeFocused();
       await expect(input).toHaveAttribute('aria-expanded', 'true');
       const listbox = page.getByRole('listbox');
@@ -719,7 +732,7 @@ test.describe('Chrome v2 — mocked', () => {
       await expect(first).toContainText('Demander à l’agent : “quels runs ont échoué hier”');
       await expect(first).toHaveAttribute('aria-selected', 'true');
       await expect(input).toHaveAttribute('aria-activedescendant', (await first.getAttribute('id'))!);
-      await expect(page.locator('app-command-palette [role="status"]')).toHaveText('Aucune commande ne correspond. Entrée pour demander à l’agent.');
+      await expect(page.locator('app-command-palette .ck-palette-status[role="status"]')).toHaveText('Aucune commande ne correspond. Entrée pour demander à l’agent.');
       await page.screenshot({ path: shot(`palette-agent-${theme}.png`) });
       const axePalette = await new AxeBuilder({ page })
         .include('app-command-palette')
@@ -743,13 +756,13 @@ test.describe('Chrome v2 — mocked', () => {
   }
 });
 
-// --- L5 — Visual guardrails (cliquet) + reduced-motion orb -----------------
+// --- L5 — Visual guardrails (cliquet) + reduced-motion atom ----------------
 
-test.describe('L5 — chrome ratchet / reduced-motion orb', () => {
+test.describe('L5 — chrome ratchet / reduced-motion atom', () => {
   test.use({ locale: 'fr-FR', colorScheme: 'dark' });
   test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
 
-  test('reduced-motion freezes the auth thinking orb across 500 ms', async ({ page }) => {
+  test('reduced-motion freezes the auth atom across 500 ms', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.addInitScript(() => {
       localStorage.removeItem('agentium_token');
@@ -764,7 +777,7 @@ test.describe('L5 — chrome ratchet / reduced-motion orb', () => {
     });
 
     await page.goto('/auth/signin');
-    const canvas = page.locator('ck-thinking-orb canvas').first();
+    const canvas = page.locator('app-auth-atom canvas');
     await expect(canvas).toBeVisible({ timeout: 30_000 });
 
     const first = await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL('image/png'));
