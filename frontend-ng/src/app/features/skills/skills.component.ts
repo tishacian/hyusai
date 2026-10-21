@@ -126,6 +126,14 @@ interface SkillsScope {
         @if (authoredNotice(); as notice) {
           <div class="ck-mono" style="font-size:10px; color:var(--ck-pos); letter-spacing:0.08em;">
             {{ notice }}
+            @if (createdSkill()) {
+              <p>{{ i18n.t('flow.skill.review.separate') }}</p>
+              @if (navigation.systemId(); as systemId) {
+                <a [navLink]="{ type: 'system', ref: systemId }">{{ i18n.t('flow.skill.review.open_system') }}</a>
+              } @else {
+                <a [navLink]="{ surface: 'systems' }">{{ i18n.t('flow.skill.review.choose_system') }}</a>
+              }
+            }
           </div>
         }
         @if (lifecycleError(); as message) {
@@ -422,6 +430,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   readonly draftSeed = signal<SkillDraftSeed | null>(null);
   readonly confirmingDelete = signal(false);
   readonly authoredNotice = signal<string | null>(null);
+  readonly createdSkill = signal<Skill | null>(null);
   readonly lifecycleError = signal<string | null>(null);
   /** The workspace catalog before the route scope narrows it: a wrapped-skill
    * runtime may target any visible seeded row, not only the ones this view
@@ -649,6 +658,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   }
 
   private resetWorkspaceState(): void {
+    this.createdSkill.set(null);
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.clearCatalog();
@@ -741,6 +751,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   }
 
   onAuthored(skill: Skill): void {
+    this.createdSkill.set(skill);
     this.authoring.set(false);
     this.draftSeed.set(null);
     this.authoredNotice.set(this.i18n.t('skills.notice.created', { slug: skill.slug }) + claimNote(skill, this.i18n));
@@ -751,6 +762,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   }
 
   onUpdated(result: SkillUpdateResult): void {
+    this.createdSkill.set(null);
     this.editingSkill.set(null);
     const notice = this.i18n.t('skills.notice.updated', { slug: result.skill.slug });
     this.authoredNotice.set(

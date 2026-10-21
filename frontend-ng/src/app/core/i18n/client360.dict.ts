@@ -13,6 +13,13 @@
  */
 
 export const CLIENT360_FR = {
+  "client360.mail.review_confirmation": "J’ai relu le destinataire, l’objet et le contenu du brouillon.",
+  "client360.mail.accepted": "Accepté pour envoi — réception non confirmée",
+  "client360.mail.declared": "Envoi déclaré",
+  "client360.mail.unconfirmed": "Envoi non confirmé. Vérifiez le suivi avant de réessayer.",
+  "client360.mail.tracking_failed": "Le suivi de l’envoi n’a pas pu être enregistré.",
+  "client360.mail.tracked": "Envoi suivi",
+
   'client360.refresh': 'Rafraîchir',
   'client360.loading': 'Chargement de Client 360',
   'client360.validate': 'Valider',
@@ -511,6 +518,13 @@ export const CLIENT360_FR = {
  * other, before the guard even runs.
  */
 export const CLIENT360_EN: Record<keyof typeof CLIENT360_FR, string> = {
+  "client360.mail.review_confirmation": "I have reviewed the recipient, subject and draft content.",
+  "client360.mail.accepted": "Accepted for sending — receipt not confirmed",
+  "client360.mail.declared": "Sending declared",
+  "client360.mail.unconfirmed": "Sending not confirmed. Check the tracking before trying again.",
+  "client360.mail.tracking_failed": "Sending could not be recorded.",
+  "client360.mail.tracked": "Sending tracked",
+
   'client360.refresh': 'Refresh',
   'client360.loading': 'Loading Client 360',
   'client360.validate': 'Validate',

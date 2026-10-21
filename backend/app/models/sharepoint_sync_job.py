@@ -19,7 +19,7 @@ Schema evolution:
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
 
 from app.db.base import Base
 
@@ -28,9 +28,7 @@ class SharePointSyncJob(Base):
     __tablename__ = "sharepoint_sync_jobs"
 
     id = Column(String(36), primary_key=True)
-    workspace_id = Column(
-        String(36), ForeignKey("workspaces.id"), nullable=True, index=True
-    )
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
     session_key = Column(String(255), nullable=False, index=True)
     auth_mode = Column(String(16), nullable=False, default="session")
     # "running" | "completed" | "failed"
@@ -53,11 +51,10 @@ class SharePointSyncJob(Base):
     # POST /documents/upload's `collection_name` form field). NULL while
     # the job is running or if ingest was skipped entirely.
     collection_name = Column(String(100), nullable=True)
+    file_outcomes = Column(JSON, nullable=True)
     login_required_detail = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     output_dir = Column(Text, nullable=True)
     folder_server_relative_url = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

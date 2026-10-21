@@ -1,3 +1,4 @@
+import { watchCreateRight } from './intelligence.vm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -115,4 +116,12 @@ test('News Lab copy goes through the dictionary and names no customer collection
   for (const key of keys) {
     assert.ok(key in GOVERNANCE_FR && key in GOVERNANCE_EN, key);
   }
+});
+
+
+test('watch creation rights survive an empty successful list and remain unknown after errors', () => {
+  assert.equal(watchCreateRight({ s: 'ready', value: { systems: [], can_create: true }, at: 1 }), true);
+  assert.equal(watchCreateRight({ s: 'ready', value: { systems: [], can_create: false }, at: 1 }), false);
+  assert.equal(watchCreateRight({ s: 'error', status: 500, code: null }), 'unknown');
+  assert.equal(watchCreateRight({ s: 'loading' }), 'unknown');
 });

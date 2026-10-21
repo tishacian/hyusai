@@ -1,7 +1,14 @@
+import { Observable, type MonoTypeOperatorFunction } from 'rxjs';
+import { guardWorkspaceRequest } from '@app/core/workspace-request-scope';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { ConnectorChecksComponent } from '../connector-checks.component';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
 import {
   ChangeDetectionStrategy,
   Component,
-  OnInit,
+  OnInit, OnDestroy,
   computed,
   inject,
   signal,
@@ -15,6 +22,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface HanaConfig {
   host?: string;
@@ -55,7 +63,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
   selector: 'app-hana-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  imports: [WriteOutcomeComponent, ConnectorChecksComponent, ConnectorCapabilitiesComponent, PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   styles: [`
     :host { display: block; color: var(--ck-fg-1); }
     .hana-help { color: var(--ck-fg-3); }
@@ -73,6 +81,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
     .hana-row { border-top: 1px solid var(--ck-stroke-2); }
   `],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       [breadcrumb]="i18n.t('connectors.title')"
       title="SAP HANA"
@@ -90,6 +99,8 @@ const MASKED_PASSWORD = /^[*•]+$/;
       </button>
       <ck-back-link [fallback]="{ surface: 'connectors' }" />
     </app-section-header>
+    <app-connector-capabilities connector="hana" />
+
 
     @if (!featureEnabled()) {
       <div role="status" class="mb-4 rounded-md p-3 text-sm ck-tone-warn">
@@ -240,6 +251,8 @@ const MASKED_PASSWORD = /^[*•]+$/;
         </p>
       </form>
 
+      <app-write-outcome [outcome]="writeOutcome()" [verifiable]="true" (verify)="loadConfig()" />
+      <app-connector-checks [configured]="passwordSet()" [result]="testResult()" />
       @if (testResult(); as result) {
         <div
           role="status"
@@ -364,12 +377,14 @@ const MASKED_PASSWORD = /^[*•]+$/;
         }
       </section>
     }
+    </ck-page-frame>
   `,
 })
-export class HanaConnectorComponent implements OnInit {
+export class HanaConnectorComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly context = new WorkspaceViewContext(this.workspace, () => this.resetWorkspace(), () => { this.loadConfig(); });
   readonly i18n = inject(I18nService);
 
   readonly featureEnabled = this.workspace.sapHanaConnectorEnabled;
@@ -379,6 +394,7 @@ export class HanaConnectorComponent implements OnInit {
 
   readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly writeOutcome = signal<WriteOutcome | null>(null);
   readonly testing = signal(false);
   readonly error = signal<string | null>(null);
   readonly passwordSet = signal(false);
@@ -394,6 +410,26 @@ export class HanaConnectorComponent implements OnInit {
   encrypt = true;
   sslValidateCertificate = true;
 
+  ngOnDestroy(): void { this.context.destroy(); }
+
+  private inWorkspace<T>(): MonoTypeOperatorFunction<T> {
+    const request = this.context.captureRequest();
+    return guardWorkspaceRequest(() => this.context.isCurrent(request));
+  }
+
+  private resetWorkspace(): void {
+    this.loading.set(false);
+    this.saving.set(false);
+    this.writeOutcome.set(null);
+    this.testing.set(false);
+    this.error.set(null);
+    this.passwordSet.set(false);
+    this.testResult.set(null);
+    this.preview.set(null);
+    this.previewLoading.set(false);
+    this.host = ''; this.user = ''; this.password = ''; this.port = 443; this.demoMode = false; this.encrypt = true; this.sslValidateCertificate = true;
+  }
+
   ngOnInit(): void {
     this.loadConfig();
   }
@@ -405,10 +441,11 @@ export class HanaConnectorComponent implements OnInit {
     }
     this.loading.set(true);
     this.error.set(null);
-    this.api.get<HanaConfig>('/hana/config').subscribe({
+    this.api.get<HanaConfig>('/hana/config').pipe(this.inWorkspace()).subscribe({
       next: (cfg) => {
         this.applyConfig(cfg);
         this.loading.set(false);
+        if (this.writeOutcome()?.s === 'unknown') this.writeOutcome.set(null);
         if (this.passwordSet()) this.loadPreview();
       },
       error: (err) => {
@@ -421,13 +458,13 @@ export class HanaConnectorComponent implements OnInit {
           // No config yet — leave defaults.
           return;
         }
-        this.error.set(err?.error?.detail || this.i18n.t('connectors.hana.load_failed'));
+        this.error.set(this.i18n.t('connectors.hana.load_failed'));
       },
     });
   }
 
   saveConfig(): void {
-    if (!this.featureEnabled()) return;
+    if (!this.featureEnabled() || this.saving() || this.writeOutcome()?.s === 'unknown') return;
     const payload = this.buildPayload();
     if (!payload['host'] || !payload['user']) {
       this.toast.error(this.i18n.t('connectors.hana.host_user_required'), 'SAP HANA');
@@ -439,29 +476,22 @@ export class HanaConnectorComponent implements OnInit {
     }
     this.saving.set(true);
     this.error.set(null);
-    this.api.put<HanaConfig>('/hana/config', payload).subscribe({
-      next: (cfg) => {
-        this.applyConfig(cfg);
-        this.password = '';
-        this.saving.set(false);
+    settleWrite(this.api.put<HanaConfig>('/hana/config', payload)).pipe(this.inWorkspace()).subscribe(outcome => {
+      this.writeOutcome.set(outcome); this.saving.set(outcome.s === 'sent');
+      if (outcome.s === 'confirmed') {
+        this.applyConfig(outcome.value); this.password = '';
         this.toast.success(this.i18n.t('connectors.hana.saved'), 'SAP HANA');
-      },
-      error: (err) => {
-        this.saving.set(false);
-        const detail = err?.error?.detail || this.i18n.t('connectors.hana.save_failed');
-        this.error.set(detail);
-        this.toast.error(detail, 'SAP HANA');
-      },
+      }
     });
   }
 
   testConnection(): void {
-    if (!this.featureEnabled()) return;
+    if (!this.featureEnabled() || this.testing() || this.saving()) return;
     this.testing.set(true);
     this.testResult.set(null);
     this.error.set(null);
     // The endpoint tests only the saved configuration and never falls back to demo data.
-    this.api.post<HanaTestResult>('/hana/test', {}).subscribe({
+    this.api.post<HanaTestResult>('/hana/test', {}).pipe(this.inWorkspace()).subscribe({
       next: (result) => {
         this.testing.set(false);
         const ok = result?.ok === true && result?.status !== 'error' && result?.source !== 'demo_dataset';
@@ -470,15 +500,15 @@ export class HanaConnectorComponent implements OnInit {
           this.toast.success(this.i18n.t('connectors.test.status.connected'), 'SAP HANA');
           this.loadPreview();
         } else {
-          this.toast.error(result?.detail || result?.message || this.i18n.t('connectors.hana.test_failed'), 'SAP HANA');
+          this.toast.error(this.i18n.t('connectors.hana.test_failed'), 'SAP HANA');
         }
       },
       error: (err) => {
         this.testing.set(false);
-        const detail = typeof err?.error?.detail === 'string'
-          ? err.error.detail
-          : this.i18n.t('connectors.hana.test_failed');
-        this.testResult.set({ ok: false, detail });
+        const detail = this.i18n.t('connectors.hana.test_failed');
+        const code = err?.error?.detail?.code;
+        const status = code === 'HANA_AUTH_FAILED' ? 'auth_failed' : code === 'HANA_RESOURCE_DENIED' ? 'access_denied' : code === 'HANA_NOT_CONFIGURED' ? 'not_configured' : 'unreachable';
+        this.testResult.set({ ok: false, status, detail });
         this.toast.error(detail, 'SAP HANA');
       },
     });
@@ -488,14 +518,14 @@ export class HanaConnectorComponent implements OnInit {
     if (!this.featureEnabled() || !this.passwordSet()) return;
     this.previewLoading.set(true);
     const params = table ? { table } : undefined;
-    this.api.get<HanaPreview>('/hana/preview', params).subscribe({
+    this.api.get<HanaPreview>('/hana/preview', params).pipe(this.inWorkspace()).subscribe({
       next: (result) => {
         this.previewLoading.set(false);
-        this.preview.set({ ...result, ok: result?.ok !== false });
+        this.preview.set({ ...result, ok: result?.ok === true });
       },
       error: (err) => {
         this.previewLoading.set(false);
-        const detail = err?.error?.detail || this.i18n.t('connectors.hana.preview_failed');
+        const detail = this.i18n.t('connectors.hana.preview_failed');
         this.preview.set({ ok: false, detail });
       },
     });

@@ -6,6 +6,8 @@ import {
   cubicSmoothAreaPath,
   cubicSmoothPath,
   niceStep,
+  integerStep,
+  linearAreaPath,
   radialDayAngle,
   radialPoint,
   radialSpokeEndpoints,
@@ -20,6 +22,11 @@ test('niceStep picks round gridline steps that give about four lines', () => {
   assert.equal(niceStep(3.25), 1);
   assert.equal(niceStep(1000), 250);
   assert.equal(niceStep(0), 1);
+});
+
+test('discrete counts never receive fractional grid lines or interpolated curves', () => {
+  for (const maximum of [0, 1, 2, 3, 5, 10, 100]) assert.ok(Number.isInteger(integerStep(maximum)) && integerStep(maximum) >= 1);
+  assert.equal(linearAreaPath([{x:0,y:8},{x:10,y:2},{x:20,y:6}], null, 10), 'M0,8L10,2L20,6L20,10L0,10Z');
 });
 
 test('spreadLabelRows pushes overlapping labels apart inside the plot', () => {

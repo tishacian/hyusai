@@ -14,6 +14,7 @@ import {
 import { AuthApiService } from './auth-api.service';
 import { TokenStorageService } from './token-storage.service';
 import { AuthStore } from '../store/auth.store';
+import { unwrapAuthRedirect } from './auth-redirect';
 
 /**
  * Coordinates access-token renewal across every authenticated transport.
@@ -81,8 +82,20 @@ export class AuthRefreshCoordinator {
   private expireSession(): void {
     this.tokenStorage.clear();
     this.authStore.clear();
+    const destination = this.destinationToResume();
     void this.router.navigate(['/auth/signin'], {
-      queryParams: { redirectURL: this.router.url },
+      queryParams: destination ? { redirectURL: destination } : {},
     });
+  }
+
+  /**
+   * Page to reopen after sign-in: the navigation in progress when the session
+   * expired, else the current page. A sign-in URL is never captured as a
+   * destination; its own `redirectURL` is carried forward instead.
+   */
+  private destinationToResume(): string | null {
+    const pending = this.router.getCurrentNavigation();
+    const target = pending ? this.router.serializeUrl(pending.finalUrl ?? pending.extractedUrl) : null;
+    return unwrapAuthRedirect(target) ?? unwrapAuthRedirect(this.router.url);
   }
 }

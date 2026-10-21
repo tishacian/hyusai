@@ -43,7 +43,7 @@ function harness(config: Record<string, unknown> = saved) {
     } },
     { provide: I18nService, useValue: { t: (key: string) => key } },
     { provide: WorkspaceService, useValue: {
-      sapHanaConnectorEnabled: () => true,
+      registerContextReset: () => () => {}, contextEpoch: () => 1, captureRequestScope: () => ({ workspaceSlug: 'agentium-showcase', epoch: 1 }), isRequestScopeCurrent: () => true, sapHanaConnectorEnabled: () => true,
       current: () => ({ name: 'Showcase' }), currentSlug: () => 'agentium-showcase',
     } },
     { provide: ToastrService, useValue: {

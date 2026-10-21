@@ -20,6 +20,10 @@ export interface ExecutionActivity {
   runs: { id: string; system_id: string; status: string; started_at: string; technical_seconds: number | null }[];
 }
 
+export function activityRunsForDay(runs: ExecutionActivity['runs'], date: string | null): ExecutionActivity['runs'] {
+  return date ? runs.filter(run => run.started_at.slice(0, 10) === date) : runs;
+}
+
 /** User-entered assumptions only. A missing value never becomes zero. */
 export function financialScenario(settings: Record<string, unknown>) {
   const required = SCENARIO_FIELDS.filter(field => field !== 'monthly_volume');

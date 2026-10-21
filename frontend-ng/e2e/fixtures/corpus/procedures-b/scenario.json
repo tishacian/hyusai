@@ -1,0 +1,5 @@
+{
+  "question": "Who approves a purchase above 5,000 euros?",
+  "expected_document": "achats.md",
+  "off_topic": "What will the weather be in Lisbon tomorrow?"
+}

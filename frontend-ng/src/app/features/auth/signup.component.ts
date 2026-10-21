@@ -1,130 +1,180 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { AuthApiService } from '@app/core/auth-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-
-const PASSWORD_REGEX = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9])(?=\S+$).{8,}$/;
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import {
+  passwordErrors,
+  resendState,
+  signupResult,
+  type PasswordErrorKey,
+  type ResendResponse,
+  type SignupErrorKey,
+  type SignupResponse,
+  type SignupView,
+} from './signup.vm';
 
 @Component({
   selector: 'app-signup',
   standalone: true,
   imports: [FormsModule, RouterLink, IconComponent],
   template: `
-    @if (success()) {
-      <div class="ck-auth-success">
-        <div class="ck-auth-success-icon" aria-hidden="true">
-          <app-icon name="mail" [size]="22" />
-        </div>
-        <span class="ck-auth-eyebrow">REQUEST RECEIVED</span>
-        <h2 class="ck-auth-title">{{ verificationEmailSent() ? 'Check your email' : 'Account created' }}</h2>
-        <p class="ck-auth-sub">
-          {{ successMessage() }}
-        </p>
-        <a routerLink="/auth/signin" class="ck-btn-ghost ck-btn-ghost-wide">← Back to sign in</a>
-      </div>
-    } @else {
-      <header class="ck-auth-head">
-        <span class="ck-auth-eyebrow">REQUEST ACCESS</span>
-        <h2 class="ck-auth-title">Create your cockpit</h2>
-        <p class="ck-auth-sub">Personal workspace · provisioned after email verification.</p>
-      </header>
+    @switch (view()) {
+      @case ('form') {
+        <header class="ck-auth-head">
+          <span class="ck-auth-eyebrow">{{ i18n.t('auth.signup.eyebrow') }}</span>
+          <h2 class="ck-auth-title">{{ i18n.t('auth.signup.heading') }}</h2>
+          <p class="ck-auth-sub">{{ i18n.t('auth.signup.lead') }}</p>
+        </header>
 
-      <form (ngSubmit)="onSubmit()" class="ck-auth-form">
-        <div class="ck-field-row">
+        <form (ngSubmit)="onSubmit()" class="ck-auth-form" novalidate data-testid="signup-form">
+          <div class="ck-field-row">
+            <div class="ck-field">
+              <label class="ck-label" for="signup-first">{{ i18n.t('auth.signup.first_name') }}</label>
+              <input id="signup-first" [(ngModel)]="firstName" name="firstName" required autocomplete="given-name" class="ck-input" />
+            </div>
+            <div class="ck-field">
+              <label class="ck-label" for="signup-last">{{ i18n.t('auth.signup.last_name') }}</label>
+              <input id="signup-last" [(ngModel)]="lastName" name="lastName" required autocomplete="family-name" class="ck-input" />
+            </div>
+          </div>
+
           <div class="ck-field">
-            <label class="ck-label" for="signup-first">First name</label>
+            <label class="ck-label" for="signup-email">{{ i18n.t('auth.signin.email') }}</label>
             <input
-              id="signup-first"
-              [(ngModel)]="firstName"
-              name="firstName"
+              id="signup-email"
+              [(ngModel)]="email"
+              name="email"
+              type="email"
               required
-              placeholder="Ada"
+              autocomplete="email"
+              [placeholder]="i18n.t('auth.signin.email_placeholder')"
               class="ck-input"
             />
           </div>
+
           <div class="ck-field">
-            <label class="ck-label" for="signup-last">Last name</label>
+            <label class="ck-label" for="signup-password">{{ i18n.t('auth.signin.password') }}</label>
             <input
-              id="signup-last"
-              [(ngModel)]="lastName"
-              name="lastName"
+              id="signup-password"
+              [(ngModel)]="password"
+              name="password"
+              type="password"
               required
-              placeholder="Lovelace"
+              autocomplete="new-password"
+              aria-describedby="signup-password-rule"
+              [attr.aria-invalid]="passwordError() ? 'true' : null"
               class="ck-input"
+              (ngModelChange)="passwordError.set(null)"
             />
+            <p id="signup-password-rule" class="ck-field-hint">{{ i18n.t('auth.signup.password_rule') }}</p>
+            @if (passwordError(); as key) {
+              <p class="ck-field-error" role="alert" data-testid="signup-password-error">{{ i18n.t(key) }}</p>
+            }
           </div>
-        </div>
 
-        <div class="ck-field">
-          <label class="ck-label" for="signup-email">Email</label>
-          <input
-            id="signup-email"
-            [(ngModel)]="email"
-            name="email"
-            type="email"
-            required
-            placeholder="you&#64;company.com"
-            class="ck-input"
-          />
-        </div>
+          <div class="ck-field">
+            <label class="ck-label" for="signup-confirm">{{ i18n.t('auth.signup.confirm_password') }}</label>
+            <input
+              id="signup-confirm"
+              [(ngModel)]="confirmPassword"
+              name="confirmPassword"
+              type="password"
+              required
+              autocomplete="new-password"
+              [attr.aria-invalid]="confirmError() ? 'true' : null"
+              class="ck-input"
+              (ngModelChange)="confirmError.set(null)"
+            />
+            @if (confirmError(); as key) {
+              <p class="ck-field-error" role="alert" data-testid="signup-confirm-error">{{ i18n.t(key) }}</p>
+            }
+          </div>
 
-        <div class="ck-field">
-          <label class="ck-label" for="signup-password">Password</label>
-          <input
-            id="signup-password"
-            [(ngModel)]="password"
-            name="password"
-            type="password"
-            required
-            placeholder="8+ chars · upper · lower · digit · symbol"
-            class="ck-input"
-          />
-        </div>
+          <div class="ck-field">
+            <label class="ck-label" for="signup-company">
+              {{ i18n.t('auth.signup.company') }} <span class="ck-label-hint">{{ i18n.t('auth.signup.optional') }}</span>
+            </label>
+            <input id="signup-company" [(ngModel)]="company" name="company" autocomplete="organization" class="ck-input" />
+          </div>
 
-        <div class="ck-field">
-          <label class="ck-label" for="signup-confirm">Confirm password</label>
-          <input
-            id="signup-confirm"
-            [(ngModel)]="confirmPassword"
-            name="confirmPassword"
-            type="password"
-            required
-            placeholder="Repeat the same password"
-            class="ck-input"
-          />
-        </div>
-
-        <div class="ck-field">
-          <label class="ck-label" for="signup-company">Company <span class="ck-label-hint">(optional)</span></label>
-          <input
-            id="signup-company"
-            [(ngModel)]="company"
-            name="company"
-            placeholder="ACME Corp"
-            class="ck-input"
-          />
-        </div>
-
-        @if (error()) {
-          <p class="ck-auth-error" role="alert">{{ error() }}</p>
-        }
-
-        <button type="submit" [disabled]="loading()" class="ck-btn-primary">
-          @if (loading()) {
-            <span class="ck-btn-spinner" aria-hidden="true"></span>
-            <span>PROVISIONING…</span>
-          } @else {
-            <span>CREATE ACCOUNT</span>
-            <span class="ck-btn-chevron" aria-hidden="true">→</span>
+          @if (error(); as key) {
+            <div class="ck-auth-error" role="alert" data-testid="signup-error">
+              <p>{{ i18n.t(key) }}</p>
+              @if (key === 'auth.signup.error.exists') {
+                <p class="ck-auth-error-links">
+                  <a routerLink="/auth/signin" class="ck-auth-link ck-auth-link-strong">{{ i18n.t('auth.signin.submit') }}</a>
+                  <a routerLink="/auth/password-reset" class="ck-auth-link">{{ i18n.t('auth.signin.forgot') }}</a>
+                </p>
+              }
+            </div>
           }
-        </button>
-      </form>
 
-      <nav class="ck-auth-links" aria-label="Account actions">
-        <span class="ck-auth-links-meta">Already have an account?</span>
-        <a routerLink="/auth/signin" class="ck-auth-link ck-auth-link-strong">Sign in</a>
-      </nav>
+          <button type="submit" [disabled]="submitting()" class="ck-btn-primary" data-testid="signup-submit">
+            @if (submitting()) {
+              <span class="ck-btn-spinner" aria-hidden="true"></span>
+              <span>{{ i18n.t('auth.signup.submitting') }}</span>
+            } @else {
+              <span>{{ i18n.t('auth.signup.submit') }}</span>
+              <span class="ck-btn-chevron" aria-hidden="true">→</span>
+            }
+          </button>
+        </form>
+
+        <nav class="ck-auth-links" [attr.aria-label]="i18n.t('auth.signin.links_aria')">
+          <span class="ck-auth-links-meta">{{ i18n.t('auth.signup.have_account') }}</span>
+          <a routerLink="/auth/signin" class="ck-auth-link ck-auth-link-strong">{{ i18n.t('auth.signin.submit') }}</a>
+        </nav>
+      }
+      @default {
+        <div class="ck-auth-success" [attr.data-testid]="'signup-' + view()" role="status">
+          <div class="ck-auth-success-icon" [class.ck-auth-success-icon--warn]="view() !== 'sent'" aria-hidden="true">
+            <app-icon [name]="view() === 'sent' ? 'mail' : 'alert-triangle'" [size]="22" />
+          </div>
+          <span class="ck-auth-eyebrow">{{ i18n.t('auth.signup.result.' + view() + '.eyebrow') }}</span>
+          <h2 class="ck-auth-title">{{ i18n.t('auth.signup.result.' + view() + '.title') }}</h2>
+          <p class="ck-auth-sub">{{ i18n.t('auth.signup.result.' + view() + '.body', { email: email }) }}</p>
+
+          @if (view() === 'sent') {
+            <ol class="ck-auth-steps" [attr.aria-label]="i18n.t('auth.signup.next.label')">
+              <li>{{ i18n.t('auth.signup.next.open_link') }}</li>
+              <li>{{ i18n.t('auth.signup.next.sign_in') }}</li>
+              <li>{{ i18n.t('auth.signup.next.empty_workspace') }}</li>
+            </ol>
+          } @else if (view() === 'unknown') {
+            <a routerLink="/auth/signin" class="ck-btn-primary ck-auth-action" data-testid="signup-unknown-signin">
+              {{ i18n.t('auth.signup.unknown.try_sign_in') }}
+            </a>
+          } @else {
+            <div class="ck-auth-ways" [attr.aria-label]="i18n.t('auth.signup.way_out.label')" role="group">
+              <button
+                type="button"
+                class="ck-btn-primary ck-auth-action"
+                data-testid="signup-resend"
+                [disabled]="resend() === 'sending'"
+                (click)="resendEmail()"
+              >
+                {{ i18n.t(resend() === 'sending' ? 'auth.signup.way_out.resending' : 'auth.signup.way_out.resend') }}
+              </button>
+              <p class="ck-auth-sub">{{ i18n.t('auth.signup.way_out.admin') }}</p>
+            </div>
+            @if (resend() !== 'idle' && resend() !== 'sending') {
+              <p
+                class="ck-auth-resend"
+                [class.ck-auth-resend--warn]="resend() !== 'sent'"
+                [attr.role]="resend() === 'sent' ? 'status' : 'alert'"
+                [attr.data-testid]="'signup-resend-' + resend()"
+              >
+                {{ i18n.t('auth.signup.resend.' + resend(), { email: email }) }}
+              </p>
+            }
+          }
+          <a routerLink="/auth/signin" class="ck-btn-ghost ck-btn-ghost-wide">← {{ i18n.t('auth.mfa.back') }}</a>
+        </div>
+      }
     }
   `,
   styles: [
@@ -316,6 +366,30 @@ const PASSWORD_REGEX = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9])(?=\
         margin-bottom: 6px;
       }
 
+      .ck-auth-error p { margin: 0; }
+      .ck-auth-error-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px !important; }
+      .ck-field-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ck-fg-3); }
+      .ck-field-error { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ck-signal-neg); }
+      .ck-auth-success-icon--warn {
+        border-color: var(--ck-signal-warn);
+        color: var(--ck-signal-warn);
+        background: transparent;
+        box-shadow: none;
+      }
+      .ck-auth-steps {
+        margin: 10px 0 0;
+        padding-left: 1.25rem;
+        text-align: left;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--ck-fg-2);
+      }
+      .ck-auth-ways { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 12px; }
+      .ck-auth-action { text-decoration: none; margin-top: 12px; }
+      .ck-auth-ways .ck-auth-action { margin-top: 0; }
+      .ck-auth-resend { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--ck-signal-pos); }
+      .ck-auth-resend--warn { color: var(--ck-signal-warn); }
+
       @media (max-width: 420px) {
         .ck-field-row { grid-template-columns: 1fr; }
       }
@@ -324,7 +398,8 @@ const PASSWORD_REGEX = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9])(?=\
 })
 export class SignupComponent {
   private readonly authApi = inject(AuthApiService);
-  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  readonly i18n = inject(I18nService);
 
   firstName = '';
   lastName = '';
@@ -332,47 +407,58 @@ export class SignupComponent {
   password = '';
   confirmPassword = '';
   company = '';
-  loading = signal(false);
-  error = signal<string | null>(null);
-  success = signal(false);
-  successMessage = signal('We sent a confirmation link. Verify your email to finish provisioning your workspace.');
-  verificationEmailSent = signal(true);
+
+  readonly view = signal<SignupView>('form');
+  readonly submitting = signal(false);
+  readonly error = signal<SignupErrorKey | null>(null);
+  readonly passwordError = signal<PasswordErrorKey | null>(null);
+  readonly confirmError = signal<PasswordErrorKey | null>(null);
+  private readonly resendOutcome = signal<WriteOutcome<ResendResponse | null> | null>(null);
+  readonly resend = computed(() => resendState(this.resendOutcome()));
 
   onSubmit(): void {
-    if (this.password !== this.confirmPassword) {
-      this.error.set('Passwords do not match');
-      return;
-    }
-    if (!PASSWORD_REGEX.test(this.password)) {
-      this.error.set('Password must be 8+ characters with uppercase, lowercase, digit, and special character');
+    if (this.submitting()) return;
+    const fields = passwordErrors(this.password, this.confirmPassword);
+    this.passwordError.set(fields.password);
+    this.confirmError.set(fields.confirm);
+    if (fields.password || fields.confirm) {
+      focusField(fields.password ? 'signup-password' : 'signup-confirm');
       return;
     }
 
-    this.loading.set(true);
     this.error.set(null);
-
-    this.authApi
-      .signup({
+    this.submitting.set(true);
+    settleWrite<SignupResponse | null>(
+      this.authApi.signup({
         first_name: this.firstName,
         last_name: this.lastName,
         email: this.email,
         password: this.password,
         company: this.company || undefined,
-      })
-      .subscribe({
-        next: (res) => {
-          this.loading.set(false);
-          this.verificationEmailSent.set(res.verification_email_sent !== false);
-          this.successMessage.set(
-            res.message ||
-              'We sent a confirmation link. Verify your email to finish provisioning your workspace.',
-          );
-          this.success.set(true);
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.error.set(err.error?.detail || 'Registration failed');
-        },
+      }),
+    )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((outcome) => {
+        if (outcome.s === 'sent') return;
+        this.submitting.set(false);
+        const result = signupResult(outcome);
+        this.error.set(result.error);
+        this.view.set(result.view);
       });
   }
+
+  resendEmail(): void {
+    if (this.resend() === 'sending') return;
+    settleWrite<ResendResponse | null>(this.authApi.resendSignupVerification(this.email))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((outcome) => {
+        this.resendOutcome.set(outcome);
+        if (resendState(outcome) === 'sent') this.view.set('sent');
+      });
+  }
+}
+
+function focusField(id: string): void {
+  if (typeof document === 'undefined') return;
+  document.getElementById(id)?.focus();
 }

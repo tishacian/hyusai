@@ -1,333 +1,212 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  OnInit,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
+import { Observable, type MonoTypeOperatorFunction } from 'rxjs';
+import { guardWorkspaceRequest } from '@app/core/workspace-request-scope';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { ChangeDetectionStrategy, Component, OnInit, OnDestroy, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { CkBackLinkComponent } from '@app/shared/cockpit';
-import { ToastrService } from 'ngx-toastr';
+import { CkBackLinkComponent, PageFrameComponent } from '@app/shared/cockpit';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
+import { ConnectorChecksComponent } from '../connector-checks.component';
 
 interface RpaConfig {
   base_url?: string;
-  auth_token?: string | null;
   auth_token_set?: boolean;
   job_mapping?: Record<string, string>;
   callback_webhook_url?: string | null;
   configured?: boolean;
+  can_configure?: boolean;
 }
-
-interface RpaTestResult {
-  ok?: boolean;
-  status?: string;
-  detail?: string;
-  message?: string;
-  duration_ms?: number;
-}
+interface RpaTestResult { ok?: boolean; status?: string; duration_ms?: number; }
 
 @Component({
-  selector: 'app-rpa-connector',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  selector: 'app-rpa-connector', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CommonModule, FormsModule, PageFrameComponent, CkBackLinkComponent, SectionHeaderComponent,
+    ConnectorCapabilitiesComponent, ConnectorChecksComponent, WriteOutcomeComponent],
   template: `
-    <app-section-header
-      breadcrumb="Connectors"
-      title="RPA Bridge"
-      icon="bot"
-      [subtitle]="
-        'Generic REST orchestrator bridge for ' +
-        workspaceName() +
-        '. Auth token stays server-side; write-only after save.'
-      "
-    >
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="loadConfig()"
-        [disabled]="loading()"
-      >
-        <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
-      </button>
-      <ck-back-link [fallback]="{ surface: 'connectors' }" />
-    </app-section-header>
-
-    @if (!featureEnabled()) {
-      <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
-        RPA Bridge is not enabled for {{ workspaceName() }}. Enable
-        <span class="font-mono text-amber-200">features.rpa_bridge</span> on this workspace to configure it.
-      </div>
-    }
-
-    @if (error(); as err) {
-      <div class="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-400/25">
-        {{ err }}
-      </div>
-    }
-
-    <section class="max-w-xl ck-surface t-elevated rounded-md p-5">
-      <header class="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Connection</p>
-          <h2 class="mt-1 text-base font-semibold text-white">Orchestrator endpoint</h2>
-          <p class="mt-1 text-[11px] text-gray-400 leading-relaxed">
-            Generic REST contract: POST /jobs, GET /jobs/&#123;id&#125;. No UiPath SDK required.
-          </p>
-        </div>
-        @if (authTokenSet()) {
-          <span
-            class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
-          >
-            <app-icon name="check-circle-2" [size]="10" /> token set
-          </span>
+    <ck-page-frame [hasActions]="false">
+      <app-section-header [breadcrumb]="i18n.t('connectors.title')" [title]="i18n.t('connectors.rpa.title')" icon="bot"
+        [subtitle]="i18n.t('connectors.rpa.subtitle', { name: workspaceName() })">
+        <button class="ck-btn ck-btn-quiet" type="button" (click)="loadConfig()" [disabled]="loading()">{{ i18n.t('common.refresh') }}</button>
+        <ck-back-link [fallback]="{ surface: 'connectors' }" />
+      </app-section-header>
+      <app-connector-capabilities connector="rpa_bridge" />
+      @if (!featureEnabled()) { <p role="status">{{ i18n.t('connectors.rpa.disabled') }}</p> }
+      @if (loading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
+      @if (error()) { <p role="alert">{{ error() }}</p> }
+      <section class="rpa-panel">
+        <h2>{{ i18n.t('connectors.rpa.configure') }}</h2>
+        <p>{{ i18n.t('connectors.rpa.secret_help') }}</p>
+        @if (loaded() && !canConfigure()) { <p>{{ i18n.t('connectors.drawer.admin_only') }}</p> }
+        <form (ngSubmit)="saveConfig()">
+          <label>{{ i18n.t('connectors.rpa.base_url') }}
+            <input class="ck-input" name="base_url" [(ngModel)]="baseUrl" [disabled]="!editable()" type="url" required />
+          </label>
+          <label>{{ i18n.t('connectors.rpa.token') }}
+            <input class="ck-input" name="auth_token" type="password" [(ngModel)]="authToken" [disabled]="!editable()" autocomplete="new-password"
+              [placeholder]="i18n.t(authTokenSet() ? 'connectors.rpa.keep_token' : 'connectors.rpa.token')" />
+          </label>
+          <label>{{ i18n.t('connectors.rpa.callback') }}
+            <input class="ck-input" name="callback_webhook_url" [(ngModel)]="callbackWebhookUrl" [disabled]="!editable()" type="url" />
+          </label>
+          <label>{{ i18n.t('connectors.rpa.mapping') }}
+            <textarea class="ck-input" name="job_mapping" rows="4" [(ngModel)]="jobMappingJson" [disabled]="!editable()"></textarea>
+          </label>
+          <div class="rpa-actions">
+            <button class="ck-btn ck-btn-primary" type="submit" [disabled]="!editable()">{{ i18n.t('common.save') }}</button>
+            <button class="ck-btn ck-btn-quiet" type="button" (click)="testConnection()" [disabled]="!configured() || testing() || saving() || !canConfigure()">{{ i18n.t('connectors.test') }}</button>
+          </div>
+        </form>
+        <app-write-outcome [outcome]="writeOutcome()" [verifiable]="true" (verify)="loadConfig()" />
+        <app-connector-checks [configured]="loaded() ? configured() : null" [result]="testResult()" />
+      </section>
+      <section class="rpa-panel">
+        <h2>{{ i18n.t('connectors.rpa.tasks') }}</h2>
+        <p>{{ i18n.t('connectors.rpa.tasks_help') }}</p>
+        @if (loaded()) {
+          @if (tasks().length) {
+            <ul>@for (task of tasks(); track task.name) {
+              <li><strong>{{ task.name }}</strong> — {{ task.target }}<p>{{ i18n.t('connectors.rpa.task_effect') }}</p></li>
+            }</ul>
+          } @else { <p>{{ i18n.t('connectors.rpa.no_tasks') }}</p> }
         }
-      </header>
-
-      <form class="space-y-4" (ngSubmit)="saveConfig()">
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Base URL <span class="text-red-400">*</span>
-          </span>
-          <input
-            name="base_url"
-            [(ngModel)]="baseUrl"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            placeholder="http://127.0.0.1:8099"
-            required
-          />
-        </label>
-
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Auth token
-          </span>
-          <input
-            name="auth_token"
-            type="password"
-            [(ngModel)]="authToken"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            [placeholder]="authTokenSet() ? '•••••••• (leave blank to keep)' : 'Bearer token'"
-            autocomplete="off"
-          />
-        </label>
-
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Callback webhook URL
-          </span>
-          <input
-            name="callback_webhook_url"
-            [(ngModel)]="callbackWebhookUrl"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            placeholder="https://…/api/v1/hooks/…"
-          />
-        </label>
-
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Job mapping (JSON)
-          </span>
-          <textarea
-            name="job_mapping"
-            rows="3"
-            [(ngModel)]="jobMappingJson"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            placeholder='{"invoice":"ext.invoice.v1"}'
-          ></textarea>
-        </label>
-
-        <div class="flex flex-wrap gap-2 pt-1">
-          <button
-            type="submit"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-semibold bg-cyan-500 text-white hover:bg-cyan-400 disabled:opacity-50"
-            [disabled]="!featureEnabled() || saving()"
-          >
-            <app-icon name="save" [size]="14" />
-            {{ saving() ? 'Saving…' : 'Save' }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 disabled:opacity-50"
-            (click)="testConnection()"
-            [disabled]="!featureEnabled() || testing()"
-          >
-            <app-icon name="zap" [size]="14" />
-            {{ testing() ? 'Testing…' : 'Test connection' }}
-          </button>
-        </div>
-      </form>
-
-      @if (testResult(); as result) {
-        <div
-          class="mt-4 rounded-md p-3 text-sm ring-1"
-          [class]="
-            result.ok === false
-              ? 'bg-red-500/10 text-red-100 ring-red-400/25'
-              : 'bg-emerald-500/10 text-emerald-100 ring-emerald-400/25'
-          "
-        >
-          @if (result.ok === false) {
-            {{ result.detail || result.message || 'Connection failed' }}
-          } @else {
-            Connected
-            @if (result.duration_ms != null) {
-              · {{ result.duration_ms }} ms
-            }
-          }
-        </div>
-      }
-    </section>
+      </section>
+      <section class="rpa-panel">
+        <h2>{{ i18n.t('connectors.capabilities.revoke') }}</h2>
+        <p>{{ i18n.t('connectors.rpa.revoke_effect') }}</p>
+        <button class="ck-btn ck-btn-quiet" type="button" (click)="revoke()" [disabled]="!editable() || !configured()">{{ i18n.t(confirmRevoke() ? 'connectors.rpa.revoke_confirm' : 'connectors.capabilities.revoke') }}</button>
+        @if (confirmRevoke()) { <button class="ck-btn ck-btn-quiet" type="button" (click)="confirmRevoke.set(false)">{{ i18n.t('common.cancel') }}</button> }
+      </section>
+    </ck-page-frame>
   `,
+  styles: [`:host{display:block}.rpa-panel{padding:20px;margin-bottom:20px;border:1px solid var(--ck-stroke-1);border-radius:var(--ck-radius-sm);max-width:800px}h2{font-size:16px;margin:0 0 8px}p{font-size:13px;color:var(--ck-fg-3);overflow-wrap:anywhere}form{display:grid;gap:16px}label{display:grid;gap:6px;font-size:13px}.rpa-actions{display:flex;gap:8px;flex-wrap:wrap}li{font-size:14px;overflow-wrap:anywhere}input,textarea{width:100%;min-width:0}`],
 })
-export class RpaConnectorComponent implements OnInit {
+export class RpaConnectorComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
-  private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
-
+  private readonly context = new WorkspaceViewContext(this.workspace, () => this.resetWorkspace(), () => { this.loadConfig(); });
+  readonly i18n = inject(I18nService);
   readonly featureEnabled = this.workspace.rpaBridgeEnabled;
-  readonly workspaceName = computed(
-    () => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace',
-  );
-
+  readonly workspaceName = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || '');
   readonly loading = signal(false);
+  readonly loaded = signal(false);
   readonly saving = signal(false);
   readonly testing = signal(false);
-  readonly error = signal<string | null>(null);
+  readonly canConfigure = signal(false);
+  readonly configured = signal(false);
   readonly authTokenSet = signal(false);
+  readonly error = signal<string | null>(null);
   readonly testResult = signal<RpaTestResult | null>(null);
-
+  readonly writeOutcome = signal<WriteOutcome | null>(null);
+  readonly confirmRevoke = signal(false);
+  readonly tasks = signal<Array<{ name: string; target: string }>>([]);
+  readonly editable = computed(() => this.featureEnabled() && this.loaded() && this.canConfigure() && !this.loading() && !this.saving() && this.writeOutcome()?.s !== 'unknown');
   baseUrl = '';
   authToken = '';
   callbackWebhookUrl = '';
   jobMappingJson = '{}';
 
-  ngOnInit(): void {
-    this.loadConfig();
+  ngOnDestroy(): void { this.context.destroy(); }
+
+  private inWorkspace<T>(): MonoTypeOperatorFunction<T> {
+    const request = this.context.captureRequest();
+    return guardWorkspaceRequest(() => this.context.isCurrent(request));
   }
 
-  loadConfig(): void {
-    if (!this.featureEnabled()) {
-      this.error.set(null);
-      return;
-    }
-    this.loading.set(true);
+  private resetWorkspace(): void {
+    this.loading.set(false);
+    this.loaded.set(false);
+    this.saving.set(false);
+    this.testing.set(false);
+    this.canConfigure.set(false);
+    this.configured.set(false);
+    this.authTokenSet.set(false);
     this.error.set(null);
-    this.api.get<RpaConfig>('/rpa/config').subscribe({
-      next: (cfg) => {
-        this.applyConfig(cfg);
-        this.loading.set(false);
+    this.testResult.set(null);
+    this.writeOutcome.set(null);
+    this.confirmRevoke.set(false);
+    this.baseUrl = ''; this.authToken = ''; this.callbackWebhookUrl = ''; this.jobMappingJson = '{}';
+  }
+
+  ngOnInit(): void { this.loadConfig(); }
+
+  loadConfig(): void {
+    if (!this.featureEnabled()) return;
+    const scope = this.workspace.captureRequestScope();
+    this.loading.set(true); this.error.set(null);
+    this.api.get<RpaConfig>('/rpa/config', {}, { workspaceSlug: scope.workspaceSlug }).pipe(this.inWorkspace()).subscribe({
+      next: cfg => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.applyConfig(cfg); this.loaded.set(true); this.loading.set(false);
+        if (this.writeOutcome()?.s === 'unknown') this.writeOutcome.set(null);
       },
-      error: (err) => {
-        this.loading.set(false);
-        if (err?.status === 403) {
-          this.error.set('RPA Bridge is not available for this workspace (403).');
-          return;
-        }
-        if (err?.status === 404) {
-          return;
-        }
-        this.error.set(err?.error?.detail || 'Failed to load RPA config');
+      error: () => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.loading.set(false); this.loaded.set(false);
+        this.error.set(this.i18n.t('connectors.rpa.load_failed'));
       },
     });
   }
 
   saveConfig(): void {
-    if (!this.featureEnabled()) return;
-    let jobMapping: Record<string, string> = {};
-    try {
-      const parsed = JSON.parse(this.jobMappingJson || '{}');
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        jobMapping = parsed as Record<string, string>;
-      } else {
-        this.toast.error('Job mapping must be a JSON object', 'RPA Bridge');
-        return;
-      }
-    } catch {
-      this.toast.error('Job mapping must be valid JSON', 'RPA Bridge');
-      return;
+    if (!this.editable()) return;
+    let mapping: unknown;
+    try { mapping = JSON.parse(this.jobMappingJson); } catch { mapping = null; }
+    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping) || Object.values(mapping).some(v => typeof v !== 'string')) {
+      this.error.set(this.i18n.t('connectors.rpa.mapping_invalid')); return;
     }
-    if (!this.baseUrl.trim()) {
-      this.toast.error('Base URL is required', 'RPA Bridge');
-      return;
+    if (!this.baseUrl.trim() || (!this.authTokenSet() && !this.authToken.trim())) {
+      this.error.set(this.i18n.t('connectors.rpa.required')); return;
     }
-    if (!this.authTokenSet() && !this.authToken.trim()) {
-      this.toast.error('Auth token is required for the first save', 'RPA Bridge');
-      return;
-    }
-    const payload: Record<string, unknown> = {
-      base_url: this.baseUrl.trim(),
-      job_mapping: jobMapping,
-      callback_webhook_url: this.callbackWebhookUrl.trim() || null,
-    };
-    if (this.authToken.trim()) {
-      payload['auth_token'] = this.authToken.trim();
-    }
-    this.saving.set(true);
-    this.error.set(null);
-    this.api.put<RpaConfig>('/rpa/config', payload).subscribe({
-      next: (cfg) => {
-        this.applyConfig(cfg);
-        this.authToken = '';
-        this.saving.set(false);
-        this.toast.success('RPA Bridge configuration saved', 'RPA Bridge');
-      },
-      error: (err) => {
-        this.saving.set(false);
-        const detail = err?.error?.detail || 'Failed to save RPA config';
-        this.error.set(detail);
-        this.toast.error(detail, 'RPA Bridge');
-      },
+    const payload: Record<string, unknown> = { base_url: this.baseUrl.trim(), job_mapping: mapping, callback_webhook_url: this.callbackWebhookUrl.trim() || null };
+    if (this.authToken.trim()) payload['auth_token'] = this.authToken.trim();
+    const scope = this.workspace.captureRequestScope();
+    this.saving.set(true); this.error.set(null); this.testResult.set(null);
+    settleWrite(this.api.put<RpaConfig>('/rpa/config', payload, { workspaceSlug: scope.workspaceSlug })).pipe(this.inWorkspace()).subscribe(outcome => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.writeOutcome.set(outcome); this.saving.set(outcome.s === 'sent');
+      if (outcome.s === 'confirmed') { this.applyConfig(outcome.value); this.authToken = ''; }
     });
   }
 
   testConnection(): void {
-    if (!this.featureEnabled()) return;
-    this.testing.set(true);
-    this.testResult.set(null);
-    this.error.set(null);
-    this.api.post<RpaTestResult>('/rpa/test', {}).subscribe({
-      next: (result) => {
-        this.testing.set(false);
-        const ok = result?.ok !== false && result?.status !== 'error';
-        this.testResult.set({ ...result, ok });
-        if (ok) {
-          this.toast.success('Connection OK', 'RPA Bridge');
-        } else {
-          this.toast.error(result?.detail || result?.message || 'Connection failed', 'RPA Bridge');
-        }
+    if (!this.configured() || this.testing() || this.saving() || !this.canConfigure()) return;
+    const scope = this.workspace.captureRequestScope();
+    this.testing.set(true); this.testResult.set(null);
+    this.api.post<RpaTestResult>('/rpa/test', {}, { workspaceSlug: scope.workspaceSlug }).pipe(this.inWorkspace()).subscribe({
+      next: result => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.testing.set(false); this.testResult.set({ ...result, ok: result?.ok === true });
       },
-      error: (err) => {
-        this.testing.set(false);
-        const detail = err?.error?.detail || 'Connection test failed';
-        this.testResult.set({ ok: false, detail });
-        this.toast.error(detail, 'RPA Bridge');
+      error: () => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.testing.set(false); this.testResult.set({ ok: false, status: 'unreachable' });
       },
     });
   }
 
-  private applyConfig(cfg: RpaConfig | null | undefined): void {
-    if (!cfg) return;
-    this.baseUrl = typeof cfg.base_url === 'string' ? cfg.base_url : this.baseUrl;
-    this.callbackWebhookUrl =
-      typeof cfg.callback_webhook_url === 'string' ? cfg.callback_webhook_url : '';
-    this.authTokenSet.set(cfg.auth_token_set === true);
-    this.authToken = '';
-    try {
-      this.jobMappingJson = JSON.stringify(cfg.job_mapping || {}, null, 2);
-    } catch {
-      this.jobMappingJson = '{}';
-    }
+  revoke(): void {
+    if (!this.editable() || !this.configured()) return;
+    if (!this.confirmRevoke()) { this.confirmRevoke.set(true); return; }
+    const scope = this.workspace.captureRequestScope();
+    this.saving.set(true);
+    settleWrite(this.api.delete<RpaConfig>('/rpa/config', { workspaceSlug: scope.workspaceSlug })).pipe(this.inWorkspace()).subscribe(outcome => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.writeOutcome.set(outcome); this.saving.set(outcome.s === 'sent');
+      if (outcome.s === 'confirmed') { this.applyConfig(outcome.value); this.testResult.set(null); this.confirmRevoke.set(false); }
+    });
+  }
+
+  private applyConfig(cfg: RpaConfig): void {
+    this.baseUrl = cfg.base_url || ''; this.callbackWebhookUrl = cfg.callback_webhook_url || '';
+    this.authTokenSet.set(cfg.auth_token_set === true); this.authToken = '';
+    this.configured.set(cfg.configured === true); this.canConfigure.set(cfg.can_configure === true);
+    this.jobMappingJson = JSON.stringify(cfg.job_mapping || {}, null, 2);
+    this.tasks.set(Object.entries(cfg.job_mapping || {}).map(([name, target]) => ({ name, target })));
   }
 }

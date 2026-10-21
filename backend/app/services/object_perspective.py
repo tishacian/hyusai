@@ -9,6 +9,7 @@ The three response shapes share the same envelope but keep object-specific,
 stable facets.  This lets the frontend preserve the selected object, header and
 tabs while only the blocks inside a facet change with the active lens.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -759,13 +760,10 @@ def _capability_steer(**data: Any) -> dict[str, Any]:
                         measured=roi_cohort.roi_percent is not None,
                         unit="%",
                         source=(
-                            "derived:runs.value_estimated,"
-                            "skill_invocations.cost,cost_measured"
+                            "derived:runs.value_estimated,skill_invocations.cost,cost_measured"
                         ),
                         sample_count=(
-                            roi_cohort.run_count
-                            if roi_cohort.roi_percent is not None
-                            else None
+                            roi_cohort.run_count if roi_cohort.roi_percent is not None else None
                         ),
                         description=(
                             "Computed only across Runs with both estimated value and "
@@ -785,10 +783,7 @@ def _capability_steer(**data: Any) -> dict[str, Any]:
                         "System contributions",
                         _system_value_rollup(data["systems"], runs, invocations),
                         measured=bool(runs),
-                        source=(
-                            "runs.value_estimated,"
-                            "skill_invocations.cost,cost_measured"
-                        ),
+                        source=("runs.value_estimated,skill_invocations.cost,cost_measured"),
                         sample_count=len(runs) or None,
                     ),
                 ],
@@ -1011,9 +1006,7 @@ def _run_build(**data: Any) -> dict[str, Any]:
                         "configuration_snapshot",
                         "Versioned configuration snapshot",
                         _configuration_snapshot_value(system_version),
-                        configured=bool(
-                            system_version and system_version.configuration_snapshot
-                        ),
+                        configured=bool(system_version and system_version.configuration_snapshot),
                         source="system_versions.configuration_snapshot",
                         as_of=_iso(system_version.created_at) if system_version else None,
                     ),
@@ -1242,10 +1235,10 @@ def _run_steer(**data: Any) -> dict[str, Any]:
     run: Run = data["run"]
     invocations: list[SkillInvocation] = data["invocations"]
     measured_cost, cost_sample_count = measured_cost_summary(invocations)
-    value_available = (
-        run.value_estimated is not None
-        and str(run.value_source or "unset") in {"auto", "operator"}
-    )
+    value_available = run.value_estimated is not None and str(run.value_source or "unset") in {
+        "auto",
+        "operator",
+    }
     outcome = {
         "decision": run.decision,
         "confidence": run.confidence,
@@ -1285,10 +1278,7 @@ def _run_steer(**data: Any) -> dict[str, Any]:
                                 "efficiency",
                             )
                         ),
-                        source=(
-                            "runs.outcome + "
-                            "skill_invocations.cost,cost_measured"
-                        ),
+                        source=("runs.outcome + skill_invocations.cost,cost_measured"),
                     ),
                     _fact(
                         "roi",
@@ -1297,8 +1287,7 @@ def _run_steer(**data: Any) -> dict[str, Any]:
                         measured=roi is not None,
                         unit="%",
                         source=(
-                            "derived:runs.value_estimated,"
-                            "skill_invocations.cost,cost_measured"
+                            "derived:runs.value_estimated,skill_invocations.cost,cost_measured"
                         ),
                         sample_count=cost_sample_count if roi is not None else None,
                     ),
@@ -1664,10 +1653,7 @@ def _invocation_operate(**data: Any) -> dict[str, Any]:
                         "System",
                         data["system"].id if data["system"] is not None else None,
                         configured=data["system"] is not None,
-                        restricted=(
-                            bool(data["run"].system_id)
-                            and data["system"] is None
-                        ),
+                        restricted=(bool(data["run"].system_id) and data["system"] is None),
                         source="runs.system_id",
                     ),
                 ],
@@ -1991,12 +1977,19 @@ def _capability_header(
     cost_evidence = measured_costs_by_run(invocations)
     roi_cohort = measured_roi_cohort(completed, cost_evidence)
     return {
+        "declared": _fact("declared", "Declared", True, source="capabilities.id"),
+        "last_invocation": _fact(
+            "last_invocation",
+            "Last invocation",
+            max((_iso(item.started_at) for item in invocations if item.started_at), default=None),
+            measured=any(item.started_at for item in invocations),
+            source="skill_invocations.started_at",
+        ),
         "tier": _fact("tier", "Tier", capability.tier, source="capabilities.tier"),
         "system_count": _fact(
             "system_count",
             "Systems",
-            len(systems) if systems else None,
-            configured=bool(systems),
+            len(systems),
             source="systems.capability_id",
             sample_count=len(systems) or None,
         ),
@@ -2015,12 +2008,8 @@ def _capability_header(
             roi_cohort.roi_percent,
             measured=roi_cohort.roi_percent is not None,
             unit="%",
-            source=(
-                "derived:runs.value_estimated,skill_invocations.cost,cost_measured"
-            ),
-            sample_count=(
-                roi_cohort.run_count if roi_cohort.roi_percent is not None else None
-            ),
+            source=("derived:runs.value_estimated,skill_invocations.cost,cost_measured"),
+            sample_count=(roi_cohort.run_count if roi_cohort.roi_percent is not None else None),
             description=(
                 "Computed only across Runs with both estimated value and explicitly "
                 "measured invocation cost."
@@ -2142,27 +2131,33 @@ def _visible_run_parents(
         if run.system_id
         else None
     )
-    if system is not None and not resolve_system_read(
-        db,
-        system=system,
-        user=user,
-        workspace=workspace,
-        audit_shadow_diff=False,
-        audit_shadow_evidence=False,
-    ).effective_allowed:
+    if (
+        system is not None
+        and not resolve_system_read(
+            db,
+            system=system,
+            user=user,
+            workspace=workspace,
+            audit_shadow_diff=False,
+            audit_shadow_evidence=False,
+        ).effective_allowed
+    ):
         system = None
 
     # ``Run.capability_id`` is the only historical capability reference. A
     # fallback through today's mutable System would silently rewrite history.
     capability = _visible_capability(db, workspace, run.capability_id)
-    if capability is not None and not resolve_capability_read(
-        db,
-        capability=capability,
-        user=user,
-        workspace=workspace,
-        audit_shadow_diff=False,
-        audit_shadow_evidence=False,
-    ).effective_allowed:
+    if (
+        capability is not None
+        and not resolve_capability_read(
+            db,
+            capability=capability,
+            user=user,
+            workspace=workspace,
+            audit_shadow_diff=False,
+            audit_shadow_evidence=False,
+        ).effective_allowed
+    ):
         capability = None
     return system, capability
 
@@ -2421,9 +2416,7 @@ def _system_value_rollup(
                 "cost": sum(costs) if costs else None,
                 "cost_sample_count": cost_sample_count,
                 "cost_measured_run_count": cost_run_count,
-                "cost_coverage_percent": (
-                    cost_run_count / len(scoped) * 100.0 if scoped else None
-                ),
+                "cost_coverage_percent": (cost_run_count / len(scoped) * 100.0 if scoped else None),
                 "value": sum(values) if values else None,
                 "value_run_count": len(values),
                 "roi_eligible_run_count": roi_run_count,
@@ -2596,9 +2589,7 @@ def _safe_waiting_subflows(value: Any) -> Optional[dict[str, Any]]:
     if not payload:
         return None
     allowed = {"join", "status", "pending", "completed", "failed", "cancelled", "updated_at"}
-    return scrub_projection_mapping(
-        {key: item for key, item in payload.items() if key in allowed}
-    )
+    return scrub_projection_mapping({key: item for key, item in payload.items() if key in allowed})
 
 
 def _safe_flow_snapshot(value: Mapping[str, Any]) -> Optional[dict[str, Any]]:

@@ -7,9 +7,11 @@
  * just a status: `status_detail` carries the readable step the worker is on, so
  * the UI shows "Profiling 42 columns" instead of a mute spinner.
  */
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { captureWorkspaceRequest } from '@app/core/workspace-request-scope';
 import type {
   TabularColumn,
   TabularColumnStats,
@@ -98,33 +100,50 @@ export function isDatasetActive(dataset: DatasetDto | null | undefined): boolean
 @Injectable({ providedIn: 'root' })
 export class DataService {
   private readonly http = inject(HttpClient);
+  private readonly workspace = inject(WorkspaceService);
   private readonly base = '/api/v1/datasets';
 
   readonly datasets = signal<DatasetDto[]>([]);
   readonly loading = signal(false);
   readonly feature = signal<DatasetFeature>({
-    enabled: true,
+    enabled: false,
     upload_max_bytes: 256 * 1024 * 1024,
   });
 
   /** True while any dataset is still being prepared: drives the poll loop. */
   readonly hasActive = computed(() => this.datasets().some(isDatasetActive));
+  private refreshGeneration = 0;
+
+  constructor() {
+    const unregister = this.workspace.registerContextReset(() => {
+      this.refreshGeneration += 1;
+      this.datasets.set([]);
+      this.loading.set(false);
+      this.feature.set({ enabled: false, upload_max_bytes: 0 });
+    });
+    inject(DestroyRef).onDestroy(unregister);
+  }
 
   async refresh(): Promise<DatasetDto[]> {
+    const request = captureWorkspaceRequest(this.workspace);
+    const generation = ++this.refreshGeneration;
     this.loading.set(true);
     try {
       const response = await firstValueFrom(
-        this.http.get<{ datasets: DatasetDto[]; feature: DatasetFeature }>(this.base),
+        this.http.get<{ datasets: DatasetDto[]; feature: DatasetFeature }>(this.base, { headers: request.headers }),
       );
+      request.assertCurrent();
+      if (generation !== this.refreshGeneration) return this.datasets();
       this.datasets.set(response.datasets ?? []);
       if (response.feature) this.feature.set(response.feature);
       return this.datasets();
     } finally {
-      this.loading.set(false);
+      if (request.isCurrent() && generation === this.refreshGeneration) this.loading.set(false);
     }
   }
 
   async upload(file: File, name?: string): Promise<DatasetDto> {
+    const request = captureWorkspaceRequest(this.workspace);
     const form = new FormData();
     form.append('file', file, file.name);
     if (name?.trim()) form.append('name', name.trim());
@@ -132,17 +151,22 @@ export class DataService {
       this.http.post<{ dataset: DatasetDto; queued: boolean }>(
         `${this.base}/upload`,
         form,
+        { headers: request.headers },
       ),
     );
-    // Optimistic insert so the row (and its progress) shows up immediately.
+    request.assertCurrent();
+    // Insert the server-confirmed row in the workspace that received the upload.
     this.datasets.update((rows) => [response.dataset, ...rows]);
     return response.dataset;
   }
 
-  detail(datasetId: string): Promise<DatasetDetailDto> {
-    return firstValueFrom(
-      this.http.get<DatasetDetailDto>(`${this.base}/${datasetId}`),
+  async detail(datasetId: string): Promise<DatasetDetailDto> {
+    const request = captureWorkspaceRequest(this.workspace);
+    const result = await firstValueFrom(
+      this.http.get<DatasetDetailDto>(`${this.base}/${datasetId}`, { headers: request.headers }),
     );
+    request.assertCurrent();
+    return result;
   }
 
   /**
@@ -153,26 +177,34 @@ export class DataService {
    * more": every dataset here is immutable, so row 8 400 is a fact that exists
    * and simply is not in that cache.
    */
-  preview(
+  async preview(
     datasetId: string,
     options: { offset?: number; limit?: number } = {},
   ): Promise<DatasetPageDto> {
+    const request = captureWorkspaceRequest(this.workspace);
     const params: Record<string, string> = {};
     if (options.offset) params['offset'] = String(options.offset);
     if (options.limit) params['limit'] = String(options.limit);
-    return firstValueFrom(
-      this.http.get<DatasetPageDto>(`${this.base}/${datasetId}/preview`, { params }),
+    const result = await firstValueFrom(
+      this.http.get<DatasetPageDto>(`${this.base}/${datasetId}/preview`, { params, headers: request.headers }),
     );
+    request.assertCurrent();
+    return result;
   }
 
-  reingest(datasetId: string): Promise<{ dataset: DatasetDto }> {
-    return firstValueFrom(
-      this.http.post<{ dataset: DatasetDto }>(`${this.base}/${datasetId}/reingest`, {}),
+  async reingest(datasetId: string): Promise<{ dataset: DatasetDto }> {
+    const request = captureWorkspaceRequest(this.workspace);
+    const result = await firstValueFrom(
+      this.http.post<{ dataset: DatasetDto }>(`${this.base}/${datasetId}/reingest`, {}, { headers: request.headers }),
     );
+    request.assertCurrent();
+    return result;
   }
 
   async remove(datasetId: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.base}/${datasetId}`));
+    const request = captureWorkspaceRequest(this.workspace);
+    await firstValueFrom(this.http.delete(`${this.base}/${datasetId}`, { headers: request.headers }));
+    request.assertCurrent();
     this.datasets.update((rows) => rows.filter((row) => row.id !== datasetId));
   }
 }

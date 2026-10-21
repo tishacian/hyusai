@@ -15,13 +15,13 @@ Three concerns share this router:
      ``POST /decisions/{id}/status`` endpoint for accept/reject
      actions (no new mutation endpoint here — we reuse Decisions).
 """
+
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -51,8 +51,6 @@ from app.services.evaluation.rag_components import (
     QUESTION_TYPE_LABELS,
     RAG_COMPONENT_LABELS,
     component_health,
-    heuristic_question_type,
-    infer_failed_components,
     targeted_components,
 )
 from app.services.evaluation_preset_service import (
@@ -152,13 +150,27 @@ async def score_response(
         failed_components=result.get("failed_components") or [],
         topic=topic[:200] if topic else None,
         claim_audit=result["claim_audit"],
-        metadata_={**(result.get("metadata") or {}), "status": result.get("status"), "reason": result.get("reason"), "created_by_user_id": user.id},
+        metadata_={
+            **(result.get("metadata") or {}),
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "created_by_user_id": user.id,
+        },
         created_at=datetime.utcnow(),
     )
     db.add(row)
     db.flush()
     from sqlalchemy import update
-    db.execute(update(EvaluationScore).where(EvaluationScore.id == row.id).values(composite_score=result.get("composite_score"), hallucination_rate=result.get("hallucination_rate"), drift_rate=result.get("drift_rate")))
+
+    db.execute(
+        update(EvaluationScore)
+        .where(EvaluationScore.id == row.id)
+        .values(
+            composite_score=result.get("composite_score"),
+            hallucination_rate=result.get("hallucination_rate"),
+            drift_rate=result.get("drift_rate"),
+        )
+    )
     db.commit()
 
     return result
@@ -176,12 +188,19 @@ async def evaluation_history(
     as_of: datetime | None = None,
 ):
     """Return authorized evaluation records in the common System/time scope."""
-    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, agent_id=agent_id, as_of=as_of)
+    q = _evaluation_scope_query(
+        db, workspace, system_id=system_id, since=since, agent_id=agent_id, as_of=as_of
+    )
     q = visible_evaluation_query(db, q, user, workspace)
     rows = q.order_by(EvaluationScore.created_at.desc()).limit(max(1, min(limit, 200))).all()
 
     totals = _evaluation_scope_totals(q.all())
-    run_systems = {r.id: r.system_id for r in db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_([row.run_id for row in rows])).all()}
+    run_systems = {
+        r.id: r.system_id
+        for r in db.query(Run)
+        .filter(Run.workspace_id == workspace.id, Run.id.in_([row.run_id for row in rows]))
+        .all()
+    }
     return {
         "scope": {"system_id": system_id, "since": since or "7d"},
         **totals,
@@ -192,7 +211,9 @@ async def evaluation_history(
                 "system_id": run_systems.get(r.run_id),
                 "status": (r.metadata_ or {}).get("status", "historical"),
                 "method": (r.metadata_ or {}).get("method"),
-                "threshold_breach": ((r.metadata_ or {}).get("threshold_outcome") or {}).get("breach"),
+                "threshold_breach": ((r.metadata_ or {}).get("threshold_outcome") or {}).get(
+                    "breach"
+                ),
                 "session_id": r.session_id,
                 "agent_id": r.agent_id,
                 "turn_number": r.turn_number,
@@ -206,7 +227,7 @@ async def evaluation_history(
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in rows
-        ]
+        ],
     }
 
 
@@ -244,7 +265,9 @@ async def latest_evaluation(
     as_of: datetime | None = None,
     since: Optional[str] = "7d",
 ):
-    q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, agent_id=agent_id, as_of=as_of).order_by(EvaluationScore.created_at.desc())
+    q = _evaluation_scope_query(
+        db, workspace, system_id=system_id, since=since, agent_id=agent_id, as_of=as_of
+    ).order_by(EvaluationScore.created_at.desc())
     q = visible_evaluation_query(db, q, user, workspace)
     rows = q.all()
     totals = _evaluation_scope_totals(rows)
@@ -254,13 +277,16 @@ async def latest_evaluation(
         return {"evaluation": None, "scope": scope, **totals}
     run = db.query(Run).filter(Run.id == row.run_id, Run.workspace_id == workspace.id).first()
     return {
-        "scope": scope, **totals,
+        "scope": scope,
+        **totals,
         "evaluation": {
             "id": row.id,
             "run_id": row.run_id,
             "system_id": run.system_id if run else None,
             "status": (row.metadata_ or {}).get("status", "historical"),
-            "threshold_breach": ((row.metadata_ or {}).get("threshold_outcome") or {}).get("breach"),
+            "threshold_breach": ((row.metadata_ or {}).get("threshold_outcome") or {}).get(
+                "breach"
+            ),
             "scores": row.scores,
             "composite_score": row.composite_score,
             "hallucination_rate": row.hallucination_rate,
@@ -270,7 +296,7 @@ async def latest_evaluation(
             "topic": row.topic,
             "claim_audit": row.claim_audit,
             "created_at": row.created_at.isoformat() if row.created_at else None,
-        }
+        },
     }
 
 
@@ -291,7 +317,7 @@ class EvalPresetIn(BaseModel):
     enabled: Optional[bool] = None
     composite_min: Optional[float] = Field(default=None, ge=0, le=100)
     hallucination_max: Optional[float] = Field(default=None, ge=0, le=1)
-    dimension_min: Optional[Dict[str, float]] = None
+    dimension_min: Optional[dict[str, float]] = None
     sample_rate: Optional[float] = Field(default=None, ge=0, le=1)
     name: Optional[str] = None
 
@@ -395,8 +421,14 @@ async def evaluation_by_run(
     if not snap:
         return {"status": "unavailable", "run_id": run.id, "reason": "no_persisted_evaluation"}
     from app.services.evaluation.lifecycle import public_evaluation_snapshot
+
     snap = public_evaluation_snapshot(db, snap, workspace=workspace, user=user, run=run)
-    return {**snap, "status": snap.get("status", "historical"), "run_id": run.id, "breach": bool(snap.get("threshold_breach"))}
+    return {
+        **snap,
+        "status": snap.get("status", "historical"),
+        "run_id": run.id,
+        "breach": bool(snap.get("threshold_breach")),
+    }
 
 
 class RunEvaluationRequest(BaseModel):
@@ -415,12 +447,33 @@ async def score_run(
     run = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
     require_readable_run(db, run, user, workspace)
     if req.invocation_id:
-        invocation = db.query(SkillInvocation).filter(SkillInvocation.id == req.invocation_id, SkillInvocation.run_id == run.id).first()
+        invocation = (
+            db.query(SkillInvocation)
+            .filter(SkillInvocation.id == req.invocation_id, SkillInvocation.run_id == run.id)
+            .first()
+        )
         from app.services.run_access import resolve_skill_invocation_read
-        if invocation is None or not resolve_skill_invocation_read(db, invocation=invocation, run=run, user=user, workspace=workspace).effective_allowed:
+
+        if (
+            invocation is None
+            or not resolve_skill_invocation_read(
+                db, invocation=invocation, run=run, user=user, workspace=workspace
+            ).effective_allowed
+        ):
             raise HTTPException(404, "Invocation not found")
-    job = enqueue_run_evaluation(db, run, user=user, idempotency_key=req.idempotency_key, invocation_id=req.invocation_id)
-    return {"job_id": job.id, "status": job.status, "run_id": run.id, "poll_url": f"/evaluation/by-run/{run.id}"}
+    job = enqueue_run_evaluation(
+        db,
+        run,
+        user=user,
+        idempotency_key=req.idempotency_key,
+        invocation_id=req.invocation_id,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "run_id": run.id,
+        "poll_url": f"/evaluation/by-run/{run.id}",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +513,13 @@ async def review_queue(
     if status != "all":
         q = q.filter(Decision.status == status)
     if system_id:
-        q = q.filter(Decision.target_id.in_(db.query(Run.id).filter(Run.workspace_id == workspace.id, Run.system_id == system_id)))
+        q = q.filter(
+            Decision.target_id.in_(
+                db.query(Run.id).filter(
+                    Run.workspace_id == workspace.id, Run.system_id == system_id
+                )
+            )
+        )
     anchor = observation_anchor(as_of)
     if since:
         q = q.filter(Decision.created_at >= anchor - _scope_delta(since))
@@ -468,13 +527,14 @@ async def review_queue(
     decisions = q.all()
 
     run_ids = [d.target_id for d in decisions if d.target_id]
-    runs_by_id: Dict[str, Run] = {}
+    runs_by_id: dict[str, Run] = {}
     if run_ids:
         rows = db.query(Run).filter(Run.id.in_(run_ids), Run.workspace_id == workspace.id).all()
         from app.services.run_access import readable_runs
+
         runs_by_id = {r.id: r for r in readable_runs(db, runs=rows, user=user, workspace=workspace)}
 
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     wanted_component = (
         component.strip().lower().replace("-", "_").replace(" ", "_") if component else None
     )
@@ -533,34 +593,77 @@ async def eval_trend(
     q = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, as_of=as_of)
     q = visible_evaluation_query(db, q, user, workspace)
     rows = q.order_by(EvaluationScore.created_at.asc()).all()
-    runs = {r.id: r for r in db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_([row.run_id for row in rows])).all()}
+    runs = {
+        r.id: r
+        for r in db.query(Run)
+        .filter(Run.workspace_id == workspace.id, Run.id.in_([row.run_id for row in rows]))
+        .all()
+    }
     buckets = {}
     for row in rows:
-        bucket = str(row.created_at.date()) if group_by == "day" else (runs.get(row.run_id).capability_id if group_by == "capability" and runs.get(row.run_id) else runs.get(row.run_id).system_id if runs.get(row.run_id) else None)
+        bucket = (
+            str(row.created_at.date())
+            if group_by == "day"
+            else (
+                runs.get(row.run_id).capability_id
+                if group_by == "capability" and runs.get(row.run_id)
+                else runs.get(row.run_id).system_id
+                if runs.get(row.run_id)
+                else None
+            )
+        )
         buckets.setdefault(bucket or "(unknown)", []).append(row)
+
     def mean(items, attr):
         values = [getattr(row, attr) for row in items if getattr(row, attr) is not None]
         return sum(values) / len(values) if values else None
-    known = [row for row in rows if isinstance((row.metadata_ or {}).get("threshold_outcome"), dict)]
+
+    known = [
+        row for row in rows if isinstance((row.metadata_ or {}).get("threshold_outcome"), dict)
+    ]
     breaches = sum(bool(row.metadata_["threshold_outcome"].get("breach")) for row in known)
     return {
         "scope": {"system_id": system_id, "since": since or "7d"},
         **_evaluation_scope_totals(rows),
-        "since": since, "group_by": group_by,
-        "thresholds": None, "threshold_basis": "persisted_per_evaluation",
+        "since": since,
+        "group_by": group_by,
+        "thresholds": None,
+        "threshold_basis": "persisted_per_evaluation",
         "totals": {
-            "runs_evaluated": len(rows), "breaches": breaches,
+            "runs_evaluated": len(rows),
+            "breaches": breaches,
             "breach_rate": breaches / len(known) if known else None,
             "threshold_coverage": len(known),
-            "incomplete": sum((row.metadata_ or {}).get("status") in {"failed", "partial"} for row in rows),
+            "incomplete": sum(
+                (row.metadata_ or {}).get("status") in {"failed", "partial"} for row in rows
+            ),
         },
-        "series": [{"bucket": bucket, "count": len(items), "avg_composite": mean(items, "composite_score"), "avg_hallucination": mean(items, "hallucination_rate"),
-            "observed_composite_count": sum(row.composite_score is not None for row in items),
-            "observed_hallucination_count": sum(row.hallucination_rate is not None for row in items),
-            "threshold_coverage": sum(isinstance((row.metadata_ or {}).get("threshold_outcome"), dict) for row in items),
-            "breaches": sum(bool(((row.metadata_ or {}).get("threshold_outcome") or {}).get("breach")) for row in items),
-            "incomplete": sum((row.metadata_ or {}).get("status") in {"partial", "failed"} for row in items),
-        } for bucket, items in buckets.items()],
+        "series": [
+            {
+                "bucket": bucket,
+                "count": len(items),
+                "avg_composite": mean(items, "composite_score"),
+                "avg_hallucination": mean(items, "hallucination_rate"),
+                "observed_composite_count": sum(row.composite_score is not None for row in items),
+                "observed_hallucination_count": sum(
+                    row.hallucination_rate is not None for row in items
+                ),
+                "observed_drift_count": sum(row.drift_rate is not None for row in items),
+                "avg_drift": mean(items, "drift_rate"),
+                "threshold_coverage": sum(
+                    isinstance((row.metadata_ or {}).get("threshold_outcome"), dict)
+                    for row in items
+                ),
+                "breaches": sum(
+                    bool(((row.metadata_ or {}).get("threshold_outcome") or {}).get("breach"))
+                    for row in items
+                ),
+                "incomplete": sum(
+                    (row.metadata_ or {}).get("status") in {"partial", "failed"} for row in items
+                ),
+            }
+            for bucket, items in buckets.items()
+        ],
     }
 
 
@@ -585,7 +688,11 @@ async def eval_component_health(
     works without importing Giskard in the API process.
     """
     query = _evaluation_scope_query(db, workspace, system_id=system_id, since=since, as_of=as_of)
-    rows = visible_evaluation_query(db, query, user, workspace).order_by(EvaluationScore.created_at.desc()).all()
+    rows = (
+        visible_evaluation_query(db, query, user, workspace)
+        .order_by(EvaluationScore.created_at.desc())
+        .all()
+    )
     scope_totals = _evaluation_scope_totals(rows)
     service = get_evaluation_preset_service()
     config = service.resolve(db, workspace_id=workspace.id)
@@ -725,21 +832,38 @@ def _scope_delta(since):
     return delta
 
 
-def _evaluation_scope_query(db, workspace, *, system_id=None, since=None, agent_id=None, as_of=None):
+def _evaluation_scope_query(
+    db, workspace, *, system_id=None, since=None, agent_id=None, as_of=None
+):
     delta = _scope_delta(since)
     anchor = observation_anchor(as_of)
-    query = db.query(EvaluationScore).filter(EvaluationScore.workspace_id == workspace.id,
+    query = db.query(EvaluationScore).filter(
+        EvaluationScore.workspace_id == workspace.id,
         EvaluationScore.created_at >= anchor - delta,
-        EvaluationScore.created_at < anchor)
+        EvaluationScore.created_at < anchor,
+    )
     if system_id:
-        query = query.filter(EvaluationScore.run_id.in_(db.query(Run.id).filter(Run.workspace_id == workspace.id, Run.system_id == system_id)))
+        query = query.filter(
+            EvaluationScore.run_id.in_(
+                db.query(Run.id).filter(
+                    Run.workspace_id == workspace.id, Run.system_id == system_id
+                )
+            )
+        )
     if agent_id:
         query = query.filter(EvaluationScore.agent_id == agent_id)
     return query
 
 
 def _evaluation_scope_totals(rows):
-    return {"total": len(rows), "distinct_runs": len({row.run_id for row in rows if row.run_id}), "state_counts": dict(Counter((row.metadata_ or {}).get("status") or "historical" for row in rows)), "state_count_basis": "evaluation_records"}
+    return {
+        "total": len(rows),
+        "distinct_runs": len({row.run_id for row in rows if row.run_id}),
+        "state_counts": dict(
+            Counter((row.metadata_ or {}).get("status") or "historical" for row in rows)
+        ),
+        "state_count_basis": "evaluation_records",
+    }
 
 
 def _parse_since(since: str) -> Optional[timedelta]:
@@ -762,7 +886,7 @@ def _parse_since(since: str) -> Optional[timedelta]:
     return None
 
 
-def _serialize_run_for_queue(run: Run) -> Dict[str, Any]:
+def _serialize_run_for_queue(run: Run) -> dict[str, Any]:
     return {
         "id": run.id,
         "system_id": run.system_id,
@@ -772,7 +896,11 @@ def _serialize_run_for_queue(run: Run) -> Dict[str, Any]:
         "confidence": run.confidence,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
-        "evaluation_scores": {k: v for k, v in (run.evaluation_scores or {}).items() if k not in {"metadata", "claim_audit"}},
+        "evaluation_scores": {
+            k: v
+            for k, v in (run.evaluation_scores or {}).items()
+            if k not in {"metadata", "claim_audit"}
+        },
         # Keep input_ref + output_ref for preview — UI will trim.
         "input_ref": run.input_ref,
         "output_ref": run.output_ref,
@@ -813,7 +941,13 @@ async def list_feedback(
     if label:
         q = q.filter(EvaluationFeedback.label == label)
     from app.services.run_access import readable_runs
-    accessible = readable_runs(db, runs=db.query(Run).filter(Run.workspace_id == workspace.id).all(), user=user, workspace=workspace)
+
+    accessible = readable_runs(
+        db,
+        runs=db.query(Run).filter(Run.workspace_id == workspace.id).all(),
+        user=user,
+        workspace=workspace,
+    )
     q = q.filter(EvaluationFeedback.run_id.in_([r.id for r in accessible]))
     total = q.count()
     rows = q.offset(offset).limit(limit).all()

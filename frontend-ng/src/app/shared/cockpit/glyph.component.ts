@@ -43,6 +43,22 @@ export type CkGlyphName =
   selector: 'ck-glyph',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // The host was inline and inherited the parent's line-height, so the glyph
+  // sat on the text baseline instead of the label's optical centre.
+  styles: [
+    `
+      :host {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        line-height: 0;
+      }
+      svg {
+        display: block;
+      }
+    `,
+  ],
   template: `
     <svg
       [attr.width]="size"
@@ -53,8 +69,6 @@ export type CkGlyphName =
       stroke-width="1"
       stroke-linecap="square"
       stroke-linejoin="miter"
-      [style.display]="'inline-block'"
-      [style.verticalAlign]="'middle'"
       [innerHTML]="safePath"
     ></svg>
   `,

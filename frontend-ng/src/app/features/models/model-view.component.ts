@@ -46,6 +46,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { AvailabilityComponent } from '@app/shared/ui/availability.component';
+import { availability } from '@app/shared/ui/load-state';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
@@ -150,6 +152,7 @@ const CHART_ASPECT = 300 / 190;
     CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
+    AvailabilityComponent,
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
@@ -195,7 +198,7 @@ const CHART_ASPECT = 300 / 190;
           }
           @if (row.is_champion) {
             <span class="ck-badge ck-badge--champion ck-mono">
-              <app-icon name="crown" [size]="10" /> {{ i18n.t('models.detail.serving') }}
+              <app-icon name="crown" [size]="10" /> {{ i18n.t(serving()?.callable ? 'models.detail.serving' : 'models.detail.selected') }}
             </span>
           } @else if (row.id === challengerId()) {
             <!-- The other half of champion/challenger, and the same fact the
@@ -278,6 +281,8 @@ const CHART_ASPECT = 300 / 190;
           }
         </div>
       }
+
+      <section class="ck-surface rounded-md p-4 my-3"><app-availability [value]="availabilityFacts()" /></section>
 
       @if (pipeline().length) {
         <nav
@@ -1729,6 +1734,16 @@ export class ModelViewComponent implements OnInit {
    * is still showing — a secret this platform cannot show twice.
    */
   protected readonly serving = signal<ServingBlock | null>(null);
+  protected readonly availabilityFacts = computed(() => {
+    const serving = this.serving();
+    return availability({
+      configured: serving?.enabled ?? 'unknown',
+      selected: serving?.is_serving ?? 'unknown',
+      callable: serving ? { value: serving.callable, reason: this.readinessRefusal() } : 'unknown',
+      executed: serving ? serving.predict_count > 0 : 'unknown',
+      qualified: { value: 'unknown', reason: this.i18n.t('models.availability.qualification') },
+    });
+  });
   protected readonly readinessKey = computed(() => servingStatusKey(this.serving()));
   protected readonly readinessRefusal = computed(() => {
     const refusal = this.serving()?.refusal;

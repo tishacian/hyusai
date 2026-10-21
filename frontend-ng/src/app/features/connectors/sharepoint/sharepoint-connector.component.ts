@@ -1,3 +1,9 @@
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { I18nService } from '@app/core/i18n.service';
+import { ConnectorChecksComponent } from '../connector-checks.component';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
 /**
  * SharePoint connector page — Vague E / E4.1 (scope commun E4a + E4b).
  *
@@ -44,10 +50,12 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   SharePointAuthMode,
+  SharePointSyncRequest,
   SharePointJobSummary,
   SharePointSessionStatus,
   SharepointApiService,
 } from './sharepoint.service';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 type UiMode = 'guest_link' | 'oauth';
 
@@ -55,7 +63,8 @@ type UiMode = 'guest_link' | 'oauth';
   selector: 'app-sharepoint-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [ConnectorChecksComponent, WriteOutcomeComponent, ConnectorCapabilitiesComponent,
+    PageFrameComponent,
     CommonModule,
     FormsModule,
     CkBackLinkComponent,
@@ -64,11 +73,12 @@ type UiMode = 'guest_link' | 'oauth';
     EmptyStateComponent,
   ],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
-      breadcrumb="Connectors"
+      [breadcrumb]="i18n.t('connectors.title')"
       title="Microsoft SharePoint"
       icon="folder"
-      subtitle="Ingest a shared folder into the RAG pipeline. Two auth modes: Standard (OAuth / admin consent) or Guest Link (OTP captured locally)."
+      [subtitle]="i18n.t('connectors.sharepoint.subtitle')"
     >
       <button
         type="button"
@@ -77,10 +87,16 @@ type UiMode = 'guest_link' | 'oauth';
         [disabled]="jobsLoading()"
       >
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="jobsLoading()" />
-        Refresh jobs
+        {{ i18n.t('connectors.sharepoint.copy.refresh_jobs') }}
       </button>
       <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
+    <app-connector-capabilities connector="sharepoint" />
+    <app-connector-checks [configured]="sessionStatus()?.exists ?? null" [result]="connectionTest()" />
+    <app-write-outcome [outcome]="writeOutcome()" [verifiable]="true" (verify)="verifyWrite()" />
+    @if (sessionError()) { <p role="alert">{{ i18n.t('connectors.sharepoint.session_unavailable') }}</p> }
+
+
 
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
       <!-- Left: mode picker + configuration -->
@@ -88,8 +104,8 @@ type UiMode = 'guest_link' | 'oauth';
         <!-- Mode picker -->
         <section class="ck-surface t-elevated rounded-md p-5">
           <header class="flex items-center gap-2 mb-4">
-            <h2 class="text-sm font-semibold text-white">Authentication mode</h2>
-            <span class="text-[10px] font-mono text-gray-500">one per session_key</span>
+            <h2 class="text-sm font-semibold text-white">{{ i18n.t('connectors.sharepoint.copy.authentication_mode') }}</h2>
+            <span class="text-xs font-mono text-gray-500">{{ i18n.t('connectors.sharepoint.copy.one_per_session_key') }}</span>
           </header>
           <p class="text-[12px] text-gray-400 mb-4 leading-relaxed">
             Has your client's IT consented an Entra ID app for {{ brand() }} on their tenant?
@@ -106,11 +122,10 @@ type UiMode = 'guest_link' | 'oauth';
             >
               <div class="flex items-center gap-2 mb-2">
                 <app-icon name="shield-check" [size]="16" class="text-emerald-400" />
-                <span class="text-sm font-semibold text-white">Standard (OAuth)</span>
+                <span class="text-sm font-semibold text-white">{{ i18n.t('connectors.sharepoint.copy.standard_oauth') }}</span>
               </div>
-              <p class="text-[11px] text-gray-400 leading-relaxed">
-                Client IT registered an app with <span class="font-mono text-gray-300">Sites.Read.All</span>,
-                admin consent accepted. Silent refresh, no recapture needed.
+              <p class="text-xs text-gray-400 leading-relaxed">
+                {{ i18n.t('connectors.sharepoint.copy.client_it_registered_an_app_with') }} <span class="font-mono text-gray-300">Sites.Read.All</span>{{ i18n.t('connectors.sharepoint.copy.admin_consent_accepted_silent_refresh_no_recapture_needed') }}
               </p>
             </button>
             <button
@@ -124,11 +139,10 @@ type UiMode = 'guest_link' | 'oauth';
             >
               <div class="flex items-center gap-2 mb-2">
                 <app-icon name="key-round" [size]="16" class="text-amber-400" />
-                <span class="text-sm font-semibold text-white">Guest Link (OTP)</span>
+                <span class="text-sm font-semibold text-white">{{ i18n.t('connectors.sharepoint.copy.guest_link_otp') }}</span>
               </div>
-              <p class="text-[11px] text-gray-400 leading-relaxed">
-                Sharing URL + OTP mail + Authenticator. Capture the session locally, upload the JSON.
-                Works even when the tenant locks user consent.
+              <p class="text-xs text-gray-400 leading-relaxed">
+                {{ i18n.t('connectors.sharepoint.copy.sharing_url_otp_mail_authenticator_capture_the_session_locally_upload_') }}
               </p>
             </button>
           </div>
@@ -139,18 +153,18 @@ type UiMode = 'guest_link' | 'oauth';
           <section class="ck-surface t-elevated rounded-md p-5">
             <header class="flex items-center justify-between gap-2 mb-3">
               <div>
-                <h2 class="text-sm font-semibold text-white">Session (Guest Link)</h2>
-                <p class="text-[11px] text-gray-400">
-                  Paste the JSON produced locally by the Agentium Connector CLI.
+                <h2 class="text-sm font-semibold text-white">{{ i18n.t('connectors.sharepoint.copy.session_guest_link') }}</h2>
+                <p class="text-xs text-gray-400">
+                  {{ i18n.t('connectors.sharepoint.copy.paste_the_json_produced_locally_by_the_agentium_connector_cli') }}
                 </p>
               </div>
               @if (sessionStatus()?.exists) {
-                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
-                  <app-icon name="check-circle-2" [size]="10" /> cached
+                <span class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                  <app-icon name="check-circle-2" [size]="10" /> {{ i18n.t('connectors.sharepoint.copy.cached') }}
                 </span>
               } @else if (sessionKey()) {
-                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20">
-                  <app-icon name="alert-triangle" [size]="10" /> no session
+                <span class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20">
+                  <app-icon name="alert-triangle" [size]="10" /> {{ i18n.t('connectors.sharepoint.copy.no_session') }}
                 </span>
               }
             </header>
@@ -160,19 +174,18 @@ type UiMode = 'guest_link' | 'oauth';
                 <div class="flex items-start gap-2">
                   <app-icon name="info" [size]="14" class="text-amber-300 mt-0.5" />
                   <div class="min-w-0">
-                    <div class="text-[11px] font-semibold text-amber-200 uppercase tracking-wider">
-                      Showcase demo job detected
+                    <div class="text-xs font-semibold text-amber-200 uppercase tracking-wider">
+                      {{ i18n.t('connectors.sharepoint.copy.showcase_demo_job_detected') }}
                     </div>
-                    <p class="text-[11px] text-gray-300 mt-1">
-                      Recent syncs include <span class="font-mono text-amber-200">showcase-guest-link</span>.
-                      Use the button below to prefill the demo session key; a real sync still requires an uploaded session JSON.
+                    <p class="text-xs text-gray-300 mt-1">
+                      {{ i18n.t('connectors.sharepoint.copy.recent_syncs_include') }} <span class="font-mono text-amber-200">showcase-guest-link</span>{{ i18n.t('connectors.sharepoint.copy.use_the_button_below_to_prefill_the_demo_session_key_a_real_sync_still') }}
                     </p>
                     <button
                       type="button"
                       (click)="prefillShowcaseSession()"
-                      class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-[11px] ring-1 ring-amber-500/30 transition"
+                      class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-xs ring-1 ring-amber-500/30 transition"
                     >
-                      Prefill showcase key
+                      {{ i18n.t('connectors.sharepoint.copy.prefill_showcase_key') }}
                     </button>
                   </div>
                 </div>
@@ -180,10 +193,10 @@ type UiMode = 'guest_link' | 'oauth';
             }
 
             <div class="rounded-md bg-black/30 ring-1 ring-white/10 p-3 mb-3">
-              <p class="text-[11px] text-gray-400 font-mono leading-relaxed mb-2">
-                # On your local machine
+              <p class="text-xs text-gray-400 font-mono leading-relaxed mb-2">
+                {{ i18n.t('connectors.sharepoint.copy.on_your_local_machine') }}
               </p>
-              <code class="block text-[11px] font-mono text-gray-200 whitespace-pre-wrap break-all">
+              <code class="block text-xs font-mono text-gray-200 whitespace-pre-wrap break-all">
                 python scripts/sharepoint_connector_demo.py \\<br />
                 &nbsp;&nbsp;--sharing-url "&lt;your sharing URL&gt;" \\<br />
                 &nbsp;&nbsp;--folder "/sites/.../Shared Documents/&lt;folder&gt;" \\<br />
@@ -191,8 +204,8 @@ type UiMode = 'guest_link' | 'oauth';
               </code>
             </div>
 
-            <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-              session_dict JSON
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+              {{ i18n.t('connectors.sharepoint.copy.session_dict_json') }}
             </label>
             <textarea
               rows="6"
@@ -209,7 +222,7 @@ type UiMode = 'guest_link' | 'oauth';
                 [disabled]="!canUploadSession() || sessionUploading()"
               >
                 <app-icon name="upload-cloud" [size]="14" />
-                {{ sessionUploading() ? 'Uploading…' : 'Upload session' }}
+                {{ i18n.t(sessionUploading() ? 'connectors.sharepoint.uploading' : 'connectors.sharepoint.upload_session') }}
               </button>
               @if (sessionStatus()?.exists) {
                 <button
@@ -218,7 +231,7 @@ type UiMode = 'guest_link' | 'oauth';
                   (click)="forgetSession()"
                   [disabled]="sessionUploading()"
                 >
-                  <app-icon name="trash-2" [size]="14" /> Forget session
+                  <app-icon name="trash-2" [size]="14" /> {{ i18n.t('connectors.sharepoint.copy.forget_session') }}
                 </button>
               }
             </div>
@@ -228,18 +241,18 @@ type UiMode = 'guest_link' | 'oauth';
         <!-- Sync form -->
         <section class="ck-surface t-elevated rounded-md p-5">
           <header class="flex items-center gap-2 mb-4">
-            <h2 class="text-sm font-semibold text-white">Sync</h2>
-            <span class="text-[10px] font-mono text-gray-500">
-              → collection <span class="text-cyan-300">{{ collectionName() || 'documents' }}</span>
+            <h2 class="text-sm font-semibold text-white">{{ i18n.t('connectors.sharepoint.copy.sync') }}</h2>
+            <span class="text-xs font-mono text-gray-500">
+              {{ i18n.t('connectors.sharepoint.copy.collection') }} <span class="text-cyan-300">{{ collectionName() || 'documents' }}</span>
             </span>
           </header>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="md:col-span-2">
-              <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                Session key <span class="text-red-400">*</span>
-                <span class="text-[10px] text-gray-500 normal-case ml-1">
-                  (identifies this connector within your workspace)
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                {{ i18n.t('connectors.sharepoint.copy.session_key') }} <span class="text-red-400">*</span>
+                <span class="text-xs text-gray-500 normal-case ml-1">
+                  {{ i18n.t('connectors.sharepoint.copy.identifies_this_connector_within_your_workspace') }}
                 </span>
               </label>
               <input
@@ -253,8 +266,8 @@ type UiMode = 'guest_link' | 'oauth';
             </div>
 
             <div class="md:col-span-2">
-              <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                Folder server-relative URL <span class="text-red-400">*</span>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                {{ i18n.t('connectors.sharepoint.copy.folder_server_relative_url') }} <span class="text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -267,8 +280,8 @@ type UiMode = 'guest_link' | 'oauth';
 
             @if (uiMode() === 'guest_link') {
               <div class="md:col-span-2">
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                  Sharing URL <span class="text-red-400">*</span>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                  {{ i18n.t('connectors.sharepoint.copy.sharing_url') }} <span class="text-red-400">*</span>
                 </label>
                 <input
                   type="url"
@@ -280,8 +293,8 @@ type UiMode = 'guest_link' | 'oauth';
               </div>
             } @else {
               <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                  Client ID <span class="text-red-400">*</span>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                  {{ i18n.t('connectors.sharepoint.copy.client_id') }} <span class="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -292,8 +305,8 @@ type UiMode = 'guest_link' | 'oauth';
                 />
               </div>
               <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                  Tenant host <span class="text-red-400">*</span>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                  {{ i18n.t('connectors.sharepoint.copy.tenant_host') }} <span class="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -304,10 +317,10 @@ type UiMode = 'guest_link' | 'oauth';
                 />
               </div>
               <div class="md:col-span-2">
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                  User hint
-                  <span class="text-[10px] text-gray-500 normal-case ml-1">
-                    (optional; account to prefill on interactive login)
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                  {{ i18n.t('connectors.sharepoint.copy.user_hint') }}
+                  <span class="text-xs text-gray-500 normal-case ml-1">
+                    {{ i18n.t('connectors.sharepoint.copy.optional_account_to_prefill_on_interactive_login') }}
                   </span>
                 </label>
                 <input
@@ -321,9 +334,9 @@ type UiMode = 'guest_link' | 'oauth';
             }
 
             <div>
-              <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                Collection
-                <span class="text-[10px] text-gray-500 normal-case ml-1">(RAG target)</span>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                {{ i18n.t('connectors.sharepoint.copy.collection') }}
+                <span class="text-xs text-gray-500 normal-case ml-1">{{ i18n.t('connectors.sharepoint.copy.rag_target') }}</span>
               </label>
               <input
                 type="text"
@@ -344,7 +357,7 @@ type UiMode = 'guest_link' | 'oauth';
                 class="w-4 h-4 rounded border-white/20 bg-black/30"
               />
               <label for="prune-local" class="text-[12px] text-gray-300 cursor-pointer">
-                Prune files no longer present remotely
+                {{ i18n.t('connectors.sharepoint.copy.prune_files_no_longer_present_remotely') }}
               </label>
             </div>
           </div>
@@ -354,14 +367,13 @@ type UiMode = 'guest_link' | 'oauth';
               type="button"
               class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
               (click)="triggerSync()"
-              [disabled]="!canTriggerSync() || syncEnqueuing()"
+              [disabled]="!canTriggerSync() || syncEnqueuing() || writeOutcome()?.s === 'unknown'"
             >
               <app-icon name="play" [size]="14" />
-              {{ syncEnqueuing() ? 'Enqueuing…' : 'Sync now' }}
+              {{ i18n.t(syncEnqueuing() ? 'connectors.sharepoint.enqueuing' : 'connectors.sharepoint.sync_now') }}
             </button>
-            <span class="text-[11px] text-gray-500">
-              Job runs in background; progress appears below.
-            </span>
+            <button type="button" class="ck-btn ck-btn-quiet" (click)="testConnection()" [disabled]="!canTriggerSync() || testing()">{{ i18n.t('connectors.test') }}</button>
+            <span class="text-xs text-gray-500">{{ i18n.t('connectors.sharepoint.background') }}</span>
           </div>
         </section>
       </div>
@@ -372,17 +384,21 @@ type UiMode = 'guest_link' | 'oauth';
           <header class="flex items-center justify-between px-4 py-3 border-b border-white/5">
             <div class="flex items-center gap-2">
               <app-icon name="history" [size]="14" class="text-gray-400" />
-              <h2 class="text-sm font-semibold text-white">Recent syncs</h2>
+              <h2 class="text-sm font-semibold text-white">{{ i18n.t('connectors.sharepoint.copy.recent_syncs') }}</h2>
             </div>
-            <span class="text-[10px] font-mono text-gray-500">{{ jobs().length }}</span>
+            <span class="text-xs font-mono text-gray-500">{{ jobs().length }}</span>
           </header>
 
-          @if (jobs().length === 0) {
+          @if (jobsLoading()) {
+            <p role="status">{{ i18n.t('common.loading') }}</p>
+          } @else if (jobsError()) {
+            <p role="alert">{{ i18n.t('connectors.sharepoint.jobs_unavailable') }}</p>
+          } @else if (jobs().length === 0) {
             <div class="p-8">
               <app-empty-state
                 icon="inbox"
-                title="No syncs yet"
-                subtitle="Once you trigger a sync it lands here with live progress."
+                [title]="i18n.t('connectors.sharepoint.no_syncs')"
+                [description]="i18n.t('connectors.sharepoint.no_syncs_help')"
               />
             </div>
           } @else {
@@ -390,30 +406,30 @@ type UiMode = 'guest_link' | 'oauth';
               @for (j of jobs(); track j.job_id) {
                 <li class="p-3 text-[12px]">
                   <div class="flex items-center gap-2 mb-1">
-                    <span class="text-[10px] font-mono text-gray-500 truncate" [title]="j.job_id">
+                    <span class="text-xs font-mono text-gray-500 truncate" [title]="j.job_id">
                       {{ j.job_id.slice(0, 8) }}
                     </span>
                     <span
-                      class="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded ring-1"
+                      class="inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded ring-1"
                       [ngClass]="jobBadgeClass(j)"
                     >
                       <app-icon [name]="jobBadgeIcon(j)" [size]="10" />
                       {{ jobBadgeLabel(j) }}
                     </span>
-                    <span class="ml-auto text-[10px] font-mono text-gray-500">
+                    <span class="ml-auto text-xs font-mono text-gray-500">
                       {{ j.auth_mode === 'msal' ? 'OAuth' : 'Guest' }}
                     </span>
                   </div>
-                  <div class="text-gray-200 font-mono text-[11px] truncate" [title]="j.folder_server_relative_url ?? ''">
+                  <div class="text-gray-200 font-mono text-xs truncate" [title]="j.folder_server_relative_url ?? ''">
                     {{ j.folder_server_relative_url }}
                   </div>
                   @if (j.state === 'running' || j.progress === 'ingesting') {
-                    <div class="mt-1.5 text-[10px] text-cyan-300 font-mono">
+                    <div class="mt-1.5 text-xs text-cyan-300 font-mono">
                       <app-icon name="loader" [size]="10" class="inline-block animate-spin" />
                       {{ j.progress || 'running' }}
                     </div>
                   }
-                  <div class="mt-1.5 flex items-center gap-3 text-[10px] text-gray-400 font-mono">
+                  <div class="mt-1.5 flex items-center gap-3 text-xs text-gray-400 font-mono">
                     <span title="downloaded / total">
                       <app-icon name="download" [size]="10" /> {{ j.files_downloaded }}/{{ j.files_total }}
                     </span>
@@ -424,17 +440,28 @@ type UiMode = 'guest_link' | 'oauth';
                     <span title="bytes">{{ formatBytes(j.bytes_total) }}</span>
                   </div>
                   @if (j.status === 'login_required') {
-                    <div class="mt-2 text-[10px] text-amber-300 leading-relaxed">
+                    <div class="mt-2 text-xs text-amber-300 leading-relaxed">
                       <app-icon name="alert-triangle" [size]="10" />
-                      Session expired — recapture with the CLI and re-upload above.
+                      {{ i18n.t('connectors.sharepoint.copy.session_expired_recapture_with_the_cli_and_re_upload_above') }}
                     </div>
+                  }
+                  @if (j.file_outcomes; as receipt) {
+                    <details class="mt-3" data-testid="sharepoint-file-receipt">
+                      <summary>{{ i18n.t('connectors.sharepoint.receipt') }}</summary>
+                      <ul class="mt-2 space-y-2">
+                        @for (file of receipt.items; track file.filename) {
+                          <li class="break-words">{{ file.filename }} — {{ i18n.t('connectors.sharepoint.file.' + file.state) }}</li>
+                        }
+                      </ul>
+                      @if (receipt.truncated) { <p>{{ i18n.t('connectors.sharepoint.receipt_truncated') }}</p> }
+                    </details>
                   }
                   @if (j.error) {
-                    <div class="mt-2 text-[10px] text-red-400 font-mono break-all">
-                      {{ j.error }}
+                    <div class="mt-2 text-xs text-red-400 font-mono break-all">
+                      {{ i18n.t('connectors.sharepoint.sync_failed') }}
                     </div>
                   }
-                  <div class="mt-1 text-[9px] font-mono text-gray-600">
+                  <div class="mt-1 text-xs font-mono text-gray-600">
                     {{ j.updated_at }}
                   </div>
                 </li>
@@ -443,24 +470,26 @@ type UiMode = 'guest_link' | 'oauth';
           }
         </div>
 
-        <div class="ck-surface t-elevated rounded-md p-4 text-[11px] text-gray-400 leading-relaxed">
+        <div class="ck-surface t-elevated rounded-md p-4 text-xs text-gray-400 leading-relaxed">
           <div class="flex items-center gap-1.5 mb-1.5">
             <app-icon name="info" [size]="12" class="text-cyan-400" />
-            <span class="font-semibold text-gray-200">Idempotent syncs.</span>
+            <span class="font-semibold text-gray-200">{{ i18n.t('connectors.sharepoint.copy.idempotent_syncs') }}</span>
           </div>
-          Each sync writes a manifest under
-          <span class="font-mono text-gray-300">.sharepoint_manifest.json</span> next to the
-          downloaded files. Unchanged files are skipped on subsequent runs — switching a
-          connector from Guest Link to Standard keeps the same cache.
+          {{ i18n.t('connectors.sharepoint.copy.each_sync_writes_a_manifest_under') }}
+          <span class="font-mono text-gray-300">.sharepoint_manifest.json</span> {{ i18n.t('connectors.sharepoint.copy.next_to_the_downloaded_files_unchanged_files_are_skipped_on_subsequent') }}
         </div>
       </aside>
     </div>
+    </ck-page-frame>
   `,
 })
 export class SharepointConnectorComponent implements OnInit, OnDestroy {
   /** Screen copy names the product by its brand in this workspace. */
-  protected readonly brand = inject(WorkspaceService).brandName;
+  private readonly workspace = inject(WorkspaceService);
+  protected readonly brand = this.workspace.brandName;
+  private readonly context = new WorkspaceViewContext(this.workspace, () => this.resetWorkspace(), () => this.refreshJobs());
   private readonly api = inject(SharepointApiService);
+  readonly i18n = inject(I18nService);
   private readonly toast = inject(ToastrService);
 
   readonly uiMode = signal<UiMode>('guest_link');
@@ -479,6 +508,12 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
 
   readonly jobs = signal<SharePointJobSummary[]>([]);
   readonly jobsLoading = signal(false);
+  readonly jobsError = signal(false);
+  readonly sessionError = signal(false);
+  readonly testing = signal(false);
+  readonly connectionTest = signal<{ ok: boolean; status: string } | null>(null);
+  readonly writeOutcome = signal<WriteOutcome | null>(null);
+  private pendingSessionChange = false;
   readonly syncEnqueuing = signal(false);
   readonly hasShowcaseJob = computed(() =>
     this.jobs().some((job) => job.session_key === 'showcase-guest-link'),
@@ -498,21 +533,34 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
     }
   });
 
-  readonly canTriggerSync = computed(() => {
+  readonly canTriggerSync = () => {
     if (!this.sessionKey().trim() || !this.folderUrl.trim()) return false;
     if (this.uiMode() === 'guest_link') {
       return !!this.sharingUrl.trim();
     }
     return !!this.clientId.trim() && !!this.tenantHost.trim();
-  });
+  };
 
   ngOnInit(): void {
     this.refreshJobs();
   }
 
   ngOnDestroy(): void {
+    this.context.destroy();
     if (this.pollTimer) clearTimeout(this.pollTimer);
     if (this.sessionDebounce) clearTimeout(this.sessionDebounce);
+  }
+
+  private resetWorkspace(): void {
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    if (this.sessionDebounce) clearTimeout(this.sessionDebounce);
+    this.pollTimer = null; this.sessionDebounce = null;
+    this.sessionKey.set(''); this.sessionJsonRaw.set(''); this.sessionStatus.set(null);
+    this.folderUrl = ''; this.sharingUrl = ''; this.clientId = ''; this.tenantHost = ''; this.userHint = '';
+    this.collectionName.set('documents'); this.pruneLocal = false;
+    this.jobs.set([]); this.jobsLoading.set(false); this.jobsError.set(false); this.sessionError.set(false);
+    this.sessionUploading.set(false); this.syncEnqueuing.set(false); this.testing.set(false);
+    this.writeOutcome.set(null); this.connectionTest.set(null); this.pendingSessionChange = false;
   }
 
   setMode(mode: UiMode): void {
@@ -548,91 +596,103 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
       this.sessionStatus.set(null);
       return;
     }
+    const request = this.context.captureRequest();
     this.api.getSessionStatus(key).subscribe({
-      next: (res) => this.sessionStatus.set(res),
-      error: () => this.sessionStatus.set(null),
+      next: (res) => {
+        if (!this.context.isCurrent(request) || key !== this.sessionKey().trim()) return;
+        this.sessionStatus.set(res); this.sessionError.set(false);
+        if (this.pendingSessionChange && this.writeOutcome()?.s === 'unknown') { this.writeOutcome.set(null); this.pendingSessionChange = false; }
+      },
+      error: () => { if (this.context.isCurrent(request) && key === this.sessionKey().trim()) { this.sessionStatus.set(null); this.sessionError.set(true); } },
     });
   }
 
   uploadSession(): void {
-    if (!this.canUploadSession()) return;
+    if (!this.canUploadSession() || this.sessionUploading() || this.writeOutcome()?.s === 'unknown') return;
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(this.sessionJsonRaw());
     } catch {
-      this.toast.error('Invalid JSON — paste the CLI `--export-session` output.', 'SharePoint');
+      this.toast.error(this.i18n.t('connectors.sharepoint.invalid_json'), 'SharePoint');
       return;
     }
     this.sessionUploading.set(true);
-    this.api.uploadSession(this.sessionKey().trim(), { session_dict: parsed }).subscribe({
-      next: () => {
-        this.toast.success('Session cached server-side.', 'SharePoint');
-        this.sessionJsonRaw.set('');
-        this.probeSession();
-        this.sessionUploading.set(false);
-      },
-      error: (err) => {
-        this.sessionUploading.set(false);
-        const detail = err?.error?.detail || err?.message || 'Upload failed';
-        this.toast.error(String(detail), 'SharePoint');
-      },
+    this.pendingSessionChange = true;
+    const request = this.context.captureRequest();
+    settleWrite(this.api.uploadSession(this.sessionKey().trim(), { session_dict: parsed })).subscribe(outcome => {
+      if (!this.context.isCurrent(request)) return;
+      this.writeOutcome.set(outcome); this.sessionUploading.set(outcome.s === 'sent');
+      if (outcome.s === 'confirmed') {
+        this.sessionJsonRaw.set(''); this.probeSession(); this.pendingSessionChange = false;
+      }
     });
   }
 
   forgetSession(): void {
     const key = this.sessionKey().trim();
-    if (!key) return;
-    this.api.deleteSession(key).subscribe({
-      next: () => {
-        this.toast.info('Session forgotten.', 'SharePoint');
-        this.sessionStatus.set(null);
-      },
-      error: () => this.toast.error('Could not forget session.', 'SharePoint'),
+    if (!key || this.sessionUploading() || this.syncEnqueuing() || !window.confirm(this.i18n.t('connectors.sharepoint.forget_effect'))) return;
+    this.pendingSessionChange = true;
+    const request = this.context.captureRequest();
+    settleWrite(this.api.deleteSession(key)).subscribe(outcome => {
+      if (!this.context.isCurrent(request)) return;
+      this.writeOutcome.set(outcome); this.sessionUploading.set(outcome.s === 'sent');
+      if (outcome.s === 'confirmed') { this.sessionStatus.set(null); this.pendingSessionChange = false; }
+    });
+  }
+
+  verifyWrite(): void {
+    if (this.pendingSessionChange) this.probeSession();
+    else this.refreshJobs();
+  }
+
+  private syncRequest(): SharePointSyncRequest {
+    const backendMode: SharePointAuthMode = this.uiMode() === 'oauth' ? 'msal' : 'session';
+    return {
+      session_key: this.sessionKey().trim(), folder_server_relative_url: this.folderUrl.trim(),
+      auth_mode: backendMode, sharing_url: backendMode === 'session' ? this.sharingUrl.trim() : null,
+      client_id: backendMode === 'msal' ? this.clientId.trim() : null,
+      tenant_host: backendMode === 'msal' ? this.tenantHost.trim() : null,
+      user_hint: backendMode === 'msal' && this.userHint.trim() ? this.userHint.trim() : null,
+      prune_local_files: this.pruneLocal, collection_name: this.collectionName().trim() || 'documents',
+    };
+  }
+
+  testConnection(): void {
+    if (!this.canTriggerSync() || this.testing()) return;
+    this.testing.set(true); this.connectionTest.set(null);
+    const request = this.context.captureRequest();
+    this.api.testConnection(this.syncRequest()).subscribe({
+      next: result => { if (this.context.isCurrent(request)) { this.connectionTest.set(result); this.testing.set(false); } },
+      error: () => { if (this.context.isCurrent(request)) { this.connectionTest.set({ ok: false, status: 'unreachable' }); this.testing.set(false); } },
     });
   }
 
   triggerSync(): void {
-    if (!this.canTriggerSync()) return;
-    const backendMode: SharePointAuthMode = this.uiMode() === 'oauth' ? 'msal' : 'session';
+    if (!this.canTriggerSync() || this.syncEnqueuing() || this.sessionUploading() || this.writeOutcome()?.s === 'unknown') return;
     this.syncEnqueuing.set(true);
-    this.api
-      .enqueueSync({
-        session_key: this.sessionKey().trim(),
-        folder_server_relative_url: this.folderUrl.trim(),
-        auth_mode: backendMode,
-        sharing_url: backendMode === 'session' ? this.sharingUrl.trim() : null,
-        client_id: backendMode === 'msal' ? this.clientId.trim() : null,
-        tenant_host: backendMode === 'msal' ? this.tenantHost.trim() : null,
-        user_hint: backendMode === 'msal' && this.userHint.trim() ? this.userHint.trim() : null,
-        prune_local_files: this.pruneLocal,
-        collection_name: this.collectionName().trim() || 'documents',
-      })
-      .subscribe({
-        next: (job) => {
-          this.syncEnqueuing.set(false);
-          this.toast.success(`Sync queued (${job.job_id.slice(0, 8)}).`, 'SharePoint');
-          this.prependJob(job);
-          this.scheduleLivePoll();
-        },
-        error: (err) => {
-          this.syncEnqueuing.set(false);
-          const detail = err?.error?.detail || err?.message || 'Enqueue failed';
-          this.toast.error(String(detail), 'SharePoint');
-        },
-      });
+    const request = this.context.captureRequest();
+    settleWrite(this.api.enqueueSync(this.syncRequest()), { accepted: () => true }).subscribe(outcome => {
+      if (!this.context.isCurrent(request)) return;
+      this.writeOutcome.set(outcome); this.syncEnqueuing.set(outcome.s === 'sent');
+      if (outcome.s === 'accepted') { this.prependJob(outcome.value); this.scheduleLivePoll(); }
+    });
   }
 
   refreshJobs(): void {
     this.jobsLoading.set(true);
+    this.jobsError.set(false);
+    const request = this.context.captureRequest();
     this.api.listJobs(20).subscribe({
       next: (res) => {
+        if (!this.context.isCurrent(request)) return;
         this.jobs.set(res.jobs || []);
         this.jobsLoading.set(false);
+        if (!this.pendingSessionChange && this.writeOutcome()?.s === 'unknown') this.writeOutcome.set(null);
         if (this.jobs().some((j) => j.state === 'running')) {
           this.scheduleLivePoll();
         }
       },
-      error: () => this.jobsLoading.set(false),
+      error: () => { if (this.context.isCurrent(request)) { this.jobsLoading.set(false); this.jobsError.set(true); } },
     });
   }
 
@@ -644,6 +704,7 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
    * to 5s after 20 ticks to avoid hammering the API during long syncs
    * (Playwright captures can take minutes on large folders). */
   private scheduleLivePoll(tick = 0): void {
+    const request = this.context.captureRequest();
     if (this.pollTimer) clearTimeout(this.pollTimer);
     const running = this.jobs().filter((j) => j.state === 'running');
     if (running.length === 0) return;
@@ -665,6 +726,7 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
             ),
         ),
       ).then((updated) => {
+        if (!this.context.isCurrent(request)) return;
         const merged = new Map(this.jobs().map((j) => [j.job_id, j]));
         for (const j of updated) {
           if (j) merged.set(j.job_id, j);

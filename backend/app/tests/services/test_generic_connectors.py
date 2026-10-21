@@ -163,7 +163,7 @@ def test_planned_connectors_store_nothing():
 
 
 def test_a_connector_without_a_real_test_says_so():
-    for connector_id in ("dynamics365", "teams", "outlook", "mqtt", "s3"):
+    for connector_id in ("dynamics365", "teams", "outlook", "mqtt"):
         assert generic_service.get_config(_workspace(), connector_id)["testable"] is False
         result = generic_service.test_connection(connector_id, {})
         assert result["status"] == "unsupported"

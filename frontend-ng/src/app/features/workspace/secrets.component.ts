@@ -5,6 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import {
   SECRET_KINDS,
   SecretConsumerMeta,
@@ -20,7 +21,7 @@ import {
 @Component({
   selector: 'app-workspace-secrets',
   standalone: true,
-  imports: [FormsModule, DatePipe, IconComponent],
+  imports: [FormsModule, DatePipe, IconComponent, ConfirmDialogComponent],
   template: `
     <div class="space-y-6">
       <section class="ck-surface rounded-md p-6 space-y-4">
@@ -51,7 +52,7 @@ import {
 
         @if (loading()) {
           <p class="text-sm text-gray-500">{{ i18n.t('resources.secrets.loading') }}</p>
-        } @else if (secrets().length === 0) {
+        } @else if (!error() && secrets().length === 0) {
           <p class="text-sm text-gray-500">{{ i18n.t('resources.secrets.empty') }}</p>
         } @else {
           <table class="w-full text-sm">
@@ -79,7 +80,7 @@ import {
                       <button type="button" class="text-xs text-cyan-300 mr-2" (click)="startRotate(secret)">
                         <app-icon name="rotate-cw" [size]="12" /> {{ i18n.t('resources.secrets.action.rotate') }}
                       </button>
-                      <button type="button" class="text-xs text-amber-400" (click)="disable(secret)">
+                      <button type="button" class="text-xs text-amber-400" [disabled]="busy()" (click)="prepareAction(secret, 'disable')">
                         <app-icon name="lock" [size]="12" /> {{ i18n.t('resources.secrets.action.disable') }}
                       </button>
                     }
@@ -98,7 +99,7 @@ import {
                           [ngModel]="rotateValue()"
                           (ngModelChange)="rotateValue.set($event)"
                         />
-                        <button type="button" class="text-xs text-cyan-300" [disabled]="!rotateValue() || busy()" (click)="rotate(secret)">
+                        <button type="button" class="text-xs text-cyan-300" [disabled]="!rotateValue() || busy()" (click)="prepareAction(secret, 'rotate')">
                           {{ i18n.t('resources.secrets.action.rotate') }}
                         </button>
                         <button type="button" class="text-xs text-gray-400" (click)="cancelRotate()">
@@ -188,7 +189,7 @@ import {
                   @if (v.destroyed_at) {
                     <span class="text-xs text-red-400">{{ i18n.t('resources.secrets.status.destroyed') }}</span>
                   } @else if (v.version !== secret.current_version) {
-                    <button type="button" class="text-xs text-red-400" (click)="destroy(secret, v.version)">
+                    <button type="button" class="text-xs text-red-400" [disabled]="busy()" (click)="prepareAction(secret, 'destroy', v.version)">
                       {{ i18n.t('resources.secrets.action.destroy_version') }}
                     </button>
                   }
@@ -204,7 +205,7 @@ import {
               <ul class="text-sm space-y-1">
                 @for (c of consumers(); track $index) {
                   <li>
-                    <span class="font-mono">{{ c.kind }}:{{ c.id }}</span>
+                    <span class="font-mono">{{ c.name || c.id }}</span>
                     @if (c.node_id) { <span class="text-gray-500"> · {{ c.node_id }}</span> }
                     <span class="text-gray-500"> · {{ i18n.t('resources.secrets.consumer_count', { count: c.count }) }}</span>
                   </li>
@@ -215,7 +216,7 @@ import {
           <div class="border-t border-white/5 pt-3">
             @if (confirmDestroy() === secret.id) {
               <p class="text-xs text-red-400 mb-2">{{ i18n.t('resources.secrets.destroy_confirm') }}</p>
-              <button type="button" class="text-xs text-red-400 mr-3" (click)="destroy(secret)">
+              <button type="button" class="text-xs text-red-400 mr-3" [disabled]="busy()" (click)="prepareAction(secret, 'destroy')">
                 <app-icon name="trash-2" [size]="12" /> {{ i18n.t('resources.secrets.action.destroy') }}
               </button>
               <button type="button" class="text-xs text-gray-400" (click)="confirmDestroy.set(null)">
@@ -230,6 +231,10 @@ import {
         </section>
       }
     </div>
+    <app-confirm-dialog [open]="pendingAction() !== null && !busy()"
+      [title]="i18n.t('governance.secrets.confirm_title')" [description]="actionDescription()"
+      [confirmLabel]="i18n.t('common.confirm')" tone="danger"
+      (cancel)="pendingAction.set(null)" (confirm)="confirmAction()" />
   `,
 })
 export class WorkspaceSecretsComponent implements OnInit {
@@ -260,12 +265,15 @@ export class WorkspaceSecretsComponent implements OnInit {
   readonly selected = signal<SecretMeta | null>(null);
   readonly consumers = signal<SecretConsumerMeta[]>([]);
   readonly confirmDestroy = signal<string | null>(null);
+  readonly pendingAction = signal<{ secret: SecretMeta; action: 'rotate' | 'disable' | 'destroy'; version?: number; consumers: SecretConsumerMeta[] } | null>(null);
+  private generation = 0;
 
   ngOnInit(): void {
     (this.route.parent ?? this.route).paramMap
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((params) => {
         this.slug.set(params.get('slug'));
+        this.generation++; this.busy.set(false); this.secrets.set([]); this.consumers.set([]); this.pendingAction.set(null); this.newValue.set(''); this.cancelRotate();
         this.selected.set(null);
         this.load();
       });
@@ -276,24 +284,27 @@ export class WorkspaceSecretsComponent implements OnInit {
   }
 
   setScope(scope: SecretScope): void {
+    this.generation++; this.busy.set(false); this.secrets.set([]); this.consumers.set([]); this.pendingAction.set(null); this.cancelRotate();
     this.scope.set(scope);
     this.selected.set(null);
     this.load();
   }
 
   load(): void {
+    const generation = this.generation;
     this.loading.set(true);
     this.api
       .list({ scope: this.scope(), include_disabled: this.includeDisabled() }, this.options)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          if (generation !== this.generation) return;
           this.secrets.set(res.secrets);
           this.canManagePlatform.set(res.can_manage_platform);
           this.loading.set(false);
           this.error.set(null);
         },
-        error: (err) => this.fail(err),
+        error: (err) => { if (generation === this.generation) this.fail(err); },
       });
   }
 
@@ -308,7 +319,6 @@ export class WorkspaceSecretsComponent implements OnInit {
   create(): void {
     if (!this.canCreate() || this.busy()) return;
     const value = this.newValue();
-    this.newValue.set('');
     const description = this.newDescription().trim();
     this.run(
       this.api.create(
@@ -322,6 +332,7 @@ export class WorkspaceSecretsComponent implements OnInit {
         this.options,
       ),
       () => {
+        this.newValue.set('');
         this.newName.set('');
         this.newDescription.set('');
       },
@@ -341,9 +352,7 @@ export class WorkspaceSecretsComponent implements OnInit {
   rotate(secret: SecretMeta): void {
     const value = this.rotateValue();
     if (!value || this.busy()) return;
-    this.rotateValue.set('');
-    this.rotating.set(null);
-    this.run(this.api.rotate(secret.id, value, this.options));
+    this.run(this.api.rotate(secret.id, value, this.options), () => this.cancelRotate());
   }
 
   disable(secret: SecretMeta): void {
@@ -356,12 +365,41 @@ export class WorkspaceSecretsComponent implements OnInit {
   }
 
   select(secret: SecretMeta): void {
+    const generation = this.generation;
     this.selected.set(secret);
     this.consumers.set([]);
     this.api
       .consumers(secret.id, this.options)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (res) => this.consumers.set(res.consumers), error: (err) => this.fail(err) });
+      .subscribe({ next: (res) => { if (generation === this.generation && this.selected()?.id === secret.id) this.consumers.set(res.consumers); }, error: (err) => { if (generation === this.generation && this.selected()?.id === secret.id) this.fail(err); } });
+  }
+
+  prepareAction(secret: SecretMeta, action: 'rotate' | 'disable' | 'destroy', version?: number): void {
+    if (this.busy() || action === 'rotate' && !this.rotateValue()) return;
+    const generation = this.generation;
+    this.busy.set(true); this.error.set(null); this.pendingAction.set(null);
+    this.api.consumers(secret.id, this.options).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: result => { if (generation !== this.generation) return; this.busy.set(false); this.pendingAction.set({ secret, action, version, consumers: result.consumers }); },
+      error: err => { if (generation === this.generation) this.fail(err); },
+    });
+  }
+
+  actionDescription(): string {
+    const pending = this.pendingAction();
+    if (!pending) return '';
+    const consumers = pending.consumers.map(c => c.name || c.system_id || c.id || this.i18n.t('governance.secrets.unknown_consumer'));
+    const scope = consumers.length ? [...new Set(consumers)].join(', ') : this.i18n.t('resources.secrets.consumers_empty');
+    const action = this.i18n.t(pending.action === 'rotate' ? 'resources.secrets.action.rotate' : pending.action === 'disable' ? 'resources.secrets.action.disable' : 'resources.secrets.action.destroy');
+    return this.i18n.t('governance.secrets.confirm_scope', { action, name: pending.secret.name, version: pending.version ?? pending.secret.current_version, consumers: scope });
+  }
+
+  confirmAction(): void {
+    const pending = this.pendingAction();
+    if (!pending || this.busy()) return;
+    this.pendingAction.set(null);
+    if (pending.action === 'rotate') this.rotate(pending.secret);
+    else if (pending.action === 'disable') this.disable(pending.secret);
+    else this.destroy(pending.secret, pending.version);
   }
 
   statusLabel(secret: SecretMeta): string {
@@ -380,16 +418,19 @@ export class WorkspaceSecretsComponent implements OnInit {
   }
 
   private run(request: ReturnType<SecretsApi['create']>, after?: () => void): void {
+    if (this.busy()) return;
+    const generation = this.generation;
     this.busy.set(true);
     this.error.set(null);
     request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (secret) => {
+        if (generation !== this.generation) return;
         this.busy.set(false);
         after?.();
         if (this.selected()?.id === secret.id) this.selected.set(secret);
         this.load();
       },
-      error: (err) => this.fail(err),
+      error: (err) => { if (generation === this.generation) this.fail(err); },
     });
   }
 

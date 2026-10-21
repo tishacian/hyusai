@@ -1,3 +1,8 @@
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { forkJoin, Subscription } from 'rxjs';
+import { DestroyRef } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { LOADING, readFailure, readValue, writeFailure, type WriteOutcome, type LoadState } from '@app/shared/ui/load-state';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -39,6 +44,7 @@ interface Feed {
   category?: string;
   active?: boolean;
   article_count?: number;
+  refresh_interval?: number;
   last_fetched?: string | null;
 }
 
@@ -110,6 +116,7 @@ interface Dashboard {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    WriteOutcomeComponent,
     BaseChartDirective,
     IconComponent,
     SectionHeaderComponent,
@@ -136,7 +143,7 @@ interface Dashboard {
         [class.ring-white\\/10]="!scheduler()?.running"
       >
         {{
-          scheduler()?.running
+          !scheduler() ? i18n.t('state.availability.unknown') : scheduler()?.running
             ? i18n.t('intelligence.newsLab.scheduler.on', { interval: schedulerInterval() })
             : i18n.t('intelligence.newsLab.scheduler.off')
         }}
@@ -154,7 +161,7 @@ interface Dashboard {
         type="button"
         class="ck-btn ck-cta"
         (click)="runBatch()"
-        [disabled]="running()"
+        [disabled]="running() || readState().s !== 'ready'"
       >
         <app-icon [name]="running() ? 'loader-2' : 'play'" [size]="14" [class.animate-spin]="running()" />
         {{ i18n.t(running() ? 'intelligence.newsLab.run.running' : 'intelligence.newsLab.run.action') }}
@@ -162,12 +169,16 @@ interface Dashboard {
       <button
         type="button"
         (click)="drawerOpen.set(true)"
+        [disabled]="readState().s !== 'ready'"
         class="ck-btn ck-btn-quiet"
       >
         <app-icon name="settings-2" [size]="14" /> {{ i18n.t('intelligence.newsLab.configure') }}
       </button>
     </app-section-header>
 
+    @if (readState().s !== 'ready') {
+      <app-empty-state [state]="readState()" (retry)="refreshAll()" />
+    } @else {
     <!-- First run: nothing is pre-filled, so say what the watch still needs. -->
     @if (showSetup()) {
       <section class="ck-surface t-elevated rounded-md p-5 mb-6" data-testid="news-lab-setup">
@@ -409,7 +420,10 @@ interface Dashboard {
                     <span class="font-mono">{{
                       i18n.t('intelligence.newsLab.article.relevance', { value: (a.relevance_score! * 100).toFixed(0) })
                     }}</span>
+                  } @else {
+                    <span>{{ i18n.t('intelligence.newsLab.article.unknown_relevance') }}</span>
                   }
+                  <span>{{ sourceLabel(a.url) }}</span>
                   @if (a.risk_level && a.risk_level !== 'low') {
                     <span
                       class="px-1.5 py-0.5 rounded uppercase tracking-wider text-[9px] font-semibold"
@@ -502,6 +516,15 @@ interface Dashboard {
               class="col-span-3 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
               required
             />
+            <label class="col-span-6">
+              {{ i18n.t('intelligence.newsLab.feeds.cadence') }}
+              <select name="cadence" [(ngModel)]="feedDraft.refresh_interval">
+                <option [ngValue]="43200">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 12 }) }}</option>
+                <option [ngValue]="86400">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 24 }) }}</option>
+                <option [ngValue]="172800">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 48 }) }}</option>
+              </select>
+              <p>{{ i18n.t('intelligence.newsLab.feeds.cadence_hint', { interval: schedulerInterval() }) }}</p>
+            </label>
             <button
               type="submit"
               class="ck-btn ck-btn--sm ck-cta"
@@ -526,12 +549,21 @@ interface Dashboard {
             <ul class="space-y-1.5">
               @for (f of feeds(); track f.id) {
                 <li
-                  class="flex items-center justify-between gap-2 text-sm text-gray-200 px-3 py-2 rounded bg-black/20 border border-white/5"
+                  class="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-200 px-3 py-2 rounded bg-black/20 border border-white/5"
                 >
                   <div class="flex-1 min-w-0">
                     <div class="truncate font-medium">{{ f.name }}</div>
                     <div class="text-[11px] text-gray-500 truncate font-mono">{{ f.url }}</div>
                   </div>
+                  <label>
+                    {{ i18n.t('intelligence.newsLab.feeds.cadence') }}
+                    <select [value]="f.refresh_interval || 3600" [disabled]="cadenceOutcome()?.s === 'sent' || cadenceOutcome()?.s === 'unknown'" (change)="changeFeedCadence(f, $any($event.target).value)">
+                      <option value="3600">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 1 }) }}</option>
+                      <option value="43200">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 12 }) }}</option>
+                      <option value="86400">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 24 }) }}</option>
+                      <option value="172800">{{ i18n.t('intelligence.newsLab.feeds.cadence_hours', { hours: 48 }) }}</option>
+                    </select>
+                  </label>
                   <span class="text-xs text-gray-500 shrink-0"
                     >{{ f.article_count ?? 0 }}</span
                   >
@@ -550,6 +582,7 @@ interface Dashboard {
           }
         </section>
 
+        <app-write-outcome [outcome]="cadenceOutcome()" [verifiable]="true" (verify)="verifyCadence()" />
         <!-- Targets -->
         <section>
           <div class="flex items-center justify-between mb-2">
@@ -681,17 +714,42 @@ interface Dashboard {
       (confirm)="confirmDeleteFeed()"
       (cancel)="deleteTarget.set(null)"
     />
+    }
   `,
 })
 export class NewsLabComponent implements OnInit {
   @Input() systemId: string | null = null;
 
   private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly destroyRef = inject(DestroyRef);
+  private refreshRequest?: Subscription;
+  readonly readState = signal<LoadState<Dashboard>>(LOADING);
+
+  constructor() {
+    const unregister = this.workspace.registerContextReset(() => {
+      this.refreshRequest?.unsubscribe();
+      this.readState.set(LOADING);
+      this.dashboard.set(null);
+      this.feeds.set([]);
+      this.targets.set([]);
+      this.articles.set([]);
+      this.scheduler.set(null);
+      this.cadenceOutcome.set(null);
+      this.pendingCadence = null;
+      this.drawerOpen.set(false);
+      this.feedDraft = { name: '', url: '', category: 'general', refresh_interval: 43200 };
+      this.targetDraft = { name: '', description: '', keywords: '', threshold: 0.3 };
+    });
+    this.destroyRef.onDestroy(() => { unregister(); this.refreshRequest?.unsubscribe(); });
+  }
   private readonly sse = inject(SseService);
   private readonly zone = inject(NgZone);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
 
+  readonly cadenceOutcome = signal<WriteOutcome | null>(null);
+  private pendingCadence: { id: string; interval: number } | null = null;
   feeds = signal<Feed[]>([]);
   targets = signal<Target[]>([]);
   filters = signal<SafetyFilterItem[]>([]);
@@ -711,7 +769,7 @@ export class NewsLabComponent implements OnInit {
   batchMessage = signal<string>('');
   latestRunId = signal<string | null>(null);
 
-  feedDraft = { name: '', url: '', category: 'general' };
+  feedDraft = { name: '', url: '', category: 'general', refresh_interval: 43200 };
   targetDraft = { name: '', description: '', keywords: '', threshold: 0.3 };
 
   deleteTarget = signal<Feed | null>(null);
@@ -806,31 +864,41 @@ export class NewsLabComponent implements OnInit {
   }
 
   refreshAll(): void {
+    const scope = this.workspace.captureRequestScope();
+    const previous = this.readState();
+    this.refreshRequest?.unsubscribe();
     this.loadingDashboard.set(true);
-    this.api.get<Dashboard>('/intelligence/dashboard').subscribe({
-      next: (d) => {
-        this.dashboard.set(d);
-        this.articles.set(d?.articles ?? []);
+    this.readState.set(LOADING);
+    this.refreshRequest = forkJoin({
+      dashboard: this.api.get<Dashboard>('/intelligence/dashboard'),
+      feeds: this.api.get<{ feeds: Feed[] }>('/intelligence/feeds'),
+      targets: this.api.get<{ targets: Target[] }>('/intelligence/targets'),
+      filters: this.api.get<{ filters: SafetyFilterItem[] }>('/intelligence/filters'),
+      scheduler: this.api.get<{ running: boolean; interval_seconds: number }>('/intelligence/scheduler'),
+    }).subscribe({
+      next: (result) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.dashboard.set(result.dashboard);
+        this.articles.set(result.dashboard?.articles ?? []);
+        this.feeds.set(result.feeds.feeds ?? []);
+        this.targets.set(result.targets.targets ?? []);
+        this.filters.set(result.filters.filters ?? []);
+        this.scheduler.set(result.scheduler);
+        this.feedsLoaded.set(true);
+        this.targetsLoaded.set(true);
         this.loadingDashboard.set(false);
+        this.readState.set(readValue(result.dashboard, { isEmpty: (value) => !value.kpis }));
       },
-      error: () => {
-        this.dashboard.set(null);
+      error: (error) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.loadingDashboard.set(false);
+        this.readState.set(readFailure(error, previous));
       },
-    });
-    this.loadFeeds();
-    this.loadTargets();
-    this.api.get<{ filters: SafetyFilterItem[] }>('/intelligence/filters').subscribe({
-      next: (r) => this.filters.set(r?.filters ?? []),
-      error: () => {},
-    });
-    this.api.get<{ running: boolean; interval_seconds: number }>('/intelligence/scheduler').subscribe({
-      next: (r) => this.scheduler.set(r),
-      error: () => this.scheduler.set(null),
     });
   }
 
   addFeed(): void {
+    const scope = this.workspace.captureRequestScope();
     const { name, url } = this.feedDraft;
     if (!name.trim() || !url.trim()) return;
     this.addingFeed.set(true);
@@ -839,15 +907,18 @@ export class NewsLabComponent implements OnInit {
         name: name.trim(),
         url: url.trim(),
         category: this.feedDraft.category || 'general',
+        refresh_interval: Number(this.feedDraft.refresh_interval),
       })
       .subscribe({
         next: () => {
-          this.feedDraft = { name: '', url: '', category: 'general' };
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.feedDraft = { name: '', url: '', category: 'general', refresh_interval: 43200 };
           this.toast.success(this.i18n.t('intelligence.newsLab.toast.feed_added'), this.toastTitle());
           this.addingFeed.set(false);
           this.loadFeeds();
         },
         error: (err) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.toast.error(err?.error?.detail ?? this.i18n.t('intelligence.newsLab.toast.feed_failed'), this.toastTitle());
           this.addingFeed.set(false);
         },
@@ -855,6 +926,7 @@ export class NewsLabComponent implements OnInit {
   }
 
   addTarget(): void {
+    const scope = this.workspace.captureRequestScope();
     const { name, description, keywords, threshold } = this.targetDraft;
     if (!name.trim() || !description.trim()) return;
     this.addingTarget.set(true);
@@ -867,20 +939,56 @@ export class NewsLabComponent implements OnInit {
         name: name.trim(),
         description: description.trim(),
         keywords: kwList,
-        relevance_threshold: Number(threshold) || 0.3,
+        relevance_threshold: Number.isFinite(Number(threshold)) ? Number(threshold) : 0.3,
       })
       .subscribe({
         next: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.targetDraft = { name: '', description: '', keywords: '', threshold: 0.3 };
           this.toast.success(this.i18n.t('intelligence.newsLab.toast.target_added'), this.toastTitle());
           this.addingTarget.set(false);
           this.loadTargets();
         },
         error: (err) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.toast.error(err?.error?.detail ?? this.i18n.t('intelligence.newsLab.toast.target_failed'), this.toastTitle());
           this.addingTarget.set(false);
         },
       });
+  }
+
+  changeFeedCadence(feed: Feed, value: string): void {
+    if (this.cadenceOutcome()?.s === 'sent' || this.cadenceOutcome()?.s === 'unknown') return;
+    const scope = this.workspace.captureRequestScope();
+    this.pendingCadence = { id: feed.id, interval: Number(value) };
+    this.cadenceOutcome.set({ s: 'sent' });
+    this.api.patch<{ refresh_interval: number }>(`/intelligence/feeds/${encodeURIComponent(feed.id)}/cadence`, { refresh_interval: Number(value) }, { workspaceSlug: scope.workspaceSlug })
+      .subscribe({
+        next: (saved) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          this.feeds.update((rows) => rows.map((row) => row.id === feed.id ? { ...row, refresh_interval: saved.refresh_interval } : row));
+          this.cadenceOutcome.set({ s: 'confirmed', value: saved, at: Date.now() });
+        },
+        error: (error) => {
+          if (this.workspace.isRequestScopeCurrent(scope)) this.cadenceOutcome.set(writeFailure(error));
+        },
+      });
+  }
+
+  verifyCadence(): void {
+    const pending = this.pendingCadence;
+    const scope = this.workspace.captureRequestScope();
+    if (!pending) return;
+    this.api.get<{ feeds: Feed[] }>('/intelligence/feeds', undefined, { workspaceSlug: scope.workspaceSlug }).subscribe({
+      next: (result) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.feeds.set(result.feeds);
+        this.cadenceOutcome.set(result.feeds.find((feed) => feed.id === pending.id)?.refresh_interval === pending.interval
+          ? { s: 'confirmed', value: result, at: Date.now() }
+          : { s: 'failed', status: 409, code: 'not_applied', detail: null });
+      },
+      error: () => { /* Keep the uncertain outcome until verification succeeds. */ },
+    });
   }
 
   requestDeleteFeed(f: Feed): void {
@@ -888,15 +996,18 @@ export class NewsLabComponent implements OnInit {
   }
 
   confirmDeleteFeed(): void {
+    const scope = this.workspace.captureRequestScope();
     const f = this.deleteTarget();
     if (!f) return;
     this.api.delete(`/intelligence/feeds/${f.id}`).subscribe({
       next: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.toast.success(this.i18n.t('intelligence.newsLab.toast.feed_removed'), this.toastTitle());
         this.feeds.update((list) => list.filter((x) => x.id !== f.id));
         this.deleteTarget.set(null);
       },
       error: (err) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.toast.error(err?.error?.detail ?? this.i18n.t('intelligence.newsLab.toast.feed_remove_failed'), this.toastTitle());
         this.deleteTarget.set(null);
       },
@@ -904,12 +1015,14 @@ export class NewsLabComponent implements OnInit {
   }
 
   runBatch(): void {
+    const scope = this.workspace.captureRequestScope();
     if (this.running()) return;
     this.running.set(true);
     this.batchProgress.set(0);
     this.batchMessage.set(this.i18n.t('intelligence.newsLab.progress.starting'));
     this.sse.stream('/api/v1/intelligence/analyze', { system_id: this.systemId || undefined }).subscribe({
       next: (chunk: SseChunk) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
         // The backend emits plain JSON events (not chunk_type-shaped), so they
         // come through either as `content` (bare string) or as `data` when
         // the SSE service successfully parses them. Reparse if needed.
@@ -939,10 +1052,16 @@ export class NewsLabComponent implements OnInit {
         }
       },
       error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.toast.error(this.i18n.t('intelligence.newsLab.toast.stream_error'), this.toastTitle());
         this.finishBatch();
       },
     });
+  }
+
+  sourceLabel(url: string | undefined): string {
+    try { return new URL(url || '').hostname || this.i18n.t('intelligence.newsLab.article.unknown_source'); }
+    catch { return this.i18n.t('intelligence.newsLab.article.unknown_source'); }
   }
 
   riskLabel(level: string): string {
@@ -967,25 +1086,9 @@ export class NewsLabComponent implements OnInit {
     return this.i18n.t('intelligence.newsLab.toast.title');
   }
 
-  private loadFeeds(): void {
-    this.api.get<{ feeds: Feed[] }>('/intelligence/feeds').subscribe({
-      next: (r) => {
-        this.feeds.set(r?.feeds ?? []);
-        this.feedsLoaded.set(true);
-      },
-      error: () => {},
-    });
-  }
+  private loadFeeds(): void { this.refreshAll(); }
 
-  private loadTargets(): void {
-    this.api.get<{ targets: Target[] }>('/intelligence/targets').subscribe({
-      next: (r) => {
-        this.targets.set(r?.targets ?? []);
-        this.targetsLoaded.set(true);
-      },
-      error: () => {},
-    });
-  }
+  private loadTargets(): void { this.refreshAll(); }
 
   private extractEvent(chunk: SseChunk): BatchEvent | null {
     if (chunk.type === 'done') return null;

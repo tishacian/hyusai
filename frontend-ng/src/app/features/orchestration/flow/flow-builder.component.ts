@@ -47,6 +47,7 @@ import {
   type ConnectFromHandleEvent,
 } from './flow-canvas.component';
 import { FlowOutlineComponent } from './flow-outline.component';
+import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
 import { FlowInspectorComponent } from './flow-inspector.component';
 import { FlowPaletteComponent } from './flow-palette.component';
 import { AutomationJobComponent } from './automation-job.component';
@@ -138,6 +139,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowCanvasComponent,
     FlowOutlineComponent,
     FlowInspectorComponent,
+    FlowTriggersPanelComponent,
     FlowPaletteComponent,
     AutomationJobComponent,
     PreparationPanelComponent,
@@ -238,11 +240,11 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         }
       </app-flow-toolbar>
 
-      @if (systemId(); as boundSystemId) {
+      @if (persistence.hydrationReady() && !persistence.readOnly() && systemId(); as boundSystemId) {
         <app-review-loop [systemId]="boundSystemId" />
       }
 
-      @if (automationMode() && systemId(); as automationSystemId) {
+      @if (persistence.hydrationReady() && !persistence.readOnly() && automationMode() && systemId(); as automationSystemId) {
         <app-preparation-panel [systemId]="automationSystemId" />
         <app-dossier-table [systemId]="automationSystemId" />
         <app-frozen-chart [systemId]="automationSystemId" />
@@ -254,7 +256,12 @@ const PUBLICATION_HYDRATION_CODES = new Set([
       }
 
       @if (loadState() === 'ready' && persistence.hydrationReady()) {
-        @if (persistence.publicationMode() && !automationMode()) {
+        @if (persistence.readOnly()) {
+          <div class="flow-builder__publication-boundary" role="status" data-testid="flow-published-reading">
+            <strong>{{ i18n.t('flow.builder.published.reading', { version: persistence.publishedVersionNumber() ?? '' }) }}</strong>
+            <button type="button" (click)="editDraft()">{{ i18n.t('flow.builder.published.edit') }}</button>
+          </div>
+        } @else if (persistence.publicationMode() && !automationMode()) {
           <div class="flow-builder__publication-boundary" role="status">
             <strong>
               {{
@@ -308,7 +315,12 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           </div>
         }
 
+        @if (persistence.readOnly() && systemId(); as sid) {
+          <app-flow-triggers-panel [systemId]="sid" kind="all" [journalOpen]="deliveryJournalOpen" />
+        }
+        <p class="flow-builder__validation-version">{{ i18n.t(persistence.readOnly() ? 'flow.builder.diagnostics.published' : 'flow.builder.diagnostics.draft', { version: persistence.publishedVersionNumber() ?? '', revision: persistence.draftRevision() ?? '' }) }}</p>
         <app-flow-validation-strip
+          [versionLabel]="persistence.publicationMode() ? i18n.t(persistence.readOnly() ? 'flow.builder.diagnostics.published' : 'flow.builder.diagnostics.draft', { version: persistence.publishedVersionNumber() ?? '', revision: persistence.draftRevision() ?? '' }) : null"
           [serverIssues]="persistence.serverIssues()"
           [serverState]="persistence.serverValidationState()"
           [serverError]="persistence.serverValidationError()"
@@ -355,12 +367,12 @@ const PUBLICATION_HYDRATION_CODES = new Set([
 
         <div
           class="flow-builder__body"
-          [class.has-palette]="paletteOpen() && !focusMode()"
+          [class.has-palette]="paletteOpen() && !focusMode() && !persistence.readOnly()"
           [class.is-inspecting]="inspectorOpen() && !focusMode()"
           [class.is-focus-mode]="focusMode()"
-          [class.is-locked]="persistence.actionsDisabled()"
+          [class.is-locked]="persistence.actionsDisabled() && !persistence.readOnly()"
         >
-          @if (paletteOpen() && !focusMode()) {
+          @if (paletteOpen() && !focusMode() && !persistence.readOnly()) {
             <app-flow-palette
               class="flow-builder__palette"
               [items]="automationMode() ? automationPalette() : palette"
@@ -659,6 +671,7 @@ export class FlowBuilderComponent {
       : [...primitives, ...governed];
   });
   protected readonly systemId = signal<string | null>(null);
+  protected readonly deliveryJournalOpen = this.route.snapshot.queryParamMap.get('tab') === 'triggers';
   protected readonly system = signal<System | null>(null);
   protected readonly paletteOpen = signal(true);
   protected readonly inspectorOpen = signal(false);
@@ -811,7 +824,7 @@ export class FlowBuilderComponent {
     // deduplicates repeated observations and debounces actual HTTP traffic.
     effect(() => {
       this.store.revision();
-      if (this.persistence.hydrationReady() && this.systemId()) {
+      if (this.persistence.hydrationReady() && !this.persistence.readOnly() && this.systemId()) {
         this.validation.observeCurrentFlow();
       }
     });
@@ -935,7 +948,12 @@ export class FlowBuilderComponent {
       });
   }
 
-  protected hydrateFromSystem(sid: string): void {
+  protected editDraft(): void {
+    const sid = this.systemId();
+    if (sid) this.hydrateFromSystem(sid, true);
+  }
+
+  protected hydrateFromSystem(sid: string, editing = false): void {
     this.loadState.set('loading');
     this.loadError.set('');
     this.validation.bindSystem(null);
@@ -959,7 +977,7 @@ export class FlowBuilderComponent {
         next: ({ sys, flowState }) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           const hydrated = flowState
-            ? this.persistence.hydratePublicationState(sys, flowState)
+            ? (editing ? this.persistence.hydratePublicationState(sys, flowState) : this.persistence.hydratePublishedState(sys, flowState))
             : this.persistence.hydrateSystem(sys);
           if (!hydrated) {
             this.loadError.set(
@@ -969,8 +987,8 @@ export class FlowBuilderComponent {
             return;
           }
           this.run.acknowledgeAuthoritativeHydration();
-          this.validation.bindSystem(sid);
-          this.validation.validateNow();
+          this.validation.bindSystem(this.persistence.readOnly() ? null : sid);
+          if (!this.persistence.readOnly()) this.validation.validateNow();
           this.system.set(sys);
           this.loadState.set('ready');
         },
@@ -1073,7 +1091,7 @@ export class FlowBuilderComponent {
   }
 
   protected toggleWorkbench(): void {
-    if (!this.systemId() || !this.persistence.hydrationReady()) return;
+    if (!this.systemId() || !this.persistence.hydrationReady() || this.persistence.readOnly()) return;
     const open = !this.workbenchOpen();
     if (open) this.workbenchInitialTab.set('chat');
     this.workbenchOpen.set(open);
@@ -1083,7 +1101,7 @@ export class FlowBuilderComponent {
   }
 
   protected onRunStep(nodeId: string): void {
-    if (!this.systemId() || !this.persistence.hydrationReady()) return;
+    if (!this.systemId() || !this.persistence.hydrationReady() || this.persistence.readOnly()) return;
     this.store.setSelection(nodeId);
     this.inspectorOpen.set(false);
     this.workbenchInitialTab.set('node');

@@ -21,7 +21,6 @@ from sqlalchemy import (
 
 from app.db.base import Base
 
-
 EXPERIENCE_PATTERNS = (
     "assistant",
     "form_result",
@@ -108,6 +107,44 @@ class ExperienceDraftRevision(Base):
             "revision >= 1",
             name="ck_experience_draft_revisions_revision_positive",
         ),
+    )
+
+
+class ExperienceWizardState(Base):
+    """Where an author stopped in the creation wizard, kept on the server.
+
+    One row per Experience while its wizard is unfinished: the step reached,
+    the bindings chosen but not yet materialised, and the audience picked.
+    It lets the author reload the page or leave to publish a System and come
+    back to the same step. Finalising the draft deletes the row; staged
+    bindings never become workspace bindings until then.
+    """
+
+    __tablename__ = "experience_wizard_states"
+
+    experience_id = Column(
+        String(36),
+        ForeignKey("experiences.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    workspace_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    step = Column(Integer, nullable=False, default=1)
+    state = Column(JSON, nullable=False, default=dict)
+    updated_by = Column(String(255), nullable=True)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("step >= 1 AND step <= 3", name="ck_experience_wizard_states_step"),
     )
 
 

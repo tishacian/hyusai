@@ -6,6 +6,9 @@
  */
 
 export const CONTEXTS_FR = {
+  'contexts.freshness.old': 'Ancien : contexte ou source de plus de 90 jours',
+  'contexts.freshness.recent': 'Dates connues : moins de 90 jours',
+  'contexts.freshness.unknown': 'Fraîcheur inconnue : une date manque',
   // --- List page -------------------------------------------------------
   'contexts.page.eyebrow': 'Améliorer · Contextes',
   'contexts.page.title': 'Contextes',
@@ -18,8 +21,8 @@ export const CONTEXTS_FR = {
   'contexts.kpi.pinned_hint': 'Référencés par au moins un Système.',
   'contexts.kpi.unused': 'Inutilisés',
   'contexts.kpi.unused_hint': 'Contextes orphelins qu’aucun Système ne référence.',
-  'contexts.kpi.stale': 'Remaniés v3+',
-  'contexts.kpi.stale_hint': 'Contextes modifiés 3 fois ou plus.',
+  'contexts.kpi.stale': 'Anciens',
+  'contexts.kpi.stale_hint': 'Contexte ou source dont la date dépasse 90 jours.',
   'contexts.empty.title': 'Aucun contexte pour l’instant',
   'contexts.empty.description': 'Les contextes se créent avec un nouveau système (étape Contexte).',
   'contexts.empty.open_builder': 'Créer un système',
@@ -96,6 +99,9 @@ export const CONTEXTS_FR = {
  * other, before the guard even runs.
  */
 export const CONTEXTS_EN: Record<keyof typeof CONTEXTS_FR, string> = {
+  "contexts.freshness.old": "Old: context or source older than 90 days",
+  "contexts.freshness.recent": "Recorded dates: within 90 days",
+  "contexts.freshness.unknown": "Freshness unknown: a date is missing",
   // --- List page -------------------------------------------------------
   'contexts.page.eyebrow': 'Improve · Contexts',
   'contexts.page.title': 'Contexts',
@@ -108,8 +114,8 @@ export const CONTEXTS_EN: Record<keyof typeof CONTEXTS_FR, string> = {
   'contexts.kpi.pinned_hint': 'Referenced by at least one System.',
   'contexts.kpi.unused': 'Unused',
   'contexts.kpi.unused_hint': 'Orphan contexts that no System references.',
-  'contexts.kpi.stale': 'Stale v3+',
-  'contexts.kpi.stale_hint': 'Contexts that have been edited 3+ times.',
+  'contexts.kpi.stale': 'Old',
+  'contexts.kpi.stale_hint': 'Context or source dated more than 90 days ago.',
   'contexts.empty.title': 'No contexts yet',
   'contexts.empty.description': 'Contexts are created from the System Builder (Context step).',
   'contexts.empty.open_builder': 'Open System Builder',

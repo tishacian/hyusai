@@ -1,11 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { LOADING, STRICT, settleRead, type LoadState } from '@app/shared/ui/load-state';
 import {
   CanonicalApiService,
   type AdaptivePolicy,
@@ -53,14 +57,16 @@ type SystemRow = {
       [description]="i18n.t('steering.page.description')"
     >
       <div class="steer-stack">
+        <p class="steer-empty">{{ i18n.t('governance.policy.coverage_unknown') }}</p>
+        @if (!canEdit()) { <p class="steer-empty">{{ i18n.t('governance.policy.read_only') }}</p> }
         <section class="steer-panel" data-testid="steering-policies">
           <header class="steer-panel-head">
             <ck-glyph name="ledger" [size]="14" />
             <h3>{{ i18n.t('steering.control.title') }}</h3>
-            <span class="steer-count">{{ controlPolicies().length }}</span>
+            @if (controlState().s === 'ready' || controlState().s === 'empty') { <span class="steer-count">{{ controlPolicies().length }}</span> }
           </header>
-          @if (!controlPolicies().length) {
-            <p class="steer-empty">{{ i18n.t('steering.control.empty') }}</p>
+          @if (controlState().s !== 'ready') {
+            <app-empty-state [state]="controlState()" size="sm" [title]="i18n.t('steering.control.empty')" (retry)="loadControl()" />
           } @else {
             <ul class="steer-policy-list" role="list">
               @for (p of controlPolicies(); track p.id) {
@@ -87,10 +93,10 @@ type SystemRow = {
           <header class="steer-panel-head">
             <ck-glyph name="orbit" [size]="14" />
             <h3>{{ i18n.t('steering.adaptive.title') }}</h3>
-            <span class="steer-count">{{ adaptivePolicies().length }}</span>
+            @if (adaptiveState().s === 'ready' || adaptiveState().s === 'empty') { <span class="steer-count">{{ adaptivePolicies().length }}</span> }
           </header>
-          @if (!adaptivePolicies().length) {
-            <p class="steer-empty">{{ i18n.t('steering.adaptive.empty') }}</p>
+          @if (adaptiveState().s !== 'ready') {
+            <app-empty-state [state]="adaptiveState()" size="sm" [title]="i18n.t('steering.adaptive.empty')" (retry)="loadAdaptive()" />
           } @else {
             <ul class="steer-policy-list" role="list">
               @for (p of adaptivePolicies(); track p.id) {
@@ -110,16 +116,16 @@ type SystemRow = {
           <header class="steer-panel-head">
             <ck-glyph name="shield" [size]="14" />
             <h3>{{ i18n.t('steering.systems.title') }}</h3>
-            <span class="steer-count">{{ systemRows().length }}</span>
+            @if (systemsState().s === 'ready' || systemsState().s === 'empty') { <span class="steer-count">{{ systemRows().length }}</span> }
           </header>
-          @if (loading()) {
-            <app-empty-state icon="sparkles" size="md" [title]="i18n.t('common.loading')" />
-          } @else if (!systemRows().length) {
+          @if (systemsState().s !== 'ready') {
             <app-empty-state
+              [state]="systemsState()"
               icon="radar"
               size="md"
               [title]="i18n.t('steering.systems.empty')"
               [description]="i18n.t('steering.value_loop.not_configured')"
+              (retry)="loadSystems()"
             />
           } @else {
             <ul class="steer-system-list" role="list">
@@ -217,11 +223,19 @@ type SystemRow = {
 export class SteeringComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly destroyRef = inject(DestroyRef);
+  readonly canEdit = computed(() => this.workspace.isAdmin());
   readonly loading = signal(true);
   readonly controlPolicies = signal<ControlPolicy[]>([]);
   readonly adaptivePolicies = signal<AdaptivePolicy[]>([]);
   readonly systems = signal<System[]>([]);
   readonly loops = signal<Record<string, SystemValueLoop | null>>({});
+  readonly controlState = signal<LoadState<ControlPolicy[]>>(LOADING);
+  readonly adaptiveState = signal<LoadState<AdaptivePolicy[]>>(LOADING);
+  readonly systemsState = signal<LoadState<System[]>>(LOADING);
+  readonly loopStates = signal<Record<string, LoadState<SystemValueLoop>>>({});
+  private systemsGeneration = 0;
 
   readonly systemRows = computed<SystemRow[]>(() => {
     const loops = this.loops();
@@ -229,23 +243,46 @@ export class SteeringComponent implements OnInit {
       id: system.id,
       name: system.name || system.id,
       status: system.status || 'draft',
-      loopLabel: this.loopSummary(loops[system.id] ?? null),
+      loopLabel: this.loopStates()[system.id]?.s === 'error' || this.loopStates()[system.id]?.s === 'denied'
+        ? this.i18n.t('steering.loop.unavailable')
+        : this.loopStates()[system.id]?.s === 'loading'
+          ? this.i18n.t('common.loading')
+          : this.loopSummary(loops[system.id] ?? null),
     }));
   });
 
   ngOnInit(): void {
-    this.canonical.controlPolicies().subscribe((p) => this.controlPolicies.set(p ?? []));
-    this.canonical.adaptivePolicies().subscribe((p) => this.adaptivePolicies.set(p ?? []));
-    this.canonical.listSystems().subscribe({
-      next: (systems) => {
-        const list = systems ?? [];
-        this.systems.set(list);
-        this.loadLoops(list);
-      },
-      error: () => {
-        this.systems.set([]);
-        this.loading.set(false);
-      },
+    this.loadControl();
+    this.loadAdaptive();
+    this.loadSystems();
+  }
+
+  loadControl(): void {
+    const scope = this.workspace.captureRequestScope();
+    settleRead(this.canonical.controlPolicies(undefined, STRICT)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.controlState.set(state);
+      this.controlPolicies.set(state.s === 'ready' ? state.value : []);
+    });
+  }
+
+  loadAdaptive(): void {
+    const scope = this.workspace.captureRequestScope();
+    settleRead(this.canonical.adaptivePolicies(undefined, STRICT)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.adaptiveState.set(state);
+      this.adaptivePolicies.set(state.s === 'ready' ? state.value : []);
+    });
+  }
+
+  loadSystems(): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = ++this.systemsGeneration;
+    settleRead(this.canonical.listSystems({ ...STRICT, workspaceSlug: scope.workspaceSlug })).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+      if (generation !== this.systemsGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
+      this.systemsState.set(state);
+      this.systems.set(state.s === 'ready' ? state.value : []);
+      if (state.s === 'ready') this.loadLoops(state.value);
     });
   }
 
@@ -262,30 +299,14 @@ export class SteeringComponent implements OnInit {
   }
 
   private loadLoops(systems: System[]): void {
-    if (!systems.length) {
-      this.loading.set(false);
-      return;
-    }
-    let pending = systems.length;
-    const next: Record<string, SystemValueLoop | null> = {};
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.systemsGeneration;
+    this.loopStates.set({});
     for (const system of systems) {
-      this.canonical.getSystemValueLoop(system.id).subscribe({
-        next: (loop) => {
-          next[system.id] = loop;
-          pending -= 1;
-          if (pending <= 0) {
-            this.loops.set({ ...next });
-            this.loading.set(false);
-          }
-        },
-        error: () => {
-          next[system.id] = null;
-          pending -= 1;
-          if (pending <= 0) {
-            this.loops.set({ ...next });
-            this.loading.set(false);
-          }
-        },
+      settleRead(this.canonical.getSystemValueLoop(system.id)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+        if (generation !== this.systemsGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.loopStates.update((states) => ({ ...states, [system.id]: state }));
+        if (state.s === 'ready') this.loops.update((loops) => ({ ...loops, [system.id]: state.value }));
       });
     }
   }

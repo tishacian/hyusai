@@ -1,3 +1,6 @@
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +28,7 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
   selector: 'app-capture-fil-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [GlyphComponent, WriteOutcomeComponent],
   template: `
     <div
       style="position:fixed; inset:0; z-index:60; display:grid; place-items:center; background:color-mix(in oklab, var(--ck-bg-base) 62%, transparent);"
@@ -100,6 +103,7 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
           </div>
         }
 
+        <app-write-outcome [outcome]="outcome()" [verifiable]="true" (verify)="verifySave()" />
         <div style="display:flex; justify-content:flex-end; gap:8px;">
           <button
             type="button"
@@ -111,7 +115,7 @@ import { CaptureEngine, type CaptureFilLayout } from './capture-engine';
           <button
             type="button"
             (click)="save()"
-            [disabled]="loading() || saving()"
+            [disabled]="loading() || saving() || !system || outcome()?.s === 'unknown'"
             style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-size:12.5px; font-weight:600; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
             [style.opacity]="loading() || saving() ? 0.6 : 1"
           >
@@ -178,7 +182,11 @@ export class CaptureFilSettingsComponent {
   protected readonly feedback = signal<{ tone: 'pos' | 'neg'; text: string } | null>(null);
 
   /** Loaded system snapshot — kept so the save merges its existing settings. */
-  private system: System | null = null;
+  protected system: System | null = null;
+  readonly outcome = signal<WriteOutcome<System | null> | null>(null);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly scope = this.workspace.captureRequestScope();
+  private pendingLayout: CaptureFilLayout | null = null;
 
   constructor() {
     const systemId = this.engine.systemId();
@@ -187,19 +195,23 @@ export class CaptureFilSettingsComponent {
       return;
     }
     this.canonicalApi
-      .getSystem(systemId)
+      .getSystem(systemId, { propagateErrors: true })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((sys) => {
+      .subscribe({ next: (sys) => {
+        if (!this.workspace.isRequestScopeCurrent(this.scope)) return;
         this.system = sys;
         const capture = (sys?.settings?.['capture'] ?? {}) as Record<string, unknown>;
         this.selected.set(capture['fil_layout'] === 'transcript' ? 'transcript' : 'documents');
         this.loading.set(false);
-      });
+      }, error: () => {
+        this.loading.set(false);
+        this.feedback.set({ tone: 'neg', text: this.i18n.t('state.read_failed.title') });
+      } });
   }
 
   protected save(): void {
     const systemId = this.engine.systemId();
-    if (!systemId || this.saving()) return;
+    if (!systemId || !this.system || this.saving() || this.outcome()?.s === 'unknown' || !this.workspace.isRequestScopeCurrent(this.scope)) return;
     this.saving.set(true);
     this.feedback.set(null);
     const existing = this.system?.settings ?? {};
@@ -209,18 +221,37 @@ export class CaptureFilSettingsComponent {
         : {};
     // Merge, never overwrite: other settings keys (and other capture keys) survive.
     const settings = { ...existing, capture: { ...capture, fil_layout: this.selected() } };
-    this.canonicalApi
-      .updateSystem(systemId, { settings })
+    this.pendingLayout = this.selected();
+    settleWrite(this.canonicalApi.updateSystem(systemId, { settings }, { propagateErrors: true }))
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((sys) => {
-        this.saving.set(false);
-        if (sys) {
-          this.system = sys;
-          this.engine.setFilLayout(this.selected());
-          this.feedback.set({ tone: 'pos', text: this.i18n.t('capture.settings.saved') });
-        } else {
-          this.feedback.set({ tone: 'neg', text: this.i18n.t('capture.settings.save_failed') });
+      .subscribe((outcome) => {
+        if (!this.workspace.isRequestScopeCurrent(this.scope)) return;
+        this.saving.set(outcome.s === 'sent');
+        this.outcome.set(outcome);
+        if (outcome.s === 'confirmed' && outcome.value) {
+          this.system = outcome.value;
+          this.engine.setFilLayout(this.pendingLayout!);
         }
+      });
+  }
+
+  protected verifySave(): void {
+    const systemId = this.engine.systemId();
+    if (!systemId || !this.workspace.isRequestScopeCurrent(this.scope)) return;
+    this.canonicalApi.getSystem(systemId, { propagateErrors: true })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (system) => {
+          if (!system || !this.workspace.isRequestScopeCurrent(this.scope)) return;
+          this.system = system;
+          const capture = system.settings?.['capture'] as Record<string, unknown> | undefined;
+          if (capture?.['fil_layout'] === this.pendingLayout) {
+            this.engine.setFilLayout(this.pendingLayout!);
+            this.outcome.set({ s: 'confirmed', value: system, at: Date.now() });
+          } else {
+            this.outcome.set({ s: 'failed', status: 409, code: 'not_applied', detail: null });
+          }
+        },
+        error: () => { /* Remain unknown until a successful read can verify the write. */ },
       });
   }
 }

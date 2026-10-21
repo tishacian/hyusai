@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { ActivatedRoute } from '@angular/router';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
 import { firstValueFrom } from 'rxjs';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -12,6 +14,7 @@ import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import { pgFailure, pgSslMode, pgTestFailure, pgTableKey, type PgCatalog as Catalog, type PgDescription as Description, type PgFailure, type PgPreview as Preview, type PgSslMode, type PgTable, type PgTestResult as TestResult } from './postgresql.types';
 import { PgTablePickerComponent } from './pg-table-picker.component';
 import { DatasetDto } from '@app/features/data/data.service';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface Config {
   id: string; values: Record<string, string>; secrets_set: Record<string, boolean>; configured: boolean;
@@ -25,7 +28,7 @@ export interface StepState { tone: StepTone; label: string; }
 @Component({
   selector: 'app-postgresql-connector', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, DataTableComponent, PgTablePickerComponent],
+  imports: [ConnectorCapabilitiesComponent, PageFrameComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, DataTableComponent, PgTablePickerComponent],
   templateUrl: './postgresql-connector.component.html',
   styleUrl: './postgresql-connector.component.css',
 })
@@ -33,6 +36,10 @@ export class PostgresqlConnectorComponent {
   protected readonly i18n = inject(I18nService);
   protected readonly workspace = inject(WorkspaceService);
   private readonly http = inject(HttpClient);
+  private readonly route = inject(ActivatedRoute);
+  protected readonly sourceDatasetId = this.route.snapshot.queryParamMap.get('datasetId') ?? '';
+  protected readonly sourceDatasetVersion = this.route.snapshot.queryParamMap.get('datasetVersion') ?? '';
+  protected readonly provenanceWarning = signal(false);
   private epoch = 0;
   private lastScope = '';
   private selectionEpoch = 0;
@@ -142,6 +149,25 @@ export class PostgresqlConnectorComponent {
       this.applyConfig(config); this.editOpen.set(!this.hasSetup());
     } catch (e) { if (epoch === this.epoch) this.fail(e, 'page', () => void this.load()); }
     finally { if (epoch === this.epoch) this.loading.set(false); }
+    if (epoch === this.epoch) await this.openProvenance();
+  }
+
+  private async openProvenance(): Promise<void> {
+    const query = this.route.snapshot.queryParamMap;
+    const database = query.get('sourceDatabase'), schema = query.get('sourceSchema'), table = query.get('sourceTable');
+    if (!schema || !table || !database) return;
+    // The workspace has one PostgreSQL connection. Never silently open a
+    // different database after that connection has been reconfigured.
+    if (database !== this.config()?.values['database']) { this.provenanceWarning.set(true); return; }
+    if (!this.connectionReady()) return;
+    const epoch = this.epoch;
+    await this.discover();
+    if (epoch !== this.epoch || !this.catalog()) return;
+    const found = this.catalog()!.tables.find(row => row.schema === schema && row.name === table);
+    if (!found) { this.provenanceWarning.set(true); return; }
+    this.provenanceWarning.set(false);
+    this.schema.set(schema);
+    await this.chooseTable(table);
   }
 
   private applyConfig(config: Config | null): void {

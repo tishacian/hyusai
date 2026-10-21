@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activityMetrics, financialScenario, scopedSeries, summarySections } from './impact-product-blocks';
+import { activityMetrics, activityRunsForDay, financialScenario, scopedSeries, summarySections } from './impact-product-blocks';
+
+test('selected activity day contains exactly its evidence rows, including an empty day', () => {
+  const runs = [{id:'one', started_at:'2026-10-20T00:01:00Z'}, {id:'two', started_at:'2026-10-21T12:00:00Z'}] as Parameters<typeof activityRunsForDay>[0];
+  assert.deepEqual(activityRunsForDay(runs,'2026-10-20').map(run => run.id), ['one']);
+  assert.deepEqual(activityRunsForDay(runs,'2026-10-19'), []);
+  assert.equal(activityRunsForDay(runs,null).length, 2);
+});
 import { cloneView, DEFAULT_HYPERVISOR_VIEWS, moveStratumBlock, parseViewsPayload, serializeViewsForWrite } from './hypervisor-v2-views';
 
 const scenario = { manual_minutes: 12, assisted_minutes: 3, hourly_cost: 30, unit_budget: 1, currency: 'GBP' };

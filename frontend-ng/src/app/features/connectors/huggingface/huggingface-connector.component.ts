@@ -6,6 +6,9 @@ import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { writeFailure, type WriteOutcome } from '@app/shared/ui/load-state';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { CkBackLinkComponent } from '@app/shared/cockpit';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -13,11 +16,12 @@ import {
   HubArtifact, HubConfig, HubFile, HubFormat, HubImport, HubJob, HubKind, HubRepository, HubSearchResult,
   LicenseClass, defaultSelection, filesForFormat, hasWeights, hubError, hubErrorCode, isTerminalJob, jobError,
 } from './huggingface.models';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 @Component({
   selector: 'app-huggingface-connector',
   standalone: true,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, SectionHeaderComponent, HuggingfaceLifecycleComponent],
+  imports: [ConnectorCapabilitiesComponent, WriteOutcomeComponent, PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, SectionHeaderComponent, HuggingfaceLifecycleComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './huggingface-connector.component.html',
   styleUrl: './huggingface-connector.component.css',
@@ -42,6 +46,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
   readonly searching = signal(false);
   readonly inspecting = signal(false);
   readonly error = signal('');
+  readonly importOutcome = signal<WriteOutcome | null>(null);
   readonly notice = signal('');
   readonly searched = signal(false);
   readonly selectedFormat = signal<HubFormat>('safetensors');
@@ -56,7 +61,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
   readonly canImport = computed(() => {
     const repo = this.repository();
     const permissions = this.config();
-    return !!repo && !!permissions && !repo.metadata.requires_remote_code
+    return this.importOutcome()?.s !== 'unknown' && !!repo && !!permissions && !repo.metadata.requires_remote_code
       && repo.license.license_class !== 'blocked'
       && (repo.license.license_class === 'allowed' || repo.license.accepted)
       && (repo.metadata.kind === 'model' ? permissions.can_import_models : permissions.can_import_datasets)
@@ -90,6 +95,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void { this.view.destroy(); }
 
   private reset(): void {
+    this.importOutcome.set(null);
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = undefined;
     this.searchVersion++;
@@ -162,6 +168,7 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       ]);
       if (!this.view.isCurrent(request)) return;
       this.config.set(config); this.endpoint = config.connection.endpoint; this.artifacts.set(list.artifacts);
+      this.importOutcome.set(null);
       this.jobs.set(jobs.jobs.filter(job => !job.kind || ['hf_import', 'hf_adapter_activate'].includes(job.kind)));
       this.lifecycleJobs.set(jobs.jobs.filter(job => ['hf_bundle_import', 'hf_bundle_export', 'hf_purge'].includes(job.kind ?? ''))); this.schedulePoll();
     } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
@@ -310,14 +317,15 @@ export class HuggingfaceConnectorComponent implements OnInit, OnDestroy {
       if (this.maxRows != null) body.max_rows = this.maxRows;
       if (this.datasetName.trim()) body.name = this.datasetName.trim();
     }
-    this.busy.set(true); this.error.set('');
+    this.busy.set(true); this.error.set(''); this.importOutcome.set({ s: 'sent' });
     try {
       const result = await firstValueFrom(this.api.post<{ artifact: HubArtifact; job: HubJob }>('/huggingface/imports', body, request.scope));
       if (!this.view.isCurrent(request)) return;
       this.artifacts.update(items => [result.artifact, ...items.filter(a => a.artifact_id !== result.artifact.artifact_id)]);
       this.jobs.update(items => [result.job, ...items.filter(j => j.id !== result.job.id)]);
+      this.importOutcome.set({ s: 'accepted', value: result, at: Date.now() });
       this.schedulePoll();
-    } catch (error) { if (this.view.isCurrent(request)) this.error.set(hubError(error, key => this.i18n.t(key))); }
+    } catch (error) { if (this.view.isCurrent(request)) { this.error.set(hubError(error, key => this.i18n.t(key))); this.importOutcome.set(writeFailure(error)); } }
     finally { if (this.view.isCurrent(request)) this.busy.set(false); }
   }
 

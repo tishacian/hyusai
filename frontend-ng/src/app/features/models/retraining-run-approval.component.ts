@@ -16,6 +16,12 @@ import { retrainingReviewReady } from './retraining-evidence.vm';
   template: `
     @if (run().status === 'hitl_pending' && run().hitl?.prompt_kind === 'approve_model_retraining') {
       <section data-testid="run-retraining-approval">
+        <section data-testid="retraining-effects">
+          <h3>{{ i18n.t('governance.retraining.effects_title') }}</h3>
+          <p>{{ i18n.t('governance.retraining.expected_benefit') }}</p>
+          <p>{{ i18n.t('governance.retraining.population', { count: run().hitl?.model_retraining?.labeled_rows ?? '—' }) }}</p>
+          <p>{{ i18n.t('governance.retraining.effects') }}</p>
+        </section>
         @if (settled()) {
           <p role="status">{{ i18n.t('models.retraining.decision_saved') }}</p>
         } @else if (run().hitl?.can_decide === true) {

@@ -1352,3 +1352,14 @@ test('serving labels distinguish selection, training and callable state', () => 
   assert.equal(servingStatusKey(null), 'models.readiness.checking');
   assert.equal(servingErrorKey('ML_ARTIFACT_RUNTIME_UNVERIFIED'), 'models.serving.error.ml_artifact_runtime_unverified');
 });
+
+
+test('the serving list requires a callable selected version, never just ready', () => {
+  const model = { id: 'm1', slug: 'risk', name: 'Risk', version: 1, status: 'ready', is_champion: true, task: 'classification', features: [] } as unknown as ModelDto;
+  const blocked = groupModelsBySlug([{ ...model, callable: false, refusal: { code: 'ML_CONTRACT_MISSING', message: 'Missing contract' } }])[0];
+  assert.equal(blocked.callable, false);
+  assert.equal(blocked.serving_refusal?.code, 'ML_CONTRACT_MISSING');
+  assert.equal(groupModelsBySlug([model])[0].callable, false);
+  assert.equal(groupModelsBySlug([{ ...model, callable: true }])[0].callable, true);
+  assert.equal(groupModelsBySlug([{ ...model, callable: true, is_champion: false }])[0].callable, false);
+});

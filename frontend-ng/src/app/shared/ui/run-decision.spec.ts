@@ -54,12 +54,23 @@ test('a check tells a recorded decision from a pause that still waits', async ()
   const states = await lastValueFrom(checkDecision({ getRun: () => of(waiting) } as never, 'run-1', 'd-1').pipe(toArray()));
   assert.deepEqual(states.map((s) => s.s), ['checking', 'pending']);
   const other = { ...waiting, hitl: { decision_id: 'd-2' } } as Run;
-  assert.equal((await lastValueFrom(checkDecision({ getRun: () => of(other) } as never, 'run-1', 'd-1'))).s, 'recorded');
-  assert.equal((await lastValueFrom(checkDecision({ getRun: () => of(run) } as never, 'run-1', 'd-1'))).s, 'recorded');
+  const getDecision = () => of({ id: 'd-1', status: 'accepted' });
+  assert.equal((await lastValueFrom(checkDecision({ getRun: () => of(other), getDecision } as never, 'run-1', 'd-1'))).s, 'recorded');
+  assert.equal((await lastValueFrom(checkDecision({ getRun: () => of(run), getDecision } as never, 'run-1', 'd-1'))).s, 'recorded');
   const failing = new Subject<Run>();
   const pending = lastValueFrom(checkDecision({ getRun: () => failing } as never, 'run-1', 'd-1'));
   failing.error({ status: 500 });
   const check = await pending;
   assert.equal(check.s, 'unknown');
   assert.equal(checkMessage(check).key, 'state.decision.check_unknown');
+});
+
+test('a cancelled run or another pause never substitutes for the exact decision receipt', async () => {
+  for (const receipt of [null, { id: 'd-1', status: 'proposed' }, { id: 'another', status: 'accepted' }]) {
+    const api = { getRun: () => of({ ...run, status: 'cancelled' }), getDecision: () => of(receipt) };
+    assert.equal((await lastValueFrom(checkDecision(api as never, 'run-1', 'd-1'))).s, 'unknown');
+  }
+  const unavailable = { getRun: () => of(run), getDecision: () => throwError(() => ({ status: 403 })) };
+  assert.equal((await lastValueFrom(checkDecision(unavailable as never, 'run-1', 'd-1'))).s, 'unknown');
+  assert.equal((await lastValueFrom(checkDecision(unavailable as never, 'run-1', null))).s, 'unknown');
 });

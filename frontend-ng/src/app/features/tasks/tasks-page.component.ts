@@ -1,26 +1,27 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { A11yModule } from '@angular/cdk/a11y';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { ActivatedRoute, Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { GlyphComponent, PageFrameComponent, StatReadoutComponent } from '@app/shared/cockpit';
-
-interface Agent {
-  id: string;
-  name: string;
-}
 
 interface TaskSummary {
   id: string;
@@ -32,9 +33,14 @@ interface TaskSummary {
   created_at?: string | null;
   completed_at?: string | null;
   total_duration_ms?: number | null;
+  started_at?: string | null;
+  execution_id?: string | null;
+  durable?: boolean;
 }
 
 interface TaskStep {
+  title?: string;
+  result?: unknown;
   id?: string;
   name?: string;
   step_type?: string;
@@ -47,6 +53,7 @@ interface TaskDetail extends TaskSummary {
   steps?: TaskStep[];
   artifacts?: Record<string, unknown>;
   error?: string | null;
+  executions?: Array<{id: string; status: string; started_at: string | null; artifacts: Record<string, unknown>}>;
 }
 
 interface TaskEvent {
@@ -57,6 +64,9 @@ interface TaskEvent {
   artifacts?: Record<string, unknown>;
   message?: string;
   total_duration_ms?: number;
+  status?: string;
+  started_at?: string | null;
+  execution_id?: string;
 }
 
 @Component({
@@ -65,6 +75,8 @@ interface TaskEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    A11yModule,
+    ConfirmDialogComponent,
     IconComponent,
     StatReadoutComponent,
     EmptyStateComponent,
@@ -153,6 +165,8 @@ interface TaskEvent {
             </div>
           }
         </div>
+      } @else if (loadError()) {
+        <p role="alert" class="p-4">{{ i18n.t('governance.missions.load_failed') }}</p>
       } @else if (visibleTasks().length === 0) {
         <app-empty-state
           icon="list-todo"
@@ -164,6 +178,7 @@ interface TaskEvent {
           @for (t of visibleTasks(); track t.id) {
             <li
               class="px-5 py-3 cursor-pointer hover:bg-white/5 transition"
+              tabindex="0" role="button" (keydown.enter)="openDetail(t)" (keydown.space)="$event.preventDefault(); openDetail(t)"
               (click)="openDetail(t)"
             >
               <div class="flex items-center gap-3">
@@ -185,7 +200,7 @@ interface TaskEvent {
                   <div class="text-[11px] text-gray-500 truncate mt-0.5">
                     <span>{{ statusLabel(t.status) }}</span>
                     <span class="mx-1">·</span>
-                    {{ formatDate(t.created_at) }}
+                    {{ formatDate(t.started_at || t.created_at) }}
                     @if (t.total_duration_ms) {
                       <span class="mx-1">·</span>
                       {{ t.total_duration_ms.toFixed(0) }} ms
@@ -218,7 +233,7 @@ interface TaskEvent {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="createOpen.set(false)"></div>
         <div
-          class="relative ck-surface rounded-lg border border-white/10 shadow-elevated max-w-lg w-full p-6"
+          class="relative ck-surface rounded-lg border border-white/10 shadow-elevated max-w-lg w-full p-6" role="dialog" aria-modal="true" aria-labelledby="mission-create-title" cdkTrapFocus [cdkTrapFocusAutoCapture]="true"
         >
           <div class="flex items-start gap-4 mb-4">
             <div
@@ -227,7 +242,7 @@ interface TaskEvent {
               <app-icon name="rocket" [size]="20" />
             </div>
             <div class="flex-1">
-              <h2 class="text-base font-semibold text-white mb-1">{{ i18n.t('tasks.create.heading') }}</h2>
+              <h2 id="mission-create-title" class="text-base font-semibold text-white mb-1">{{ i18n.t('tasks.create.heading') }}</h2>
               <p class="text-sm text-gray-400">
                 {{ i18n.t('tasks.create.description') }}
               </p>
@@ -245,15 +260,7 @@ interface TaskEvent {
               rows="5"
               class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 resize-none"
             ></textarea>
-            <select
-              [(ngModel)]="newAgentId"
-              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400"
-            >
-              <option value="">{{ i18n.t('tasks.create.routing.default') }}</option>
-              @for (a of agents(); track a.id) {
-                <option [value]="a.id">{{ a.name }}</option>
-              }
-            </select>
+            <p class="text-sm text-gray-400">{{ i18n.t('governance.missions.engine_notice') }}</p>
           </div>
           <div class="mt-6 flex justify-end gap-2">
             <button
@@ -274,7 +281,7 @@ interface TaskEvent {
                 [size]="14"
                 [class.animate-spin]="creating()"
               />
-              {{ i18n.t('tasks.create.submit') }}
+              {{ i18n.t('governance.missions.save_draft') }}
             </button>
           </div>
         </div>
@@ -291,6 +298,10 @@ interface TaskEvent {
     >
       @if (detail(); as d) {
         <div class="space-y-4">
+          <p class="text-sm">{{ i18n.t('governance.missions.engine_notice') }}</p>
+          @if (detailError()) { <p role="alert">{{ i18n.t('governance.missions.load_failed') }}</p> }
+          @if (d.status === 'unverified') { <p role="status">{{ i18n.t('governance.missions.unverified') }} · {{ formatDate(d.started_at) }}</p> }
+          @if (d.status === 'interrupted') { <p role="status">{{ i18n.t('governance.missions.interrupted') }} · {{ formatDate(d.started_at) }}</p> }
           <div class="flex items-center gap-2">
             <span
               class="text-[10px] tracking-wider font-semibold px-2 py-1 rounded ring-1"
@@ -309,17 +320,27 @@ interface TaskEvent {
             >
               {{ statusLabel(d.status) }}
             </span>
-            @if (d.status !== 'running') {
+            @if (!['running', 'queued', 'unverified'].includes(d.status)) {
               <button
                 type="button"
                 class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
-                (click)="runTask(d.id)"
+                [disabled]="detailError()" (click)="launchOpen.set(true)"
               >
                 <app-icon name="play" [size]="13" />
-                {{ d.status === 'pending' ? i18n.t('tasks.detail.run') : i18n.t('tasks.detail.rerun') }}
+                {{ d.status === 'interrupted' ? i18n.t('governance.missions.resume') : d.status === 'pending' ? i18n.t('tasks.detail.run') : i18n.t('tasks.detail.rerun') }}
               </button>
             }
           </div>
+
+          @if (d.executions?.length) {
+            <details><summary>{{ i18n.t('governance.missions.history') }}</summary>
+              @for (execution of d.executions; track execution.id) {
+                <section class="py-2"><p>{{ statusLabel(execution.status) }} · {{ formatDate(execution.started_at) }} · {{ execution.id }}</p>
+                  <pre class="whitespace-pre-wrap break-words">{{ jsonPretty(execution.artifacts) }}</pre>
+                </section>
+              }
+            </details>
+          }
 
           <div>
             <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
@@ -374,7 +395,7 @@ interface TaskEvent {
                           {{ i + 1 }}
                         </span>
                         <span class="text-sm text-white truncate">
-                          {{ s.name || s.step_type || i18n.t('tasks.detail.step.fallback') }}
+                          {{ s.title || s.name || s.step_type || i18n.t('tasks.detail.step.fallback') }}
                         </span>
                       </div>
                       @if (s.status) {
@@ -386,14 +407,14 @@ interface TaskEvent {
                     @if (s.error) {
                       <div class="text-[11px] text-red-300 mt-1 font-mono">{{ s.error }}</div>
                     }
-                    @if (s.output) {
+                    @if (s.result || s.output) {
                       <details class="mt-2">
                         <summary class="text-[11px] text-gray-500 cursor-pointer hover:text-gray-300">
                           {{ i18n.t('tasks.detail.output') }}
                         </summary>
                         <pre
                           class="mt-1 text-[11px] text-gray-200 bg-black/30 rounded p-2 font-mono whitespace-pre-wrap"
-                        >{{ jsonPretty(s.output) }}</pre>
+                        >{{ jsonPretty(s.result ?? s.output) }}</pre>
                       </details>
                     }
                   </li>
@@ -407,9 +428,10 @@ interface TaskEvent {
               <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">
                 {{ i18n.t('tasks.detail.artifacts') }}
               </div>
-              <pre
+              <div class="whitespace-pre-wrap break-words text-sm">{{ reportText(d.artifacts) }}</div>
+              <details><summary>{{ i18n.t('governance.missions.artifact_details') }}</summary><pre
                 class="text-[11px] text-gray-200 bg-black/30 rounded p-3 font-mono whitespace-pre-wrap max-h-64 overflow-auto"
-              >{{ jsonPretty(d.artifacts) }}</pre>
+              >{{ jsonPretty(d.artifacts) }}</pre></details>
             </div>
           }
 
@@ -422,6 +444,9 @@ interface TaskEvent {
         </div>
       }
     </app-drawer>
+    <app-confirm-dialog [open]="launchOpen()" [title]="i18n.t('governance.missions.review_launch')"
+      [description]="launchDescription()" [confirmLabel]="i18n.t('common.confirm')"
+      (cancel)="launchOpen.set(false)" (confirm)="confirmLaunch()" />
   `,
 })
 export class TasksPageComponent implements OnInit {
@@ -431,10 +456,15 @@ export class TasksPageComponent implements OnInit {
   private readonly sse = inject(SseService);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly destroyRef = inject(DestroyRef);
+  private streamSubscription: Subscription | null = null;
+  readonly loadError = signal(false);
+  readonly detailError = signal(false);
+  readonly launchOpen = signal(false);
 
   tasks = signal<TaskSummary[]>([]);
   readonly facetFilter = signal<'all' | 'running' | 'completed' | 'failed' | 'pending'>('all');
-  agents = signal<Agent[]>([]);
   loading = signal(false);
   detail = signal<TaskDetail | null>(null);
 
@@ -442,7 +472,6 @@ export class TasksPageComponent implements OnInit {
   creating = signal(false);
   newTitle = '';
   newDescription = '';
-  newAgentId = '';
 
   readonly runningCount = computed(
     () => this.tasks().filter((t) => t.status === 'running').length,
@@ -466,12 +495,22 @@ export class TasksPageComponent implements OnInit {
     if (!d) return '';
     const parts: string[] = [];
     if (d.total_duration_ms) parts.push(`${d.total_duration_ms.toFixed(0)} ms`);
-    if (d.agent_id) parts.push(d.agent_id);
+    if (d.agent_id) parts.push(this.i18n.t('governance.missions.historical_reference', { id:d.agent_id }));
     return parts.join(' · ');
   });
 
+  constructor() {
+    this.destroyRef.onDestroy(this.workspace.registerContextReset(() => {
+      this.streamSubscription?.unsubscribe();
+      this.tasks.set([]); this.detail.set(null);
+      this.launchOpen.set(false); this.createOpen.set(false); this.creating.set(false);
+      this.loading.set(false); this.loadError.set(false); this.detailError.set(false);
+      this.newTitle = ''; this.newDescription = '';
+    }));
+  }
+
   ngOnInit(): void {
-    this.route.queryParamMap.subscribe((params) => {
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const facet = params.get('facet');
       if (facet === 'running' || facet === 'completed' || facet === 'failed' || facet === 'pending' || facet === 'all') {
         this.facetFilter.set(facet);
@@ -480,67 +519,64 @@ export class TasksPageComponent implements OnInit {
       }
     });
     this.refresh();
-    // Canonical `/systems` — `/agents` is a deprecated alias.
-    this.api.get<{ systems: Agent[] } | Agent[]>('/systems').subscribe({
-      next: (res) => {
-        const list = Array.isArray(res) ? res : res?.systems ?? [];
-        this.agents.set(list);
-      },
-      error: () => this.agents.set([]),
-    });
   }
 
   refresh(): void {
+    const scope = this.workspace.captureRequestScope();
     this.loading.set(true);
-    this.api.get<{ tasks: TaskSummary[] }>('/tasks?limit=50').subscribe({
+    this.loadError.set(false);
+    this.api.get<{ tasks: TaskSummary[] }>('/tasks?limit=50').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
         this.tasks.set(res?.tasks ?? []);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: () => { if (this.workspace.isRequestScopeCurrent(scope)) { this.loadError.set(true); this.loading.set(false); } },
     });
   }
 
   openCreate(): void {
     this.newTitle = '';
     this.newDescription = '';
-    this.newAgentId = '';
     this.createOpen.set(true);
   }
 
   createAndRun(): void {
     const description = this.newDescription.trim();
-    if (!description) return;
+    if (!description || this.creating()) return;
+    const scope = this.workspace.captureRequestScope();
+    const title = this.newTitle.trim();
     this.creating.set(true);
     this.api
       .post<{ id: string }>('/tasks', {
         title: this.newTitle.trim(),
         description,
-        agent_id: this.newAgentId || null,
+        agent_id: null,
       })
-      .subscribe({
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (res) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.creating.set(false);
           this.createOpen.set(false);
-          this.toast.success(this.i18n.t('tasks.toast.queued'), this.i18n.t('tasks.toast.title'));
+          this.toast.success(this.i18n.t('governance.missions.draft_saved'), this.i18n.t('tasks.toast.title'));
           this.refresh();
           if (res?.id) {
-            // Seed the detail drawer with a pending shell and stream the run.
+            // A composed mission remains pending until the explicit launch review.
             const pending: TaskDetail = {
               id: res.id,
-              title: this.newTitle.trim() || description.slice(0, 80),
+              title: title || description.slice(0, 80),
               description,
               status: 'pending',
               steps: [],
             };
             this.detail.set(pending);
-            this.runTask(res.id);
           }
         },
-        error: (err) => {
+        error: () => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.creating.set(false);
           this.toast.error(
-            err?.error?.detail ?? this.i18n.t('tasks.toast.create.error'),
+            this.i18n.t('tasks.toast.create.error'),
             this.i18n.t('tasks.toast.title'),
           );
         },
@@ -548,42 +584,67 @@ export class TasksPageComponent implements OnInit {
   }
 
   openDetail(t: TaskSummary): void {
+    const scope = this.workspace.captureRequestScope();
+    this.streamSubscription?.unsubscribe(); this.detailError.set(false);
     this.detail.set({ ...t, steps: [] });
-    this.api.get<TaskDetail>(`/tasks/${t.id}`).subscribe({
+    this.api.get<TaskDetail>(`/tasks/${t.id}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
-        if (res && !(res as unknown as { error?: string }).error) this.detail.set(res);
+        if (!this.workspace.isRequestScopeCurrent(scope) || this.detail()?.id !== t.id) return;
+        this.detail.set(res);
+        if (res.execution_id && ['running', 'queued'].includes(res.status)) this.observe(`/api/v1/tasks/${t.id}/executions/${res.execution_id}/events`, t.id, {});
       },
-      error: () => {},
+      error: () => { if (this.workspace.isRequestScopeCurrent(scope) && this.detail()?.id === t.id) this.detailError.set(true); },
     });
   }
 
   closeDetail(): void {
+    this.streamSubscription?.unsubscribe(); this.launchOpen.set(false);
     this.detail.set(null);
     // Refresh the list in case a run just completed.
     this.refresh();
   }
 
   runTask(taskId: string): void {
-    // Update status optimistically.
-    this.detail.update((d) => (d && d.id === taskId ? { ...d, status: 'running', progress: 0 } : d));
-    this.tasks.update((list) =>
-      list.map((t) => (t.id === taskId ? { ...t, status: 'running', progress: 0 } : t)),
-    );
+    this.observe(`/api/v1/tasks/${taskId}/run`, taskId, { confirm_rerun: this.detail()?.status !== 'pending' });
+  }
 
-    this.sse.stream(`/api/v1/tasks/${taskId}/run`, {}).subscribe({
+  launchDescription(): string {
+    const detail = this.detail();
+    if (!detail) return '';
+    const agent = this.i18n.t('governance.missions.default_agent');
+    return this.i18n.t(detail.status === 'interrupted' ? 'governance.missions.resume_summary' : 'governance.missions.launch_summary', { goal: detail.description ?? '', agent })
+      + (['completed', 'failed'].includes(detail.status) ? ' ' + this.i18n.t('governance.missions.relaunch_keeps_history') : '');
+  }
+
+  confirmLaunch(): void {
+    const detail = this.detail();
+    this.launchOpen.set(false);
+    if (!detail) return;
+    if (detail.status === 'interrupted' && detail.execution_id) this.observe(`/api/v1/tasks/${detail.id}/executions/${detail.execution_id}/resume`, detail.id, {});
+    else this.runTask(detail.id);
+  }
+
+  private observe(path: string, taskId: string, body: unknown): void {
+    const scope = this.workspace.captureRequestScope();
+    this.detailError.set(false);
+    this.streamSubscription?.unsubscribe();
+    this.streamSubscription = this.sse.stream(path, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (chunk: SseChunk) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        if (chunk.chunk_type === 'error') { this.detailError.set(true); return; }
         const evt = this.extractEvent(chunk);
         if (!evt) return;
         this.applyEvent(taskId, evt);
       },
-      error: () =>
-        this.toast.error(this.i18n.t('tasks.toast.stream.error'), this.i18n.t('tasks.toast.title')),
-      complete: () => this.refresh(),
+      error: () => { if (this.workspace.isRequestScopeCurrent(scope)) { this.detailError.set(true); this.toast.error(this.i18n.t('tasks.toast.stream.error'), this.i18n.t('tasks.toast.title')); } },
+      complete: () => { if (this.workspace.isRequestScopeCurrent(scope)) this.refresh(); },
     });
   }
 
   private applyEvent(taskId: string, evt: TaskEvent): void {
-    if (evt.type === 'task_plan' && evt.steps) {
+    if (evt.type === 'task_execution') {
+      this.detail.update(d => d?.id === taskId ? {...d, status: evt.status || d.status, execution_id: evt.execution_id, started_at: evt.started_at, progress: evt.progress ?? d.progress, durable: true} : d);
+    } else if (evt.type === 'task_plan' && evt.steps) {
       this.detail.update((d) => (d && d.id === taskId ? { ...d, steps: evt.steps, status: 'running' } : d));
     } else if (evt.type === 'task_step' && evt.step) {
       this.detail.update((d) => {
@@ -605,7 +666,7 @@ export class TasksPageComponent implements OnInit {
         d && d.id === taskId
           ? {
               ...d,
-              status: 'completed',
+              status: evt.status === 'failed' ? 'failed' : 'completed',
               progress: 100,
               steps: evt.steps ?? d.steps,
               artifacts: evt.artifacts ?? d.artifacts,
@@ -613,7 +674,8 @@ export class TasksPageComponent implements OnInit {
             }
           : d,
       );
-      this.toast.success(this.i18n.t('tasks.toast.complete'), this.i18n.t('tasks.toast.title'));
+      if (evt.status === 'failed') this.toast.error(this.i18n.t('tasks.toast.failed'), this.i18n.t('tasks.toast.title'));
+      else this.toast.success(this.i18n.t('tasks.toast.complete'), this.i18n.t('tasks.toast.title'));
     } else if (evt.type === 'task_error') {
       this.detail.update((d) =>
         d && d.id === taskId
@@ -662,6 +724,7 @@ export class TasksPageComponent implements OnInit {
 
   /** `tasks.status.<value>` with the raw API value as fallback. */
   statusLabel(status: string): string {
+    if (['unverified', 'interrupted', 'queued'].includes(status)) return this.i18n.t('governance.missions.status.' + status);
     const key = 'tasks.status.' + status;
     const label = this.i18n.t(key);
     return label === key ? status : label;
@@ -674,6 +737,10 @@ export class TasksPageComponent implements OnInit {
     } catch {
       return iso;
     }
+  }
+
+  reportText(artifacts: Record<string, unknown>): string {
+    return typeof artifacts['report'] === 'string' ? artifacts['report'] : '';
   }
 
   hasKeys(obj: unknown): boolean {

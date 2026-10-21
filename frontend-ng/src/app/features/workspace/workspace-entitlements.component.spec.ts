@@ -8,6 +8,7 @@ import {
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { NEVER, of } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
@@ -88,6 +89,7 @@ test('Members displays and sends a manifest-defined non-Andritz entitlement on i
     I18nService,
     InterfaceLocale,
     { provide: WorkspaceService, useValue: workspace },
+    { provide: HttpClient, useValue: { get: () => of([]) } },
     {
       provide: ActivatedRoute,
       useValue: { parent: { paramMap: of({ get: (key: string) => key === 'slug' ? WORKSPACE.slug : null }) } },

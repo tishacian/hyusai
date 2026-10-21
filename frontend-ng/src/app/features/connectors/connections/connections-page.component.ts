@@ -1,3 +1,6 @@
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { type WriteOutcome, SENT } from '@app/shared/ui/load-state';
 import { timeout } from 'rxjs/operators';
 import { WRITE_TIMEOUT_MS, writeFailure } from '@app/shared/ui/load-state';
 import { CommonModule } from '@angular/common';
@@ -14,10 +17,11 @@ import { SecretPickerComponent } from '@app/shared/secrets/secret-picker.compone
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { pgSslMode } from '../postgresql/postgresql.types';
 import { ConnectionGrant, ConnectionParameter, ConnectionProfile, ConnectionRow, ConnectionRun, ToolContract, TERMINAL_CONNECTION_RUNS, connectionPayload, parameterEnabled } from './connections.models';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 @Component({
   selector: 'app-connections-page', standalone: true,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, NavLinkDirective, SecretPickerComponent, SectionHeaderComponent],
+  imports: [ConnectorCapabilitiesComponent, WriteOutcomeComponent, PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, NavLinkDirective, SecretPickerComponent, SectionHeaderComponent],
   templateUrl: './connections-page.component.html',
 })
 export class ConnectionsPageComponent implements OnInit, OnDestroy {
@@ -52,6 +56,12 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
   schema = ''; table = ''; prefix = ''; key = ''; toolId = ''; argumentsJson = '{}';
   advanced = false; delegationVersion = ''; delegationExpires = ''; delegationApproval = '';
   readonly writeContract = signal<Record<string, any> | null>(null);
+  readonly watchOutcome = signal<WriteOutcome | null>(null);
+  readonly capabilities = computed(() => {
+    const flags = this.profile()?.capabilities ?? {};
+    return { configure: !!this.profile(), test: !!this.profile(), import: !this.isTools() && flags['read'] === true,
+      schedule: flags['watch'] === true, write: this.writingAllowed(), revoke: !!this.profile() };
+  });
   readonly watches = signal<Array<Record<string, any>>>([]);
   watchSystem = ''; watchInterval = 300;
   writeDataset = ''; writeOperation = 'write_append'; writeParameters = '{}';
@@ -74,7 +84,7 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
     this.allowedSchemas = this.allowedTables = ''; this.access = 'read'; this.argumentsJson = '{}'; this.toolId = '';
     this.run.set(null); this.tables.set([]); this.tools.set([]); this.grants.set([]); this.writeContract.set(null);
     this.schema = this.table = this.prefix = this.key = this.toolId = ''; this.argumentsJson = '{}';
-    this.writeDataset = this.delegationVersion = this.delegationExpires = this.delegationApproval = ''; this.writeParameters = '{}'; this.abandonReason = ''; this.acknowledgePossibleApplication = false; this.writeReference = ''; this.watches.set([]); this.watchSystem = ''; this.watchInterval = 300;
+    this.writeDataset = this.delegationVersion = this.delegationExpires = this.delegationApproval = ''; this.writeParameters = '{}'; this.abandonReason = ''; this.acknowledgePossibleApplication = false; this.writeReference = ''; this.watches.set([]); this.watchSystem = ''; this.watchInterval = 300; this.watchOutcome.set(null);
     this.editing.set(false); this.confirmDelete.set(false); this.canConfigure.set(false); this.canImport.set(false); this.busy.set(false); this.failure.set(null); this.disabled.set(false);
   }
   private fail(error: any): void {
@@ -112,6 +122,7 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
     this.refs = { ...row.secret_refs }; this.access = row.access;
     this.allowedSchemas = row.allowed_schemas.join('\n'); this.allowedTables = row.allowed_tables.join('\n');
     this.editing.set(false); this.confirmDelete.set(false); this.failure.set(null); this.clearOperation();
+    this.writeOperation = this.profile()?.capabilities['export_files'] === true && this.isObjects() ? 'export' : 'write_append';
     if (this.isTools() || row.values['auth_mode'] === 'oauth_user') void this.loadGrants();
     if (this.canConfigure() && this.profile()?.capabilities['watch']) void this.loadWatches();
   }
@@ -119,7 +130,7 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     this.run.set(null); this.tables.set([]); this.tools.set([]); this.grants.set([]); this.writeContract.set(null);
     this.schema = this.table = this.prefix = this.key = this.toolId = ''; this.argumentsJson = '{}';
-    this.writeDataset = this.delegationVersion = this.delegationExpires = this.delegationApproval = ''; this.writeParameters = '{}'; this.abandonReason = ''; this.acknowledgePossibleApplication = false; this.writeReference = ''; this.watches.set([]); this.watchSystem = ''; this.watchInterval = 300;
+    this.writeDataset = this.delegationVersion = this.delegationExpires = this.delegationApproval = ''; this.writeParameters = '{}'; this.abandonReason = ''; this.acknowledgePossibleApplication = false; this.writeReference = ''; this.watches.set([]); this.watchSystem = ''; this.watchInterval = 300; this.watchOutcome.set(null);
   }
   enabled(p: ConnectionParameter): boolean { return parameterEnabled(p, this.fields); }
   certificationLabel(level: string): string {
@@ -235,6 +246,12 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
    */
   private async applyCatalogSelection(request: ReturnType<WorkspaceViewContext['beginRequest']>): Promise<void> {
     const params = this.route.snapshot.queryParamMap;
+    const connectionId = params.get('connection_id');
+    if (connectionId) {
+      const row = this.connections().find(item => item.id === connectionId);
+      if (row) this.select(row);
+      return;
+    }
     const key = params.get('profile'), server = params.get('server');
     if (!key || !this.canConfigure() || !this.profiles().some(p => p.key === key)) return;
     this.newConnection(); this.chooseProfile(key);
@@ -380,16 +397,25 @@ export class ConnectionsPageComponent implements OnInit, OnDestroy {
     const request = this.context.captureRequest(), epoch = this.actionEpoch;
     try {
       const items = await firstValueFrom(this.api.get<Array<Record<string, any>>>('/connector-watches', undefined, { workspaceSlug: request.scope.workspaceSlug }));
-      if (this.context.isCurrent(request) && epoch === this.actionEpoch) this.watches.set(items.filter(item => item['connection_id'] === row.id));
+      if (this.context.isCurrent(request) && epoch === this.actionEpoch) {
+        this.watches.set(items.filter(item => item['connection_id'] === row.id));
+        if (this.watchOutcome()?.s === 'unknown') this.watchOutcome.set(null);
+      }
     } catch (error) { if (this.context.isCurrent(request) && epoch === this.actionEpoch) this.fail(error); }
   }
   async createWatch(): Promise<void> {
-    const row = this.selected(); if (!row || !this.canConfigure()) return;
+    const row = this.selected();
+    if (!row || !this.canConfigure() || !this.watchSystem.trim() || ['sent', 'unknown'].includes(this.watchOutcome()?.s ?? '')) return;
     const request = this.context.captureRequest(), epoch = this.actionEpoch;
+    this.watchOutcome.set(SENT);
     try {
-      const created = await firstValueFrom(this.api.post<Record<string, any>>('/connector-watches', { connection_id: row.id, system_id: this.watchSystem, prefix: this.prefix || String(row.values['prefix'] ?? ''), interval_s: Number(this.watchInterval) }, { workspaceSlug: request.scope.workspaceSlug }));
-      if (this.context.isCurrent(request) && epoch === this.actionEpoch) this.watches.update(rows => [...rows, created]);
-    } catch (error) { if (this.context.isCurrent(request) && epoch === this.actionEpoch) this.fail(error); }
+      const created = await firstValueFrom(this.api.post<Record<string, any>>('/connector-watches', { connection_id: row.id, system_id: this.watchSystem, prefix: this.prefix || String(row.values['prefix'] ?? ''), interval_s: Number(this.watchInterval) }, { workspaceSlug: request.scope.workspaceSlug }).pipe(timeout({ first: WRITE_TIMEOUT_MS })));
+      if (!this.context.isCurrent(request) || epoch !== this.actionEpoch) return;
+      this.watches.update(rows => [...rows, created]);
+      this.watchOutcome.set({ s: 'confirmed', value: created, at: Date.now() });
+    } catch (error) {
+      if (this.context.isCurrent(request) && epoch === this.actionEpoch) this.watchOutcome.set(writeFailure(error));
+    }
   }
   async disableWatch(id: string): Promise<void> {
     if (!this.canConfigure()) return;

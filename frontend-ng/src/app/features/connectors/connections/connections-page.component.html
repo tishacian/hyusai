@@ -1,3 +1,4 @@
+<ck-page-frame [hasActions]="false">
 <app-section-header [title]="i18n.t('connections.title')" [subtitle]="i18n.t('connections.subtitle')" icon="database">
   <ck-back-link [fallback]="{ surface: 'connectors' }" />
 </app-section-header>
@@ -15,7 +16,8 @@
       } @empty { <p class="text-sm text-gray-400">{{ i18n.t('connections.empty') }}</p> }
       <button class="ck-btn w-full" [disabled]="busy()" (click)="load()">{{ i18n.t('connections.reload') }}</button>
     </aside>
-    <main class="space-y-5 min-w-0">
+    <div class="space-y-5 min-w-0">
+      @if (profile()) { <app-connector-capabilities [connector]="profileKey()" [capabilities]="capabilities()" /> }
       @if (editing() && canConfigure()) {
         <form class="ck-surface p-5 space-y-4" (ngSubmit)="save()">
           <label class="block text-sm">{{ i18n.t('connections.name') }}<input class="ck-input w-full mt-1" name="connection-name" [(ngModel)]="name" required maxlength="120" /></label>
@@ -104,7 +106,8 @@
           </section>
         }
         @if (canConfigure() && row.access === 'read_write' && writingAllowed()) {
-          <section class="ck-surface p-5 space-y-3"><h2 class="font-semibold">{{ i18n.t('connections.write_title') }}</h2>
+          <section class="ck-surface p-5 space-y-3" [attr.data-s3-action]="isObjects() ? 'export' : null"><h2 class="font-semibold">{{ i18n.t(isObjects() ? 'connections.s3.export_title' : 'connections.write_title') }}</h2>
+            @if (isObjects()) { <p class="text-sm">{{ i18n.t('connections.s3.export_help') }}</p> }
             <label class="block text-sm">{{ i18n.t('connections.write_reference') }}<input class="ck-input w-full" [(ngModel)]="writeReference" /></label><button class="ck-btn" (click)="openWrite()">{{ i18n.t('connections.open_write') }}</button>
             @if (isTools()) { <p class="text-sm text-gray-400">{{ i18n.t('connections.tool_write_help') }}</p> } @else {
             <label class="block text-sm">{{ i18n.t('connections.dataset') }}<input class="ck-input w-full" [(ngModel)]="writeDataset" /></label>
@@ -140,16 +143,24 @@
           </section>
         }
         @if (canConfigure() && profile()?.capabilities?.['watch']) {
-          <section class="ck-surface p-5 space-y-3"><h2 class="font-semibold">{{ i18n.t('connections.watch_title') }}</h2><p class="text-sm text-gray-400">{{ i18n.t('connections.watch_help') }}</p>
+          <section class="ck-surface p-5 space-y-3" data-s3-action="watch"><h2 class="font-semibold">{{ i18n.t('connections.watch_title') }}</h2><p class="text-sm text-gray-400">{{ i18n.t('connections.watch_help') }}</p>
             <label class="block text-sm">{{ i18n.t('connections.watch_system') }}<input class="ck-input w-full" [(ngModel)]="watchSystem" /></label>
             <label class="block text-sm">{{ i18n.t('connections.prefix') }}<input class="ck-input w-full" [(ngModel)]="prefix" /></label>
             <label class="block text-sm">{{ i18n.t('connections.watch_interval') }}<input class="ck-input" type="number" min="60" max="86400" [(ngModel)]="watchInterval" /></label>
-            <button class="ck-btn" [disabled]="!watchSystem" (click)="createWatch()">{{ i18n.t('connections.watch_create') }}</button>
-            @for (watch of watches(); track watch['id']) { <div class="border-t border-white/10 pt-2 text-sm"><p>{{ watch['system_id'] }} · {{ watch['prefix'] }} · {{ watch['interval_s'] }} s</p><p>{{ watch['enabled'] ? i18n.t('connections.watch_enabled') : i18n.t('connections.watch_disabled') }} · {{ watch['last_error'] || '' }}</p>@if (watch['enabled']) { <button class="ck-btn" (click)="disableWatch(watch['id'])">{{ i18n.t('connections.watch_disable') }}</button> }</div> }
+            <button class="ck-btn" [disabled]="!watchSystem || watchOutcome()?.s === 'sent' || watchOutcome()?.s === 'unknown'" (click)="createWatch()">{{ i18n.t('connections.watch_create') }}</button>
+            <app-write-outcome [outcome]="watchOutcome()" [verifiable]="true" (verify)="loadWatches()" />
+            <p class="text-sm">{{ i18n.t('connections.s3.watch_help') }}</p>
+            @for (watch of watches(); track watch['id']) { <div class="border-t border-white/10 pt-2 text-sm"><p>{{ watch['system_id'] }} · {{ watch['prefix'] }} · {{ watch['interval_s'] }} s</p><p>{{ watch['enabled'] ? i18n.t('connections.watch_enabled') : i18n.t('connections.watch_disabled') }}</p>
+              <div data-s3-action="trigger" class="mt-2 space-y-2">
+                <p>{{ i18n.t('connections.s3.trigger_help') }}</p>
+                @if (watch['last_error']) { <p role="alert">{{ i18n.t('connections.s3.watch_failed') }}</p> }
+                <a class="ck-btn" [navLink]="{ leaf: 'system-flow', ref: watch['system_id'], tab: 'triggers' }">{{ i18n.t('connections.s3.deliveries') }}</a>
+              </div>@if (watch['enabled']) { <button class="ck-btn" (click)="disableWatch(watch['id'])">{{ i18n.t('connections.watch_disable') }}</button> }</div> }
           </section>
         }
         @if (canConfigure()) { <div class="ck-surface p-4"><label class="flex gap-2 text-sm"><input type="checkbox" [ngModel]="confirmDelete()" (ngModelChange)="confirmDelete.set($event)" />{{ i18n.t('connections.delete_confirm') }}</label><button class="ck-btn mt-3" [disabled]="!confirmDelete() || busy()" (click)="remove()">{{ i18n.t('connections.delete') }}</button></div> }
       }
-    </main>
+    </div>
   </div>
 }
+</ck-page-frame>

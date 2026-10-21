@@ -36,12 +36,12 @@ import { typedJudgeFailure, typedResult } from './dataops.models';
           <h3>{{ entry.question }}</h3><p class="dp-note">{{ i18n.t('dataops.status.' + entry.answer.status) }}@if (entry.answer.value != null) { · {{ display(entry.answer.value) }} }@if (entry.answer.reason) { · {{ reason(entry.answer.reason) }} }</p>
           <p class="dp-note">{{ entry.answer.explanation }}</p>
           @if (entry.answer.evidence.length) { <details><summary>{{ i18n.t('dataops.judge.proofs') }} · {{ entry.answer.evidence.length }}</summary>
-            @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }}</small></blockquote> }
+            @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} · {{ proof.kind === 'image' ? proof.image_sha256 : i18n.t('dataops.judge.source_version_unknown') }}</small></blockquote> }
           </details> }
         </div> }
         @else { <details class="dp-section"><summary>{{ entry.question }} · {{ i18n.t('dataops.status.' + entry.answer.status) }} · {{ display(entry.answer.value) }}</summary>
         <p class="dp-note">{{ entry.answer.explanation }}</p>@if (entry.answer.reason) { <p class="dp-note">{{ reason(entry.answer.reason) }}</p> }
-        @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} }</small></blockquote> }
+        @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} · {{ i18n.t('dataops.judge.source_version_unknown') }} }</small></blockquote> }
       </details> }
       }
       @if (compact()) { <details data-testid="judge-technical-details"><summary>{{ i18n.t('dataops.judge.technical_details') }}</summary><ng-container [ngTemplateOutlet]="technical" /></details> }

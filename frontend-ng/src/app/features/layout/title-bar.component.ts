@@ -25,7 +25,7 @@ import { GlyphComponent, LiveDotComponent, NavLinkDirective, StatReadoutComponen
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
-import { HelpOverlayService, helpPrefersPanel } from '@app/features/help/help-overlay.service';
+import { HelpOverlayService } from '@app/features/help/help-overlay.service';
 
 /** Sun, moon and screen: the same three glyphs as every other theme switch. */
 const THEME_ICONS: Record<ThemeMode, string> = {
@@ -882,11 +882,7 @@ export class TitleBarComponent {
     }
     // L16 — origin is the open page title (h1 / route surface), not the workspace name.
     const originLabel = this.helpOriginLabel();
-    if (!helpPrefersPanel()) {
-      this.helpOverlay.open({ originLabel, originUrl: this.router.url });
-      this.helpOverlay.openFullPage();
-      return;
-    }
+
     this.helpOverlay.open({ originLabel, originUrl: this.router.url });
   }
 

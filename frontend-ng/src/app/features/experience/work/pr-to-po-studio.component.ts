@@ -1,3 +1,4 @@
+import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { CommonModule } from '@angular/common';
 import { decisionMessage } from '@app/shared/ui/run-decision';
@@ -134,7 +135,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
   selector: 'app-pr-to-po-studio',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent, WorkBarComponent, WorkAppHeaderComponent, DecisionRightComponent],
+  imports: [SpecializedAppContractComponent, CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent, WorkBarComponent, WorkAppHeaderComponent, DecisionRightComponent],
   styleUrl: './work.scss',
   template: `
     <div class="xp-work xp-studio" data-brand-scope data-theme="dark" [ngStyle]="brandStyles()">
@@ -187,6 +188,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
           </a>
         }
       </app-work-app-header>
+    <app-specialized-app-contract application="purchasing" />
 
       <div class="xp-studio-body">
         <main class="xp-studio-main">

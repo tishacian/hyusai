@@ -486,6 +486,7 @@ test('a failed shared refresh rejects every concurrent request and expires once'
         provide: Router,
         useValue: {
           url: '/client360',
+          getCurrentNavigation: () => null,
           navigate: () => {
             navigations += 1;
             return Promise.resolve(true);

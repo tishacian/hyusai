@@ -28,7 +28,13 @@ celery_app = configure(
         "agentium",
         broker=settings.celery_broker_url,
         backend=settings.celery_result_backend,
-        include=["app.workers.tasks", "app.workers.hf_datasets", "app.workers.ml_governance", "app.workers.ml_operations"],
+        include=[
+            "app.workers.tasks",
+            "app.workers.hf_datasets",
+            "app.workers.ml_governance",
+            "app.workers.ml_operations",
+            "app.workers.mission_tasks",
+        ],
     )
 )
 
@@ -48,8 +54,10 @@ celery_app.conf.task_routes = {
 
 
 celery_app.conf.beat_schedule = {
+    "mission-recovery-30s": {"task": "agentium.recover_missions", "schedule": 30.0},
     "ml-prediction-retention-hourly": {
-        "task": "agentium.ml_prediction_retention", "schedule": 3600.0,
+        "task": "agentium.ml_prediction_retention",
+        "schedule": 3600.0,
         "options": {"queue": settings.celery_task_default_queue},
     },
     "dataops-sample-recovery-60s": {
@@ -93,12 +101,16 @@ celery_app.conf.beat_schedule = {
 # when the optional execution plane is enabled. It never consumes that queue.
 if settings.connector_framework_enabled:
     celery_app.conf.beat_schedule["connector-run-recovery-30s"] = {
-        "task": "agentium.connector_reap", "schedule": 30.0,
+        "task": "agentium.connector_reap",
+        "schedule": 30.0,
         "options": {"queue": settings.celery_connectors_interactive_queue},
     }
 
-if getattr(settings, "ml_operations_enabled", False) or getattr(settings, "ml_alerts_enabled", False):
+if getattr(settings, "ml_operations_enabled", False) or getattr(
+    settings, "ml_alerts_enabled", False
+):
     celery_app.conf.beat_schedule["ml-operations-60s"] = {
-        "task": "agentium.ml_operations_tick", "schedule": 60.0,
+        "task": "agentium.ml_operations_tick",
+        "schedule": 60.0,
         "options": {"queue": settings.celery_task_default_queue, "expires": 60},
     }

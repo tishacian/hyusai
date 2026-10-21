@@ -193,6 +193,9 @@ const CUSTOM_DESTINATION = '__custom__';
           </label>
         </div>
 
+        @if (engine.proposal()?.status !== 'accepted') {
+          <p role="status">{{ i18n.t('capture.publish.validate_first') }}</p>
+        }
         @if (engine.lastError()) {
           <div style="display:flex; align-items:center; gap:8px; color:var(--ck-signal-neg); font-size:12.5px;">
             <ck-glyph name="warn" [size]="14" color="currentColor" /> {{ engine.lastError() }}
@@ -317,7 +320,7 @@ export class CaptureFilPublishComponent {
   });
 
   protected readonly canSubmit = computed(
-    () => this.finalTitle().trim().length > 0 && this.chosenDestination().length > 0,
+    () => this.engine.proposal()?.status === 'accepted' && this.finalTitle().trim().length > 0 && this.chosenDestination().length > 0,
   );
 
   constructor() {

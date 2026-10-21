@@ -12,7 +12,7 @@ import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
-import { HelpOverlayService, helpPrefersPanel } from '@app/features/help/help-overlay.service';
+import { HelpOverlayService } from '@app/features/help/help-overlay.service';
 import { platformBrand } from '@app/core/platform-brand';
 import { canEditExperience } from './work-catalog';
 
@@ -99,8 +99,7 @@ import { canEditExperience } from './work-catalog';
 
         @if (showCreator()) {
           <a class="xp-work-link xp-work-creator" [routerLink]="creatorHref()!">
-            <span>{{ i18n.t('experience.work.author') }}</span>
-            · {{ i18n.t(creatorLabelKey()) }} ↗
+            <span class="xp-work-creator-label">{{ i18n.t('experience.work.author') }} · {{ i18n.t(creatorLabelKey()) }} ↗</span>
           </a>
         }
 
@@ -150,11 +149,7 @@ export class WorkBarComponent {
     }
     const app = this.appContext()?.trim();
     const originLabel = app || this.workspace.current()?.name || this.i18n.t('experience.work.title');
-    if (!helpPrefersPanel()) {
-      this.help.open({ originLabel, originUrl: this.router.url });
-      this.help.openFullPage();
-      return;
-    }
+
     this.help.open({ originLabel, originUrl: this.router.url });
   }
 

@@ -107,108 +107,6 @@ const ENRICHED_DECISIONS = 3;
                 </app-empty-state>
               }
               @default {
-                @if (!hasQuery()) {
-                  @if (tiles().length) {
-                    <ul class="xp-home-tiles" role="list" [attr.aria-label]="i18n.t('experience.work.home.tiles')">
-                      @for (tile of tiles(); track tile.id) {
-                        <li>
-                          @if (tile.target === 'apps') {
-                            <a class="xp-home-tile" [routerLink]="[]" fragment="work-all-apps" (click)="revealApps($event)">
-                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
-                            </a>
-                          } @else if (tile.target && tile.target.kind === 'review') {
-                            <a
-                              class="xp-home-tile"
-                              [class.xp-home-tile-lead]="tile.emphasis"
-                              [navLink]="{ surface: 'review-queue', params: { decision: tile.target.decisionId } }"
-                            >
-                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
-                            </a>
-                          } @else if (tile.target) {
-                            <a class="xp-home-tile" [class.xp-home-tile-lead]="tile.emphasis" [routerLink]="tile.target.url">
-                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
-                            </a>
-                          } @else {
-                            <div class="xp-home-tile xp-home-tile-static">
-                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
-                            </div>
-                          }
-                        </li>
-                      }
-                    </ul>
-                  }
-
-                  <section class="xp-home-panel xp-home-queue" aria-labelledby="work-home-queue-title">
-                    <div class="xp-home-panel-head">
-                      <h2 id="work-home-queue-title">{{ i18n.t('experience.work.home.queue.title') }}</h2>
-                    </div>
-                    @if (homeState() === 'error') {
-                      <div class="xp-home-note" role="alert">
-                        <p>{{ i18n.t('experience.work.home.queue.unavailable') }}</p>
-                        <button type="button" class="xp-work-btn" (click)="load()">{{ i18n.t('common.retry') }}</button>
-                      </div>
-                    } @else if (queue().length === 0) {
-                      <p class="xp-home-note">{{ i18n.t('experience.work.home.queue.empty') }}</p>
-                    } @else {
-                      <ul class="xp-home-list" role="list">
-                        @for (item of queue(); track item.id) {
-                          <li class="xp-home-item" [attr.data-kind]="item.kind">
-                            <span class="xp-home-type">
-                              <svg class="xp-home-glyph" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-                                @switch (item.kind) {
-                                  @case ('decision') { <path d="M8 1.5 14.5 8 8 14.5 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /> }
-                                  @case ('review') { <path d="M3 13h3l7-7-3-3-7 7Zm6-8 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /> }
-                                  @default { <path d="M2.5 2.5h11v11h-11Zm2.5 5.5 2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /> }
-                                }
-                              </svg>
-                              {{ i18n.t('experience.work.home.type.' + item.kind) }}
-                            </span>
-                            <div class="xp-home-item-body">
-                              <p class="xp-home-item-title">{{ itemTitle(item) }}</p>
-                              @if (itemMeta(item); as meta) {
-                                @if (meta.length || ((item.kind === 'review' || item.kind === 'result') && item.runId)) {
-                                  <p class="xp-home-meta">
-                                    @for (part of meta; track $index) {
-                                      @if ($index > 0) { <span aria-hidden="true"> · </span> }<span>{{ part }}</span>
-                                    }
-                                    @if ((item.kind === 'review' || item.kind === 'result') && item.runId) {
-                                      @if (meta.length) { <span aria-hidden="true"> · </span> }<span class="xp-home-id">{{ short(item.runId) }}</span>
-                                    }
-                                  </p>
-                                }
-                              }
-                              @if (item.kind === 'result' && item.runId && !item.target) {
-                                <p class="xp-home-meta">{{ i18n.t('experience.work.home.result.restricted') }}</p>
-                              }
-                            </div>
-                            <span class="xp-home-chip" [attr.data-kind]="item.kind">{{ i18n.t('experience.work.home.status.' + item.kind) }}</span>
-                            @if (item.target; as target) {
-                              @if (target.kind === 'review') {
-                                <a
-                                  class="xp-home-action"
-                                  [navLink]="{ surface: 'review-queue', params: { decision: target.decisionId } }"
-                                  [attr.aria-label]="actionLabel(item)"
-                                >{{ i18n.t('experience.work.home.action.' + item.kind) }}</a>
-                              } @else {
-                                <a class="xp-home-action" [routerLink]="target.url" [attr.aria-label]="actionLabel(item)">
-                                  {{ i18n.t('experience.work.home.action.' + item.kind) }}
-                                </a>
-                              }
-                            }
-                          </li>
-                        }
-                      </ul>
-                      @if (hiddenCount() > 0) {
-                        <p class="xp-home-note xp-home-more">
-                          {{ hiddenCount() === 1
-                            ? i18n.t('experience.work.home.queue.more.one')
-                            : i18n.t('experience.work.home.queue.more.many', { n: hiddenCount() }) }}
-                        </p>
-                      }
-                    }
-                  </section>
-                }
-
                 <section class="xp-home-apps" aria-labelledby="work-all-apps">
                   @if (!hasQuery()) {
                     <div class="xp-home-apps-head">
@@ -303,6 +201,110 @@ const ENRICHED_DECISIONS = 3;
                     </section>
                   }
                 </section>
+
+                @if (!hasQuery()) {
+                  @if (tiles().length) {
+                    <ul class="xp-home-tiles" role="list" [attr.aria-label]="i18n.t('experience.work.home.tiles')">
+                      @for (tile of tiles(); track tile.id) {
+                        <li>
+                          @if (tile.target === 'apps') {
+                            <a class="xp-home-tile" [routerLink]="[]" fragment="work-all-apps" (click)="revealApps($event)">
+                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
+                            </a>
+                          } @else if (tile.target && tile.target.kind === 'review') {
+                            <a
+                              class="xp-home-tile"
+                              [class.xp-home-tile-lead]="tile.emphasis"
+                              [navLink]="{ surface: 'review-queue', params: { decision: tile.target.decisionId } }"
+                            >
+                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
+                            </a>
+                          } @else if (tile.target) {
+                            <a class="xp-home-tile" [class.xp-home-tile-lead]="tile.emphasis" [routerLink]="tile.target.url">
+                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
+                            </a>
+                          } @else {
+                            <div class="xp-home-tile xp-home-tile-static">
+                              <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
+                            </div>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  }
+
+                  <section class="xp-home-panel xp-home-queue" aria-labelledby="work-home-queue-title">
+                    <div class="xp-home-panel-head">
+                      <h2 id="work-home-queue-title">{{ i18n.t('experience.work.home.queue.title') }}</h2>
+                      <p class="xp-home-note">{{ i18n.t('experience.work.home.queue.scope') }}</p>
+                    </div>
+                    @if (homeState() === 'error') {
+                      <div class="xp-home-note" role="alert">
+                        <p>{{ i18n.t('experience.work.home.queue.unavailable') }}</p>
+                        <button type="button" class="xp-work-btn" (click)="load()">{{ i18n.t('common.retry') }}</button>
+                      </div>
+                    } @else if (queue().length === 0) {
+                      <p class="xp-home-note">{{ i18n.t('experience.work.home.queue.empty') }}</p>
+                    } @else {
+                      <ul class="xp-home-list" role="list">
+                        @for (item of queue(); track item.id) {
+                          <li class="xp-home-item" [attr.data-kind]="item.kind" [attr.id]="'work-queue-' + item.id" tabindex="-1">
+                            <span class="xp-home-type">
+                              <svg class="xp-home-glyph" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+                                @switch (item.kind) {
+                                  @case ('decision') { <path d="M8 1.5 14.5 8 8 14.5 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /> }
+                                  @case ('review') { <path d="M3 13h3l7-7-3-3-7 7Zm6-8 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /> }
+                                  @default { <path d="M2.5 2.5h11v11h-11Zm2.5 5.5 2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /> }
+                                }
+                              </svg>
+                              {{ i18n.t('experience.work.home.type.' + item.kind) }}
+                            </span>
+                            <div class="xp-home-item-body">
+                              <p class="xp-home-item-title">{{ itemTitle(item) }}</p>
+                              @if (itemMeta(item); as meta) {
+                                @if (meta.length || ((item.kind === 'review' || item.kind === 'result') && item.runId)) {
+                                  <p class="xp-home-meta">
+                                    @for (part of meta; track $index) {
+                                      @if ($index > 0) { <span aria-hidden="true"> · </span> }<span>{{ part }}</span>
+                                    }
+                                    @if ((item.kind === 'review' || item.kind === 'result') && item.runId) {
+                                      @if (meta.length) { <span aria-hidden="true"> · </span> }<span class="xp-home-id">{{ short(item.runId) }}</span>
+                                    }
+                                  </p>
+                                }
+                              }
+                              @if (item.kind === 'result' && item.runId && !item.target) {
+                                <p class="xp-home-meta">{{ i18n.t('experience.work.home.result.restricted') }}</p>
+                              }
+                            </div>
+                            <span class="xp-home-chip" [attr.data-kind]="item.kind">{{ i18n.t('experience.work.home.status.' + item.kind) }}</span>
+                            @if (item.target; as target) {
+                              @if (target.kind === 'review') {
+                                <a
+                                  class="xp-home-action"
+                                  [navLink]="{ surface: 'review-queue', params: { decision: target.decisionId } }"
+                                  [attr.aria-label]="actionLabel(item)" (click)="rememberQueue(item)"
+                                >{{ i18n.t('experience.work.home.action.' + item.kind) }}</a>
+                              } @else {
+                                <a class="xp-home-action" [routerLink]="target.url" [attr.aria-label]="actionLabel(item)" (click)="rememberQueue(item)">
+                                  {{ i18n.t('experience.work.home.action.' + item.kind) }}
+                                </a>
+                              }
+                            }
+                          </li>
+                        }
+                      </ul>
+                      @if (hiddenCount() > 0) {
+                        <p class="xp-home-note xp-home-more">
+                          {{ hiddenCount() === 1
+                            ? i18n.t('experience.work.home.queue.more.one')
+                            : i18n.t('experience.work.home.queue.more.many', { n: hiddenCount() }) }}
+                        </p>
+                      }
+                    }
+                  </section>
+                }
+
               }
             }
           </div>
@@ -402,6 +404,8 @@ export class WorkLauncherComponent {
   readonly isStandalone = isStandaloneLaunch;
   readonly short = shortId;
   readonly exitAnnouncement = signal('');
+  private rememberedQueueId: string | null = null;
+  private loadGeneration = 0;
   readonly items = computed(() => {
     const query = this.query().trim().toLocaleLowerCase(this.i18n.locale());
     if (!query) return this.allItems();
@@ -462,15 +466,19 @@ export class WorkLauncherComponent {
   );
 
   constructor() {
+    this.restoreQueue();
     this.load();
   }
 
   load(): void {
+    const generation = ++this.loadGeneration;
+    const scope = this.workspace.captureRequestScope();
     this.state.set('loading');
     this.homeState.set('loading');
     forkJoin([this.api.listExperiences(), this.api.home()])
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(([result, home]) => {
+        if (generation !== this.loadGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
         this.now.set(Date.now());
         if (home.kind === 'ok') {
           this.home.set(home.body);
@@ -486,7 +494,7 @@ export class WorkLauncherComponent {
         }
         // One app and nothing waiting: go straight to it, as before L33.
         const idle = home.kind === 'ok' && homeWaitingTotal(home.body) === 0
-          && !(home.body.agent_work?.items?.length);
+          && !(home.body.agent_work?.items?.length) && !this.rememberedQueueId;
         if (result.items.length === 1 && result.jobs.length === 0 && idle && !this.adoption.enabled()) {
           void this.router.navigateByUrl(catalogLaunchHref(result.items[0]!));
           return;
@@ -519,6 +527,34 @@ export class WorkLauncherComponent {
           ?? (globalThis.history?.state as Record<string, unknown> | null),
       ),
     });
+    if (this.rememberedQueueId) {
+      document.getElementById('work-queue-' + this.rememberedQueueId)?.focus();
+    }
+  }
+
+  private queueStorageKey(): string | null {
+    const slug = this.workspace.currentSlug();
+    return slug ? 'agentium.work.queue:' + slug : null;
+  }
+
+  rememberQueue(item: QueueItem): void {
+    this.rememberedQueueId = item.id;
+    const key = this.queueStorageKey();
+    if (!key) return;
+    try { sessionStorage.setItem(key, JSON.stringify({ id: item.id, query: this.query() })); }
+    catch { /* A blocked preference store does not prevent opening a task. */ }
+  }
+
+  private restoreQueue(): void {
+    const key = this.queueStorageKey();
+    if (!key) return;
+    try {
+      const value: unknown = JSON.parse(sessionStorage.getItem(key) || 'null');
+      if (value && typeof value === 'object' && 'id' in value && typeof value.id === 'string') {
+        this.rememberedQueueId = value.id;
+        if ('query' in value && typeof value.query === 'string') this.query.set(value.query);
+      }
+    } catch { /* Missing or damaged preferences do not replace server state. */ }
   }
 
   phrase(value: Phrase): string {

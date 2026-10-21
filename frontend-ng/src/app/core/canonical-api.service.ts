@@ -536,6 +536,8 @@ export interface Context {
   /** Only honoured by `POST /contexts` when `ephemeral=true`. */
   ttl_hours?: number;
   created_at?: string;
+  updated_at?: string | null;
+  source_dates?: Array<{ ref: string; updated_at: string | null }>;
 }
 
 export type SystemStatus = 'draft' | 'active' | 'paused' | 'retired';
@@ -1378,6 +1380,7 @@ export interface ValueLoopMeasurement {
 }
 
 export interface ValueScenario {
+  permissions?: Partial<Record<'create'|'simulate'|'approve'|'act'|'measure', boolean>>;
   id: string;
   workspace_id: string;
   system_id: string;
@@ -1406,6 +1409,7 @@ export interface ValueScenario {
 }
 
 export interface SystemValueLoop {
+  permissions?: Partial<Record<'create'|'simulate'|'approve'|'act'|'measure', boolean>>;
   schema_version: 1;
   system_id: string;
   actuator: 'control_policy.guardrails.patch.v1';
@@ -1492,6 +1496,8 @@ export interface ActiveSuggestion {
 }
 
 export interface EvaluationTrendBucket {
+  avg_drift?: number | null;
+  observed_drift_count?: number;
   observed_composite_count?: number;
   observed_hallucination_count?: number;
   threshold_coverage?: number;
@@ -1918,10 +1924,7 @@ export class CanonicalApiService {
     const query = opts?.flow_write_intent
       ? `?flow_write_intent=${encodeURIComponent(opts.flow_write_intent)}`
       : '';
-    return this.api.post<System>(`/systems${query}`, body).pipe(
-      catchError((error: unknown) =>
-        opts?.propagateErrors ? throwError(() => error) : of(null)),
-    );
+    return this.api.post<System>(`/systems${query}`, body);
   }
 
   updateSystem(
@@ -1944,13 +1947,12 @@ export class CanonicalApiService {
     if (opts?.flow_write_intent) params['flow_write_intent'] = opts.flow_write_intent;
     const qs = new URLSearchParams(params).toString();
     const url = `/systems/${id}${qs ? `?${qs}` : ''}`;
-    return this.api.patch<System>(url, body).pipe(catchError((error: unknown) =>
-      opts?.propagateErrors ? throwError(() => error) : of(null)));
+    return this.api.patch<System>(url, body);
   }
   // ---- Custom chain versioning (Vague E / E3) ----------------------------
-  // Purpose-built save-with-errors wrapper. Unlike ``updateSystem`` which
-  // swallows every failure into ``null``, this one surfaces the structured
-  // 400 payload emitted by the DAG validator so the editor can pipe server
+  // Purpose-built versioned-flow wrapper. Like all canonical writes, it surfaces
+  // failures, including the structured 400 payload emitted by the DAG validator
+  // so the editor can pipe server
   // issues into its validation strip exactly the way client-side issues
   // are displayed.
   saveSystemFlow(
@@ -2070,7 +2072,7 @@ export class CanonicalApiService {
       expected_flow_sha256?: string;
       flow_write_intent?: 'replace_active_flow';
     },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<SystemRollbackResult | null> {
     const params: Record<string, string> = {};
     if (opts?.expected_flow_sha256) {
@@ -2082,8 +2084,7 @@ export class CanonicalApiService {
       .post<SystemRollbackResult>(
         `/systems/${id}/versions/${versionNumber}/rollback${qs ? `?${qs}` : ''}`,
         { message: message ?? null },
-      )
-      .pipe(fallbackUnless(policy, () => null));
+      );
   }
 
   /** Fetch the portable JSON envelope for a system (Vague E / E3.4). */
@@ -2259,24 +2260,23 @@ export class CanonicalApiService {
   createContext(
     body: Partial<Context>,
     options?: { workspaceSlug?: string | null },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<Context | null> {
-    return this.api.post<Context>('/contexts', body, options).pipe(fallbackUnless(policy, () => null));
+    return this.api.post<Context>('/contexts', body, options);
   }
 
   updateContext(
     id: string,
     body: Partial<Context>,
     options?: { workspaceSlug?: string | null },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<Context | null> {
-    return this.api.patch<Context>(`/contexts/${id}`, body, options).pipe(fallbackUnless(policy, () => null));
+    return this.api.patch<Context>(`/contexts/${id}`, body, options);
   }
 
-  deleteContext(id: string, policy?: ErrorPolicy): Observable<boolean> {
+  deleteContext(id: string, _policy?: ErrorPolicy): Observable<boolean> {
     return this.api.delete<void>(`/contexts/${id}`).pipe(
       map(() => true),
-      fallbackUnless(policy, () => false),
     );
   }
 
@@ -2287,11 +2287,10 @@ export class CanonicalApiService {
   persistContext(
     id: string,
     options?: { workspaceSlug?: string | null },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<Context | null> {
     return this.api
-      .post<Context>(`/contexts/${id}/persist`, {}, options)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<Context>(`/contexts/${id}/persist`, {}, options);
   }
 
   // ---- Runs ----------------------------------------------------------------
@@ -2520,8 +2519,8 @@ export class CanonicalApiService {
    * Replay a finished run: the backend copies its input and its flow snapshot,
    * so the graph re-executes as it stood then, not as it stands today.
    */
-  rerunRun(id: string, policy?: ErrorPolicy): Observable<Run | null> {
-    return this.api.post<Run>(`/runs/${id}/rerun`, {}).pipe(fallbackUnless(policy, () => null));
+  rerunRun(id: string, _policy?: ErrorPolicy): Observable<Run | null> {
+    return this.api.post<Run>(`/runs/${id}/rerun`, {});
   }
 
   listRuns(params?: {
@@ -2683,12 +2682,11 @@ export class CanonicalApiService {
   resolveRunHitl(
     runId: string,
     body: { action: 'accept' | 'reject'; expected_decision_id: string | undefined; actor?: string; note?: string; label_review?: LabelReviewSubmission },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<Run | null> {
-    if (!body.expected_decision_id) return of(null);
+    if (!body.expected_decision_id) return throwError(() => ({ status: 409, error: { detail: { code: 'no_pending_decision' } } }));
     return this.api
-      .post<Run>(`/runs/${runId}/hitl`, body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<Run>(`/runs/${runId}/hitl`, body);
   }
 
   getLabelReview(runId: string, decisionId: string, offset = 0): Observable<LabelReviewPage> {
@@ -2711,11 +2709,10 @@ export class CanonicalApiService {
   stepRun(
     runId: string,
     body: { action: 'step' | 'continue' | 'stop'; breakpoints?: string[] },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<Run | null> {
     return this.api
-      .post<Run>(`/runs/${runId}/step`, body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<Run>(`/runs/${runId}/step`, body);
   }
 
   // ---- Impact / Hypervisor -------------------------------------------------
@@ -2844,21 +2841,18 @@ export class CanonicalApiService {
       min_breach_rate?: number;
       dry_run?: boolean;
     } = {},
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<ProactiveRecommendationGenerateResponse | null> {
     return this.api
-      .post<ProactiveRecommendationGenerateResponse>('/hypervisor/recommendations/generate', body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<ProactiveRecommendationGenerateResponse>('/hypervisor/recommendations/generate', body);
   }
 
   hypervisorWhatIf(body: {
     scope: string;
     target_id?: string | null;
     levers: Record<string, unknown>;
-  }, policy?: ErrorPolicy): Observable<WhatIfResult | null> {
-    return this.api
-      .post<WhatIfResult>('/hypervisor/what-if', body)
-      .pipe(fallbackUnless(policy, () => null));
+  }, _policy?: ErrorPolicy): Observable<WhatIfResult | null> {
+    return this.api.post<WhatIfResult>('/hypervisor/what-if', body);
   }
 
   listDecisions(
@@ -2894,10 +2888,9 @@ export class CanonicalApiService {
     meeting_event_id?: string;
     agenda_item_ref?: string;
     meeting_decision_id?: string;
-  }, policy?: ErrorPolicy): Observable<DecisionDetail | null> {
+  }, _policy?: ErrorPolicy): Observable<DecisionDetail | null> {
     return this.api
-      .post<DecisionDetail>('/hypervisor/decisions', body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<DecisionDetail>('/hypervisor/decisions', body);
   }
 
   getDecision(id: string, policy?: ErrorPolicy): Observable<DecisionDetail | null> {
@@ -2914,11 +2907,10 @@ export class CanonicalApiService {
       feedback_label?: 'false_positive' | 'true_breach' | 'correct_with_fix';
       feedback_corrected_output?: Record<string, unknown>;
     } = {},
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<DecisionDetail | null> {
     return this.api
-      .post<DecisionDetail>(`/hypervisor/decisions/${id}/accept`, body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<DecisionDetail>(`/hypervisor/decisions/${id}/accept`, body);
   }
 
   rejectDecision(
@@ -2929,11 +2921,10 @@ export class CanonicalApiService {
       feedback_label?: 'false_positive' | 'true_breach' | 'correct_with_fix';
       feedback_corrected_output?: Record<string, unknown>;
     } = {},
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<DecisionDetail | null> {
     return this.api
-      .post<DecisionDetail>(`/hypervisor/decisions/${id}/reject`, body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<DecisionDetail>(`/hypervisor/decisions/${id}/reject`, body);
   }
 
   /**
@@ -2952,11 +2943,10 @@ export class CanonicalApiService {
       source_decision_id?: string;
       source_feedback_id?: string;
     } = {},
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<RunReplayResult | null> {
     return this.api
-      .post<RunReplayResult>(`/runs/${runId}/replay`, body)
-      .pipe(fallbackUnless(policy, () => null));
+      .post<RunReplayResult>(`/runs/${runId}/replay`, body);
   }
 
   listRunReplays(runId: string, policy?: ErrorPolicy): Observable<RunReplayListResponse | null> {
@@ -3003,7 +2993,7 @@ export class CanonicalApiService {
       .pipe(fallbackUnless(policy, () => null));
   }
 
-  updateEvaluationPreset(body: Partial<EvaluationPresetConfig> & { name?: string }, policy?: ErrorPolicy): Observable<{
+  updateEvaluationPreset(body: Partial<EvaluationPresetConfig> & { name?: string }, _policy?: ErrorPolicy): Observable<{
     id: string;
     name: string;
     config: EvaluationPresetConfig;
@@ -3015,8 +3005,7 @@ export class CanonicalApiService {
         name: string;
         config: EvaluationPresetConfig;
         updated_at: string | null;
-      }>('/evaluation/presets', body)
-      .pipe(fallbackUnless(policy, () => null));
+      }>('/evaluation/presets', body);
   }
 
   getEvaluationTrend(
@@ -3058,10 +3047,9 @@ export class CanonicalApiService {
       .pipe(fallbackUnless(policy, () => null));
   }
 
-  deleteCanonicalAnswer(id: string, policy?: ErrorPolicy): Observable<boolean> {
+  deleteCanonicalAnswer(id: string, _policy?: ErrorPolicy): Observable<boolean> {
     return this.api.delete<void>(`/evaluation/canonical-answers/${id}`).pipe(
       map(() => true),
-      fallbackUnless(policy, () => false),
     );
   }
 
@@ -3088,15 +3076,14 @@ export class CanonicalApiService {
   overrideRunOutcome(
     runId: string,
     body: { value: number; note?: string },
-    policy?: ErrorPolicy,
+    _policy?: ErrorPolicy,
   ): Observable<RunDetail | null> {
     return this.api
-      .patch<RunDetail>(`/runs/${runId}/outcome`, body)
-      .pipe(fallbackUnless(policy, () => null));
+      .patch<RunDetail>(`/runs/${runId}/outcome`, body);
   }
 
   // ---- Control plane ------------------------------------------------------
-  controlPolicies(params?: { scope?: string; target_id?: string }, policy?: ErrorPolicy): Observable<ControlPolicy[]> {
+  controlPolicies(params?: { scope?: string; target_id?: string }, _policy?: ErrorPolicy): Observable<ControlPolicy[]> {
     const p: Record<string, string> = {};
     if (params?.scope) p['scope'] = params.scope;
     if (params?.target_id) p['target_id'] = params.target_id;
@@ -3104,10 +3091,9 @@ export class CanonicalApiService {
       .get<{ policies: ControlPolicy[] }>('/control-plane/policies', p)
       .pipe(
         map((r) => r?.policies ?? []),
-        fallbackUnless(policy, () => [] as ControlPolicy[]),
       );
   }
-  adaptivePolicies(params?: { scope?: string; target_id?: string }, policy?: ErrorPolicy): Observable<AdaptivePolicy[]> {
+  adaptivePolicies(params?: { scope?: string; target_id?: string }, _policy?: ErrorPolicy): Observable<AdaptivePolicy[]> {
     const p: Record<string, string> = {};
     if (params?.scope) p['scope'] = params.scope;
     if (params?.target_id) p['target_id'] = params.target_id;
@@ -3115,7 +3101,6 @@ export class CanonicalApiService {
       .get<{ policies: AdaptivePolicy[] }>('/control-plane/adaptive', p)
       .pipe(
         map((r) => r?.policies ?? []),
-        fallbackUnless(policy, () => [] as AdaptivePolicy[]),
       );
   }
 }

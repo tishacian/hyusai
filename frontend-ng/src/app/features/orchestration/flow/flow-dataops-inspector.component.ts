@@ -1,5 +1,10 @@
 import { DataOpsApi } from '@app/features/data/dataops.api';
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ApiService } from '@app/core/api.service';
+import type { Skill } from '@app/core/canonical-api.service';
+import { guidedJudgeIdentity } from '@app/features/data/typed-judge-guidance';
+import { FlowPersistenceService } from './flow-persistence.service';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import { I18nService } from '@app/core/i18n.service';
 import { FlowDataPrepWorkshopComponent } from './flow-data-prep-workshop.component';
@@ -25,7 +30,11 @@ import { FlowStore } from './flow.store';
       @if(written().length){<label class="dp-field"><span>{{i18n.t('dataops.written_output')}}</span><select class="dp-input" [value]="selectedWrittenPort()" (change)="selectedPort.set(val($event))">@for(out of written();track out.port){<option [value]="out.port">{{out.port}}</option>}</select></label>@if(writtenId();as id){<a class="dp-button" [navLink]="{type:'dataset',ref:id}">{{i18n.t('dataops.open_written_output')}}</a>}}
       @if(opened()){<app-flow-data-prep-workshop [node]="node()" (close)="opened.set(false)" />}
     }
-  } @else if (slug() === 'evaluate_v2') { <app-typed-judge-editor [value]="judge()" (valueChange)="saveJudge($event)" /> }`,
+  } @else if (slug() === 'evaluate_v2') {
+    @if (judgeCatalogState() === 'ready') { <app-typed-judge-editor [value]="judge()" [graph]="store.nodes()" [nodeId]="node().id" [skills]="judgeSkills()" (valueChange)="saveJudge($event)" /> }
+    @else if (judgeCatalogState() === 'error') { <p role="alert">{{ i18n.t('dataops.error.load') }}</p><button type="button" (click)="loadJudgeCatalog()">{{ i18n.t('common.retry') }}</button> }
+    @else { <p role="status">{{ i18n.t('common.loading') }}</p> }
+  }`,
 })
 export class FlowDataOpsInspectorComponent {
   readonly node = input.required<CanonicalFlowNode>(); readonly i18n = inject(I18nService);
@@ -38,12 +47,32 @@ export class FlowDataOpsInspectorComponent {
   name(index:number,name:string):void{const draft=structuredClone(this.prep());draft.spec.outputs[index].name=name;this.savePrep(draft);}
   placement(value:string):void{this.savePrep({...this.prep(),placement:value});}
   timeout(value:string):void{this.savePrep({...this.prep(),timeout_s:value.trim()?Number(value):null});}
-  private readonly store = inject(FlowStore); private readonly data = inject(DataService);
+  readonly store = inject(FlowStore); private readonly data = inject(DataService);
+  private readonly persistence = inject(FlowPersistenceService);
+  private readonly catalogApi = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  readonly judgeSkills = signal<Skill[]>([]);
+  readonly judgeCatalogState = signal<'loading' | 'ready' | 'error'>('loading');
+  private judgeCatalogGeneration = 0;
   readonly datasets = signal<DatasetDto[]>([]); readonly failed = signal(false);
   readonly slug = computed(() => (this.node().config as Record<string, unknown>)?.['skill_slug']);
   readonly prep = computed(() => prepDraftFromNode(this.node()));
-  readonly judge = computed(() => judgeDraftFromNode(this.node()));
-  constructor() { effect(() => { if (this.slug() === 'data_prep_v1') void this.loadDatasets(); }); }
+  readonly judge = computed(() => guidedJudgeIdentity(judgeDraftFromNode(this.node()), this.persistence.systemId(), this.node().id));
+  constructor() {
+    effect(() => { if (this.slug() === 'data_prep_v1') void this.loadDatasets(); });
+    effect(() => { if (this.slug() === 'evaluate_v2') this.loadJudgeCatalog(); });
+  }
+  loadJudgeCatalog(): void {
+    const generation = ++this.judgeCatalogGeneration;
+    this.judgeCatalogState.set('loading');
+    this.judgeSkills.set([]);
+    const scope = this.workspace.captureRequestScope();
+    const current = () => generation === this.judgeCatalogGeneration && this.workspace.isRequestScopeCurrent(scope);
+    this.catalogApi.get<{ skills: Skill[] }>('/skills').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: result => { if (current()) { this.judgeSkills.set(result.skills ?? []); this.judgeCatalogState.set('ready'); } },
+      error: () => { if (current()) this.judgeCatalogState.set('error'); },
+    });
+  }
   private async loadDatasets(): Promise<void> { this.failed.set(false); try { const [datasets,catalog]=await Promise.all([this.data.refresh(),this.api.catalog()]);this.datasets.set(datasets);this.placements.set([...new Set(['auto',...(catalog.feature?.placements??catalog.placements)])]); } catch { this.failed.set(true); } }
   savePrep(value: PrepDraft): void { this.store.patchNode(this.node().id, prepNodePatch(this.node(), value)); }
   saveJudge(value: TypedJudgeDraft): void { this.store.patchNode(this.node().id, judgeNodePatch(this.node(), value)); }

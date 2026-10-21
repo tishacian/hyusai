@@ -29,6 +29,7 @@ from app.models.workspace import Workspace
 from app.services.audit_access import enforce_audit_read
 from app.services.experience import bindings as binding_service
 from app.services.experience import lifecycle as experience_service
+from app.services.experience import wizard_state as wizard_service
 from app.services.iam.decision_plane import enforce_action
 
 router = APIRouter()
@@ -91,6 +92,22 @@ class StagedBindingBody(BaseModel):
     on_unavailable: str = "unavailable"
 
 
+class WizardAudienceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    roles: list[str] = Field(default_factory=list)
+    groups: list[str] = Field(default_factory=list)
+    whole_workspace: bool = False
+
+
+class WizardStateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: int = Field(ge=1, le=3)
+    staged_bindings: list[StagedBindingBody] = Field(default_factory=list)
+    audience: WizardAudienceBody = Field(default_factory=WizardAudienceBody)
+
+
 class DraftFinalizeBody(DraftSaveBody):
     bindings: list[StagedBindingBody] = Field(default_factory=list)
     description: Optional[str] = Field(default=None, max_length=500)
@@ -114,9 +131,7 @@ class ReleaseCreateBody(BaseModel):
     expected_draft_revision: int = Field(ge=1)
     expected_content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     expected_experience_updated_at: datetime
-    expected_bindings_sha256: str = Field(
-        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
-    )
+    expected_bindings_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class DeployBody(BaseModel):
@@ -173,7 +188,9 @@ def _legacy_role(db: DBSession, *, user: User, workspace: Workspace, allowed: se
     return normalize_role_template(membership.role_template, membership.role) in allowed
 
 
-def _enforce(db: DBSession, *, user: User, workspace: Workspace, action: str, legacy_allowed: bool) -> None:
+def _enforce(
+    db: DBSession, *, user: User, workspace: Workspace, action: str, legacy_allowed: bool
+) -> None:
     enforce_action(
         db,
         user=user,
@@ -328,23 +345,27 @@ async def list_experiences(
     _require_runtime_enabled(workspace)
     _enforce_view(db, user=user, workspace=workspace)
     rows = experience_service.list_experiences(db, workspace_id=workspace.id)
-    deployments = experience_service.list_deployments_for_workspace(
-        db, workspace_id=workspace.id
-    )
+    deployments = experience_service.list_deployments_for_workspace(db, workspace_id=workspace.id)
     extras = experience_service.inventory_index(db, workspace_id=workspace.id)
+    wizard_steps = wizard_service.steps_by_experience(db, workspace_id=workspace.id)
     by_id: dict[str, list] = {}
     for item in deployments:
         by_id.setdefault(item.experience_id, []).append(item)
     listed: list[dict] = []
     for row in rows:
-        payload = experience_service.serialize_experience(
-            row, deployments=by_id.get(row.id, [])
+        payload = experience_service.serialize_experience(row, deployments=by_id.get(row.id, []))
+        payload.update(
+            extras.get(
+                row.id,
+                {
+                    "binding_keys": [],
+                    "draft_revision": None,
+                    "latest_release_number": None,
+                },
+            )
         )
-        payload.update(extras.get(row.id, {
-            "binding_keys": [],
-            "draft_revision": None,
-            "latest_release_number": None,
-        }))
+        # An unfinished creation wizard resumes at this step; null otherwise.
+        payload["wizard_step"] = wizard_steps.get(row.id)
         listed.append(payload)
     return {"experiences": listed}
 
@@ -581,9 +602,7 @@ async def list_experience_draft_revisions(
         )
     except experience_service.ExperienceError as exc:
         _raise_experience(db, exc)
-    return {
-        "revisions": [experience_service.serialize_draft_history(row) for row in rows]
-    }
+    return {"revisions": [experience_service.serialize_draft_history(row) for row in rows]}
 
 
 @router.post("/{experience_id}/draft/revisions/{revision}/restore")
@@ -664,6 +683,7 @@ async def finalize_experience_draft(
             expected_updated_at=body.expected_experience_updated_at,
             actor=actor,
         )
+        wizard_service.clear(db, experience_id=experience_id)
         db.commit()
         db.refresh(draft)
     except binding_service.BindingError as exc:
@@ -672,6 +692,57 @@ async def finalize_experience_draft(
     except experience_service.ExperienceError as exc:
         _raise_experience(db, exc)
     return experience_service.serialize_draft(draft)
+
+
+@router.get("/{experience_id}/wizard")
+async def get_experience_wizard_state(
+    experience_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Where the creation wizard stopped; ``null`` once the draft is finalised."""
+
+    _require_studio_enabled(workspace)
+    _enforce_edit(db, user=user, workspace=workspace)
+    try:
+        row = wizard_service.read(db, workspace_id=workspace.id, experience_id=experience_id)
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+    return {"wizard": wizard_service.serialize(row)}
+
+
+@router.put("/{experience_id}/wizard")
+async def save_experience_wizard_state(
+    experience_id: str,
+    body: WizardStateBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Keep the wizard's step, staged bindings and audience on the server.
+
+    Staged bindings are stored as choices only; they become workspace
+    bindings when the draft is finalised, as before.
+    """
+
+    _require_studio_enabled(workspace)
+    _enforce_edit(db, user=user, workspace=workspace)
+    try:
+        row = wizard_service.save(
+            db,
+            workspace_id=workspace.id,
+            experience_id=experience_id,
+            step=body.step,
+            staged_bindings=[spec.model_dump() for spec in body.staged_bindings],
+            audience=body.audience.model_dump(),
+            actor=_actor(user),
+        )
+        db.commit()
+        db.refresh(row)
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+    return {"wizard": wizard_service.serialize(row)}
 
 
 @router.get("/{experience_id}/ready-check")
@@ -684,9 +755,7 @@ async def experience_ready_check(
     _require_studio_enabled(workspace)
     _enforce_view(db, user=user, workspace=workspace)
     try:
-        return experience_service.ready_check(
-            db, workspace=workspace, experience_id=experience_id
-        )
+        return experience_service.ready_check(db, workspace=workspace, experience_id=experience_id)
     except experience_service.ExperienceError as exc:
         _raise_experience(db, exc)
 

@@ -6,6 +6,7 @@ which merge into ``System.settings['event_trigger']`` — the same JSON blob the
 run engine reads through ``triggers.trigger_mode`` (Flow Builder sources DAG,
 Phase 3). No migration: the state lives entirely in ``settings``.
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -15,6 +16,7 @@ from app.api.v1.endpoints import systems
 from app.models.audit import AuditLog
 from app.models.run import Run
 from app.models.system import System
+from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 
@@ -88,6 +90,66 @@ def test_get_event_trigger_defaults_to_dry_run(db_session, monkeypatch):
     assert body["mode"] == "dry_run"
     assert body["disabled"] is False
     assert body["disabled_reason"] is None
+
+
+def test_delivery_journal_distinguishes_acceptance_from_completion_without_payloads(db_session):
+    workspace, user, system = _seed(db_session)
+    run = Run(
+        id="accepted-run",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        trigger="webhook",
+        status="pending",
+        input_ref={"secret": "private-input"},
+    )
+    scheduled = Run(
+        id="scheduled-run",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        trigger="scheduler",
+        status="failed",
+    )
+    db_session.add_all([run, scheduled])
+    db_session.flush()
+    db_session.add(
+        TriggerEventClaim(
+            id="claim-one",
+            workspace_id=workspace.id,
+            system_id=system.id,
+            dedup_key="private-dedup",
+            outcome="run",
+            run_id=run.id,
+        )
+    )
+    db_session.commit()
+    response = _client(db_session, workspace, user).get(f"/systems/{system.id}/trigger-deliveries")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["coverage"] == "accepted_only"
+    rows = {row["run_id"]: row for row in body["deliveries"]}
+    assert rows[run.id]["acceptance"] == "accepted"
+    assert rows[run.id]["execution_status"] == "pending"
+    assert rows[scheduled.id]["execution_status"] == "failed"
+    assert "private-input" not in response.text
+    assert "private-dedup" not in response.text
+    assert db_session.query(Run).count() == 2
+
+
+def test_delivery_journal_cannot_read_another_workspace_or_unbounded_page(db_session):
+    workspace, user, system = _seed(db_session)
+    other = Workspace(id="other-delivery-space", name="Other", slug="other-delivery-space")
+    db_session.add(other)
+    db_session.commit()
+    assert (
+        _client(db_session, other, user).get(f"/systems/{system.id}/trigger-deliveries").status_code
+        == 404
+    )
+    assert (
+        _client(db_session, workspace, user)
+        .get(f"/systems/{system.id}/trigger-deliveries?limit=10000")
+        .status_code
+        == 422
+    )
 
 
 def test_patch_mode_to_live_persists_and_reads_back(db_session):
@@ -173,10 +235,14 @@ def test_event_trigger_admin_shadow_preserves_legacy_then_enforce_blocks(
 
     shadow = client.patch("/systems/sys-et/event-trigger", json={"mode": "live"})
     assert shadow.status_code == 200
-    diff = db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="iam.shadow.diff",
-    ).one()
+    diff = (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="iam.shadow.diff",
+        )
+        .one()
+    )
     assert diff.details["resource"] == {
         "kind": "system",
         "system_id": system.id,
@@ -185,9 +251,7 @@ def test_event_trigger_admin_shadow_preserves_legacy_then_enforce_blocks(
     assert diff.details["legacy_allowed"] is True
     assert diff.details["candidate_allowed"] is False
 
-    config = db_session.query(WorkspaceIAMConfig).filter_by(
-        workspace_id=workspace.id
-    ).one()
+    config = db_session.query(WorkspaceIAMConfig).filter_by(workspace_id=workspace.id).one()
     config.capability_overrides = {
         "authorization_v2": {
             "policy_version": 2,
@@ -256,6 +320,7 @@ def test_system_read_enforce_covers_configuration_surfaces(
         "/systems/sys-et/runs",
         "/systems/sys-et/schedules",
         "/systems/sys-et/hooks",
+        "/systems/sys-et/trigger-deliveries",
     ]
     for path in paths:
         response = client.get(path)
@@ -283,6 +348,7 @@ def test_system_run_collection_applies_per_run_read_authorization(
                 workspace_id=workspace.id,
                 system_id=system.id,
                 initiated_by_user_id=user.id,
+                trigger="scheduler",
                 status="completed",
             ),
             Run(
@@ -290,6 +356,7 @@ def test_system_run_collection_applies_per_run_read_authorization(
                 workspace_id=workspace.id,
                 system_id=system.id,
                 initiated_by_user_id="another-user",
+                trigger="scheduler",
                 status="completed",
             ),
         ]
@@ -302,3 +369,20 @@ def test_system_run_collection_applies_per_run_read_authorization(
 
     assert response.status_code == 200
     assert [row["id"] for row in response.json()["runs"]] == ["run-owned"]
+    journal = _client(db_session, workspace, user).get("/systems/sys-et/trigger-deliveries?limit=1")
+    assert journal.status_code == 200
+    assert [row["run_id"] for row in journal.json()["deliveries"]] == ["run-owned"]
+
+
+def test_delivery_effect_respects_system_circuit_breaker(db_session, monkeypatch):
+    workspace, user, system = _seed(
+        db_session,
+        settings_blob={
+            "event_trigger": {"mode": "live", "disabled": True},
+        },
+    )
+    monkeypatch.setattr(systems.settings, "enable_event_triggers", True)
+    response = _client(db_session, workspace, user).get(f"/systems/{system.id}/trigger-deliveries")
+    assert response.status_code == 200
+    assert response.json()["mode"] == "live"
+    assert response.json()["enabled"] is False

@@ -85,11 +85,22 @@ import { auditCsv, auditEventKey, auditParams, appendAuditPage, type AuditFilter
                 <td><strong>{{ i18n.t(eventKey(log.event_type)) }}</strong><code>{{ log.event_type }}</code>
                   @if (log.details) { <span class="audit-details">{{ detailsText(log) }}</span> }
                 </td>
-                <td>{{ log.actor || '—' }}</td>
+                <td>@if (log.actor) { <button type="button" class="audit-button" (click)="filterActor(log.actor)">{{ log.actor }}</button> } @else { — }</td>
                 <td>
                   <code>{{ log.trace_id || log.agent_id || '—' }}</code>
                   @if (log.run_id) {
                     <a [navLink]="{ type: 'run', ref: log.run_id, lens: 'operate' }">{{ i18n.t('governance.audit.open_run') }}</a>
+                  }
+                  @if (log.references?.rule; as rule) {
+                    <details><summary>{{ i18n.t(rule.source === 'frozen_execution' ? 'governance.audit.rule_frozen' : 'governance.audit.rule') }} · {{ rule.name }}</summary><code>{{ rule.id }} {{ rule.revision }}</code>
+                      <pre class="audit-details">{{ referenceText(rule.values) }}</pre><p>{{ i18n.t('governance.policy.coverage_unknown') }}</p>
+                    </details>
+                  }
+                  @if (log.references?.proposal; as proposal) {
+                    <details><summary>{{ i18n.t('governance.audit.proposal') }} · {{ proposal.title }}</summary><code>{{ proposal.id }}</code><p>{{ proposal.status }}</p></details>
+                  }
+                  @if (log.references?.receipt; as receipt) {
+                    <details><summary>{{ i18n.t('governance.audit.receipt') }} · {{ receipt.destination }}</summary><p>{{ receipt.published_at | date:'short' }}</p><code>{{ receipt.id }}</code><p>{{ receipt.window_id }}</p></details>
                   }
                 </td>
                 <td>{{ severityLabel(log.severity || 'info') }}</td>
@@ -219,6 +230,8 @@ export class AuditLogsComponent {
   }
 
   detailsText(log: AuditLog): string { return typeof log.details === 'string' ? log.details : JSON.stringify(log.details); }
+  referenceText(value: unknown): string { return JSON.stringify(value, null, 2); }
+  filterActor(actor: string): void { this.filters.actor = actor; this.reload(); }
   severityLabel(value: string): string {
     const key = 'governance.audit.severity.' + value;
     const label = this.i18n.t(key);

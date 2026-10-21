@@ -19,6 +19,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { postgresSourceLink } from './data-provenance';
 import type { NavLinkInput } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
@@ -252,7 +253,7 @@ const PAGE_SIZE = 50;
                   }
                 } @else if (dataset()?.lineage?.postgresql; as pg) {
                   <div class="ck-lineage-card" data-testid="postgresql-provenance">
-                    <a [navLink]="{ leaf: 'connector-postgresql' }" class="ck-lineage-chip">PostgreSQL · {{ pg.database }}</a>
+                    <a [navLink]="sourceLink(dataset()!)" class="ck-lineage-chip">PostgreSQL · {{ pg.database }}</a>
                     <div class="text-[11px] ck-mono mt-2">{{ pg.schema }}.{{ pg.table }}</div>
                     <div class="text-xs mt-2">{{ i18n.t('data.lineage.postgresql_snapshot') }} · {{ postgresCapturedAt(pg.captured_at) }}</div>
                     <div class="text-[11px] ck-mono mt-2 break-all">SHA-256 · {{ pg.snapshot_sha256 }}</div>
@@ -611,6 +612,7 @@ const PAGE_SIZE = 50;
   ],
 })
 export class DataViewComponent implements OnInit {
+  readonly sourceLink = postgresSourceLink;
   readonly i18n = inject(I18nService);
   private readonly data = inject(DataService);
   private readonly route = inject(ActivatedRoute);

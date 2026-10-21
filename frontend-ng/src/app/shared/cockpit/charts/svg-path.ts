@@ -64,6 +64,19 @@ export function cubicSmoothAreaPath(
   return `${top}L${fmt(last.x)},${fmt(base)}L${fmt(first.x)},${fmt(base)}Z`;
 }
 
+/** Straight segments preserve discrete observations without suggesting intermediate peaks. */
+export function linearPath(points: readonly SvgPoint[]): string {
+  return points.map((point, index) => `${index ? 'L' : 'M'}${fmt(point.x)},${fmt(point.y)}`).join('');
+}
+
+export function linearAreaPath(upper: readonly SvgPoint[], lower?: readonly SvgPoint[] | null, baselineY = 0): string {
+  if (upper.length < 2) return '';
+  const bottom = lower?.length ? [...lower].reverse() : [{ x: upper[upper.length - 1].x, y: baselineY }, { x: upper[0].x, y: baselineY }];
+  return `${linearPath(upper)}L${linearPath(bottom).slice(1)}Z`;
+}
+
+export function integerStep(max: number): number { return Math.max(1, Math.ceil(niceStep(max))); }
+
 export function sankeyRibbonPath(source: SvgSegment, target: SvgSegment): string {
   const x0 = source.x;
   const y0 = source.y;

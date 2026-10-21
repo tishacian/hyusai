@@ -296,3 +296,21 @@ test('every drawer message and test verdict has FR and EN copy', () => {
   );
   assert.deepEqual(missing, []);
 });
+
+
+test('an uncertain connector save retains the typed secret and refuses a second save', () => {
+  const h = harness();
+  try {
+    const pending = new Subject<unknown>();
+    h.replies.set('PUT /connectors/smtp', pending);
+    h.drawer.secrets = { password: 'typed-once' };
+    h.drawer.save(); h.drawer.save();
+    assert.equal(h.calls.filter(call => call.method === 'PUT').length, 1);
+    pending.error({ status: 504 });
+    assert.equal(h.drawer.writeOutcome()?.s, 'unknown');
+    assert.equal(h.drawer.secrets['password'], 'typed-once');
+    h.drawer.save();
+    assert.equal(h.calls.filter(call => call.method === 'PUT').length, 1);
+    assert.deepEqual(h.emitted, []);
+  } finally { h.close(); }
+});

@@ -4,7 +4,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { CkChartStreamComponent, NavLinkDirective, type CkStreamSeries } from '@app/shared/cockpit';
-import { activityMetrics, type ExecutionActivity } from '../impact-product-blocks';
+import { activityMetrics, activityRunsForDay, type ExecutionActivity } from '../impact-product-blocks';
 import type { HypervisorBlockRef } from '../hypervisor-v2-views';
 
 @Component({
@@ -54,6 +54,7 @@ export class ImpactActivityComponent {
     return date ? { date, attempts: 0, completed: 0, failed: 0, cancelled: 0, pending: 0, ...this.data()?.buckets.find(bucket => bucket.date === date) } : null;
   });
   readonly prices = computed(() => Object.entries(this.data()?.costs.by_currency ?? {}).map(([currency, amount]) => this.money(Number(amount), currency)).join(' / ') || '—');
+  readonly visibleRuns = computed(() => activityRunsForDay(this.data()?.runs ?? [], this.selected()?.date ?? null));
 
   constructor() {
     effect(onCleanup => {

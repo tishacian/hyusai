@@ -114,6 +114,15 @@ export function isContractMismatch(err: unknown): boolean {
 }
 
 /** Resolves an API failure into text the author can act on. */
+/** Server-kept progress of the creation wizard (GET/PUT /experiences/{id}/wizard). */
+export interface StudioWizardState {
+  experience_id: string;
+  step: number;
+  staged_bindings: StudioBinding[];
+  audience: { roles: string[]; groups: string[]; whole_workspace: boolean };
+  updated_at?: string | null;
+}
+
 export function studioError(i18n: I18nService, err: unknown, fallbackKey: string): string {
   if (isContractMismatch(err)) return i18n.t('experience.error.outdated_tab');
   return apiMessage(err, i18n.t(fallbackKey));
@@ -230,6 +239,33 @@ export class StudioApiService {
       emblem: body.emblem ?? null,
       expected_experience_updated_at: body.expectedExperienceUpdatedAt,
     });
+  }
+
+  /** Where the creation wizard stopped; null once the draft is finalised. */
+  getWizard(id: string): Observable<StudioWizardState | null> {
+    return this.api
+      .get<{ wizard: StudioWizardState | null }>(`/experiences/${encodeURIComponent(id)}/wizard`)
+      .pipe(map((body) => body.wizard ?? null));
+  }
+
+  saveWizard(
+    id: string,
+    body: { step: number; stagedBindings: readonly StudioBinding[]; audience: StudioWizardState['audience'] },
+  ): Observable<StudioWizardState> {
+    return this.api
+      .put<{ wizard: StudioWizardState }>(`/experiences/${encodeURIComponent(id)}/wizard`, {
+        step: body.step,
+        staged_bindings: body.stagedBindings.map((row) => ({
+          binding_key: row.binding_key,
+          system_id: row.system_id,
+          published_flow_version_id: row.published_flow_version_id,
+          ingress_id: row.ingress_id,
+          confirmation_policy: row.confirmation_policy,
+          on_unavailable: row.on_unavailable,
+        })),
+        audience: body.audience,
+      })
+      .pipe(map((response) => response.wizard));
   }
 
   readyCheck(id: string): Observable<ReadyCheck> {

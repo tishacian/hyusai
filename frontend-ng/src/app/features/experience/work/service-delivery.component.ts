@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService, type WorkspaceMemberDetail } from '@app/core/workspace.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
@@ -16,8 +17,13 @@ type Tab = 'contracts' | 'windows' | 'receipts' | 'incidents';
 
 @Component({
   selector: 'app-service-delivery', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, WorkBarComponent, WorkAppHeaderComponent, NavLinkDirective, DatasetPreviewComponent, TypedJudgeResultComponent],
+  imports: [FormsModule, WorkBarComponent, WorkAppHeaderComponent, NavLinkDirective, DatasetPreviewComponent, TypedJudgeResultComponent, WriteOutcomeComponent],
   styleUrls: ['./work.scss', '../../data/dataops-editor.scss'],
+  styles: [`
+    .sd-status { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0; padding: 2px 8px; border-radius: 4px; font-size: 12px; border: 1px solid var(--ck-stroke-2); }
+    .sd-status[data-state='active'] { color: var(--ck-status-ok-fg); background: var(--ck-status-ok-bg); }
+    .sd-status[data-state='draft'] { color: var(--ck-status-warn-fg); background: var(--ck-status-warn-bg); }
+  `],
   template: `
     <div class="xp-work"><app-work-bar /><main class="dp-page">
       <app-work-app-header [title]="i18n.t('dataops.work.title')" [description]="i18n.t('dataops.work.subtitle')">
@@ -58,14 +64,30 @@ type Tab = 'contracts' | 'windows' | 'receipts' | 'incidents';
             <h3>{{i18n.t('dataops.work.expected_output')}}</h3>
             @for (field of form.fields; track $index; let n = $index) { <div class="dp-row"><label class="dp-field"><span>{{ i18n.t('dataops.work.schema_name') }}</span><input class="dp-input" [(ngModel)]="field.name" [name]="'field' + n" required /></label><label class="dp-field"><span>{{ i18n.t('dataops.work.schema_type') }}</span><select class="dp-input" [(ngModel)]="field.type" [name]="'type' + n">@for (kind of fieldTypes; track kind) { <option [value]="kind">{{ kind }}</option> }</select></label><button type="button" class="dp-button" [disabled]="form.fields.length === 1" (click)="removeField(n)">{{ i18n.t('dataops.remove') }}</button></div> }
             <button type="button" class="dp-button" (click)="addField()">{{ i18n.t('dataops.work.add_field') }}</button>
-            <label class="dp-field"><span>{{ i18n.t('dataops.work.qualification') }}</span><input class="dp-input" [(ngModel)]="form.qualification_policy_digest" name="qualification_policy_digest" pattern="[a-f0-9]{64}" /></label>
-            <p class="dp-note">{{ i18n.t('dataops.judge.review_required') }}</p><button class="dp-button" type="submit" [disabled]="busy() || !canCreate()">{{ i18n.t('dataops.work.save') }}</button>
+            <label class="dp-field"><span>{{ i18n.t('dataops.work.qualification') }}</span><select class="dp-input" [(ngModel)]="form.qualification_policy_digest" name="qualification_policy_digest" [disabled]="!policiesLoaded()"><option value="">{{ i18n.t('governance.services.any_policy') }}</option>@for (policy of qualificationPolicies(); track policy.digest) { <option [value]="policy.digest">{{ policy.name }}</option> }</select></label>
+            <p class="dp-note">{{ i18n.t('dataops.judge.review_required') }}</p><button class="dp-button" type="submit" [disabled]="busy() || !policiesLoaded() || !canCreate()">{{ i18n.t('dataops.work.save') }}</button>
           </form></details>
         }
         @for (contract of contracts(); track contract.id) { <section class="dp-section"><h2>{{ contract.logical_key }} · v{{ contract.version }}</h2><p class="dp-note">{{ i18n.t('dataops.work.owner') }}: {{ memberName(contract.owner_user_id) }} · {{ contract.definition.deadline }} {{ contract.definition.timezone }}</p>
           <a [navLink]="{type: 'system', ref: contract.system_id}">{{ systemName(contract.system_id) }}</a>
           @if (contract.definition.inputs?.length) { <section class="dp-section"><h3>{{i18n.t('dataops.work.sources')}}</h3>@for (source of contract.definition.inputs; track source.payload_key) { <p>{{source.logical_key}} · {{i18n.t('dataops.asset_kind.'+source.kind)}} → {{source.payload_key}}</p><p class="dp-note">{{i18n.t('dataops.work.source_max_age')}}: {{source.max_age_seconds}} · {{i18n.t('dataops.work.source_require_qualified')}}: {{i18n.t(source.require_qualified ? 'dataops.yes':'dataops.no')}} · {{i18n.t(source.representation === 'native_id' ? 'dataops.work.source_native_id':'dataops.work.source_asset_ref')}}</p> }</section> }
-          @if (!contract.published_at && workspace.isAdmin()) { <button type="button" class="dp-button" [disabled]="busy()" (click)="activate(contract.id)">{{ i18n.t('dataops.work.activate') }}</button> }
+          @if (contract.published_at) {
+            <p class="sd-status" data-state="active" data-testid="service-contract-status">{{ i18n.t('dataops.work.status.active', { date: date(contract.published_at) }) }}</p>
+          } @else {
+            <p class="sd-status" data-state="draft" data-testid="service-contract-status">{{ i18n.t('dataops.work.status.draft') }}</p>
+            @if (workspace.isAdmin()) {
+              <p class="dp-note">{{ i18n.t('dataops.work.activate_hint') }}</p>
+              <button type="button" class="dp-button" data-testid="service-contract-activate" [disabled]="busy() || activateWrites()[contract.id]?.s === 'sent'" (click)="activate(contract.id)">{{ i18n.t('dataops.work.activate') }}</button>
+            }
+          }
+          <app-write-outcome
+            data-testid="service-contract-activate-outcome"
+            [outcome]="activateWrites()[contract.id] ?? null"
+            [confirmedLabel]="i18n.t('dataops.work.activate_confirmed')"
+            [failedLabel]="i18n.t('dataops.work.activate_failed')"
+            [verifiable]="true"
+            (verify)="load()"
+          />
         </section> }
       }
       @if (tab() === 'windows') {
@@ -99,12 +121,21 @@ type Tab = 'contracts' | 'windows' | 'receipts' | 'incidents';
                 <button type="button" class="dp-button" [disabled]="busy() || !canPublish(window)" (click)="publish(window)">{{ i18n.t('dataops.work.publish') }}</button></div>
             }
           }
-          @if (unknownReceipts().includes(window.id)) { <p class="dp-error">{{ i18n.t('dataops.work.unknown_receipt') }}</p> }
+          <app-write-outcome
+            data-testid="service-publish-outcome"
+            [outcome]="publishWrites()[window.id] ?? null"
+            [confirmedLabel]="i18n.t('dataops.work.publish_confirmed')"
+            [failedLabel]="i18n.t('dataops.work.publish_failed')"
+          />
+          @if (unknownReceipts().includes(window.id)) {
+            <p class="dp-error" role="alert" data-testid="service-publish-unconfirmed">{{ i18n.t('dataops.work.unknown_receipt') }}</p>
+            <button type="button" class="dp-button" [disabled]="busy()" (click)="select('receipts')">{{ i18n.t('dataops.work.check_receipts') }}</button>
+          }
         </section> }
       }
-      @if (tab() === 'receipts') { @for (receipt of receipts(); track receipt.id) { <section class="dp-section"><h2>{{ i18n.t('dataops.work.receipt') }} · {{ date(receipt.published_at) }}</h2><p>{{ receipt.destination }}</p><p class="dp-note">{{ receipt.asset_digest }}</p><button type="button" class="dp-button" [disabled]="busy()" (click)="openReceipt(receipt.id)">{{ i18n.t('dataops.work.open') }}</button><button type="button" class="dp-button" [disabled]="busy()" (click)="downloadReceipt(receipt.id)">{{i18n.t('dataops.work.download_receipt')}}</button>@if (selectedReceipt()?.id === receipt.id) { <pre class="dp-code">{{ json(selectedReceipt()) }}</pre> }</section> } }
-      @if (tab() === 'incidents') { @for (incident of incidents(); track incident.id) { <section class="dp-section"><h2>{{ incident.code }}</h2><p>{{ date(incident.created_at) }}</p><a [navLink]="{surface: 'review-queue'}">{{ i18n.t('dataops.work.review_queue') }}</a></section> } }
-      @if (!total() && !busy()) { <p class="dp-note">{{ i18n.t('dataops.work.empty') }}</p> }
+      @if (tab() === 'receipts') { @for (receipt of receipts(); track receipt.id) { <section class="dp-section"><h2>{{ i18n.t('dataops.work.receipt') }} · {{ date(receipt.published_at) }}</h2><p>{{ receipt.destination }}</p><dl><dt>{{ i18n.t('governance.services.window') }}</dt><dd>{{ receipt.period_start ? date(receipt.period_start) : receipt.window_id }} – {{ receipt.period_end ? date(receipt.period_end) : '—' }}</dd><dt>{{ i18n.t('governance.services.version') }}</dt><dd>{{ receipt.asset_version ?? '—' }}</dd><dt>{{ i18n.t('governance.services.author') }}</dt><dd>{{ receipt.published_by ? memberName(receipt.published_by) : i18n.t('dataops.unknown') }}</dd></dl><button type="button" class="dp-button" [disabled]="busy()" (click)="openReceipt(receipt.id)">{{ i18n.t('dataops.work.open') }}</button><button type="button" class="dp-button" [disabled]="busy()" (click)="downloadReceipt(receipt.id)">{{i18n.t('dataops.work.download_receipt')}}</button>@if (selectedReceipt()?.id === receipt.id) { <details><summary>{{ i18n.t('governance.services.technical_receipt') }}</summary><pre class="dp-code">{{ json(selectedReceipt()) }}</pre></details> }</section> } }
+      @if (tab() === 'incidents') { @for (incident of incidents(); track incident.id) { <section class="dp-section"><h2>{{ incident.code }}</h2><p>{{ date(incident.created_at) }}</p><p>{{ i18n.t('dataops.work.owner') }}: {{ memberName(incident.owner_user_id) }}</p><button type="button" class="dp-button" (click)="select('windows')">{{ i18n.t('governance.services.check_before_republish') }}</button><a [navLink]="{surface: 'review-queue'}">{{ i18n.t('dataops.work.review_queue') }}</a></section> } }
+      @if (!total() && !busy() && !error()) { <p class="dp-note">{{ i18n.t('dataops.work.empty') }}</p> }
       <div class="dp-row dp-section"><button type="button" class="dp-button" [disabled]="busy() || offset() === 0" (click)="page(-1)">{{ i18n.t('dataops.previous') }}</button><span>{{ total() ? offset() + 1 : 0 }}–{{ end() }} / {{ total() }}</span><button type="button" class="dp-button" [disabled]="busy() || offset() + 25 >= total()" (click)="page(1)">{{ i18n.t('dataops.next') }}</button></div>
     </main></div>
   `,
@@ -125,11 +156,15 @@ export class ServiceDeliveryComponent implements OnInit {
   readonly sourceAssets = signal<ServiceAssetMetadata[]>([]); readonly sourceOffset = signal(0); readonly sourceTotal = signal(0); readonly sourcesLoading = signal(false); readonly sourceError = signal(false);
   readonly candidates = signal<Record<string, CandidateEvidence>>({}); readonly notes = signal<Record<string, string | undefined>>({}); readonly confirmed = signal<Record<string, boolean>>({});
   readonly candidateFences = signal<Record<string, number>>({});
+  /** Activation and delivery outcomes, said next to their button until the next attempt. */
+  readonly activateWrites = signal<Record<string, WriteOutcome>>({});
+  readonly publishWrites = signal<Record<string, WriteOutcome>>({});
   readonly qualifications = signal<Record<string, boolean>>({});
   readonly reviews = signal<Record<string, BoundReview | undefined>>({}); readonly unknownReceipts = signal<string[]>([]); readonly selectedReceipt = signal<DeliveryReceipt | null>(null);
+  readonly qualificationPolicies = signal<Array<{digest:string;name:string}>>([]); readonly policiesLoaded = signal(false);
   readonly budgetFields = ['max_attempts', 'max_cost', 'max_tokens', 'max_seconds'] as const; readonly fieldTypes = ['string', 'integer', 'number', 'boolean', 'object', 'array'];
   form: ServiceContractForm = { system_id: '', logical_key: '', owner_user_id: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, starts_on: '', deadline: '17:00', max_attempts: 1, max_cost: 0, max_tokens: 0, max_seconds: 900, fields: [{name: '', type: 'string'}], qualification_policy_digest: '', inputs: [] };
-  async ngOnInit(): Promise<void> { await this.load(); const slug = this.workspace.currentSlug(); if (this.workspace.isAdmin() && slug) { try { const [systems, members] = await Promise.all([firstValueFrom(this.canonical.listSystems({propagateErrors: true})), firstValueFrom(this.workspace.listMembers(slug))]); this.systems.set(systems); this.members.set(members); await this.loadSources(true); } catch { this.error.set('dataops.error.load'); } } }
+  async ngOnInit(): Promise<void> { await this.load(); const slug = this.workspace.currentSlug(); if (this.workspace.isAdmin() && slug) { try { const [systems, members, policies] = await Promise.all([firstValueFrom(this.canonical.listSystems({propagateErrors: true})), firstValueFrom(this.workspace.listMembers(slug)), this.api.qualificationPolicies()]); this.systems.set(systems); this.members.set(members); this.qualificationPolicies.set(policies.items); this.policiesLoaded.set(true); await this.loadSources(true); } catch { this.error.set('dataops.error.load'); } } }
   async load(): Promise<void> { if (this.busy()) return; this.busy.set(true); this.error.set(''); try { let page: Page<unknown>; switch (this.tab()) { case 'contracts': { const p = await this.api.contracts(this.offset()); this.contracts.set(p.items); page = p; break; } case 'windows': { const p = await this.api.windows(this.offset()); this.windows.set(p.items); page = p; break; } case 'receipts': { const p = await this.api.receipts(this.offset()); this.receipts.set(p.items); this.unknownReceipts.update(ids => ids.filter(id => !p.items.some(r => r.window_id === id))); page = p; break; } default: { const p = await this.api.incidents(this.offset()); this.incidents.set(p.items); page = p; } } this.total.set(page.total); } catch { this.error.set('dataops.error.load'); } finally { this.busy.set(false); } }
   select(tab: Tab): void { if (this.busy()) return; this.tab.set(tab); this.offset.set(0); void this.load(); }
   page(direction: -1 | 1): void { this.offset.update(offset => Math.max(0, offset + direction * 25)); void this.load(); }
@@ -149,7 +184,27 @@ export class ServiceDeliveryComponent implements OnInit {
   private async action(work: () => Promise<void>): Promise<void> { if (this.busy()) return; this.busy.set(true); this.error.set(''); this.notice.set(''); try { await work(); } catch { this.error.set('dataops.error.request'); } finally { this.busy.set(false); } }
   inspect(window: ServiceWindow): Promise<void> { return this.action(async () => { const candidate = await this.api.candidate(window.id); this.closePreview(); this.objectOffsets.update(values => ({...values,[window.id]:0})); this.candidates.update(values => ({...values, [window.id]: candidate})); this.candidateFences.update(values => ({...values, [window.id]: window.fence})); this.confirmed.update(values => ({...values, [window.id]: false})); this.qualifications.update(values => ({...values, [window.id]: false})); }); }
   review(window: ServiceWindow, accept: boolean): Promise<void> { return this.action(async () => { const body = reviewRequest(window, this.candidateFor(window), this.confirmed()[window.id], this.notes()[window.id] ?? '', accept, this.qualifications()[window.id] === true); if (!body || !this.canReview(window, accept)) return; const decision = await this.api.review(window.id, body); this.reviews.update(values => ({...values, [window.id]: {decision, window_id: window.id, fence: window.fence, asset_digest: window.candidate_ref!.digest}})); this.notice.set('dataops.work.reviewed'); if (!accept) this.windows.update(rows => rows.map(row => row.id === window.id ? {...row, status: 'failed'} : row)); }); }
-  publish(window: ServiceWindow): Promise<void> { return this.action(async () => { const body = publicationRequest(window, this.reviews()[window.id], this.unknownReceipts().includes(window.id)); if (!body) return; try { const receipt = await this.api.publish(window.id, body); this.selectedReceipt.set(receipt); this.windows.update(rows => rows.map(row => row.id === window.id ? {...row, status: 'delivered'} : row)); } catch (error) { if (!(error instanceof HttpErrorResponse) || !error.status || error.status >= 500) this.unknownReceipts.update(ids => [...new Set([...ids, window.id])]); throw error; } }); }
+  /**
+   * Delivery under the write contract. A delivery whose answer was lost, or
+   * that broke on the server, is "not confirmed": it may have been published,
+   * so it stays blocked until the receipts are read again.
+   */
+  publish(window: ServiceWindow): void {
+    if (this.busy() || this.publishWrites()[window.id]?.s === 'sent') return;
+    const body = publicationRequest(window, this.reviews()[window.id], this.unknownReceipts().includes(window.id));
+    if (!body) return;
+    this.error.set(''); this.notice.set('');
+    settleWrite(this.api.publish$(window.id, body)).subscribe((raw) => {
+      const outcome: WriteOutcome = raw.s === 'failed' && (raw.status ?? 500) >= 500 ? { s: 'unknown', status: raw.status, code: raw.code } : raw;
+      this.publishWrites.update(values => ({...values, [window.id]: outcome}));
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
+        this.selectedReceipt.set(outcome.value as DeliveryReceipt);
+        this.windows.update(rows => rows.map(row => row.id === window.id ? {...row, status: 'delivered'} : row));
+      } else if (outcome.s === 'unknown') {
+        this.unknownReceipts.update(ids => [...new Set([...ids, window.id])]);
+      }
+    });
+  }
   openReceipt(id: string): Promise<void> { return this.action(async () => { this.selectedReceipt.set(await this.api.receipt(id)); }); }
   objects(candidate: CandidateEvidence): CandidateObject[] { return candidateObjects(candidate); }
   objectOffset(id: string): number { return this.objectOffsets()[id] ?? 0; }
@@ -194,5 +249,15 @@ export class ServiceDeliveryComponent implements OnInit {
   addField(): void { this.form.fields.push({name: '', type: 'string'}); }
   removeField(index: number): void { this.form.fields.splice(index, 1); }
   create(): Promise<void> { return this.action(async () => { const body = contractRequest(this.form); if (body) { const created = await this.api.create(body); this.contracts.update(rows => [created, ...rows]); this.total.update(total => total + 1); } }); }
-  activate(id: string): Promise<void> { return this.action(async () => { const result = await this.api.activate(id); this.contracts.update(rows => rows.map(row => row.id === id ? result : row)); }); }
+  /** The contract was saved first; activating it is the second, explicit step. */
+  activate(id: string): void {
+    if (this.busy() || this.activateWrites()[id]?.s === 'sent') return;
+    this.error.set(''); this.notice.set('');
+    settleWrite(this.api.activate$(id)).subscribe((outcome) => {
+      this.activateWrites.update(values => ({...values, [id]: outcome}));
+      if ((outcome.s === 'confirmed' || outcome.s === 'accepted') && outcome.value) {
+        this.contracts.update(rows => rows.map(row => row.id === id ? outcome.value : row));
+      }
+    });
+  }
 }

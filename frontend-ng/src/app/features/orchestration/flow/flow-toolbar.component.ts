@@ -26,6 +26,7 @@ import {
 } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
 import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { FlowPersistenceService, type SaveState } from './flow-persistence.service';
 
@@ -36,7 +37,7 @@ type PillState = SaveState | 'hold';
   selector: 'app-flow-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, HelpTooltipComponent],
+  imports: [IconComponent, HelpTooltipComponent, NavLinkDirective],
   // FlowPersistenceService is provided one level up by FlowBuilderComponent so
   // the builder shell + the validation strip share the SAME instance (and
   // thus its `serverIssues` signal). The toolbar still injects it here.
@@ -534,6 +535,9 @@ type PillState = SaveState | 'hold';
           @if (persistence.promotionError(); as err) {
             <p class="ck-flow-promote-error" role="alert">{{ err }}</p>
           }
+          @if (persistence.promotionBlocked() && !persistence.promoting()) {
+            <a [navLink]="{ surface: 'systems' }" target="_blank" rel="noopener noreferrer" data-testid="flow-promote-verify">{{ i18n.t('flow.promote.verify_catalog') }}</a>
+          }
           <div class="ck-flow-promote-actions">
             <button
               type="button"
@@ -545,7 +549,7 @@ type PillState = SaveState | 'hold';
               type="button"
               class="ck-flow-toolbar__btn ck-flow-toolbar__btn--accent"
               (click)="persistence.confirmPromoteModal()"
-              [disabled]="persistence.promoting() || !persistence.promoteName().trim()"
+              [disabled]="persistence.promotionBlocked() || !persistence.promoteName().trim()"
               data-testid="flow-promote-submit"
             >{{ i18n.t('flow.promote.submit') }}</button>
           </div>

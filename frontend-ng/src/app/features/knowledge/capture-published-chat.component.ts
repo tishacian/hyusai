@@ -89,7 +89,7 @@ export class CapturePublishedChatComponent implements OnChanges {
       business_constraints: { source: 'capture_publication', proposal_id: this.proposalId },
       ephemeral: true,
       ttl_hours: 24,
-    }, { workspaceSlug: scope.workspaceSlug }).subscribe({
+    }, { workspaceSlug: scope.workspaceSlug }, { propagateErrors: true }).subscribe({
       next: context => {
         if (generation !== this.generation || !this.workspace.isRequestScopeCurrent(scope)) return;
         this.busy.set(false);

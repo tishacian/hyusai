@@ -37,6 +37,7 @@ export interface SecretMeta {
 }
 
 export interface SecretConsumerMeta {
+  name?: string | null;
   kind: string | null;
   id: string | null;
   system_id: string | null;

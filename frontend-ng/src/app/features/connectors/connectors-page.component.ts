@@ -31,13 +31,15 @@ import {
   type CatalogEntry,
   type ConnectorCatalogPayload,
 } from './connector-catalog.vm';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 @Component({
   selector: 'app-connectors-page',
   standalone: true,
-  imports: [CommonModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, GenericConnectorDrawerComponent, ConnectorCatalogComponent],
+  imports: [PageFrameComponent, CommonModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, GenericConnectorDrawerComponent, ConnectorCatalogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       [breadcrumb]="i18n.t('connectors.breadcrumb')"
       [title]="i18n.t('connectors.title')"
@@ -229,6 +231,7 @@ import {
       (close)="closeSetup()"
       (changed)="onConnectorChanged($event)"
     />
+    </ck-page-frame>
   `,
 })
 export class ConnectorsPageComponent implements OnInit, OnDestroy {

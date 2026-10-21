@@ -1,3 +1,4 @@
+import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { I18nService } from '@app/core/i18n.service';
 import { decisionMessage } from '@app/shared/ui/run-decision';
@@ -97,7 +98,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
   selector: 'app-nawa-password-reset',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [SpecializedAppContractComponent,
     RouterLink,
     GlyphComponent,
     NawaCreatorBannerComponent,
@@ -121,6 +122,7 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
       <app-nawa-theme-toggle />
       <a class="nawa-link" routerLink="/nawa/itsd">Back to the catalogue</a>
     </header>
+    <app-specialized-app-contract application="itsd" [simulation]="true" />
 
     <div class="nawa-body pr-layout">
       <aside class="pr-panel nawa-card">

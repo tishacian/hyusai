@@ -1,3 +1,4 @@
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -83,6 +84,9 @@ interface GuideBody {
           <p class="help-panel-tag ck-mono">{{ i18n.t('experience.help.panel.guide_tag', { name: guideLabel(g.id) }) }}</p>
           <!-- The guide may be in another language than the interface (WCAG 3.1.2). -->
           <h3 [attr.lang]="help.language()">{{ g.title }}</h3>
+          <p class="help-panel-source">
+            <a [href]="guideSourceUrl(g.id)" target="_blank" rel="noopener noreferrer">{{ i18n.t('experience.help.panel.source', { title: g.title }) }}</a>
+          </p>
           @for (p of g.paragraphs; track $index) {
             <p [attr.lang]="help.language()">{{ p }}</p>
           }
@@ -167,6 +171,9 @@ interface GuideBody {
       color: var(--ck-signal-cool, #67d5f6);
       text-align: left;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
       padding: 4px 0;
       font-size: 13px;
       text-decoration: underline;
@@ -264,6 +271,10 @@ export class HelpPanelComponent {
       this.help.language();
       if (this.overlay.isOpen()) this.load();
     });
+  }
+
+  guideSourceUrl(id: string): string {
+    return navigationLeafUrl('help-guide', { guideId: id });
   }
 
   guideLabel(id: string): string {

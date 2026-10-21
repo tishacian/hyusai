@@ -1,11 +1,14 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -16,7 +19,18 @@ import {
   type CkObjectKpi,
 } from '@app/shared/cockpit';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { WorkspaceService } from '@app/core/workspace.service';
 import {
+  LOADING,
+  settleRead,
+  settleWrite,
+  shownValue,
+  type LoadState,
+  type WriteOutcome,
+} from '@app/shared/ui/load-state';
+import {
+  watchCreateRight,
   watchRows,
   type CreateWatchResponse,
   type IntelligenceRow,
@@ -29,13 +43,15 @@ export type { IntelligenceRow } from './intelligence.vm';
  * Suivre › Intelligence (L21b): the workspace's watches (state, object,
  * measure, date). Only Systems the server marks as watches are listed; with
  * none, the empty state offers to create the watch to anyone allowed to
- * create Systems. Detail opens the System intelligence facet (News Lab).
+ * create Systems. A failed read is an error with Retry, never an empty
+ * list, and the right to create is then unknown rather than refused.
+ * Detail opens the System intelligence facet (News Lab).
  */
 @Component({
   selector: 'app-intelligence-entry',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, PageFrameComponent, CkObjectHeaderComponent, EmptyStateComponent],
+  imports: [RouterLink, PageFrameComponent, CkObjectHeaderComponent, EmptyStateComponent, WriteOutcomeComponent],
   template: `
     <ck-page-frame>
       <ck-object-header
@@ -43,8 +59,11 @@ export type { IntelligenceRow } from './intelligence.vm';
         [subtitle]="i18n.t('intelligence.page.description')"
         [kpis]="kpis()"
       />
-      @if (loading()) {
-        <app-empty-state icon="sparkles" size="md" [title]="i18n.t('common.loading')" />
+      @if (state().s !== 'ready' && state().s !== 'empty') {
+        <app-empty-state size="md" [state]="state()" (retry)="load()" />
+        @if (state().s === 'error') {
+          <p class="intel-note intel-note--center" data-testid="intelligence-create-unknown">{{ i18n.t('intelligence.create.unknown') }}</p>
+        }
       } @else if (rows().length === 0) {
         <app-empty-state
           icon="radar"
@@ -52,7 +71,7 @@ export type { IntelligenceRow } from './intelligence.vm';
           [title]="i18n.t('intelligence.empty.title')"
           [description]="i18n.t('intelligence.empty.body')"
         >
-          @if (canCreate()) {
+          @if (canCreate() === true) {
             <button
               type="button"
               class="ck-btn ck-cta"
@@ -65,9 +84,10 @@ export type { IntelligenceRow } from './intelligence.vm';
           } @else {
             <p class="intel-note">{{ i18n.t('intelligence.create.denied') }}</p>
           }
-          @if (createFailed()) {
-            <p class="intel-note intel-note--warn" role="alert">{{ i18n.t('intelligence.create.failed') }}</p>
-          }
+          <app-write-outcome
+            [outcome]="createOutcome()"
+            [failedLabel]="i18n.t('intelligence.create.failed')"
+          />
         </app-empty-state>
       } @else {
         <ul class="intel-list" role="list">
@@ -113,7 +133,7 @@ export type { IntelligenceRow } from './intelligence.vm';
     .intel-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .intel-measure, .intel-date { color: var(--ck-fg-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .intel-note { max-width: 24rem; margin: 0; color: var(--ck-fg-3); font-size: 12px; }
-    .intel-note--warn { margin-top: 8px; color: var(--ck-signal-warn); }
+    .intel-note--center { margin: 0 auto; text-align: center; }
     @media (max-width: 720px) {
       .intel-row { grid-template-columns: 1fr; gap: 4px; }
     }
@@ -125,48 +145,67 @@ export class IntelligenceEntryComponent implements OnInit {
   private readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
 
-  readonly loading = signal(true);
-  readonly rows = signal<IntelligenceRow[]>([]);
-  readonly canCreate = signal(false);
-  readonly creating = signal(false);
-  readonly createFailed = signal(false);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly state = signal<LoadState<WatchListResponse>>(LOADING);
+  readonly rows = computed<IntelligenceRow[]>(() =>
+    watchRows(shownValue(this.state()), this.i18n.t('intelligence.measure.absent')),
+  );
+  /** True or false once the server said so; `unknown` while it has not. */
+  readonly canCreate = computed<boolean | 'unknown'>(() => watchCreateRight(this.state()));
+  readonly createOutcome = signal<WriteOutcome<CreateWatchResponse | null> | null>(null);
+  readonly creating = computed(() => this.createOutcome()?.s === 'sent');
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
+    const known = this.state().s === 'ready' || this.state().s === 'empty';
     const rows = this.rows();
     const live = rows.filter((r) => r.status === 'live' || r.status === 'ready').length;
     return [
-      { label: this.i18n.t('intelligence.kpi.total'), value: String(rows.length), tone: 'cool' },
-      { label: this.i18n.t('intelligence.kpi.live'), value: String(live), tone: live ? 'pos' : 'neutral' },
+      { label: this.i18n.t('intelligence.kpi.total'), value: known ? String(rows.length) : '—', tone: 'cool' },
+      { label: this.i18n.t('intelligence.kpi.live'), value: known ? String(live) : '—', tone: known && live ? 'pos' : 'neutral' },
     ];
   });
 
+  private readSubscription?: Subscription;
+
   ngOnInit(): void {
     this.load();
+    const unregister = this.workspace.registerContextReset(() => {
+      this.readSubscription?.unsubscribe();
+      this.state.set(LOADING);
+      this.createOutcome.set(null);
+      queueMicrotask(() => this.load());
+    });
+    this.destroyRef.onDestroy(() => {
+      unregister();
+      this.readSubscription?.unsubscribe();
+    });
   }
 
   load(): void {
-    this.api.get<WatchListResponse>('/intelligence/watch').subscribe({
-      next: (response) => {
-        this.rows.set(watchRows(response, this.i18n.t('intelligence.measure.absent')));
-        this.canCreate.set(response?.can_create === true);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.rows.set([]);
-        this.canCreate.set(false);
-        this.loading.set(false);
-      },
+    const scope = this.workspace.captureRequestScope();
+    const previous = this.state();
+    this.readSubscription?.unsubscribe();
+    this.readSubscription = settleRead(this.api.get<WatchListResponse>('/intelligence/watch'), {
+      previous,
+    }).subscribe((next) => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      // An empty answer still carries the right to create: keep the payload.
+      this.state.set(next);
     });
   }
 
   createWatch(): void {
-    if (this.creating() || !this.canCreate()) return;
-    this.creating.set(true);
-    this.createFailed.set(false);
-    this.api.post<CreateWatchResponse>('/intelligence/watch', {}).subscribe({
-      next: (response) => {
-        this.creating.set(false);
-        const id = response?.system?.id;
+    if (this.creating() || this.canCreate() !== true) return;
+    const scope = this.workspace.captureRequestScope();
+    settleWrite(this.api.post<CreateWatchResponse>('/intelligence/watch', {}))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((outcome) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        this.createOutcome.set(outcome);
+        if (outcome.s !== 'confirmed' && outcome.s !== 'accepted') return;
+        const id = outcome.value?.system?.id;
         if (!id) {
           this.load();
           return;
@@ -174,12 +213,7 @@ export class IntelligenceEntryComponent implements OnInit {
         void this.router.navigateByUrl(
           this.navigation.objectUrl('system', id, { facet: 'intelligence' }),
         );
-      },
-      error: () => {
-        this.creating.set(false);
-        this.createFailed.set(true);
-      },
-    });
+      });
   }
 
   detailHref(row: IntelligenceRow): string {

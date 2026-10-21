@@ -57,7 +57,14 @@ def user(db_session) -> User:
 
 @pytest.fixture()
 def client(db_session, workspace, user, tmp_path, monkeypatch) -> TestClient:
-    db_session.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="admin", role_template="workspace_admin"))
+    db_session.add(
+        WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="admin",
+            role_template="workspace_admin",
+        )
+    )
     db_session.commit()
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
@@ -973,3 +980,43 @@ def test_text_encoder_is_catalog_driven_and_validated_in_plan(client, dataset):
     ).json()["refusal"]
     assert invalid["code"] == "ML_SPEC_INVALID"
     assert invalid["field"] == "text_encoder"
+
+
+def test_list_does_not_call_a_ready_alias_callable_without_an_artifact(
+    client, db_session, workspace, user
+):
+    model = MLModel(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Unverified",
+        slug="unverified",
+        version=1,
+        task="classification",
+        algo="linear",
+        target="label",
+        features=["amount"],
+        status="ready",
+        is_champion=True,
+    )
+    db_session.add(model)
+    db_session.commit()
+    import asyncio
+
+    payload = asyncio.run(
+        ml_models_api.list_models(
+            task=None,
+            status=None,
+            dataset_id=None,
+            system_id=None,
+            limit=100,
+            workspace=workspace,
+            user=user,
+            db=db_session,
+        )
+    )
+    row = next(item for item in payload["models"] if item["id"] == model.id)
+    assert row["status"] == "ready"
+    assert row["is_champion"] is True
+    assert row["callable"] is False
+    assert row["refusal"]["code"]
+    assert row["readiness"]["check"] == "metadata"

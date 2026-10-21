@@ -56,4 +56,18 @@ test.describe('Intelligence — neutral watch', () => {
     await expect(page.getByTestId('intelligence-create-watch')).toHaveCount(0);
     await expect(page.getByText('Seule une personne autorisée à créer des Systèmes', { exact: false })).toBeVisible();
   });
+
+  for (const failure of [403, 500, 504, 'timedout', 'failed'] as const) {
+    test(`a ${failure} watch read never looks like an empty list or a refused creation right`, async ({ page }) => {
+      const writes = await setup(page, true);
+      await page.route('**/api/v1/intelligence/watch', route => typeof failure === 'number'
+        ? route.fulfill({ status: failure, contentType: 'application/json', body: '{"detail":"read failed"}' })
+        : route.abort(failure));
+      await page.goto('/intelligence');
+      await expect(page.getByTestId(failure === 403 ? 'load-state-denied' : 'load-state-error')).toBeVisible();
+      await expect(page.getByTestId('intelligence-create-watch')).toHaveCount(0);
+      await expect(page.getByText('Aucune veille pour l’instant')).toHaveCount(0);
+      expect(writes).toEqual([]);
+    });
+  }
 });

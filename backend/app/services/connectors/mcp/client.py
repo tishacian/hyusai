@@ -127,6 +127,10 @@ def jsonrpc(
     next_session = response.headers.get("mcp-session-id") or session_id
     if 300 <= response.status_code < 400:
         raise McpUnreachable("MCP redirect refused", code="CONNECTOR_REDIRECT_DENIED")
+    if response.status_code == 401:
+        raise McpUnreachable("MCP authentication failed", code="mcp_auth_failed")
+    if response.status_code == 403:
+        raise McpUnreachable("MCP resource access denied", code="mcp_access_denied")
     if response.status_code >= 400:
         raise McpUnreachable("MCP server rejected the request")
     body = _read_jsonrpc(response)
@@ -139,7 +143,9 @@ def jsonrpc(
     return result, next_session
 
 
-def initialize(server: Mapping[str, Any], *, timeout_s: float = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+def initialize(
+    server: Mapping[str, Any], *, timeout_s: float = DEFAULT_TIMEOUT_S
+) -> dict[str, Any]:
     result, session_id = jsonrpc(
         server,
         "initialize",
@@ -165,9 +171,7 @@ def list_tools(
     if session is None:
         opened = initialize(server, timeout_s=timeout_s)
         session = opened.get("session_id")
-    result, session = jsonrpc(
-        server, "tools/list", {}, timeout_s=timeout_s, session_id=session
-    )
+    result, session = jsonrpc(server, "tools/list", {}, timeout_s=timeout_s, session_id=session)
     raw_tools = result.get("tools")
     tools: list[dict[str, Any]] = []
     if isinstance(raw_tools, list):
@@ -248,9 +252,7 @@ def call_tool(
             content = result.get("content")
             if isinstance(content, list):
                 texts = [
-                    str(item.get("text") or "")
-                    for item in content
-                    if isinstance(item, Mapping)
+                    str(item.get("text") or "") for item in content if isinstance(item, Mapping)
                 ]
                 detail = " ".join(part for part in texts if part).strip()
         raise McpCallFailed(str(detail or f"MCP tool {mcp_name} failed"))
@@ -267,13 +269,13 @@ def call_tool(
     }
 
 
-def test_connection(server: Mapping[str, Any], *, timeout_s: float = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
+def test_connection(
+    server: Mapping[str, Any], *, timeout_s: float = DEFAULT_TIMEOUT_S
+) -> dict[str, Any]:
     """Session + ``tools/list`` — the operator health gesture."""
     started = time.perf_counter()
     opened = initialize(server, timeout_s=timeout_s)
-    listed = list_tools(
-        server, timeout_s=timeout_s, session_id=opened.get("session_id")
-    )
+    listed = list_tools(server, timeout_s=timeout_s, session_id=opened.get("session_id"))
     return {
         "ok": True,
         "server_id": str(server.get("id") or ""),

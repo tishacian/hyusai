@@ -1,3 +1,4 @@
+import type { LoadState } from '@app/shared/ui/load-state';
 /**
  * Pure view logic for Intelligence: the watch list (Suivre › Intelligence)
  * and News Lab. Intelligence is a neutral product isolated per workspace:
@@ -149,4 +150,9 @@ export function schedulerInterval(seconds: number | null | undefined): string {
   if (s % 3600 === 0) return `${s / 3600}h`;
   if (s % 60 === 0) return `${s / 60}m`;
   return `${s}s`;
+}
+
+/** A missing or failed capability read never means the user was refused. */
+export function watchCreateRight(state: LoadState<WatchListResponse>): boolean | 'unknown' {
+  return state.s === 'ready' && typeof state.value.can_create === 'boolean' ? state.value.can_create : 'unknown';
 }

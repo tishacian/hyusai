@@ -218,6 +218,11 @@ export interface ModelSignature {
 }
 
 export interface ModelDto {
+  /** Server metadata preflight; a ready fit or selected alias is insufficient. */
+  callable?: boolean;
+  enabled?: boolean;
+  readiness?: ServingBlock['readiness'];
+  refusal?: CodedRefusal | null;
   id: string;
   name: string;
   slug: string;
@@ -1285,6 +1290,8 @@ export function primaryScore(model: ModelDto | null | undefined): MetricScore | 
  * active fit when one is running, otherwise the champion, otherwise the newest.
  */
 export interface ModelListRow {
+  callable: boolean;
+  serving_refusal: CodedRefusal | null;
   /** Id used for navigation. */
   id: string;
   slug: string;
@@ -1331,6 +1338,8 @@ export function groupModelsBySlug(models: readonly ModelDto[]): ModelListRow[] {
       target: row.target,
       served_version: champion?.version ?? null,
       served_id: champion?.id ?? null,
+      callable: champion?.callable === true,
+      serving_refusal: champion?.refusal ?? null,
       version_count: ordered.length,
       row,
       versions: ordered,

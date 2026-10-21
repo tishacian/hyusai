@@ -169,10 +169,17 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "task_executions",
+        "tasks",
         "ml_runtime_attestations",
         "ml_production_explanations",
-        "ml_alert_deliveries", "ml_alert_sources", "ml_alerts", "ml_alert_states", "ml_alert_channels",
-        "ml_usage_rollups", "ml_inference_usage",
+        "ml_alert_deliveries",
+        "ml_alert_sources",
+        "ml_alerts",
+        "ml_alert_states",
+        "ml_alert_channels",
+        "ml_usage_rollups",
+        "ml_inference_usage",
         "activity_commands",
         "activity_events",
         "activities",
@@ -281,6 +288,7 @@ def db_session():
         "tabular_datasets",
         "runs",
         "system_bindings",
+        "experience_wizard_states",
         "experience_deployments",
         "experience_releases",
         "experience_draft_revisions",

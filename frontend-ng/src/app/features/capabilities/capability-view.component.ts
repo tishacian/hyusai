@@ -77,6 +77,17 @@ import {
       </button>
     </ck-object-header>
 
+    <section class="ck-surface rounded-md p-4" data-testid="capability-availability">
+      <h2>{{ i18n.t('flow.capability.availability.title') }}</h2>
+      <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><dt>{{ i18n.t('flow.capability.availability.declared') }}</dt><dd>{{ i18n.t(capabilityLoaded() ? 'state.availability.yes' : 'state.availability.unknown') }}</dd></div>
+        <div><dt>{{ i18n.t('flow.capability.availability.associated') }}</dt><dd>{{ availabilityFact('system_count') }}</dd></div>
+        <div><dt>{{ i18n.t('state.availability.compatible') }}</dt><dd>{{ availabilityFact('compatible') }}</dd></div>
+        <div><dt>{{ i18n.t('state.availability.callable') }}</dt><dd>{{ availabilityFact('callable') }}</dd></div>
+        <div><dt>{{ i18n.t('flow.capability.availability.last_invocation') }}</dt><dd>{{ availabilityFact('last_invocation') }}</dd></div>
+      </dl>
+    </section>
+
     <ck-tabs
       [active]="activeTab()"
       (activeChange)="onTabChange($event)"
@@ -230,6 +241,7 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
 
   capabilityId = '';
   readonly title = signal('Capability');
+  readonly capabilityLoaded = signal(false);
   readonly activeTab = signal<CapabilityTabId>('overview');
   readonly policiesPanelOpen = signal(false);
 
@@ -245,20 +257,12 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   readonly activePerspective = computed(() => this.perspectives()[this.activeLens()] ?? null);
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
-    if (!this.projectionEnabled()) {
-      return [
-        { label: 'Systems', value: '—', hint: 'Number of Systems bound to this Capability.' },
-        { label: 'ROI', value: '—', tone: 'neutral', hint: 'Aggregated ROI — upcoming.' },
-        { label: 'Yield', value: '—', tone: 'neutral', hint: 'Composite success rate across runs.' },
-        { label: 'Policies', value: '—', tone: 'neutral', hint: 'Active Adaptive + Control policies.' },
-      ];
-    }
-    const header = this.perspectives()['build']?.header;
+    const header = this.projectionEnabled() ? this.perspectives()['build']?.header : undefined;
     return [
-      { label: 'Systems', value: this.factValue(header?.['system_count']), hint: 'Number of Systems bound to this Capability.' },
-      { label: 'ROI', value: this.factValue(header?.['roi'], '%'), tone: 'neutral', hint: 'Measured aggregate ROI.' },
-      { label: 'Yield', value: this.factValue(header?.['success_rate'], '%'), tone: 'neutral', hint: 'Composite success rate across runs.' },
-      { label: 'Policies', value: '—', tone: 'neutral', hint: 'Open the Policies facet for authoritative bindings.' },
+      { label: this.i18n.t('flow.capability.kpi.systems'), value: this.factValue(header?.['system_count']) },
+      { label: this.i18n.t('flow.capability.kpi.roi'), value: this.factValue(header?.['roi'], '%'), tone: 'neutral' },
+      { label: this.i18n.t('flow.capability.kpi.success'), value: this.factValue(header?.['success_rate'], '%'), tone: 'neutral' },
+      { label: this.i18n.t('flow.capability.kpi.policies'), value: this.i18n.t('state.availability.unknown'), tone: 'neutral' },
     ];
   });
 
@@ -327,6 +331,7 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
       next: (capability) => {
         if (!this.workspaceView.isCurrent(request) || capabilityId !== this.capabilityId) return;
         if (capability) this.title.set(capability.name);
+        this.capabilityLoaded.set(capability !== null);
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || capabilityId !== this.capabilityId) return;
@@ -376,6 +381,7 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   }
 
   private resetCapabilityResult(): void {
+    this.capabilityLoaded.set(false);
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.perspectiveSubscription?.unsubscribe();
@@ -392,6 +398,7 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   }
 
   private resetWorkspaceState(): void {
+    this.capabilityLoaded.set(false);
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.perspectiveSubscription?.unsubscribe();
@@ -429,11 +436,18 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
   }
 
   private factValue(fact: { state?: string; value?: unknown } | undefined, suffix = ''): string {
-    if (!fact || fact.state !== 'available' || fact.value == null) return '—';
+    if (!fact || fact.state !== 'available' || fact.value == null) return this.i18n.t('state.availability.unknown');
     if (typeof fact.value === 'number') {
       const value = Number.isInteger(fact.value) ? String(fact.value) : fact.value.toFixed(2);
       return `${value}${suffix}`;
     }
+    return String(fact.value);
+  }
+
+  availabilityFact(key: string): string {
+    const fact = this.perspectives()['build']?.header?.[key];
+    if (!fact || fact.state !== 'available' || fact.value == null) return this.i18n.t('state.availability.unknown');
+    if (typeof fact.value === 'boolean') return this.i18n.t(fact.value ? 'state.availability.yes' : 'state.availability.no');
     return String(fact.value);
   }
 }
