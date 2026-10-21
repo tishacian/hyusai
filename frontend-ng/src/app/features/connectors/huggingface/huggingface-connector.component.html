@@ -1,3 +1,4 @@
+<ck-page-frame [hasActions]="false">
 <app-section-header [breadcrumb]="i18n.t('connectors.breadcrumb')" title="Hugging Face" icon="database" [subtitle]="i18n.t('connectors.hf.subtitle')">
   <ck-back-link [fallback]="{ surface: 'connectors' }" />
 </app-section-header>
@@ -166,3 +167,4 @@
   </section>
   <app-huggingface-lifecycle [config]="settings" [artifacts]="artifacts()" [restoredJobs]="lifecycleJobs()" (changed)="refreshArtifacts()" />
 } @else if (!error()) { <p role="status">{{ i18n.t('connectors.hf.loading') }}</p> }
+</ck-page-frame>

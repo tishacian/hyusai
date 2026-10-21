@@ -12,6 +12,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface DepositLink {
   id: string;
@@ -296,9 +297,10 @@ const BULK_PROMOTE_LIMIT = 25;
 @Component({
   selector: 'app-sftp-connector',
   standalone: true,
-  imports: [IngestionStatusComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
+  imports: [PageFrameComponent, IngestionStatusComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       breadcrumb="Connectors"
       title="SFTP / Secure Deposit"
@@ -1553,6 +1555,7 @@ const BULK_PROMOTE_LIMIT = 25;
         }
       }
     </app-drawer>
+    </ck-page-frame>
   `,
   styles: [`
     .sftp-select {

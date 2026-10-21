@@ -12,10 +12,11 @@ import { SecretPickerComponent } from '@app/shared/secrets/secret-picker.compone
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { pgSslMode } from '../postgresql/postgresql.types';
 import { ConnectionGrant, ConnectionParameter, ConnectionProfile, ConnectionRow, ConnectionRun, ToolContract, TERMINAL_CONNECTION_RUNS, connectionPayload, parameterEnabled } from './connections.models';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 @Component({
   selector: 'app-connections-page', standalone: true,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, NavLinkDirective, SecretPickerComponent, SectionHeaderComponent],
+  imports: [PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, NavLinkDirective, SecretPickerComponent, SectionHeaderComponent],
   templateUrl: './connections-page.component.html',
 })
 export class ConnectionsPageComponent implements OnInit, OnDestroy {

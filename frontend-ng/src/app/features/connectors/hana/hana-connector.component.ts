@@ -15,6 +15,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface HanaConfig {
   host?: string;
@@ -55,7 +56,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
   selector: 'app-hana-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  imports: [PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   styles: [`
     :host { display: block; color: var(--ck-fg-1); }
     .hana-help { color: var(--ck-fg-3); }
@@ -73,6 +74,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
     .hana-row { border-top: 1px solid var(--ck-stroke-2); }
   `],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       [breadcrumb]="i18n.t('connectors.title')"
       title="SAP HANA"
@@ -364,6 +366,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
         }
       </section>
     }
+    </ck-page-frame>
   `,
 })
 export class HanaConnectorComponent implements OnInit {

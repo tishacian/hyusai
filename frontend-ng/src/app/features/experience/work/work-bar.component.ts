@@ -99,8 +99,7 @@ import { canEditExperience } from './work-catalog';
 
         @if (showCreator()) {
           <a class="xp-work-link xp-work-creator" [routerLink]="creatorHref()!">
-            <span>{{ i18n.t('experience.work.author') }}</span>
-            · {{ i18n.t(creatorLabelKey()) }} ↗
+            <span class="xp-work-creator-label">{{ i18n.t('experience.work.author') }} · {{ i18n.t(creatorLabelKey()) }} ↗</span>
           </a>
         }
 

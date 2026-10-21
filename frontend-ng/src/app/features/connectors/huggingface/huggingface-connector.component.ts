@@ -13,11 +13,12 @@ import {
   HubArtifact, HubConfig, HubFile, HubFormat, HubImport, HubJob, HubKind, HubRepository, HubSearchResult,
   LicenseClass, defaultSelection, filesForFormat, hasWeights, hubError, hubErrorCode, isTerminalJob, jobError,
 } from './huggingface.models';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 @Component({
   selector: 'app-huggingface-connector',
   standalone: true,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, SectionHeaderComponent, HuggingfaceLifecycleComponent],
+  imports: [PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, SectionHeaderComponent, HuggingfaceLifecycleComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './huggingface-connector.component.html',
   styleUrl: './huggingface-connector.component.css',

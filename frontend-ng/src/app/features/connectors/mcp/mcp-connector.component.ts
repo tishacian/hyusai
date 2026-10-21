@@ -27,6 +27,7 @@ import {
   sortShowcaseServers,
   type McpShowcaseInsight,
 } from './mcp-showcase';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 export interface McpServerPublic {
   id: string;
@@ -134,8 +135,9 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
   selector: 'app-mcp-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  imports: [PageFrameComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       [breadcrumb]="i18n.t('connectors.title')"
       [title]="i18n.t('connectors.mcp.title')"
@@ -756,6 +758,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
         {{ saving() ? i18n.t('connectors.mcp.saving') : i18n.t('connectors.mcp.save') }}
       </button>
     </div>
+    </ck-page-frame>
   `,
 })
 export class McpConnectorComponent implements OnInit {

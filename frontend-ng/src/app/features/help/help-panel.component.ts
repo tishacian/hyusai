@@ -167,6 +167,9 @@ interface GuideBody {
       color: var(--ck-signal-cool, #67d5f6);
       text-align: left;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
       padding: 4px 0;
       font-size: 13px;
       text-decoration: underline;

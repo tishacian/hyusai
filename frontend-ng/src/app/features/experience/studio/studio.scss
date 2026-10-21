@@ -113,7 +113,7 @@
 
 .xp-table th {
   font-family: var(--ck-font-mono);
-  font-size: 10px;
+  font-size: var(--ck-text-meta);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ck-fg-4);
@@ -135,21 +135,20 @@
 .xp-table code {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--ck-text-meta);
   color: var(--ck-fg-4);
 }
 
+/* The flex group lives inside the cell: `display: flex` on a <td> took it
+   out of the table layout. Links are compact `.ck-btn`s so they keep one line. */
 .xp-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 8px;
 }
 
-.xp-actions a {
-  color: var(--ck-signal-cool);
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: none;
+.xp-audience {
+  min-width: 14rem;
 }
 
 .xp-wizard,
@@ -1507,6 +1506,9 @@
 }
 
 .xp-wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   width: min(1140px, calc(100% - 48px));
   min-width: 0;
   margin: 0 auto;

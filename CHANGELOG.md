@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-20 · Measured finish on shared components
+
+- Work buttons and links share the `.ck-btn` box: anchors such as « Services
+  and deliveries » and the creator link are 32 px high and centred, the title
+  bar glyph sits on its label, and Lucide icons follow their `size` again.
+  Connections and the eight connector pages sit in the standard page frame,
+  wizard groups are 20 px apart, the applications table keeps its actions on
+  one line, Flow outline fields use the shared field and help links are 32 px
+  targets. Visual change only, no behaviour or data change.
+- `check:ui-chrome` now also counts type under 12 px (`--ck-text-meta`); the
+  per-file budget is frozen at today's level and may only go down.
+
 ## 2026-10-17 · Operations tiles read the exhaustive Run series
 
 - When activity series are open, the Operations tiles (runs, completed,

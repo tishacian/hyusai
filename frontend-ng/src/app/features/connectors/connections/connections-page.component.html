@@ -1,3 +1,4 @@
+<ck-page-frame [hasActions]="false">
 <app-section-header [title]="i18n.t('connections.title')" [subtitle]="i18n.t('connections.subtitle')" icon="database">
   <ck-back-link [fallback]="{ surface: 'connectors' }" />
 </app-section-header>
@@ -15,7 +16,7 @@
       } @empty { <p class="text-sm text-gray-400">{{ i18n.t('connections.empty') }}</p> }
       <button class="ck-btn w-full" [disabled]="busy()" (click)="load()">{{ i18n.t('connections.reload') }}</button>
     </aside>
-    <main class="space-y-5 min-w-0">
+    <div class="space-y-5 min-w-0">
       @if (editing() && canConfigure()) {
         <form class="ck-surface p-5 space-y-4" (ngSubmit)="save()">
           <label class="block text-sm">{{ i18n.t('connections.name') }}<input class="ck-input w-full mt-1" name="connection-name" [(ngModel)]="name" required maxlength="120" /></label>
@@ -145,6 +146,7 @@
         }
         @if (canConfigure()) { <div class="ck-surface p-4"><label class="flex gap-2 text-sm"><input type="checkbox" [ngModel]="confirmDelete()" (ngModelChange)="confirmDelete.set($event)" />{{ i18n.t('connections.delete_confirm') }}</label><button class="ck-btn mt-3" [disabled]="!confirmDelete() || busy()" (click)="remove()">{{ i18n.t('connections.delete') }}</button></div> }
       }
-    </main>
+    </div>
   </div>
 }
+</ck-page-frame>

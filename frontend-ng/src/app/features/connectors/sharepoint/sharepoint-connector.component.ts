@@ -48,6 +48,7 @@ import {
   SharePointSessionStatus,
   SharepointApiService,
 } from './sharepoint.service';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 type UiMode = 'guest_link' | 'oauth';
 
@@ -56,6 +57,7 @@ type UiMode = 'guest_link' | 'oauth';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    PageFrameComponent,
     CommonModule,
     FormsModule,
     CkBackLinkComponent,
@@ -64,6 +66,7 @@ type UiMode = 'guest_link' | 'oauth';
     EmptyStateComponent,
   ],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       breadcrumb="Connectors"
       title="Microsoft SharePoint"
@@ -455,6 +458,7 @@ type UiMode = 'guest_link' | 'oauth';
         </div>
       </aside>
     </div>
+    </ck-page-frame>
   `,
 })
 export class SharepointConnectorComponent implements OnInit, OnDestroy {

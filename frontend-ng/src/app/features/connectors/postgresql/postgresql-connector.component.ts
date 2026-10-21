@@ -12,6 +12,7 @@ import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import { pgFailure, pgSslMode, pgTestFailure, pgTableKey, type PgCatalog as Catalog, type PgDescription as Description, type PgFailure, type PgPreview as Preview, type PgSslMode, type PgTable, type PgTestResult as TestResult } from './postgresql.types';
 import { PgTablePickerComponent } from './pg-table-picker.component';
 import { DatasetDto } from '@app/features/data/data.service';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface Config {
   id: string; values: Record<string, string>; secrets_set: Record<string, boolean>; configured: boolean;
@@ -25,7 +26,7 @@ export interface StepState { tone: StepTone; label: string; }
 @Component({
   selector: 'app-postgresql-connector', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, DataTableComponent, PgTablePickerComponent],
+  imports: [PageFrameComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, DataTableComponent, PgTablePickerComponent],
   templateUrl: './postgresql-connector.component.html',
   styleUrl: './postgresql-connector.component.css',
 })

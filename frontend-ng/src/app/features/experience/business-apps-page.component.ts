@@ -124,26 +124,28 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                     }}</ck-tag>
                   </td>
                   <td>{{ releaseLabel(app) }}</td>
-                  <td>{{ audienceText(app) }}</td>
-                  <td class="xp-actions">
-                    @if (canEdit()) {
-                      <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
-                        {{
-                          stateOf(app) === 'draft'
-                            ? i18n.t('experience.apps.action.continue')
-                            : i18n.t('experience.apps.action.edit')
-                        }}
-                      </a>
-                    } @else if (canReview()) {
-                      <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
-                        {{ i18n.t('experience.apps.action.review') }}
-                      </a>
-                    }
-                    @if (viewHref(app); as href) {
-                      <a [routerLink]="href">
-                        {{ i18n.t('experience.apps.action.view') }} ↗
-                      </a>
-                    }
+                  <td class="xp-audience">{{ audienceText(app) }}</td>
+                  <td>
+                    <div class="xp-actions">
+                      @if (canEdit()) {
+                        <a class="ck-btn ck-btn--sm ck-btn-quiet" [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
+                          {{
+                            stateOf(app) === 'draft'
+                              ? i18n.t('experience.apps.action.continue')
+                              : i18n.t('experience.apps.action.edit')
+                          }}
+                        </a>
+                      } @else if (canReview()) {
+                        <a class="ck-btn ck-btn--sm ck-btn-quiet" [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
+                          {{ i18n.t('experience.apps.action.review') }}
+                        </a>
+                      }
+                      @if (viewHref(app); as href) {
+                        <a class="ck-btn ck-btn--sm ck-btn-quiet" [routerLink]="href">
+                          {{ i18n.t('experience.apps.action.view') }} ↗
+                        </a>
+                      }
+                    </div>
                   </td>
                 </tr>
               }

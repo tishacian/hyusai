@@ -100,6 +100,11 @@
   --ck-fg-4:         var(--ck-fg-3);
   --ck-fg-5:         var(--ck-fg-3);
 
+  /* ---- TYPE FLOOR ----
+     Short metadata (column heads, timestamps, counts, breadcrumbs) never goes
+     below this size; `npm run check:ui-chrome` counts every smaller one. */
+  --ck-text-meta:    12px;
+
   /* ---- PRIMARY (filled button, links, selection, focus) ---- */
   --ck-primary:       #1fb8cc;
   --ck-primary-hover: #199fb1;

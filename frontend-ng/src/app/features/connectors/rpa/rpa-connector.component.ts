@@ -14,6 +14,7 @@ import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 interface RpaConfig {
   base_url?: string;
@@ -36,8 +37,9 @@ interface RpaTestResult {
   selector: 'app-rpa-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  imports: [PageFrameComponent, CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       breadcrumb="Connectors"
       title="RPA Bridge"
@@ -189,6 +191,7 @@ interface RpaTestResult {
         </div>
       }
     </section>
+    </ck-page-frame>
   `,
 })
 export class RpaConnectorComponent implements OnInit {
