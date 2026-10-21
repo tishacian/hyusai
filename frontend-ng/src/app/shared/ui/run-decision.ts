@@ -1,4 +1,4 @@
-import { Observable, map, throwError } from 'rxjs';
+import { Observable, filter, map, of, startWith, switchMap, take, throwError } from 'rxjs';
 import type { CanonicalApiService, Run } from '@app/core/canonical-api.service';
 import { STRICT, settleRead, settleWrite, type WriteOutcome } from './load-state';
 
@@ -41,27 +41,36 @@ export function decideRun(
   );
 }
 
-/** Reads the Run back: is it still waiting for this decision? */
+/** Reconcile the observed pause with its authoritative decision receipt. */
 export function checkDecision(
-  canonical: Pick<CanonicalApiService, 'getRun'>,
+  canonical: Pick<CanonicalApiService, 'getRun' | 'getDecision'>,
   runId: string,
   decisionId: string | null | undefined,
 ): Observable<DecisionCheck> {
-  return new Observable<DecisionCheck>((subscriber) => {
-    subscriber.next({ s: 'checking' });
-    const sub = settleRead(canonical.getRun(runId, STRICT)).subscribe((state) => {
-      if (state.s === 'loading') return;
-      if (state.s !== 'ready') {
-        subscriber.next({ s: 'unknown' });
-      } else {
-        const run = state.value;
-        const waiting = run.status === 'hitl_pending' && (!decisionId || run.hitl?.decision_id === decisionId);
-        subscriber.next(waiting ? { s: 'pending', run } : { s: 'recorded', run });
+  if (!decisionId) return of<DecisionCheck>({ s: 'unknown' });
+  return settleRead(canonical.getRun(runId, STRICT)).pipe(
+    filter((state) => state.s !== 'loading'),
+    take(1),
+    switchMap((state): Observable<DecisionCheck> => {
+      if (state.s !== 'ready' || state.value.id !== runId) return of({ s: 'unknown' });
+      const run = state.value;
+      if (run.status === 'hitl_pending' && run.hitl?.decision_id === decisionId) {
+        return of({ s: 'pending', run });
       }
-      subscriber.complete();
-    });
-    return () => sub.unsubscribe();
-  });
+      // A cancelled Run or another pause is not evidence that this decision
+      // was recorded. Read the exact receipt, with the server's access checks.
+      return settleRead(canonical.getDecision(decisionId, STRICT)).pipe(
+        filter((receipt) => receipt.s !== 'loading'),
+        take(1),
+        map((receipt): DecisionCheck => receipt.s === 'ready'
+          && receipt.value.id === decisionId
+          && ['accepted', 'rejected', 'applied'].includes(receipt.value.status)
+          ? { s: 'recorded', run }
+          : { s: 'unknown' }),
+      );
+    }),
+    startWith<DecisionCheck>({ s: 'checking' }),
+  );
 }
 
 export interface DecisionMessage {

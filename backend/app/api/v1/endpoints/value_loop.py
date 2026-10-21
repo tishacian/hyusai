@@ -1,4 +1,5 @@
 """System-scoped API for the authoritative Lot 8 value loop."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -30,7 +31,7 @@ from app.models.value_loop import (
 )
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.decision_access import readable_decisions
-from app.services.iam.decision_plane import enforce_action
+from app.services.iam.decision_plane import enforce_action, resolve_action
 from app.services.projection_integrity import scrub_projection_mapping
 from app.services.run_access import resolve_run_read, run_is_visible
 from app.services.value_loop import (
@@ -113,9 +114,7 @@ def _actor(user: User) -> str:
 
 def _system_or_404(db: DBSession, workspace: Workspace, system_id: str) -> System:
     system = (
-        db.query(System)
-        .filter(System.id == system_id, System.workspace_id == workspace.id)
-        .first()
+        db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
     )
     if system is None:
         raise HTTPException(status_code=404, detail="System not found")
@@ -347,18 +346,14 @@ def _serialize_measurement(row: ValueMeasurement) -> dict[str, Any]:
             if isinstance(row.observed_outcome, Mapping)
             else None
         ),
-        "delta": (
-            scrub_projection_mapping(row.delta) if isinstance(row.delta, Mapping) else None
-        ),
+        "delta": (scrub_projection_mapping(row.delta) if isinstance(row.delta, Mapping) else None),
         "forecast_delta": (
             scrub_projection_mapping(row.forecast_delta)
             if isinstance(row.forecast_delta, Mapping)
             else None
         ),
         "assumption_verdict": row.assumption_verdict,
-        "assumption_evaluation": scrub_projection_mapping(
-            row.assumption_evaluation or {}
-        ),
+        "assumption_evaluation": scrub_projection_mapping(row.assumption_evaluation or {}),
         "measured_at": _iso(row.measured_at),
     }
 
@@ -456,6 +451,35 @@ def _raise_value_loop_error(exc: ValueLoopError) -> None:
     ) from exc
 
 
+def _ui_permissions(db, workspace, system, user, scenario_id=None):
+    membership, role = _membership_or_403(db, workspace=workspace, user=user)
+    return {
+        action: resolve_action(
+            db,
+            user=user,
+            workspace=workspace,
+            membership=membership,
+            resource_kind="value_scenario",
+            action=action,
+            legacy_allowed=role in allowed,
+            resource_attrs={
+                "system_id": system.id,
+                "capability_id": system.capability_id,
+                "scenario_id": scenario_id,
+            },
+            audit_shadow_diff=False,
+            audit_shadow_evidence=False,
+        ).effective_allowed
+        for action, allowed in {
+            "create": CREATE_ROLES,
+            "simulate": SIMULATE_ROLES,
+            "approve": APPROVE_ROLES,
+            "act": ACT_ROLES,
+            "measure": MEASURE_ROLES,
+        }.items()
+    }
+
+
 @router.get("/{system_id}/value-loop")
 async def get_system_value_loop(
     system_id: str,
@@ -505,32 +529,32 @@ async def get_system_value_loop(
         user=user,
         workspace=workspace,
     )
-    raw_by_scenario = {
-        row.scenario_id: row for row in raw_decisions if row.scenario_id
-    }
-    visible_by_scenario = {
-        row.scenario_id: row for row in visible_decisions if row.scenario_id
-    }
+    raw_by_scenario = {row.scenario_id: row for row in raw_decisions if row.scenario_id}
+    visible_by_scenario = {row.scenario_id: row for row in visible_decisions if row.scenario_id}
     return {
         "schema_version": 1,
+        "permissions": _ui_permissions(db, workspace, system, user),
         "system_id": system.id,
         "actuator": CONTROL_POLICY_GUARDRAILS_PATCH_V1,
         "state": (
             "restricted" if raw_rows and not rows else "available" if rows else "not_configured"
         ),
         "items": [
-            _serialize_scenario(
-                db,
-                row,
-                decision_override=visible_by_scenario.get(row.id),
-                decision_state=(
-                    "available"
-                    if row.id in visible_by_scenario
-                    else "restricted"
-                    if row.id in raw_by_scenario
-                    else "not_configured"
+            {
+                **_serialize_scenario(
+                    db,
+                    row,
+                    decision_override=visible_by_scenario.get(row.id),
+                    decision_state=(
+                        "available"
+                        if row.id in visible_by_scenario
+                        else "restricted"
+                        if row.id in raw_by_scenario
+                        else "not_configured"
+                    ),
                 ),
-            )
+                "permissions": _ui_permissions(db, workspace, system, user, row.id),
+            }
             for row in rows
         ],
     }

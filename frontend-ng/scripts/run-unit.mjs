@@ -25,6 +25,19 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/shared/ui/specialized-app-version.spec.ts',
+  'src/app/features/deposit/deposit-receipt.spec.ts',
+  'src/app/features/data/typed-judge-guidance.spec.ts',
+  'src/app/features/experience/studio/studio-conflict.spec.ts',
+  'src/app/features/chat/chat-upload-outcome.spec.ts',
+  'src/app/features/connectors/connector-capabilities.spec.ts',
+  'src/app/features/observability/quality-sample.spec.ts',
+  'src/app/features/data/data-provenance.spec.ts',
+  'src/app/features/contexts/context-freshness.spec.ts',
+  'src/app/features/experience/studio/test-preview.model.spec.ts',
+  'src/app/features/experience/studio/wizard-route.spec.ts',
+  'src/app/features/experience/hub/start.model.spec.ts',
+  'src/app/features/access-state/access-state.model.spec.ts',
   'src/app/features/runs/run-execution.models.spec.ts',
   'src/app/features/observability/activities/activity-series.vm.spec.ts',
   'src/app/features/models/monitoring-history.vm.spec.ts',
@@ -37,6 +50,7 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow-data-prep.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-data-prep-ui-contract.spec.ts',
   'src/app/features/data/dataops.models.spec.ts',
+  'src/app/features/data/data-preparation.vm.spec.ts',
   'src/app/features/experience/work/service-delivery.models.spec.ts',
   'src/app/features/models/preprocessing-evidence.vm.spec.ts',
   'src/app/features/models/evaluation-evidence.vm.spec.ts',
@@ -196,11 +210,17 @@ const pureSpecs = [
   'src/app/features/experience/work/pr-to-po-receipt.spec.ts',
   'src/app/features/experience/studio/studio.spec.ts',
   'src/app/features/runs/runs-origin.spec.ts',
+  'src/app/features/auth/signup.vm.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/shared/cockpit/impact-preview.component.spec.ts',
+  'src/app/features/connectors/rpa/rpa-connector.component.spec.ts',
+  'src/app/features/account/account-read-state.spec.ts',
+  'src/app/features/systems/system-builder-writes.spec.ts',
+  'src/app/features/workspace/experience-activation.controller.spec.ts',
   'src/app/features/runs/run-execution-api.service.spec.ts',
   'src/app/features/models/ml-governance.component.spec.ts',
   'src/app/features/models/endpoints.component.spec.ts',
@@ -240,11 +260,13 @@ const storeSpecs = [
   'src/app/features/data/dataset-label-review.component.spec.ts',
   'src/app/features/systems/system-view.component.spec.ts',
   'src/app/features/hypervisor/v2/hypervisor-v2-sources.spec.ts',
+  'src/app/core/canonical-api-errors.spec.ts',
   'src/app/core/canonical-api-skills.spec.ts',
   'src/app/core/canonical-api-versions.spec.ts',
   'src/app/core/api.service.spec.ts',
   'src/app/store/auth.store.spec.ts',
   'src/app/core/auth.interceptor.spec.ts',
+  'src/app/core/auth-redirect.spec.ts',
   'src/app/core/navigation-profile.guard.spec.ts',
   'src/app/core/object-perspective.store.spec.ts',
   'src/app/core/zoom-context.service.spec.ts',
@@ -383,7 +405,8 @@ try {
   const bundles = [...selectedPureSpecs, ...selectedStoreSpecs].map((s) =>
     join(outDir, s.replace(/\.ts$/, '.mjs')),
   );
-  const result = spawnSync(process.execPath, ['--test', ...bundles], {
+  const reporter = process.env['FLOW_UNIT_REPORTER'];
+  const result = spawnSync(process.execPath, ['--test', ...(reporter ? [`--test-reporter=${reporter}`] : []), ...bundles], {
     stdio: 'inherit',
   });
   exitCode = result.status ?? 1;

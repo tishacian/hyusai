@@ -59,6 +59,18 @@ export interface LexiconEntry {
   readonly untranslated?: readonly string[];
 }
 
+/**
+ * The three families the product calls "apps" in conversation, each with
+ * its own name and its rail entry. `check:i18n` fails when two families share
+ * a head noun, or when one repeats a rail group header or a neighbouring rail
+ * label, in French or in English.
+ */
+export const APP_FAMILIES: readonly { readonly conceptId: string; readonly navKey: string }[] = [
+  { conceptId: 'business-application', navKey: 'nav.business_apps' },
+  { conceptId: 'workspace-module', navKey: 'nav.workspace_apps' },
+  { conceptId: 'extension', navKey: 'nav.apps' },
+];
+
 /** `<ck-help>` ids served from this lexicon rather than the help YAML. */
 export const CONCEPT_HELP_PREFIX = 'concept.';
 
@@ -168,6 +180,32 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     },
     banned: [],
     internal: ['ExperienceDraft'],
+  },
+  {
+    // The second of the three "app" families (lot 3): the packaged units an
+    // administrator installs, upgrades and rolls back on a workspace, under
+    // /governance/workspace-apps. Calling them "workspace apps" made the rail
+    // offer three entries that all read "apps".
+    id: 'workspace-module',
+    en: 'Workspace module',
+    fr: 'Module du workspace',
+    definition: {
+      en: 'A packaged unit an administrator installs, upgrades or rolls back on the whole workspace.',
+      fr: "Un ensemble packagé qu'un administrateur installe, met à niveau ou retire sur tout le workspace.",
+    },
+    banned: ['workspace app', 'workspace apps', 'apps du workspace', 'app du workspace'],
+  },
+  {
+    // The third "app" family: the catalog under /apps of tools and
+    // integrations the orchestrator can plug into any System.
+    id: 'extension',
+    en: 'Extension',
+    fr: 'Extension',
+    definition: {
+      en: 'A packaged tool or integration that any System of the workspace can use once enabled.',
+      fr: "Un outil ou une intégration packagé que tout système du workspace peut utiliser une fois activé.",
+    },
+    banned: ['apps & integrations', 'apps & intégrations', 'apps et intégrations'],
   },
   {
     // The space of business applications. A product noun in both languages,

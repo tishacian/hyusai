@@ -498,3 +498,6 @@
     line-height: 1.5;
   }
 }
+
+/* Read-only publication keeps the inspector close control outside locked fields. */
+fieldset.ck-flow-inspector__body { border: 0; margin: 0; min-inline-size: 0; }

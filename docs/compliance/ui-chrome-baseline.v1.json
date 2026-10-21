@@ -1,51 +1,98 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-17T14:20:31.324Z",
+  "generated_at": "2026-10-21T14:10:16.017Z",
   "rules": {
     "font": "banned font",
     "violet": "banned violet",
     "pill": "banned pill radius",
-    "halo": "banned glow halo"
+    "halo": "banned glow halo",
+    "tiny-type": "type under 12px"
   },
   "files": {
     "src/app/features/account/security.component.ts": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 2
+    },
+    "src/app/features/andritz/client360/client360-page.component.ts": {
+      "tiny-type": 16
     },
     "src/app/features/apps/apps-page.component.ts": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 11
     },
     "src/app/features/auth/auth-shell.component.ts": {
       "violet": 3,
       "pill": 5,
-      "halo": 5
+      "halo": 5,
+      "tiny-type": 7
     },
     "src/app/features/auth/password-reset.component.ts": {
       "pill": 2,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 5
     },
     "src/app/features/auth/signin.component.ts": {
       "pill": 3,
-      "halo": 6
+      "halo": 6,
+      "tiny-type": 9
     },
     "src/app/features/auth/signup.component.ts": {
       "pill": 2,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 8
     },
     "src/app/features/capabilities/capabilities.component.ts": {
       "violet": 7,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 25
+    },
+    "src/app/features/capabilities/capability-view.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/capabilities/catalog-curation.component.ts": {
-      "violet": 1
+      "violet": 1,
+      "tiny-type": 28
+    },
+    "src/app/features/chat/assistant-draft-drawer.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/chat/assistant-pilot.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/chat/chat-overlay.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/chat/chat-panel.component.ts": {
       "pill": 23,
-      "halo": 4
+      "halo": 4,
+      "tiny-type": 81
+    },
+    "src/app/features/chat/chat-proof-rail.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/chat/chat-workspace.component.ts": {
       "violet": 2,
       "pill": 2,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 15
+    },
+    "src/app/features/chat/conversation-page.component.ts": {
+      "tiny-type": 6
+    },
+    "src/app/features/chat/conversations.component.ts": {
+      "tiny-type": 16
+    },
+    "src/app/features/connectors/connector-catalog.component.ts": {
+      "tiny-type": 8
+    },
+    "src/app/features/connectors/connectors-page.component.ts": {
+      "tiny-type": 13
+    },
+    "src/app/features/connectors/postgresql/pg-table-picker.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/connectors/postgresql/postgresql-connector.component.css": {
+      "tiny-type": 3
     },
     "src/app/features/connectors/sftp/sftp-connector.component.ts": {
       "font": 1,
@@ -53,134 +100,356 @@
       "halo": 1
     },
     "src/app/features/contexts/context-view.component.ts": {
-      "violet": 1
+      "violet": 1,
+      "tiny-type": 6
+    },
+    "src/app/features/contexts/contexts-page.component.ts": {
+      "tiny-type": 5
     },
     "src/app/features/data/data-list.component.ts": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 7
+    },
+    "src/app/features/data/data-view.component.ts": {
+      "tiny-type": 19
+    },
+    "src/app/features/data/dataops-editor.scss": {
+      "tiny-type": 1
+    },
+    "src/app/features/data/dataset-preview.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/data/viz/bar-list.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/data/viz/confusion-matrix.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/data/viz/decision-tree-chart.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/data/viz/forecast-chart.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/experience/create-hub.component.scss": {
+      "tiny-type": 2
     },
     "src/app/features/experience/runtime/runtime-blocks.ts": {
       "violet": 4
     },
     "src/app/features/experience/runtime/runtime.scss": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 4
     },
     "src/app/features/experience/runtime/v0_1/runtime-blocks.ts": {
       "violet": 2
     },
+    "src/app/features/experience/runtime/v0_1/runtime.scss": {
+      "tiny-type": 2
+    },
     "src/app/features/experience/studio/studio.scss": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 16
+    },
+    "src/app/features/experience/studio/timeseries-editor.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/experience/work/claims-studio.scss": {
+      "tiny-type": 8
+    },
+    "src/app/features/experience/work/work-home.scss": {
+      "tiny-type": 1
     },
     "src/app/features/experience/work/work.scss": {
       "pill": 8,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 23
     },
     "src/app/features/governance/access-roles.component.ts": {
       "pill": 1,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 14
+    },
+    "src/app/features/governance/audit-logs.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/governance/canonical-answers.component.ts": {
+      "tiny-type": 5
     },
     "src/app/features/governance/chat-history.component.ts": {
       "pill": 8,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 22
     },
     "src/app/features/governance/experience-governance.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 1
+    },
+    "src/app/features/governance/surface-map.component.ts": {
+      "tiny-type": 4
     },
     "src/app/features/governance/workspace-app-lifecycle.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 3
     },
     "src/app/features/governance/workspace-blueprints.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 3
+    },
+    "src/app/features/help/help-panel.component.ts": {
+      "tiny-type": 2
     },
     "src/app/features/hypervisor/hypervisor.component.ts": {
       "violet": 8,
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 69
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-alertes.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-carte.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-echeancier.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-flux.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-indicateurs.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-ordre-du-jour.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/hypervisor/v2/hypervisor-v2.component.ts": {
+      "tiny-type": 10
+    },
+    "src/app/features/intelligence/intelligence-entry.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/intelligence/news-lab.component.ts": {
-      "pill": 5
+      "pill": 5,
+      "tiny-type": 18
     },
     "src/app/features/knowledge/capture-fil/anchor-chip.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 7
+    },
+    "src/app/features/knowledge/capture-fil/capture-fil-settings.component.ts": {
+      "tiny-type": 4
+    },
+    "src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/knowledge/capture-fil/capture-presentation.ts": {
       "violet": 2
     },
+    "src/app/features/knowledge/capture-fil/la-scene.component.ts": {
+      "tiny-type": 7
+    },
     "src/app/features/knowledge/capture-fil/le-fil-session.component.ts": {
       "violet": 10,
-      "pill": 8
+      "pill": 8,
+      "tiny-type": 29
     },
     "src/app/features/knowledge/capture-fil/report-provenance.component.ts": {
       "violet": 5,
       "pill": 21,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 42
+    },
+    "src/app/features/knowledge/capture-fil/surfaces/capture-fil-dashboard.component.ts": {
+      "tiny-type": 2
     },
     "src/app/features/knowledge/capture-fil/surfaces/capture-fil-finalize.component.ts": {
-      "violet": 1
+      "violet": 1,
+      "tiny-type": 1
     },
     "src/app/features/knowledge/capture-fil/surfaces/capture-fil-plan.component.ts": {
-      "violet": 3
+      "violet": 3,
+      "tiny-type": 4
+    },
+    "src/app/features/knowledge/capture-fil/surfaces/capture-fil-prep.component.ts": {
+      "tiny-type": 8
+    },
+    "src/app/features/knowledge/capture-fil/surfaces/capture-fil-publish.component.ts": {
+      "tiny-type": 6
     },
     "src/app/features/knowledge/capture-fil/triage-dialog.component.ts": {
       "violet": 1,
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 2
+    },
+    "src/app/features/knowledge/capture-fil/view-tile.component.ts": {
+      "tiny-type": 3
     },
     "src/app/features/knowledge/embedding-map.component.ts": {
       "violet": 1,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 2
     },
     "src/app/features/knowledge/knowledge-base.component.ts": {
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 6
     },
     "src/app/features/knowledge/knowledge-view.component.ts": {
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 41
     },
     "src/app/features/layout/business-shell-header.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 2
+    },
+    "src/app/features/layout/command-bar.component.ts": {
+      "tiny-type": 4
     },
     "src/app/features/layout/command-palette.component.ts": {
       "violet": 6
     },
+    "src/app/features/layout/mini-rail.component.ts": {
+      "tiny-type": 5
+    },
+    "src/app/features/layout/semantic-zoom-breadcrumb.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/layout/side-rail.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/layout/title-bar.component.ts": {
+      "tiny-type": 17
+    },
+    "src/app/features/mandate/mandate-editor.component.css": {
+      "tiny-type": 4
+    },
     "src/app/features/mandate/run-mandate.component.css": {
       "violet": 1,
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 5
+    },
+    "src/app/features/mandate/system-mandate.component.css": {
+      "tiny-type": 2
+    },
+    "src/app/features/models/classification-evidence.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/models/counterfactual-panel.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/models/explanation-evidence.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/models/forecast-playground.component.ts": {
+      "tiny-type": 4
+    },
+    "src/app/features/models/forecast-spec.component.ts": {
+      "tiny-type": 10
+    },
+    "src/app/features/models/model-import.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/models/model-playground.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 22
     },
     "src/app/features/models/model-train.component.ts": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 17
     },
     "src/app/features/models/model-view.component.ts": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 25
     },
     "src/app/features/models/models-list.component.ts": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 7
+    },
+    "src/app/features/models/production-debug.component.ts": {
+      "tiny-type": 3
+    },
+    "src/app/features/models/tabular-intervals.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/models/tabular-options.component.ts": {
+      "tiny-type": 4
+    },
+    "src/app/features/models/tree-shap-explanation.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/models/tuning-evidence.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/nawa/nawa-assistant.component.scss": {
+      "tiny-type": 9
+    },
+    "src/app/features/nawa/nawa-itsd-catalog.component.scss": {
+      "tiny-type": 4
+    },
+    "src/app/features/nawa/nawa-password-reset.component.scss": {
+      "tiny-type": 8
+    },
+    "src/app/features/nawa/nawa-theme-toggle.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/observability/activities/activities.component.css": {
+      "tiny-type": 3
+    },
+    "src/app/features/observability/observability-shell.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/observability/performance-dashboard.component.ts": {
+      "tiny-type": 5
     },
     "src/app/features/observability/quality-dashboard.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 20
+    },
+    "src/app/features/observability/quality-evidence-charts.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/observability/traces-facet.component.ts": {
+      "tiny-type": 2
+    },
+    "src/app/features/observability/workspace-monitor.component.ts": {
+      "tiny-type": 20
+    },
+    "src/app/features/orchestration/flow/flow-builder.component.scss": {
+      "tiny-type": 4
     },
     "src/app/features/orchestration/flow/flow-canvas.component.scss": {
       "violet": 6,
       "pill": 1
     },
+    "src/app/features/orchestration/flow/flow-data-prep-workshop.component.scss": {
+      "tiny-type": 1
+    },
+    "src/app/features/orchestration/flow/flow-data-source-inspector.component.scss": {
+      "tiny-type": 8
+    },
     "src/app/features/orchestration/flow/flow-decision-bindings.component.scss": {
       "violet": 2,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 1
     },
     "src/app/features/orchestration/flow/flow-ingress-editor.component.scss": {
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 1
     },
     "src/app/features/orchestration/flow/flow-inspector.component.scss": {
       "violet": 10,
       "pill": 3,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 5
     },
     "src/app/features/orchestration/flow/flow-manifest-strip.component.scss": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 5
     },
     "src/app/features/orchestration/flow/flow-node.component.scss": {
       "violet": 8,
       "pill": 5,
-      "halo": 5
+      "halo": 5,
+      "tiny-type": 1
     },
     "src/app/features/orchestration/flow/flow-node.component.ts": {
       "violet": 3
@@ -190,98 +459,164 @@
     },
     "src/app/features/orchestration/flow/flow-palette.component.scss": {
       "violet": 4,
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 6
     },
     "src/app/features/orchestration/flow/flow-publication-panel.component.scss": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 1
     },
     "src/app/features/orchestration/flow/flow-recipe-workshop.component.scss": {
       "pill": 2,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 5
     },
     "src/app/features/orchestration/flow/flow-run-controls.component.scss": {
       "pill": 2,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 1
     },
     "src/app/features/orchestration/flow/flow-schema-editor.component.scss": {
       "violet": 2,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 1
     },
     "src/app/features/orchestration/flow/flow-terminal.component.scss": {
       "violet": 3,
       "pill": 2,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 11
     },
     "src/app/features/orchestration/flow/flow-toolbar.component.scss": {
       "pill": 3
     },
     "src/app/features/orchestration/flow/flow-train-workshop.component.scss": {
       "pill": 4,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 10
     },
     "src/app/features/orchestration/flow/flow-transform-workshop.component.scss": {
       "pill": 4,
-      "halo": 3
+      "halo": 3,
+      "tiny-type": 4
     },
     "src/app/features/orchestration/flow/flow-trigger-controls.component.scss": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 8
     },
     "src/app/features/orchestration/flow/flow-validation-strip.component.scss": {
       "pill": 3,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 4
     },
     "src/app/features/orchestration/flow/flow-versions.component.scss": {
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 9
+    },
+    "src/app/features/orchestration/flow/flow-workbench-panel.component.scss": {
+      "tiny-type": 17
     },
     "src/app/features/orchestration/flow/flow.types.ts": {
       "violet": 5
     },
     "src/app/features/orchestration/flow/manifest-fields.component.scss": {
       "pill": 1,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 4
+    },
+    "src/app/features/presets/evaluation-preset.component.ts": {
+      "tiny-type": 17
     },
     "src/app/features/presets/preset-view.component.ts": {
-      "violet": 1
+      "violet": 1,
+      "tiny-type": 14
     },
     "src/app/features/presets/presets-list.component.ts": {
       "violet": 1,
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 20
     },
     "src/app/features/resources/resources-page.component.ts": {
       "violet": 3,
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 39
+    },
+    "src/app/features/runs/run-execution-graph.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/features/runs/run-execution-view.component.css": {
+      "tiny-type": 2
+    },
+    "src/app/features/runs/run-trace.component.ts": {
+      "tiny-type": 3
     },
     "src/app/features/runs/run-view.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 30
+    },
+    "src/app/features/runs/runs-list.component.ts": {
+      "tiny-type": 6
+    },
+    "src/app/features/runs/skill-invocation-view.component.ts": {
+      "tiny-type": 1
     },
     "src/app/features/settings/rag-settings.component.ts": {
       "pill": 4,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 18
+    },
+    "src/app/features/skills/brd-import.component.ts": {
+      "tiny-type": 13
+    },
+    "src/app/features/skills/new-skill-dialog.component.ts": {
+      "tiny-type": 21
+    },
+    "src/app/features/skills/skill-view.component.ts": {
+      "tiny-type": 3
     },
     "src/app/features/skills/skills.component.ts": {
       "violet": 3,
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 33
+    },
+    "src/app/features/steering/review-queue.component.ts": {
+      "tiny-type": 32
+    },
+    "src/app/features/steering/steering.component.ts": {
+      "tiny-type": 2
     },
     "src/app/features/systems/flow-runner.component.ts": {
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 3
     },
     "src/app/features/systems/system-builder.component.ts": {
       "violet": 9,
       "pill": 1,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 13
     },
     "src/app/features/systems/system-mandate-coverage.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 7
+    },
+    "src/app/features/systems/system-perspective.component.ts": {
+      "tiny-type": 7
     },
     "src/app/features/systems/system-value-loop.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 6
     },
     "src/app/features/systems/system-view.component.ts": {
       "violet": 5,
-      "pill": 3
+      "pill": 3,
+      "tiny-type": 41
     },
     "src/app/features/systems/systems-grid.component.ts": {
-      "violet": 1
+      "violet": 1,
+      "tiny-type": 1
+    },
+    "src/app/features/tasks/tasks-page.component.ts": {
+      "tiny-type": 13
     },
     "src/app/features/workspace-app-runtime/workspace-app-unavailable.component.ts": {
       "pill": 1,
@@ -289,61 +624,96 @@
     },
     "src/app/features/workspace/chat-knowledge-settings.component.ts": {
       "pill": 2,
-      "halo": 3
+      "halo": 3,
+      "tiny-type": 23
     },
     "src/app/features/workspace/danger.component.ts": {
       "pill": 1
     },
     "src/app/features/workspace/general.component.ts": {
-      "pill": 9
+      "pill": 9,
+      "tiny-type": 7
     },
     "src/app/features/workspace/members.component.ts": {
       "pill": 2,
-      "halo": 1
+      "halo": 1,
+      "tiny-type": 5
+    },
+    "src/app/shared/cockpit/charts/chart-tip.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/shared/cockpit/filter-chip.component.ts": {
+      "tiny-type": 1
     },
     "src/app/shared/cockpit/help-tooltip.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 8
     },
     "src/app/shared/cockpit/impact-preview.component.ts": {
-      "violet": 1
+      "violet": 1,
+      "tiny-type": 6
+    },
+    "src/app/shared/cockpit/kbd.component.ts": {
+      "tiny-type": 1
     },
     "src/app/shared/cockpit/live-dot.component.ts": {
-      "violet": 3
+      "violet": 3,
+      "tiny-type": 1
     },
     "src/app/shared/cockpit/micro-bar.component.ts": {
       "violet": 3
     },
     "src/app/shared/cockpit/object-header.component.ts": {
-      "violet": 4
+      "violet": 4,
+      "tiny-type": 1
+    },
+    "src/app/shared/cockpit/object-perspective.component.ts": {
+      "tiny-type": 7
     },
     "src/app/shared/cockpit/panel.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 1
     },
     "src/app/shared/cockpit/run-outcome-card.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 10
     },
     "src/app/shared/cockpit/runtime-status-badge.component.ts": {
       "violet": 1
     },
+    "src/app/shared/cockpit/spark.component.ts": {
+      "tiny-type": 1
+    },
     "src/app/shared/cockpit/stat-readout.component.ts": {
-      "violet": 3
+      "violet": 3,
+      "tiny-type": 6
+    },
+    "src/app/shared/cockpit/tabs.component.ts": {
+      "tiny-type": 3
     },
     "src/app/shared/cockpit/tag.component.ts": {
-      "violet": 5
+      "violet": 5,
+      "tiny-type": 1
     },
     "src/app/shared/document-preview/document-preview.component.ts": {
       "font": 1,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 3
+    },
+    "src/app/shared/schema-builder/schema-builder.component.scss": {
+      "tiny-type": 4
     },
     "src/app/shared/ui/code-editor.component.ts": {
       "halo": 1
     },
     "src/app/shared/ui/data-table.component.ts": {
       "violet": 4,
-      "pill": 2
+      "pill": 2,
+      "tiny-type": 12
     },
     "src/app/shared/ui/empty-state.component.ts": {
-      "pill": 1
+      "pill": 1,
+      "tiny-type": 1
     },
     "src/app/shared/ui/section-header.component.ts": {
       "pill": 1
@@ -351,9 +721,22 @@
     "src/app/shared/ui/skeleton.component.ts": {
       "pill": 1
     },
+    "src/app/shared/ui/sparkline.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/shared/ui/status-pulse.component.ts": {
+      "tiny-type": 1
+    },
     "src/app/shared/voice/voice-controls.component.ts": {
       "pill": 2,
-      "halo": 2
+      "halo": 2,
+      "tiny-type": 2
+    },
+    "src/app/shared/work-records/work-action-receipt.component.ts": {
+      "tiny-type": 1
+    },
+    "src/app/shared/work-records/work-record-queue.scss": {
+      "tiny-type": 4
     },
     "src/styles.scss": {
       "violet": 2,
@@ -369,7 +752,8 @@
     },
     "src/styles/mission-tokens.scss": {
       "pill": 2,
-      "halo": 4
+      "halo": 4,
+      "tiny-type": 4
     }
   }
 }

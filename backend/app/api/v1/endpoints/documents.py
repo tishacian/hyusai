@@ -600,12 +600,14 @@ async def upload_documents_batch(
         # re-listing the whole collection.
         documents = [
             {
-                "document_id": r.get("document_id"),
-                "filename": r.get("filename"),
+                "document_id": r.get("document_id") if r.get("status") == "success" else None,
+                "filename": r.get("filename")
+                or (files[index].filename if index < len(files) else None),
                 "status": r.get("status"),
                 "chunks_processed": r.get("chunks_processed"),
+                "error": r.get("error"),
             }
-            for r in (result.get("results") or [])
+            for index, r in enumerate(result.get("results") or [])
         ]
 
         return {
@@ -1046,7 +1048,9 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
 
     # 2) Check app/seeds/sample_data/ (pre-loaded seed docs)
     sample_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        ),
         "seeds",
         "sample_data",
     )

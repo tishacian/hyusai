@@ -14,6 +14,8 @@ import {
   SystemValueLoopComponent,
   latestValueLoopMeasurement,
   valueLoopBaselineRunIsEligible,
+  valueLoopGainDemonstrated,
+  latestValueLoopSimulation,
   valueLoopMeasurementLabel,
   valueLoopResponseIsCurrent,
   valueLoopStepRows,
@@ -311,4 +313,32 @@ test('System value-loop visibility is authorized only by the current server Stee
     false,
     'an explicit not_configured actuator remains visible but cannot authorize interactive writes',
   );
+});
+
+
+test('one observed outcome never proves a durable causal gain', () => {
+  const sample = scenario('measured', {simulated:true, measurement:measurement('measured')});
+  assert.equal(valueLoopGainDemonstrated(sample), false);
+  sample.measurements[0].assumption_evaluation = {causality:'established', sufficient_follow_up:false};
+  assert.equal(valueLoopGainDemonstrated(sample), false);
+  sample.measurements[0].assumption_evaluation['sufficient_follow_up'] = true;
+  assert.equal(valueLoopGainDemonstrated(sample), true);
+});
+
+test('approved scenario keeps the exact approved simulation when a newer forecast exists', () => {
+  const sample = scenario('approved', {simulated:true});
+  sample.simulations.push({...simulation(), id:'simulation-later', model:'newer:v2'});
+  assert.equal(latestValueLoopSimulation(sample)?.id, 'simulation-1');
+});
+
+test('reviewing an application does not mutate until confirmation', () => {
+  const called:string[] = [];
+  const view = Object.assign(Object.create(SystemValueLoopComponent.prototype), {
+    busy:signal(false), pendingTransition:signal(null), act:()=>called.push('act'), approve:()=>called.push('approve'),
+  }) as SystemValueLoopComponent;
+  view.reviewTransition(scenario('approved', {simulated:true}), 'act');
+  assert.deepEqual(called, []);
+  view.confirmTransition();
+  assert.deepEqual(called, ['act']);
+  assert.equal(view.pendingTransition(), null);
 });

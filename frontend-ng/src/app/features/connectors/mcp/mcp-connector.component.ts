@@ -1,7 +1,14 @@
+import { Observable, type MonoTypeOperatorFunction } from 'rxjs';
+import { guardWorkspaceRequest } from '@app/core/workspace-request-scope';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { ConnectorChecksComponent } from '../connector-checks.component';
+import { ConnectorCapabilitiesComponent } from '../connector-capabilities.component';
 import {
   ChangeDetectionStrategy,
   Component,
-  OnInit,
+  OnInit, OnDestroy,
   computed,
   inject,
   signal,
@@ -27,6 +34,7 @@ import {
   sortShowcaseServers,
   type McpShowcaseInsight,
 } from './mcp-showcase';
+import { PageFrameComponent } from '@app/shared/cockpit/page-frame.component';
 
 export interface McpServerPublic {
   id: string;
@@ -90,6 +98,7 @@ interface McpPreviewResponse {
 }
 
 interface McpTestResult {
+  status?: string;
   ok?: boolean;
   server_id?: string;
   credential_source?: string | null;
@@ -134,8 +143,9 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
   selector: 'app-mcp-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
+  imports: [WriteOutcomeComponent, ConnectorChecksComponent, ConnectorCapabilitiesComponent, PageFrameComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   template: `
+    <ck-page-frame [hasActions]="false">
     <app-section-header
       [breadcrumb]="i18n.t('connectors.title')"
       [title]="i18n.t('connectors.mcp.title')"
@@ -153,6 +163,10 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
       </button>
       <ck-back-link [fallback]="{ surface: 'connectors' }" />
     </app-section-header>
+    <app-connector-capabilities connector="mcp" />
+    <app-write-outcome [outcome]="writeOutcome()" [verifiable]="true" (verify)="loadServers()" />
+    <p class="mb-4 text-sm text-[var(--muted)]">{{ i18n.t('connectors.mcp.remove_effect') }}</p>
+
 
     @if (!featureEnabled()) {
       <div role="status" class="mb-4 rounded-md p-3 text-sm ck-tone-warn">
@@ -186,7 +200,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
       </div>
       @if (mappedServers().length) {
         <div class="mt-4 overflow-x-auto rounded-md ring-1 ring-white/10">
-          <p class="bg-white/[0.03] px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          <p class="bg-white/[0.03] px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
             {{ i18n.t('connectors.mcp.use.map_title') }}
           </p>
           <ul>
@@ -194,9 +208,9 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
               <li class="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-3 py-2">
                 <div class="min-w-0">
                   <p class="truncate text-sm font-medium text-white">{{ row.label || row.id }}</p>
-                  <p class="ck-mono text-[11px] text-cyan-300">{{ row.id }}</p>
+                  <p class="ck-mono text-xs text-cyan-300">{{ row.id }}</p>
                   @if (insightFor(row); as insight) {
-                    <p class="mt-1 text-[11px] leading-5 text-gray-500">
+                    <p class="mt-1 text-xs leading-5 text-gray-500">
                       {{ i18n.t('connectors.mcp.showcase.step', { step: insight.step }) }}
                       · {{ i18n.t('connectors.mcp.showcase.lane.' + insight.lane) }}
                       · {{ i18n.t('connectors.mcp.showcase.role.' + insight.lane) }}
@@ -206,7 +220,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 <div class="text-right">
                   <p class="text-[12px] text-gray-400">{{ usageLabel(row.id) }}</p>
                   @if (insightFor(row); as insight) {
-                    <p class="mt-1 text-[10px] font-mono" [class]="readinessClass(insight)">
+                    <p class="mt-1 text-xs font-mono" [class]="readinessClass(insight)">
                       {{ i18n.t('connectors.mcp.showcase.read.' + insight.readiness) }}
                     </p>
                   }
@@ -216,7 +230,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
           </ul>
         </div>
         @if (hasShowcase()) {
-          <ul class="mt-3 space-y-1 text-[11px] leading-5 text-gray-500">
+          <ul class="mt-3 space-y-1 text-xs leading-5 text-gray-500">
             <li>{{ i18n.t('connectors.mcp.showcase.note.host') }}</li>
             <li>{{ i18n.t('connectors.mcp.showcase.note.writes') }}</li>
             <li>{{ i18n.t('connectors.mcp.showcase.note.by_key') }}</li>
@@ -254,7 +268,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
       <div>
         <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.servers') }}</h2>
         @if (drafts().length) {
-          <p class="mt-0.5 text-[11px] text-gray-500">
+          <p class="mt-0.5 text-xs text-gray-500">
             {{ i18n.t('connectors.mcp.ready_count', { ready: readyCount(), total: drafts().length }) }}
           </p>
         }
@@ -282,37 +296,37 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
               <h3 class="truncate text-base font-semibold text-white">
                 {{ row.label || row.id || i18n.t('connectors.mcp.label') }}
               </h3>
-              <p class="mt-1 ck-mono text-[11px] text-cyan-300">{{ row.id || i18n.t('connectors.mcp.id') }}</p>
+              <p class="mt-1 ck-mono text-xs text-cyan-300">{{ row.id || i18n.t('connectors.mcp.id') }}</p>
               @if (hostOf(row.url); as host) {
-                <p class="mt-1 truncate text-[11px] text-gray-500" [title]="row.url">
+                <p class="mt-1 truncate text-xs text-gray-500" [title]="row.url">
                   {{ i18n.t('connectors.mcp.host') }} · {{ host }}
                 </p>
               }
               @if (insightFor(row); as insight) {
-                <p class="mt-2 text-[11px] leading-5 text-gray-400">
+                <p class="mt-2 text-xs leading-5 text-gray-400">
                   {{ i18n.t('connectors.mcp.showcase.step', { step: insight.step }) }}
                   · {{ i18n.t('connectors.mcp.showcase.lane.' + insight.lane) }}
                 </p>
-                <p class="mt-0.5 text-[11px] leading-5 text-gray-500">
+                <p class="mt-0.5 text-xs leading-5 text-gray-500">
                   {{ i18n.t('connectors.mcp.showcase.role.' + insight.lane) }}
                 </p>
-                <p class="mt-1 ck-mono text-[10px] text-gray-500">
+                <p class="mt-1 ck-mono text-xs text-gray-500">
                   {{ i18n.t('connectors.mcp.showcase.service', { name: insight.service }) }}
                 </p>
               }
             </div>
             <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-              <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1" [class]="statusChipClass(row)">
+              <span class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded ring-1" [class]="statusChipClass(row)">
                 {{ statusLabel(row) }}
               </span>
               @if (insightFor(row); as insight) {
-                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1" [class]="readinessChipClass(insight)">
+                <span class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded ring-1" [class]="readinessChipClass(insight)">
                   {{ i18n.t('connectors.mcp.showcase.read.' + insight.readiness) }}
                 </span>
               }
               @if (row.tokenSet || row.oauthSecretSet) {
                 <span
-                  class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
+                  class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
                 >
                   <app-icon name="check-circle-2" [size]="10" />
                   {{ row.oauthSecretSet ? i18n.t('connectors.mcp.oauth_secret_set') : i18n.t('connectors.mcp.token_set') }}
@@ -320,7 +334,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
               }
               <button
                 type="button"
-                class="text-[11px] text-gray-400 hover:text-red-300"
+                class="text-xs text-gray-400 hover:text-red-300"
                 (click)="removeServer($index)"
                 [disabled]="!featureEnabled()"
               >
@@ -333,7 +347,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
             @if (row.configured) {
               <button
                 type="button"
-                class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-200"
+                class="text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-200"
                 (click)="toggleEditor($index)"
               >
                 {{ i18n.t('connectors.mcp.configuration') }}
@@ -343,7 +357,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
             <div class="space-y-3">
               <div class="grid gap-3 sm:grid-cols-2">
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.id') }}
                   </span>
                   <input
@@ -354,7 +368,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   />
                 </label>
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.label') }}
                   </span>
                   <input
@@ -366,7 +380,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 </label>
               </div>
               <label class="block">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                   {{ i18n.t('connectors.mcp.url') }}
                 </span>
                 <input
@@ -375,11 +389,11 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   [disabled]="!featureEnabled() || saving()"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
-                <p class="mt-1 text-[11px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.url_hint') }}</p>
+                <p class="mt-1 text-xs leading-5 text-gray-500">{{ i18n.t('connectors.mcp.url_hint') }}</p>
               </label>
               <div class="grid gap-3 sm:grid-cols-2">
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.transport') }}
                   </span>
                   <select
@@ -393,7 +407,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   </select>
                 </label>
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.auth_mode') }}
                   </span>
                   <select
@@ -413,7 +427,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
               }
               @if (row.authMode === 'bearer') {
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.token') }}
                   </span>
                   <input
@@ -429,7 +443,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
               }
               @if (row.authMode === 'oauth_client_credentials') {
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.oauth_token_url') }}
                   </span>
                   <input
@@ -440,7 +454,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   />
                 </label>
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.oauth_client_id') }}
                   </span>
                   <input
@@ -451,7 +465,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   />
                 </label>
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.oauth_client_secret') }}
                   </span>
                   <input
@@ -465,7 +479,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   />
                 </label>
                 <label class="block">
-                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {{ i18n.t('connectors.mcp.oauth_scope') }}
                   </span>
                   <input
@@ -486,7 +500,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 {{ i18n.t('connectors.mcp.enabled') }}
               </label>
               <label class="block">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
                   {{ i18n.t('connectors.mcp.aliases') }}
                 </span>
                 <textarea
@@ -532,6 +546,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 }}
               </button>
             </div>
+            <app-connector-checks [configured]="row.configured" [result]="testById()[row.id]" />
             @if (testById()[row.id]; as result) {
               <div
                 class="rounded-md p-3 text-sm ring-1"
@@ -562,7 +577,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   </p>
                   @if ((preview.columns || []).length) {
                     <div class="mt-2 overflow-x-auto">
-                      <table class="min-w-full text-left text-[11px]">
+                      <table class="min-w-full text-left text-xs">
                         <thead>
                           <tr>
                             @for (col of preview.columns; track col) {
@@ -594,15 +609,15 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
               <div class="rounded-md bg-black/20 p-3 text-[12px] text-gray-300 ring-1 ring-white/10">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
                   <p class="font-semibold text-gray-200">{{ i18n.t('connectors.mcp.catalog') }}</p>
-                  <p class="text-[11px] text-gray-500">
+                  <p class="text-xs text-gray-500">
                     {{ i18n.t('connectors.mcp.catalog_objects', { count: catalogFor(tools).length }) }}
                     · {{ i18n.t('connectors.mcp.tools_count', { count: toolNames(tools).length }) }}
                   </p>
                 </div>
-                <p class="mt-1 text-[11px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.catalog_help') }}</p>
+                <p class="mt-1 text-xs leading-5 text-gray-500">{{ i18n.t('connectors.mcp.catalog_help') }}</p>
                 @if (insightFor(row); as insight) {
                   @for (note of laneNotes(insight); track note) {
-                    <p class="mt-1 text-[11px] leading-5 text-amber-200/90">
+                    <p class="mt-1 text-xs leading-5 text-amber-200/90">
                       {{ i18n.t('connectors.mcp.showcase.note.' + note) }}
                     </p>
                   }
@@ -616,12 +631,12 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                       <div class="flex flex-wrap items-center gap-2">
                         <p class="text-[13px] font-medium text-white">{{ group.label }}</p>
                         @if (group.read.length) {
-                          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                          <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
                             {{ i18n.t('connectors.mcp.catalog_read') }} · {{ group.read.length }}
                           </span>
                         }
                         @if (group.write.length) {
-                          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/25">
+                          <span class="text-xs font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/25">
                             {{ i18n.t('connectors.mcp.catalog_write') }} · {{ group.write.length }}
                           </span>
                         }
@@ -637,17 +652,17 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                                 [disabled]="previewLoadingId() === row.id"
                               >
                                 <span class="text-[12px] text-gray-100">{{ toolTitle(tool) }}</span>
-                                <span class="ml-2 ck-mono text-[10px] text-cyan-300/80">{{ tool.name }}</span>
+                                <span class="ml-2 ck-mono text-xs text-cyan-300/80">{{ tool.name }}</span>
                                 @if (tool.description) {
-                                  <span class="mt-0.5 block truncate text-[11px] text-gray-500">{{ tool.description }}</span>
+                                  <span class="mt-0.5 block truncate text-xs text-gray-500">{{ tool.description }}</span>
                                 }
                               </button>
                             } @else {
                               <div class="px-1 py-0.5">
                                 <span class="text-[12px] text-gray-100">{{ toolTitle(tool) }}</span>
-                                <span class="ml-2 ck-mono text-[10px] text-gray-500">{{ tool.name }}</span>
+                                <span class="ml-2 ck-mono text-xs text-gray-500">{{ tool.name }}</span>
                                 @if (tool.description) {
-                                  <span class="mt-0.5 block truncate text-[11px] text-gray-500">{{ tool.description }}</span>
+                                  <span class="mt-0.5 block truncate text-xs text-gray-500">{{ tool.description }}</span>
                                 }
                               </div>
                             }
@@ -655,7 +670,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                         }
                       </ul>
                       @if (hiddenGroupCount(group) > 0) {
-                        <p class="mt-1 text-[10px] text-gray-500">
+                        <p class="mt-1 text-xs text-gray-500">
                           {{ i18n.t('connectors.mcp.catalog_more', { count: hiddenGroupCount(group) }) }}
                         </p>
                       }
@@ -685,7 +700,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
           <p class="mt-1 text-sm text-gray-400">{{ i18n.t('connectors.mcp.shared_oauth_help') }}</p>
         </div>
         @if (sharedAuth.secretSet) {
-          <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+          <span class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
             <app-icon name="check-circle-2" [size]="10" />
             {{ i18n.t('connectors.mcp.oauth_secret_set') }}
           </span>
@@ -693,7 +708,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
       </summary>
       <div class="mt-4 grid gap-3 md:grid-cols-2">
         <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
             {{ i18n.t('connectors.mcp.oauth_token_url') }}
           </span>
           <input
@@ -704,7 +719,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
           />
         </label>
         <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
             {{ i18n.t('connectors.mcp.oauth_client_id') }}
           </span>
           <input
@@ -715,7 +730,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
           />
         </label>
         <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
             {{ i18n.t('connectors.mcp.oauth_client_secret') }}
           </span>
           <input
@@ -729,7 +744,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
           />
         </label>
         <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-400">
             {{ i18n.t('connectors.mcp.oauth_scope') }}
           </span>
           <input
@@ -756,13 +771,15 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
         {{ saving() ? i18n.t('connectors.mcp.saving') : i18n.t('connectors.mcp.save') }}
       </button>
     </div>
+    </ck-page-frame>
   `,
 })
-export class McpConnectorComponent implements OnInit {
+export class McpConnectorComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly context = new WorkspaceViewContext(this.workspace, () => this.resetWorkspace(), () => { this.loadServers(); this.loadPrToPoSystem(); });
   readonly i18n = inject(I18nService);
 
   readonly featureEnabled = this.workspace.mcpConnectorEnabled;
@@ -782,6 +799,7 @@ export class McpConnectorComponent implements OnInit {
 
   readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly writeOutcome = signal<WriteOutcome | null>(null);
   readonly testingId = signal<string | null>(null);
   readonly error = signal<string | null>(null);
   readonly drafts = signal<ServerDraft[]>([]);
@@ -794,6 +812,25 @@ export class McpConnectorComponent implements OnInit {
   readonly editorOpen = signal<Set<number>>(new Set());
   sharedAuth: SharedAuthDraft = this.emptySharedAuth();
 
+  ngOnDestroy(): void { this.context.destroy(); }
+
+  private inWorkspace<T>(): MonoTypeOperatorFunction<T> {
+    const request = this.context.captureRequest();
+    return guardWorkspaceRequest(() => this.context.isCurrent(request));
+  }
+
+  private resetWorkspace(): void {
+    this.loading.set(false);
+    this.saving.set(false);
+    this.writeOutcome.set(null);
+    this.testingId.set(null);
+    this.error.set(null);
+    this.drafts.set([]);
+    this.previewLoadingId.set(null);
+    this.prToPoSystemId.set(null);
+    this.sharedAuth = this.emptySharedAuth(); this.toolsLoading.set(new Set()); this.editorOpen.set(new Set()); this.testById.set({}); this.toolsById.set({}); this.previewById.set({});
+  }
+
   ngOnInit(): void {
     this.loadServers();
     this.loadPrToPoSystem();
@@ -805,9 +842,12 @@ export class McpConnectorComponent implements OnInit {
       return;
     }
     this.loading.set(true);
+    const scope = this.workspace.captureRequestScope();
     this.error.set(null);
-    this.api.get<McpServersResponse>('/mcp/servers').subscribe({
+    this.api.get<McpServersResponse>('/mcp/servers').pipe(this.inWorkspace()).subscribe({
       next: (body) => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        if (this.writeOutcome()?.s === 'unknown') this.writeOutcome.set(null);
         const drafts = (body.servers || []).map((row) => this.toDraft(row));
         this.drafts.set(drafts);
         this.sharedAuth = this.toSharedDraft(body.shared_auth);
@@ -822,7 +862,7 @@ export class McpConnectorComponent implements OnInit {
           this.error.set(this.i18n.t('connectors.mcp.forbidden'));
           return;
         }
-        this.error.set(err?.error?.detail || this.i18n.t('connectors.mcp.load_failed'));
+        this.error.set(this.i18n.t('connectors.mcp.load_failed'));
       },
     });
   }
@@ -841,11 +881,12 @@ export class McpConnectorComponent implements OnInit {
   }
 
   removeServer(index: number): void {
+    if (this.saving() || this.writeOutcome()?.s === 'unknown' || !window.confirm(this.i18n.t('connectors.mcp.remove_effect'))) return;
     this.drafts.update((rows) => rows.filter((_, i) => i !== index));
   }
 
   saveServers(): void {
-    if (!this.featureEnabled()) return;
+    if (!this.featureEnabled() || this.saving() || this.loading() || this.writeOutcome()?.s === 'unknown') return;
     const servers: Array<Record<string, unknown>> = [];
     for (const row of this.drafts()) {
       let aliases: Record<string, string> = {};
@@ -887,30 +928,26 @@ export class McpConnectorComponent implements OnInit {
     }
     this.saving.set(true);
     this.error.set(null);
-    this.api.put<McpServersResponse>('/mcp/servers', { servers, shared_auth: sharedAuth }).subscribe({
-      next: (body) => {
-        this.drafts.set((body.servers || []).map((row) => this.toDraft(row)));
-        this.sharedAuth = this.toSharedDraft(body.shared_auth);
-        this.saving.set(false);
+    const scope = this.workspace.captureRequestScope();
+    settleWrite(this.api.put<McpServersResponse>('/mcp/servers', { servers, shared_auth: sharedAuth }, { workspaceSlug: scope.workspaceSlug })).pipe(this.inWorkspace()).subscribe(outcome => {
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.writeOutcome.set(outcome); this.saving.set(outcome.s === 'sent');
+      if (outcome.s === 'confirmed') {
+        this.drafts.set((outcome.value.servers || []).map(row => this.toDraft(row)));
+        this.sharedAuth = this.toSharedDraft(outcome.value.shared_auth);
         this.toast.success(this.i18n.t('connectors.mcp.saved'), this.i18n.t('connectors.mcp.title'));
-      },
-      error: (err) => {
-        this.saving.set(false);
-        const detail = err?.error?.detail || this.i18n.t('connectors.mcp.save_failed');
-        this.error.set(detail);
-        this.toast.error(detail, this.i18n.t('connectors.mcp.title'));
-      },
+      }
     });
   }
 
   testServer(row: ServerDraft): void {
     if (!this.featureEnabled() || !row.id.trim()) return;
     this.testingId.set(row.id);
-    this.api.post<McpTestResult>(`/mcp/servers/${encodeURIComponent(row.id)}/test`, {}).subscribe({
+    this.api.post<McpTestResult>(`/mcp/servers/${encodeURIComponent(row.id)}/test`, {}).pipe(this.inWorkspace()).subscribe({
       next: (result) => {
         this.testingId.set(null);
-        this.testById.update((current) => ({ ...current, [row.id]: { ...result, ok: result?.ok !== false } }));
-        if (result?.ok !== false) {
+        this.testById.update((current) => ({ ...current, [row.id]: { ...result, ok: result?.ok === true } }));
+        if (result?.ok === true) {
           this.toast.success(this.i18n.t('connectors.mcp.test_ok'), this.i18n.t('connectors.mcp.title'));
           if (result?.tools?.length) {
             this.toolsById.update((current) => ({
@@ -924,8 +961,8 @@ export class McpConnectorComponent implements OnInit {
       },
       error: (err) => {
         this.testingId.set(null);
-        const detail = err?.error?.detail || this.i18n.t('connectors.mcp.load_failed');
-        this.testById.update((current) => ({ ...current, [row.id]: { ok: false, detail } }));
+        const detail = this.i18n.t('connectors.mcp.load_failed');
+        this.testById.update((current) => ({ ...current, [row.id]: { ok: false, status: 'unreachable', detail } }));
         this.toast.error(detail, this.i18n.t('connectors.mcp.title'));
       },
     });
@@ -938,13 +975,13 @@ export class McpConnectorComponent implements OnInit {
       next.add(row.id);
       return next;
     });
-    this.api.get<McpToolsResponse>(`/mcp/servers/${encodeURIComponent(row.id)}/tools`).subscribe({
+    this.api.get<McpToolsResponse>(`/mcp/servers/${encodeURIComponent(row.id)}/tools`).pipe(this.inWorkspace()).subscribe({
       next: (result) => {
         this.toolsById.update((current) => ({ ...current, [row.id]: result }));
         this.markToolsLoaded(row.id);
       },
       error: (err) => {
-        const detail = err?.error?.detail || this.i18n.t('connectors.mcp.load_failed');
+        const detail = this.i18n.t('connectors.mcp.load_failed');
         this.toolsById.update((current) => ({ ...current, [row.id]: { ok: false, detail } }));
         this.markToolsLoaded(row.id);
         this.toast.error(detail, this.i18n.t('connectors.mcp.title'));
@@ -958,14 +995,14 @@ export class McpConnectorComponent implements OnInit {
     const params = toolName ? { tool: toolName } : undefined;
     this.api
       .get<McpPreviewResponse>(`/mcp/servers/${encodeURIComponent(row.id)}/preview`, params)
-      .subscribe({
+      .pipe(this.inWorkspace()).subscribe({
         next: (result) => {
           this.previewLoadingId.set(null);
-          this.previewById.update((current) => ({ ...current, [row.id]: { ...result, ok: result?.ok !== false } }));
+          this.previewById.update((current) => ({ ...current, [row.id]: { ...result, ok: result?.ok === true } }));
         },
         error: (err) => {
           this.previewLoadingId.set(null);
-          const detail = err?.error?.detail || this.i18n.t('connectors.mcp.preview_failed');
+          const detail = this.i18n.t('connectors.mcp.preview_failed');
           this.previewById.update((current) => ({ ...current, [row.id]: { ok: false, detail } }));
         },
       });
@@ -1074,7 +1111,7 @@ export class McpConnectorComponent implements OnInit {
   }
 
   private loadPrToPoSystem(): void {
-    this.canonical.listSystems().subscribe({
+    this.canonical.listSystems().pipe(this.inWorkspace()).subscribe({
       next: (systems) => {
         const match = systems.find((item) => item.name === 'PR to PO');
         this.prToPoSystemId.set(match?.id || null);

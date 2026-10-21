@@ -1,4 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
@@ -9,6 +10,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { LOADING, settleRead, type LoadState } from '@app/shared/ui/load-state';
 
 @Component({
   selector: 'app-account-sessions',
@@ -44,11 +46,13 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
           <app-skeleton height="56px" />
           <app-skeleton height="56px" />
         </div>
-      } @else if (sessions().length === 0) {
+      } @else if (readState().s !== 'ready') {
         <app-empty-state
+          [state]="readState()"
           icon="monitor"
           [title]="i18n.t('account.sessions.empty.title')"
           [description]="i18n.t('account.sessions.empty.description')"
+          (retry)="load()"
         />
       } @else {
         <div class="space-y-2">
@@ -96,19 +100,26 @@ export class SessionsComponent {
   private readonly authStore = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
+  private readonly destroyRef = inject(DestroyRef);
 
   loading = signal(true);
   signingOut = signal(false);
   sessions = signal<KcSession[]>([]);
   confirmOpen = signal(false);
+  readonly readState = signal<LoadState<KcSession[]>>(LOADING);
+  private generation = 0;
 
   constructor() {
-    this.api.listSessions().subscribe({
-      next: (list) => {
-        this.sessions.set(list);
-        this.loading.set(false);
-      },
-      error: () => this.loading.set(false),
+    this.load();
+  }
+
+  load(): void {
+    const generation = ++this.generation;
+    settleRead(this.api.listSessions()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+      if (generation !== this.generation) return;
+      this.readState.set(state);
+      this.loading.set(state.s === 'loading');
+      this.sessions.set(state.s === 'ready' ? state.value : []);
     });
   }
 

@@ -1,0 +1,296 @@
+{
+  "version": 1,
+  "description": "Legacy fallbacks are inventoried for migration. A new exception needs a nearby fallback-ok comment explaining why empty is correct; file budgets may only decrease.",
+  "initial_revision": "7e5652d5",
+  "initial_count": 145,
+  "files": {
+    "src/app/core/adoption.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "e754f69e74ef233b576e": 1
+      }
+    },
+    "src/app/core/canonical-api.service.ts": {
+      "count": 37,
+      "fingerprints": {
+        "3e38705571dd10bab72e": 2,
+        "1d73686b2aca6683348b": 27,
+        "f3d08b3afe733fe03f88": 1,
+        "1fdc393949f59cd31431": 1,
+        "b6ce3fdd56f8cea97371": 2,
+        "10915f58b68d6468de10": 1,
+        "71709eaa4a8115e6c7cb": 1,
+        "64e79ba220e6b7451802": 1,
+        "cc9318497dbabcb95a3b": 1
+      }
+    },
+    "src/app/core/help.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "544a23ddd5c10891e7b0": 1
+      }
+    },
+    "src/app/core/livekit-conversation.service.ts": {
+      "count": 6,
+      "fingerprints": {
+        "a591e7d5eef54505075c": 3,
+        "227d37e3e63c50447346": 1,
+        "56cd23f216964a152cdc": 1,
+        "550c7bcf387fb391c78e": 1
+      }
+    },
+    "src/app/core/permissions.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "df49c8dcc69623708ba3": 1
+      }
+    },
+    "src/app/core/runtime-health.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "e3e169a93c2de31bb1cb": 1
+      }
+    },
+    "src/app/core/sse.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "31e71cebb399f0da92e5": 1
+      }
+    },
+    "src/app/core/voice-loop-controller.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "491f6b509d7035d588b0": 1
+      }
+    },
+    "src/app/core/voice-tts-playback.service.ts": {
+      "count": 2,
+      "fingerprints": {
+        "8176c546dfd7f6c34c54": 1,
+        "6da7d8a2c7391319586b": 1
+      }
+    },
+    "src/app/core/workspace-switch.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "4dd684491b6123ee7109": 1
+      }
+    },
+    "src/app/core/workspace.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "8731ef3a267c1685c941": 1
+      }
+    },
+    "src/app/features/chat/chat-panel.component.ts": {
+      "count": 2,
+      "fingerprints": {
+        "aed7c664284cca1b68a7": 1,
+        "8ac48c40f0e946b9dafe": 1
+      }
+    },
+    "src/app/features/experience/runtime/experience-runtime.service.ts": {
+      "count": 5,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 2,
+        "2eb9b47dadd6b0c94c66": 1,
+        "3d18f6685c76ac294418": 1,
+        "d34e2e5b4cff6db744b0": 1
+      }
+    },
+    "src/app/features/experience/work/client-onboarding.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/experience/work/pr-to-po-studio.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/experience/work/work-api.service.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/governance/chat-history.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f9f6d7e0f1865fe39962": 1
+      }
+    },
+    "src/app/features/governance/surface-map.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f658edeb1a9bf6c958fd": 1
+      }
+    },
+    "src/app/features/hypervisor/hypervisor.component.ts": {
+      "count": 2,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 2
+      }
+    },
+    "src/app/features/hypervisor/v2/hypervisor-v2.component.ts": {
+      "count": 9,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 4,
+        "3f5bacb93c3dc6138918": 1,
+        "3b32a0d232ddd8d7ab87": 1,
+        "ca2daf78eca7ca24d2be": 1,
+        "f9f30c039a5e26432ee6": 1,
+        "b5e17923ce3ed765df54": 1
+      }
+    },
+    "src/app/features/knowledge/capture-fil/capture-engine.ts": {
+      "count": 2,
+      "fingerprints": {
+        "491f6b509d7035d588b0": 1,
+        "786387358777016a9fa3": 1
+      }
+    },
+    "src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/knowledge/embedding-map.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "a2234703c2a1b84c9e05": 1
+      }
+    },
+    "src/app/features/knowledge/ingestion-status.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/knowledge/knowledge-capture.component.ts": {
+      "count": 3,
+      "fingerprints": {
+        "9713d1ba5cbfc3200c08": 1,
+        "491f6b509d7035d588b0": 1,
+        "4c23c467c32d326bec37": 1
+      }
+    },
+    "src/app/features/knowledge/knowledge-view.component.ts": {
+      "count": 3,
+      "fingerprints": {
+        "946927427e20d8519ce4": 1,
+        "00ec5001beb00c96ddc6": 1,
+        "e0271a7db6f8443a6d73": 1
+      }
+    },
+    "src/app/features/mission-room/mission-room.component.ts": {
+      "count": 14,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 11,
+        "2eecf00576fc34fc208a": 1,
+        "035f8e2446f62f069539": 1,
+        "bda12e30b6da6889a78c": 1
+      }
+    },
+    "src/app/features/mission-room/security-monitor.component.ts": {
+      "count": 2,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 2
+      }
+    },
+    "src/app/features/mission-room/vp-macro-indicators.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/mission-room/vp-meeting.component.ts": {
+      "count": 4,
+      "fingerprints": {
+        "0d3ac063b2d38dfbecea": 2,
+        "1f2d4d9448af85980184": 1,
+        "44d0f415ce22954aed58": 1
+      }
+    },
+    "src/app/features/models/models-list.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "0722295cb0fd74266bee": 1
+      }
+    },
+    "src/app/features/nawa/nawa-assistant.component.ts": {
+      "count": 2,
+      "fingerprints": {
+        "ac263f5046b42a119e0f": 1,
+        "fd67a9af295ef9db7192": 1
+      }
+    },
+    "src/app/features/nawa/nawa-assistant.service.ts": {
+      "count": 2,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 2
+      }
+    },
+    "src/app/features/observability/activities/activity-api.service.ts": {
+      "count": 2,
+      "fingerprints": {
+        "4ed9ccd43255b28e714f": 1,
+        "43fff287a3f34b70a41e": 1
+      }
+    },
+    "src/app/features/observability/activities/activity-stream.ts": {
+      "count": 1,
+      "fingerprints": {
+        "31e71cebb399f0da92e5": 1
+      }
+    },
+    "src/app/features/orchestration/flow/flow-run-controls.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "31c0fbf0d6748fc8b88c": 1
+      }
+    },
+    "src/app/features/presets/preset-view.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "2d8b5db1218f1c7edc6c": 1
+      }
+    },
+    "src/app/features/resources/resources-page.component.ts": {
+      "count": 3,
+      "fingerprints": {
+        "b10c5b0c694426fa1fca": 1,
+        "12014d9390b489aa2d43": 1,
+        "4ae960416dfe8a2e8212": 1
+      }
+    },
+    "src/app/features/skills/skill-view.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/skills/skills.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/systems/system-view.component.ts": {
+      "count": 1,
+      "fingerprints": {
+        "f3d08b3afe733fe03f88": 1
+      }
+    },
+    "src/app/features/systems/systems.store.ts": {
+      "count": 2,
+      "fingerprints": {
+        "edc6f60a17b8921166e7": 1,
+        "176f5cf2bf8735e72b75": 1
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ import { extname, join, normalize } from 'node:path';
 
 const ROOT = new URL('../dist/agentium/browser/', import.meta.url).pathname;
 const PORT = Number(process.env['PORT'] ?? 4200);
+const HOST = process.env['HOST'] ?? '127.0.0.1';
 
 const TYPES = {
   '.js': 'text/javascript',
@@ -44,4 +45,4 @@ createServer(async (req, res) => {
       res.writeHead(404).end('not found');
     }
   }
-}).listen(PORT, () => console.log(`serving ${ROOT} on ${PORT}`));
+}).listen(PORT, HOST, () => console.log(`serving ${ROOT} on ${HOST}:${PORT}`));

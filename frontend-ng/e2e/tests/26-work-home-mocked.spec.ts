@@ -249,6 +249,12 @@ test.describe('L33 — Work home « À faire »', () => {
       const home = page.locator('app-work-launcher');
       await expect(home.getByRole('heading', { level: 1 })).toHaveText('4 choses vous attendent', { timeout: 20_000 });
       await expect(home.locator('.xp-home-eyebrow')).toHaveText('Accueil');
+      expect(await home.evaluate((root) => {
+        const apps = root.querySelector('.xp-home-apps')!;
+        const queue = root.querySelector('.xp-home-queue')!;
+        return !!(apps.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING);
+      })).toBe(true);
+      await expect(home.locator('.xp-home-queue')).toContainText('File partagée de l’équipe');
 
       // Three tiles; only the first actionable one is filled.
       const tiles = home.locator('.xp-home-tiles > li');
@@ -320,6 +326,9 @@ test.describe('L33 — Work home « À faire »', () => {
       expect(errors).toEqual([]);
       await page.keyboard.press('Enter');
       await expect(page).toHaveURL(/\/work\/pr-to-po\/validations/);
+      await page.goBack();
+      await expect(home.locator('.xp-home-list > li').first()).toContainText('Valider la commande ATEX Services');
+      await expect(home.locator('.xp-home-list > li').first()).toBeFocused();
     });
 
     test(`empty week: fixed title, no fabricated count, next useful action (${theme})`, async ({ page }) => {

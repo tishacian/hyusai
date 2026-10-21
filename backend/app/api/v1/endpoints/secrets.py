@@ -41,7 +41,16 @@ _STATUS = {
     "SECRET_BACKEND_UNAVAILABLE": 503,
     "SECRET_KEY_NOT_CONFIGURED": 503,
 }
-_CREATE_FIELDS = {"scope", "name", "value", "kind", "system_id", "description", "metadata", "expires_at"}
+_CREATE_FIELDS = {
+    "scope",
+    "name",
+    "value",
+    "kind",
+    "system_id",
+    "description",
+    "metadata",
+    "expires_at",
+}
 
 
 def _http(exc: SecretRegistryError) -> HTTPException:
@@ -103,14 +112,18 @@ def _load(db: DBSession, user: User, workspace: Workspace, secret_id: str) -> Se
 
 def _object(body: Any) -> dict[str, Any]:
     if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": "JSON object expected"})
+        raise HTTPException(
+            status_code=400, detail={"code": "SECRET_INVALID", "message": "JSON object expected"}
+        )
     return body
 
 
 def _optional_str(body: dict[str, Any], key: str) -> Optional[str]:
     value = body.get(key)
     if value is not None and not isinstance(value, str):
-        raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": f"{key} must be a string"})
+        raise HTTPException(
+            status_code=400, detail={"code": "SECRET_INVALID", "message": f"{key} must be a string"}
+        )
     return value or None
 
 
@@ -121,7 +134,9 @@ def _datetime(body: dict[str, Any], key: str) -> Optional[datetime]:
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": f"{key} must be ISO 8601"}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "SECRET_INVALID", "message": f"{key} must be ISO 8601"}
+        ) from exc
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
     return parsed
@@ -162,11 +177,18 @@ async def create_secret(
     body = _object(body)
     unknown = sorted(set(body) - _CREATE_FIELDS)
     if unknown:
-        raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": f"unknown fields: {', '.join(unknown)}"})
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "SECRET_INVALID", "message": f"unknown fields: {', '.join(unknown)}"},
+        )
     scope = body.get("scope") or "workspace"
     if scope not in ("platform", "workspace", "system", "user"):
-        raise HTTPException(status_code=400, detail={"code": "SECRET_INVALID", "message": "unknown scope"})
-    system = _system_in_workspace(db, workspace, body.get("system_id")) if scope == "system" else None
+        raise HTTPException(
+            status_code=400, detail={"code": "SECRET_INVALID", "message": "unknown scope"}
+        )
+    system = (
+        _system_in_workspace(db, workspace, body.get("system_id")) if scope == "system" else None
+    )
     _require_scope_admin(db, user, workspace, scope, system)
     try:
         return registry.create(
@@ -222,7 +244,16 @@ async def list_consumers(
         if entry is None:
             if len(consumers) >= limit:
                 continue
+            system_id = consumer.get("system_id")
+            if not system_id and consumer.get("kind") == "system":
+                system_id = consumer.get("id")
+            system = (
+                db.query(System).filter_by(id=system_id, workspace_id=workspace.id).first()
+                if system_id
+                else None
+            )
             consumers[key] = {
+                "name": system.name if system else None,
                 "kind": consumer.get("kind"),
                 "id": consumer.get("id"),
                 "system_id": consumer.get("system_id"),

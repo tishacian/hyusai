@@ -133,7 +133,7 @@ test.describe('Flow · forecasting — isolated end-user QA', () => {
     test(`${theme}/${locale}: a forecast node and a forecasting fit are written into the graph`, async ({ page }, info) => {
       await page.setViewportSize({ width: 1440, height: 1000 });
       const api = await setup(page, { theme, locale });
-      await page.goto(`/systems/${systemId}/flow?lens=build`);
+      await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
       await expect(page.locator('app-flow-node')).toHaveCount(10);
 
       // ── The forecast node ─────────────────────────────────────────────────
@@ -195,7 +195,7 @@ test.describe('Flow · zero-shot forecast — mocked QA', () => {
   });
   for (const locale of ['fr','en']) test(`zero-shot ${locale}: Flow persists only foundation fields`, async ({page}) => {
     const api = await setup(page,{theme:'light',locale});
-    await page.goto(`/systems/${systemId}/flow?lens=build`);
+    await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
     await page.locator('app-flow-node').filter({hasText:'Apprendre la charge'}).click();
     await page.getByTestId('open-train-workshop').click();
     const workshop = page.locator('app-flow-train-workshop');

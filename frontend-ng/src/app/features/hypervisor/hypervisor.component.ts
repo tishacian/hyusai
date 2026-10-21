@@ -4,6 +4,8 @@ import { Router } from '@angular/router';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { STRICT, settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import {
   CanonicalApiService,
   type HypervisorBalance,
@@ -60,6 +62,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     MLAlertInboxComponent,
+    WriteOutcomeComponent,
     NavLinkDirective,
     PageFrameComponent,
     StatReadoutComponent,
@@ -490,6 +493,12 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                 {{ generatingRecommendations() ? i18n.t('hypervisor.reco.scanning') : i18n.t('hypervisor.reco.scan') }}
               </button>
             </div>
+            <app-write-outcome
+              data-testid="hypervisor-scan-outcome"
+              [outcome]="scanWrite()"
+              [confirmedLabel]="i18n.t('hypervisor.reco.outcome.confirmed')"
+              [failedLabel]="i18n.t('hypervisor.reco.outcome.failed')"
+            />
             @if (!recommendations().length) {
               <div class="ck-mono" style="padding:24px 0; font-size:11px; color:var(--ck-fg-4); text-align:center;">
                 {{ i18n.t('hypervisor.reco.empty') }}
@@ -598,6 +607,16 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                       </span>
                     }
                   </div>
+                  @if (decisionWrite(); as sent) {
+                    @if (sent.id === d.id) {
+                      <app-write-outcome
+                        data-testid="hypervisor-decision-outcome"
+                        [outcome]="sent.outcome"
+                        [confirmedLabel]="i18n.t(sent.action === 'accept' ? 'hypervisor.v2.decision.outcome.accepted' : 'hypervisor.v2.decision.outcome.rejected')"
+                        [failedLabel]="i18n.t('hypervisor.v2.decision.outcome.failed')"
+                      />
+                    }
+                  }
                 </li>
               }
             </ul>
@@ -703,6 +722,16 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                   </span>
                 }
               </div>
+              @if (decisionWrite(); as sent) {
+                @if (sent.id === d.id) {
+                  <app-write-outcome
+                    data-testid="hypervisor-drawer-decision-outcome"
+                    [outcome]="sent.outcome"
+                    [confirmedLabel]="i18n.t(sent.action === 'accept' ? 'hypervisor.v2.decision.outcome.accepted' : 'hypervisor.v2.decision.outcome.rejected')"
+                    [failedLabel]="i18n.t('hypervisor.v2.decision.outcome.failed')"
+                  />
+                }
+              }
               @if (d.applied_patch && objectKeys(d.applied_patch).length > 0) {
                 <div class="mt-4">
                   <div class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">{{ i18n.t('hypervisor.decisions.applied_patch') }}</div>
@@ -748,6 +777,9 @@ export class HypervisorComponent implements OnInit {
   );
   readonly decisionStatus = signal<'all' | 'proposed' | 'accepted' | 'rejected' | 'applied'>('all');
   readonly busyDecisionId = signal<string | null>(null);
+  /** The last decision sent, said under its row until the next one. */
+  readonly decisionWrite = signal<{ id: string; action: 'accept' | 'reject'; outcome: WriteOutcome<unknown> } | null>(null);
+  readonly scanWrite = signal<WriteOutcome | null>(null);
 
   // ---- Capability ranking --------------------------------------------------
   readonly rankOptions = computed<
@@ -846,18 +878,18 @@ export class HypervisorComponent implements OnInit {
   generateRecommendations(): void {
     if (this.generatingRecommendations()) return;
     this.generatingRecommendations.set(true);
-    this.canonical.generateProactiveRecommendations({
+    settleWrite(this.canonical.generateProactiveRecommendations({
       since_days: 7,
       min_evaluations: 3,
       min_breaches: 2,
       min_breach_rate: 0.5,
-    }).subscribe({
-      next: () => {
-        this.generatingRecommendations.set(false);
-        this.loadAll();
-        this.refreshDecisions();
-      },
-      error: () => this.generatingRecommendations.set(false),
+    }, STRICT)).subscribe((outcome) => {
+      this.scanWrite.set(outcome);
+      if (outcome.s === 'sent') return;
+      this.generatingRecommendations.set(false);
+      if (outcome.s === 'failed') return;
+      this.loadAll();
+      this.refreshDecisions();
     });
   }
 
@@ -907,19 +939,30 @@ export class HypervisorComponent implements OnInit {
   }
 
   accept(id: string, refreshDrawer = false): void {
-    this.busyDecisionId.set(id);
-    this.canonical.acceptDecision(id).subscribe((detail) => {
-      this.busyDecisionId.set(null);
-      if (detail && refreshDrawer) this.selectedDecision.set(detail);
-      this.refreshDecisions();
-    });
+    this.decide(id, 'accept', refreshDrawer);
   }
 
   reject(id: string, refreshDrawer = false): void {
+    this.decide(id, 'reject', refreshDrawer);
+  }
+
+  /**
+   * Said accepted or rejected only once the server confirmed it; a refusal
+   * says why, a lost answer reads the feed back instead of sending again.
+   */
+  private decide(id: string, action: 'accept' | 'reject', refreshDrawer: boolean): void {
+    if (this.busyDecisionId()) return;
     this.busyDecisionId.set(id);
-    this.canonical.rejectDecision(id).subscribe((detail) => {
+    const request = action === 'accept'
+      ? this.canonical.acceptDecision(id, {}, STRICT)
+      : this.canonical.rejectDecision(id, {}, STRICT);
+    settleWrite(request).subscribe((outcome) => {
+      this.decisionWrite.set({ id, action, outcome });
+      if (outcome.s === 'sent') return;
       this.busyDecisionId.set(null);
-      if (detail && refreshDrawer) this.selectedDecision.set(detail);
+      if ((outcome.s === 'confirmed' || outcome.s === 'accepted') && outcome.value && refreshDrawer) {
+        this.selectedDecision.set(outcome.value);
+      }
       this.refreshDecisions();
     });
   }

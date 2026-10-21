@@ -281,7 +281,7 @@ export function publishedNodeExecutor(
         into disclosures. Folded is not hidden: every field stays one click
         away, in the same place, and none was removed.
       -->
-      <div class="ck-flow-inspector__body">
+      <fieldset class="ck-flow-inspector__body" [disabled]="publishedReading()">
         @if (node(); as n) {
           <section class="ck-flow-section">
             <label class="ck-flow-field">
@@ -1136,7 +1136,7 @@ export function publishedNodeExecutor(
                   {{ i18n.t('flow.inspector.trigger.sftp') }}
                 </a>
               }
-              @if (systemId(); as sid) {
+              @if (!publishedReading() && systemId(); as sid) {
                 @if (n.type !== 'source.schedule') {
                   <app-flow-trigger-controls [systemId]="sid" />
                 }
@@ -1268,7 +1268,7 @@ export function publishedNodeExecutor(
             </app-empty-state>
           </div>
         }
-      </div>
+      </fieldset>
     </aside>
   `,
 })
@@ -1329,6 +1329,7 @@ export class FlowInspectorComponent {
   readonly dirty = this.store.dirty;
 
   /** Same gate the node card and the keyboard shortcut use. */
+  readonly publishedReading = computed(() => this.persistence?.readOnly() ?? false);
   readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
 
   /** Live collections catalogue for the asset picker (cached, shared). */

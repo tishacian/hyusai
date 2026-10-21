@@ -24,6 +24,8 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
   imports: [KbdComponent, LiveDotComponent],
   template: `
     <footer
+      tabindex="0"
+      [attr.aria-label]="i18n.t('nav.footer.landmark')"
       [style.position]="'relative'"
       [style.zIndex]="35"
       [style.height.px]="28"
@@ -75,6 +77,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
     </footer>
   `,
   styles: [`
+    footer:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: -2px; }
     :host {
       display: block;
       min-width: 0;

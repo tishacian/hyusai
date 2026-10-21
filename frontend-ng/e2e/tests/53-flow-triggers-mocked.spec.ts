@@ -49,6 +49,9 @@ async function setup(page: Page, locale: string, theme: string) {
     if (path === `/systems/${systemId}`) return json(route, system);
     if (path === `/systems/${systemId}/flow-state`) return json(route, { system_id: systemId, status: 'active', draft: { revision: 1, flow_sha256: hash, flow_definition: flow }, published: { version_id: 'v1', version_number: 1, flow_sha256: hash, flow_definition: flow, execution_contract_ready: true } });
     if (path === `/systems/${systemId}/validate-flow`) return json(route, { valid: true, issues: [], runtime_mode: 'dag_overlay', flow_sha256: hash });
+    if (path === `/systems/${systemId}/trigger-deliveries`) return json(route, { coverage: 'accepted_only', mode: 'dry_run', enabled: true, deliveries: [
+      { id: 'accepted-event', run_id: 'accepted-event', source: 'webhook', accepted_at: '2026-10-19T12:00:00Z', acceptance: 'accepted', execution_status: 'failed' },
+    ] });
     if (path === `/systems/${systemId}/event-trigger`) return json(route, { system_id: systemId, master_enabled: true, mode: 'dry_run', disabled: false });
     if (path === `/systems/${systemId}/schedules`) {
       if (req.method() === 'POST') { const row = applyIdentity({ id: 'new-schedule' }, req.postDataJSON()); schedules.push(row); return json(route, row, 201); }
@@ -82,10 +85,36 @@ test.describe('Flow trigger setup — local fixtures only', () => {
     test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost', '127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
   });
   for (const [locale, theme, width] of [['fr', 'dark', 1440], ['en', 'light', 390]] as const) {
+    test(`${locale}/${theme}/${width}: published reading never writes and identifies accepted delivery separately from failure`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      const writes = await setup(page, locale, theme);
+      await page.goto(`/systems/${systemId}/flow?tab=triggers`);
+      await expect(page.getByTestId('flow-published-reading')).toBeVisible();
+      await expect(page.locator('app-flow-node')).toHaveCount(3);
+      const deliveries = page.getByTestId('trigger-deliveries');
+      await expect(deliveries).toContainText(locale === 'fr' ? 'Livraison acceptée' : 'Delivery accepted');
+      await expect(deliveries).toContainText(locale === 'fr' ? 'Traitement en échec' : 'Processing failed');
+      await expect(deliveries).toContainText(locale === 'fr' ? 'simulation' : 'simulation');
+      await expect(deliveries.getByRole('link')).toHaveAttribute('href', /\/runs\/accepted-event/);
+      await page.locator('app-flow-node').filter({ hasText: 'Queue schedule' }).click();
+      await page.locator('app-flow-inspector').getByRole('button', { name: locale === 'fr' ? 'Fermer l’inspecteur' : 'Close inspector', exact: true }).click();
+      await page.locator('app-flow-builder').click({ position: { x: 8, y: 8 } });
+      await page.keyboard.press('Delete');
+      await page.keyboard.press('Control+s');
+      await page.keyboard.press('Control+z');
+      // Give the 1200 ms autosave debounce a chance to fire if a read path regresses.
+      await page.waitForTimeout(1500);
+      await expect(page.locator('app-flow-node')).toHaveCount(3);
+      expect(writes).toEqual([]);
+      await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
+      await expect(page.getByTestId('flow-published-reading')).toHaveCount(0);
+      await expect.poll(() => writes.some(write => write.path.endsWith('/validate-flow'))).toBe(true);
+    });
+
     test(`${locale}/${theme}/${width}: configure a paused schedule and inspect its next execution`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 1000 });
       const writes = await setup(page, locale, theme);
-      await page.goto(`/systems/${systemId}/flow?lens=build`);
+      await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
       await expect(page.locator('app-flow-node')).toHaveCount(3);
       await page.locator('app-flow-node').filter({ hasText: 'Queue schedule' }).click();
       const panel = page.locator('app-flow-triggers-panel');
@@ -138,7 +167,7 @@ test.describe('Flow trigger setup — local fixtures only', () => {
     test(`${locale}/${theme}/${width}: webhook setup is scoped and explains signed delivery`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 1000 });
       const writes = await setup(page, locale, theme);
-      await page.goto(`/systems/${systemId}/flow?lens=build`);
+      await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
       await expect(page.locator('app-flow-node')).toHaveCount(3);
       await page.locator('app-flow-node').filter({ hasText: 'Claim arrival' }).click();
       const panel = page.locator('app-flow-triggers-panel');

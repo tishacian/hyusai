@@ -6,18 +6,22 @@ for drop-and-ask sessions: the client POSTs with `ephemeral=true` and
 opportunistically on every `GET /contexts`. A user can promote a session
 context to permanent via `POST /contexts/{id}/persist`.
 """
+
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.context import Context
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.system import System
+from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
 from app.services.context_bindings import ContextBindingError, validate_system_id
 
@@ -43,12 +47,12 @@ def _validate_system_tenant(
 class ContextBody(BaseModel):
     name: str = "default"
     system_id: Optional[str] = None
-    data_refs: List[str] = []
-    memory_refs: List[str] = []
-    history_refs: List[str] = []
-    environment_state: Dict[str, Any] = {}
-    business_constraints: Dict[str, Any] = {}
-    permissions: Dict[str, Any] = {}
+    data_refs: list[str] = []
+    memory_refs: list[str] = []
+    history_refs: list[str] = []
+    environment_state: dict[str, Any] = {}
+    business_constraints: dict[str, Any] = {}
+    permissions: dict[str, Any] = {}
     # D0 — ephemeral session contexts (drop-and-ask). When true, the
     # server stamps `ttl_expires_at = now + ttl_hours` and the context is
     # eligible for opportunistic purge.
@@ -68,17 +72,65 @@ class ContextUpdate(BaseModel):
     partial body lets the UI flip a single field (e.g. rename, add a data_ref)
     without round-tripping the full object.
     """
+
     name: Optional[str] = None
     system_id: Optional[str] = None
-    data_refs: Optional[List[str]] = None
-    memory_refs: Optional[List[str]] = None
-    history_refs: Optional[List[str]] = None
-    environment_state: Optional[Dict[str, Any]] = None
-    business_constraints: Optional[Dict[str, Any]] = None
-    permissions: Optional[Dict[str, Any]] = None
+    data_refs: Optional[list[str]] = None
+    memory_refs: Optional[list[str]] = None
+    history_refs: Optional[list[str]] = None
+    environment_state: Optional[dict[str, Any]] = None
+    business_constraints: Optional[dict[str, Any]] = None
+    permissions: Optional[dict[str, Any]] = None
 
 
-def _serialize(c: Context) -> Dict[str, Any]:
+def _source_dates(db: DBSession, c: Context) -> list[dict[str, Any]]:
+    """Resolve dates only in this tenant; unknown references remain undated.
+
+    Use the oldest still-present source in a collection: a recent reindex of a
+    different document must not make the whole reference appear fresh.
+    """
+    result = []
+    for reference in c.data_refs or []:
+        key = reference.removeprefix("collection:")
+        collection = (
+            db.query(KnowledgeCollection)
+            .filter(
+                KnowledgeCollection.workspace_id == c.workspace_id,
+                or_(
+                    KnowledgeCollection.id == key,
+                    KnowledgeCollection.slug == key,
+                    KnowledgeCollection.vector_collection_name == key,
+                ),
+            )
+            .first()
+        )
+        date = None
+        if collection is not None:
+            date = (
+                db.query(func.min(KnowledgeCollectionSource.updated_at))
+                .filter(
+                    KnowledgeCollectionSource.workspace_id == c.workspace_id,
+                    KnowledgeCollectionSource.collection_id == collection.id,
+                    KnowledgeCollectionSource.status != "deleted",
+                )
+                .scalar()
+            )
+        elif reference.startswith("dataset:"):
+            dataset = (
+                db.query(TabularDataset)
+                .filter(
+                    TabularDataset.workspace_id == c.workspace_id,
+                    TabularDataset.id == reference.removeprefix("dataset:"),
+                )
+                .first()
+            )
+            if dataset is not None:
+                date = dataset.ingested_at or dataset.created_at
+        result.append({"ref": reference, "updated_at": date.isoformat() if date else None})
+    return result
+
+
+def _serialize(c: Context, db: Optional[DBSession] = None) -> dict[str, Any]:
     return {
         "id": c.id,
         "system_id": c.system_id,
@@ -93,6 +145,8 @@ def _serialize(c: Context) -> Dict[str, Any]:
         "ephemeral": bool(c.ephemeral),
         "ttl_expires_at": c.ttl_expires_at.isoformat() if c.ttl_expires_at else None,
         "created_at": c.created_at.isoformat() if c.created_at else None,
+        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        "source_dates": _source_dates(db, c) if db is not None else [],
     }
 
 
@@ -140,7 +194,7 @@ async def list_contexts(
     if not include_ephemeral:
         q = q.filter(Context.ephemeral.is_(False))
     rows = q.order_by(Context.updated_at.desc()).all()
-    return {"contexts": [_serialize(c) for c in rows]}
+    return {"contexts": [_serialize(c, db) for c in rows]}
 
 
 @router.post("")
@@ -168,7 +222,7 @@ async def create_context(
     db.add(c)
     db.commit()
     db.refresh(c)
-    return _serialize(c)
+    return _serialize(c, db)
 
 
 @router.post("/{ctx_id}/persist")
@@ -182,11 +236,7 @@ async def persist_ephemeral_context(
     Idempotent — calling this on an already-permanent context is a no-op
     that returns the current serialization.
     """
-    c = (
-        db.query(Context)
-        .filter(Context.id == ctx_id, Context.workspace_id == workspace.id)
-        .first()
-    )
+    c = db.query(Context).filter(Context.id == ctx_id, Context.workspace_id == workspace.id).first()
     if not c:
         raise HTTPException(404, "Context not found")
     if c.ephemeral:
@@ -194,7 +244,7 @@ async def persist_ephemeral_context(
         c.ttl_expires_at = None
         db.commit()
         db.refresh(c)
-    return _serialize(c)
+    return _serialize(c, db)
 
 
 @router.get("/{ctx_id}")
@@ -206,7 +256,7 @@ async def get_context(
     c = db.query(Context).filter(Context.id == ctx_id, Context.workspace_id == workspace.id).first()
     if not c:
         raise HTTPException(404, "Context not found")
-    return _serialize(c)
+    return _serialize(c, db)
 
 
 @router.patch("/{ctx_id}")
@@ -231,7 +281,7 @@ async def update_context(
     c.version = (c.version or 1) + 1
     db.commit()
     db.refresh(c)
-    return _serialize(c)
+    return _serialize(c, db)
 
 
 @router.delete("/{ctx_id}", status_code=204)

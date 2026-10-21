@@ -6,7 +6,7 @@
  *   1. Hard-fail legacy Cockpit patterns (gradients, brand/violet utilities,
  *      glass/card surfaces) on `src/app`, same exemptions as before.
  *   2. Ratchet on banned fonts, violet/indigo/purple names and hexes, pill
- *      radii, and glow halos. Scans `src/app`, `src/styles`, `src/styles.scss`,
+ *      radii, glow halos and type under 12 px. Scans `src/app`, `src/styles`, `src/styles.scss`,
  *      `src/index.html`, and `tailwind.config.ts`. Per-file counts may shrink,
  *      never grow — budget in `docs/compliance/ui-chrome-baseline.v1.json`.
  *
@@ -78,6 +78,15 @@ export const ratchetRules = /** @type {Rule[]} */ ([
     id: 'halo',
     name: 'banned glow halo',
     pattern: /--ck-glow-|box-shadow\s*:\s*0\s+0\b/g,
+  },
+  {
+    // 12 px (`--ck-text-meta`) is the floor for short metadata; anything
+    // smaller is unreadable at 1470 × 776. Counts px and rem in CSS, Tailwind
+    // arbitrary sizes and Angular style bindings.
+    id: 'tiny-type',
+    name: 'type under 12px',
+    pattern:
+      /font-size\s*:\s*(?:\d|1[01])(?:\.\d+)?px|font-size\s*:\s*0?\.(?:[0-6]\d*|7(?:[0-4]\d*)?)rem|text-\[(?:\d|1[01])(?:\.\d+)?px\]|(?:fontSize|font-size)\.px\]="(?:\d|1[01])(?:\.\d+)?"/g,
   },
 ]);
 

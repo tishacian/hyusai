@@ -55,6 +55,7 @@ export interface SharePointJobSummary {
   ingested_count: number;
   ingest_failed_count: number;
   collection_name?: string | null;
+  file_outcomes?: { items: Array<{ filename: string; state: string }>; truncated: boolean } | null;
   login_required_detail?: string | null;
   error?: string | null;
   output_dir?: string | null;
@@ -90,6 +91,10 @@ export class SharepointApiService {
     return this.api.delete<void>(
       `/sharepoint/sessions/${encodeURIComponent(sessionKey)}`,
     );
+  }
+
+  testConnection(request: SharePointSyncRequest): Observable<{ ok: boolean; status: string }> {
+    return this.api.post<{ ok: boolean; status: string }>('/sharepoint/test', request);
   }
 
   enqueueSync(request: SharePointSyncRequest): Observable<SharePointJobSummary> {

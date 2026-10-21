@@ -18,7 +18,10 @@ import {
 import { EndpointsService } from './endpoints.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { LOADING, readFailure, readValue, type LoadState } from '@app/shared/ui/load-state';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -36,6 +39,7 @@ import {
   metricTone,
   primaryScore,
   trainChecklist,
+  servingErrorKey,
   type ModelDto,
   type ModelTask,
   type TrainStep,
@@ -105,7 +109,10 @@ type ModelFilter = 'all' | ModelTask | 'serving';
       </div>
     </ck-object-header>
 
-    @if (!models.catalog().enabled) {
+    @if (listState().s === 'error' || listState().s === 'denied') {
+      <app-empty-state [state]="listState()" (retry)="reload()" />
+    }
+    @if (!models.catalog().enabled && (listState().s === 'ready' || listState().s === 'empty')) {
       <app-empty-state
         icon="brain"
         [title]="i18n.t('models.disabled.title')"
@@ -133,7 +140,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
             </div>
           }
         </div>
-      } @else if (!visible().length) {
+      } @else if (!visible().length && listState().s !== 'error' && listState().s !== 'denied') {
         <app-empty-state
           icon="brain"
           [title]="i18n.t('models.list.empty.title')"
@@ -230,11 +237,16 @@ type ModelFilter = 'all' | ModelTask | 'serving';
                       <span class="ck-models-served is-progress">{{
                         i18n.t('models.list.served.progress', { version: entry.row.version })
                       }}</span>
-                    } @else if (entry.served_version !== null) {
+                    } @else if (entry.callable && entry.served_version !== null) {
                       <span class="ck-models-served is-live">
                         <span class="ck-models-live-mark" aria-hidden="true"></span>
                         {{ i18n.t('models.list.served', { version: entry.served_version }) }}
                       </span>
+                    } @else if (entry.served_version !== null) {
+                      <span class="ck-models-served" data-testid="model-serving-blocked">
+                        {{ i18n.t('models.list.selected_unavailable', { version: entry.served_version }) }}
+                      </span>
+                      <p class="ck-muted text-xs">{{ servingBlockReason(entry.serving_refusal?.code) }}</p>
                     } @else {
                       <span class="ck-muted">{{ i18n.t('models.list.served.none') }}</span>
                     }
@@ -536,6 +548,12 @@ export class ModelsListComponent implements OnInit {
   ]);
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  protected readonly listState = signal<LoadState<ModelDto[]>>(LOADING);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly view = new WorkspaceViewContext(this.workspace, () => {
+    this.listState.set(LOADING); this.stopPolling(); this.watched.clear();
+    this.studioOpen.set(false); this.importOpen.set(false);
+  }, () => { void this.reload(); void this.data.refresh(); });
 
   protected readonly hasDataset = computed(() =>
     this.data.datasets().some((dataset) => dataset.status === 'ready'),
@@ -549,13 +567,13 @@ export class ModelsListComponent implements OnInit {
     const filter = this.filter();
     const rows = groupModelsBySlug(this.models.models());
     if (filter === 'all') return rows;
-    if (filter === 'serving') return rows.filter((entry) => entry.served_version !== null);
+    if (filter === 'serving') return rows.filter((entry) => entry.callable);
     return rows.filter((entry) => entry.task === filter);
   });
 
   protected readonly kpis = computed<CkObjectKpi[]>(() => {
     const rows = groupModelsBySlug(this.models.models());
-    const serving = rows.filter((entry) => entry.served_version !== null);
+    const serving = rows.filter((entry) => entry.callable);
     const best = this.bestScore(rows.map((entry) => entry.row));
     const kpis: CkObjectKpi[] = [
       { label: this.i18n.t('models.kpi.models'), value: String(rows.length), tone: 'cool' },
@@ -578,12 +596,26 @@ export class ModelsListComponent implements OnInit {
     // A dataset list is what the studio picks from, and what decides whether
     // "train a model" is even offered.
     void this.data.refresh();
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => this.view.destroy());
+  }
+
+  protected servingBlockReason(code?: string): string {
+    const key = servingErrorKey(code);
+    return this.i18n.t(key ?? 'models.readiness.blocked');
   }
 
   protected async reload(): Promise<void> {
-    await this.models.refresh();
-    this.syncPolling();
+    const request = this.view.beginRequest();
+    const previous = this.listState();
+    this.listState.set(LOADING);
+    try {
+      const rows = await this.models.refresh();
+      if (!this.view.isCurrent(request)) return;
+      this.listState.set(readValue(rows));
+      this.syncPolling();
+    } catch (error) {
+      if (this.view.isCurrent(request)) this.listState.set(readFailure(error, previous));
+    }
   }
 
   protected isActive(model: ModelDto): boolean {

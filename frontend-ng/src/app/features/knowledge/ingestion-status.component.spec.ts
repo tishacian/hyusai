@@ -113,13 +113,35 @@ test('timestamps respect the selected locale and naive server timestamps stay UT
 
 
 test('source retrieval failure is not converted to an empty collection', () => {
-  const view = {
+  // Keep the real panel read pipeline: it owns error and request-scope state.
+  const view = Object.assign(Object.create(KnowledgeViewComponent.prototype), {
     kbId: 'manuals', loadingSources: signal(false), sourceLoadError: signal(false),
+    panelStates: signal({}), panelRequests: new Map(),
+    view: { captureRequest: () => 1, isCurrent: (request: number) => request === 1 },
     sourceInventoryUrl: () => '/inventory',
     http: {get: () => throwError(() => new Error('network unavailable'))},
     applyInventoryPage: () => assert.fail('an error must not replace the retained inventory with []'),
-  };
-  KnowledgeViewComponent.prototype.loadSources.call(view as any, 0);
+  });
+  view.loadSources(0);
   assert.equal(view.loadingSources(), false);
   assert.equal(view.sourceLoadError(), true);
+  assert.equal(view.panelStates()['sources'].s, 'error');
+});
+
+
+test('a late source inventory cannot refill a view after a workspace transition', () => {
+  let epoch = 1;
+  const pending = new Subject();
+  const view = Object.assign(Object.create(KnowledgeViewComponent.prototype), {
+    kbId: 'manuals', loadingSources: signal(false), sourceLoadError: signal(false),
+    panelStates: signal({}), panelRequests: new Map(),
+    view: { captureRequest: () => epoch, isCurrent: (request: number) => request === epoch },
+    sourceInventoryUrl: () => '/inventory', http: { get: () => pending },
+    applyInventoryPage: () => assert.fail('a previous workspace inventory must not be applied'),
+  });
+  view.loadSources(0);
+  epoch++;
+  view.panelStates.set({}); // Synchronous reset belongs to WorkspaceViewContext.
+  pending.next({ sources: [{ filename: 'workspace-a-private.pdf' }] }); pending.complete();
+  assert.deepEqual(view.panelStates(), {});
 });

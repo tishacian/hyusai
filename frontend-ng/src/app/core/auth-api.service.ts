@@ -127,8 +127,8 @@ export class AuthApiService {
     return this.http.get<KcSession[]>('/api/v1/auth/sessions');
   }
 
-  deleteAccount(): Observable<{ status: string }> {
-    return this.http.delete<{ status: string }>('/api/v1/auth/me');
+  deleteAccount(): Observable<{ status: string; receipt: { identity_deleted:boolean; profile_deleted:boolean; connections_revoked:boolean; retained:string[] } }> {
+    return this.http.delete<{ status: string; receipt: { identity_deleted:boolean; profile_deleted:boolean; connections_revoked:boolean; retained:string[] } }>('/api/v1/auth/me');
   }
 
   toggleMfa(enabled: boolean): Observable<{ status: string; mfa_enabled: boolean }> {
@@ -142,6 +142,13 @@ export class AuthApiService {
     return this.http.post<{ status: string; message: string; verification_email_sent?: boolean }>(
       '/api/v1/auth/signup',
       body
+    );
+  }
+
+  resendSignupVerification(email: string): Observable<{ status: string; verification_email_sent?: boolean }> {
+    return this.http.post<{ status: string; verification_email_sent?: boolean }>(
+      '/api/v1/auth/signup/resend-verification',
+      { email }
     );
   }
 

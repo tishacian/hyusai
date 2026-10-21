@@ -1,14 +1,18 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { LOADING, settleRead, type LoadState } from '@app/shared/ui/load-state';
 
 @Component({
   selector: 'app-account-security',
   standalone: true,
-  imports: [IconComponent, SkeletonComponent],
+  imports: [IconComponent, SkeletonComponent, EmptyStateComponent],
   template: `
     <div class="ck-surface t-elevated rounded-md p-6">
       <div class="flex items-start gap-3 mb-5">
@@ -28,6 +32,9 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
           <app-skeleton height="56px" />
           <app-skeleton height="20px" width="60%" />
         </div>
+      } @else if (readState().s !== 'ready') {
+        <p data-testid="mfa-unknown">{{ i18n.t('account.security.mfa.unknown') }}</p>
+        <app-empty-state [state]="readState()" size="sm" (retry)="load()" />
       } @else {
         <div class="flex items-start justify-between gap-4 p-4 rounded-md bg-black/20 border border-white/5">
           <div class="flex-1 min-w-0">
@@ -81,22 +88,33 @@ export class SecurityComponent {
   readonly i18n = inject(I18nService);
   private readonly api = inject(AuthApiService);
   private readonly toastr = inject(ToastrService);
+  private readonly destroyRef = inject(DestroyRef);
 
   loading = signal(true);
   saving = signal(false);
   enabled = signal(false);
+  readonly readState = signal<LoadState<boolean>>(LOADING);
+  private generation = 0;
 
   constructor() {
-    this.api.me().subscribe({
-      next: (p) => {
-        this.enabled.set(p.mfa_enabled);
-        this.loading.set(false);
-      },
-      error: () => this.loading.set(false),
+    this.load();
+  }
+
+  load(): void {
+    const generation = ++this.generation;
+    settleRead(this.api.me().pipe(map((profile) => {
+      if (typeof profile.mfa_enabled !== 'boolean') throw new Error('invalid_security_status');
+      return profile.mfa_enabled;
+    }))).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((state) => {
+      if (generation !== this.generation) return;
+      this.loading.set(state.s === 'loading');
+      this.readState.set(state);
+      if (state.s === 'ready') this.enabled.set(state.value);
     });
   }
 
   toggle(): void {
+    if (this.readState().s !== 'ready' || this.saving()) return;
     const next = !this.enabled();
     this.saving.set(true);
     this.api.toggleMfa(next).subscribe({

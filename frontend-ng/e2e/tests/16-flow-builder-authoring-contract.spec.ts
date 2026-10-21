@@ -910,6 +910,7 @@ test('clone → edit → validate → save → input → execute → result → 
 
   await page.goto(`/systems/${SYSTEM_ID}/flow`);
   await expect(page.getByRole('heading', { name: 'Flow authoring contract clone' })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit draft', exact: true }).click();
   await expect(page.getByText('Server draft r7')).toBeVisible();
   await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
   await expect.poll(() => events.includes('api:validate:initial')).toBe(true);

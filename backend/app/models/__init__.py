@@ -35,6 +35,7 @@ from app.models.experience import (
     ExperienceDraftHistory,
     ExperienceDraftRevision,
     ExperienceRelease,
+    ExperienceWizardState,
 )
 from app.models.expert_capture import (
     ExpertCaptureEvent,
@@ -62,8 +63,8 @@ from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.meeting_decision import MeetingDecision
-from app.models.ml_feedback import MLPredictionFeedback
 from app.models.mfa import MfaChallenge
+from app.models.ml_feedback import MLPredictionFeedback
 from app.models.ml_governance import MLAdmissionCounter, MLWorkspaceLock
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.rag_preset import RagPreset
@@ -90,6 +91,7 @@ from app.models.tabular import (
     TabularDataset,
 )
 from app.models.task import Task
+from app.models.task_execution import TaskExecution
 from app.models.trigger_event_claim import TriggerEventClaim
 from app.models.user import Message, Session, User
 from app.models.value_loop import (
@@ -138,9 +140,13 @@ __all__ = [
     "MLAlert",
     "MLAlertDelivery",
     "MLAlertSource",
-
-    "ExecutionCapacity", "ExecutionReservation", "ExecutionDispatch",
-    "Activity", "ActivityCommand", "ActivityEvent", "ActivityWorkspaceCursor",
+    "ExecutionCapacity",
+    "ExecutionReservation",
+    "ExecutionDispatch",
+    "Activity",
+    "ActivityCommand",
+    "ActivityEvent",
+    "ActivityWorkspaceCursor",
     "ConnectorWrite",
     "ConnectorOAuthState",
     "ComputeRun",
@@ -162,6 +168,7 @@ __all__ = [
     "RagPreset",
     "AuditLog",
     "Task",
+    "TaskExecution",
     "EvaluationScore",
     "EvaluationFeedback",
     "FEEDBACK_LABELS",
@@ -222,6 +229,7 @@ __all__ = [
     "SystemBinding",
     "Experience",
     "ExperienceDraftRevision",
+    "ExperienceWizardState",
     "ExperienceDraftHistory",
     "ExperienceRelease",
     "ExperienceDeployment",
@@ -299,6 +307,14 @@ from app.services.activity_observability.observer import install_observers
 
 install_observers()
 
-from app.models.ml_operations import (MLInferenceUsage, MLUsageRollup, MLAlertChannel, MLAlertState, MLAlert, MLAlertDelivery, MLAlertSource)
-from app.models.ml_requalification import MLRuntimeAttestation
 from app.models.ml_explanations import MLProductionExplanation  # noqa: E402,F401
+from app.models.ml_operations import (  # noqa: E402 -- preserve post-observer registration
+    MLAlert,
+    MLAlertChannel,
+    MLAlertDelivery,
+    MLAlertSource,
+    MLAlertState,
+    MLInferenceUsage,
+    MLUsageRollup,
+)
+from app.models.ml_requalification import MLRuntimeAttestation  # noqa: E402

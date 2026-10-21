@@ -1,5 +1,5 @@
 :host { display:block; min-width:0; color:var(--ck-fg-1); }
-.pg-page { max-width:1180px; margin:0 auto; padding:0 8px 36px; }
+.pg-page { max-width:1180px; margin:0 auto; padding:0 0 36px; }
 .pg-card { background:var(--ck-bg-raised); border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); padding:20px 24px 22px; margin-bottom:16px; min-width:0; }
 .pg-card-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 16px; margin-bottom:18px; }
 .pg-step { display:flex; align-items:center; gap:14px; min-width:0; }

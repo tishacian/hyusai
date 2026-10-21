@@ -63,6 +63,8 @@ try {
     absWorkingDir: root,
     tsconfig: join(root, 'tsconfig.json'),
     logLevel: 'warning',
+    // Duplicate object keys are otherwise overwritten before dictionary checks.
+    logOverride: { 'duplicate-object-key': 'error' },
   });
   dict = await import(pathToFileURL(join(outDir, 'i18n.dict.mjs')).href);
   lexicon = await import(pathToFileURL(join(outDir, 'i18n.lexicon.mjs')).href);
@@ -525,6 +527,66 @@ for (const full of files) {
 }
 
 const lineAt = (source, offset) => source.slice(0, offset).split('\n').length;
+
+// ---------------------------------------------------------------------------
+// 2b. App families — three distinct names (lot 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The noun a rail label is about: the first word in French (« Modules du
+ * workspace »), the last in English ("Workspace modules"), singular, with
+ * "app" read as "application" so « Apps du workspace » and « Applications
+ * métier » collide as a reader hears them.
+ */
+function headNoun(label, lang) {
+  const words = String(label).toLowerCase().split(/[\s·&]+/u).filter(Boolean);
+  const word = (lang === 'fr' ? words[0] : words[words.length - 1]) ?? '';
+  const singular = word.replace(/s$/u, '');
+  return singular === 'app' ? 'application' : singular;
+}
+
+const familyProblems = [];
+const families = lexicon.APP_FAMILIES ?? [];
+const groupHeaderKeys = Object.keys(FR_DICT).filter((key) => key.startsWith('nav.sommaire.group.'));
+const railKeys = [
+  ...new Set([
+    ...primaryVerbKeys.map((verb) => `nav.${verb}`),
+    ...sectionKeys.map((key) => `nav.${key}`),
+    ...groupHeaderKeys,
+  ]),
+].filter((key) => key in FR_DICT);
+for (const [lang, dictionary] of [['fr', FR_DICT], ['en', EN_DICT]]) {
+  const seen = new Map(); // head noun -> family nav key
+  for (const family of families) {
+    const label = dictionary[family.navKey];
+    if (!label) continue;
+    const head = headNoun(label, lang);
+    const twin = seen.get(head);
+    if (twin) {
+      familyProblems.push(`${lang}: '${family.navKey}' (« ${label} ») and '${twin}' (« ${dictionary[twin]} ») share the noun "${head}".`);
+    }
+    seen.set(head, family.navKey);
+    for (const key of railKeys) {
+      if (key === family.navKey) continue;
+      const other = dictionary[key];
+      if (!other) continue;
+      const isHeader = groupHeaderKeys.includes(key) || primaryVerbKeys.includes(key.slice(4));
+      const repeats = isHeader
+        ? other.toLowerCase() === label.toLowerCase()
+        : !families.some((f) => f.navKey === key) && headNoun(other, lang) === head;
+      if (repeats) {
+        familyProblems.push(`${lang}: '${family.navKey}' (« ${label} ») repeats the rail label '${key}' (« ${other} »).`);
+      }
+    }
+  }
+}
+if (familyProblems.length > 0) {
+  fail('Two app families read alike in the rail', [
+    ...familyProblems,
+    'Fix: each family in APP_FAMILIES (src/app/core/i18n.lexicon.ts) keeps its own noun;',
+    'rename the label in src/app/core/i18n/chrome.dict.ts and its lexicon entry together.',
+  ]);
+}
 
 // ---------------------------------------------------------------------------
 // 3. Hard-coded UI text in templates

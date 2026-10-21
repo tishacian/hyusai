@@ -113,6 +113,7 @@ import { edgeKey, FlowStore } from './flow.store';
                     <label>
                       <span>{{ i18n.t('flow.outline.position.x') }}</span>
                       <input
+                        class="ck-input"
                         type="number"
                         step="24"
                         [value]="node.position?.x ?? 120"
@@ -123,6 +124,7 @@ import { edgeKey, FlowStore } from './flow.store';
                     <label>
                       <span>{{ i18n.t('flow.outline.position.y') }}</span>
                       <input
+                        class="ck-input"
                         type="number"
                         step="24"
                         [value]="node.position?.y ?? 120"
@@ -148,7 +150,7 @@ import { edgeKey, FlowStore } from './flow.store';
             <legend>{{ i18n.t('flow.outline.connect') }}</legend>
             <label>
               <span>{{ i18n.t('flow.outline.connect.source') }}</span>
-              <select [value]="sourceId()" (change)="chooseSource($event)">
+              <select class="ck-input" [value]="sourceId()" (change)="chooseSource($event)">
                 <option value="">{{ i18n.t('flow.outline.connect.source.placeholder') }}</option>
                 @for (option of sourceOptions(); track option.id) {
                   <option [value]="option.id">{{ connectorLabel(option) }}</option>
@@ -158,6 +160,7 @@ import { edgeKey, FlowStore } from './flow.store';
             <label>
               <span>{{ i18n.t('flow.outline.connect.target') }}</span>
               <select
+                class="ck-input"
                 [value]="targetId()"
                 [disabled]="!selectedSource()"
                 (change)="chooseTarget($event)"

@@ -120,6 +120,15 @@ async def test_hana_connection(
     _require_workspace_admin(db, user, workspace)
     try:
         return await asyncio.to_thread(_run_operation, workspace, hana_service.test_connection)
+    except hana_service.HanaConnectorError as exc:
+        status = {
+            "HANA_AUTH_FAILED": "auth_failed",
+            "HANA_RESOURCE_DENIED": "access_denied",
+            "HANA_NOT_CONFIGURED": "not_configured",
+        }.get(exc.code)
+        if status:
+            return {"ok": False, "status": status}
+        raise _http_error(exc) from None
     except Exception as exc:
         raise _http_error(exc) from None
 

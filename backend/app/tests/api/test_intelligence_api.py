@@ -1,10 +1,13 @@
 """Intelligence endpoints serve the current workspace only, and create the watch on demand."""
+
 from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.v1.endpoints import intelligence as intelligence_endpoint
 from app.models.capability import Capability
@@ -33,13 +36,44 @@ def _seed(db_session):
     rows = [alpha, beta, user]
     for owner, tag in ((alpha.id, "alpha"), (beta.id, "beta"), (None, "null")):
         rows += [
-            FeedSource(id=f"feed-{tag}", workspace_id=owner, name=f"{tag} feed", url=f"https://{tag}.example/rss", active=True, last_fetched=datetime(2026, 10, 1)),
-            SemanticTarget(id=f"target-{tag}", workspace_id=owner, name=f"{tag} target", description=tag),
-            SafetyFilter(id=f"filter-{tag}", workspace_id=owner, name=f"{tag} filter", prompt_template=tag),
-            FeedArticle(id=f"article-{tag}", workspace_id=owner, source_id=f"feed-{tag}", title=f"{tag} story", url=f"https://{tag}.example/a", embedded=True, analysis=analysis, fetched_at=datetime.utcnow()),
+            FeedSource(
+                id=f"feed-{tag}",
+                workspace_id=owner,
+                name=f"{tag} feed",
+                url=f"https://{tag}.example/rss",
+                active=True,
+                last_fetched=datetime(2026, 10, 1),
+            ),
+            SemanticTarget(
+                id=f"target-{tag}", workspace_id=owner, name=f"{tag} target", description=tag
+            ),
+            SafetyFilter(
+                id=f"filter-{tag}", workspace_id=owner, name=f"{tag} filter", prompt_template=tag
+            ),
+            FeedArticle(
+                id=f"article-{tag}",
+                workspace_id=owner,
+                source_id=f"feed-{tag}",
+                title=f"{tag} story",
+                url=f"https://{tag}.example/a",
+                embedded=True,
+                analysis=analysis,
+                fetched_at=datetime.utcnow(),
+            ),
         ]
     # Pre-120 row joined to Alpha's feed but never stamped.
-    rows.append(FeedArticle(id="article-unstamped", workspace_id=None, source_id="feed-alpha", title="unstamped", url="https://alpha.example/u", embedded=True, analysis=analysis, fetched_at=datetime.utcnow()))
+    rows.append(
+        FeedArticle(
+            id="article-unstamped",
+            workspace_id=None,
+            source_id="feed-alpha",
+            title="unstamped",
+            url="https://alpha.example/u",
+            embedded=True,
+            analysis=analysis,
+            fetched_at=datetime.utcnow(),
+        )
+    )
     db_session.add_all(rows)
     db_session.commit()
     return alpha, beta, user
@@ -49,22 +83,55 @@ def test_reads_are_scoped_to_the_current_workspace(db_session):
     alpha, _beta, user = _seed(db_session)
     client = _client(db_session, alpha, user)
 
-    assert [row["id"] for row in client.get("/api/v1/intelligence/feeds").json()["feeds"]] == ["feed-alpha"]
-    assert [row["id"] for row in client.get("/api/v1/intelligence/targets").json()["targets"]] == ["target-alpha"]
-    assert [row["id"] for row in client.get("/api/v1/intelligence/filters").json()["filters"]] == ["filter-alpha"]
-    assert [row["id"] for row in client.get("/api/v1/intelligence/articles").json()["articles"]] == ["article-alpha"]
+    assert [row["id"] for row in client.get("/api/v1/intelligence/feeds").json()["feeds"]] == [
+        "feed-alpha"
+    ]
+    assert [row["id"] for row in client.get("/api/v1/intelligence/targets").json()["targets"]] == [
+        "target-alpha"
+    ]
+    assert [row["id"] for row in client.get("/api/v1/intelligence/filters").json()["filters"]] == [
+        "filter-alpha"
+    ]
+    assert [
+        row["id"] for row in client.get("/api/v1/intelligence/articles").json()["articles"]
+    ] == ["article-alpha"]
     # Filtering by another workspace's feed id does not reach its rows.
-    assert client.get("/api/v1/intelligence/articles", params={"source_id": "feed-beta"}).json()["articles"] == []
+    assert (
+        client.get("/api/v1/intelligence/articles", params={"source_id": "feed-beta"}).json()[
+            "articles"
+        ]
+        == []
+    )
     dashboard = client.get("/api/v1/intelligence/dashboard").json()
     assert [row["id"] for row in dashboard["articles"]] == ["article-alpha"]
     assert dashboard["kpis"]["active_feeds"] == 1
     assert dashboard["knowledge_collection"]["slug"] == "workspace-intelligence"
 
 
+@pytest.mark.asyncio
+async def test_feed_cadence_is_scoped_validated_and_does_not_fetch(db_session):
+    alpha, beta, user = _seed(db_session)
+    body = intelligence_endpoint.FeedCadencePatch(refresh_interval=86400)
+    with pytest.raises(HTTPException) as refused:
+        await intelligence_endpoint.update_feed_cadence("feed-beta", body, alpha, db_session)
+    assert refused.value.status_code == 404
+    with pytest.raises(ValidationError):
+        intelligence_endpoint.FeedCadencePatch(refresh_interval=0)
+    response = await intelligence_endpoint.update_feed_cadence(
+        "feed-alpha", body, alpha, db_session
+    )
+    assert response["refresh_interval"] == 86400
+    feed = db_session.get(FeedSource, "feed-alpha")
+    assert feed.last_fetched == datetime(2026, 10, 1)
+    assert db_session.get(FeedSource, "feed-beta").refresh_interval != 86400
+
+
 def test_deleting_a_feed_removes_its_articles_in_this_workspace_only(db_session):
     alpha, beta, user = _seed(db_session)
 
-    assert _client(db_session, beta, user).delete("/api/v1/intelligence/feeds/feed-alpha").json() == {"deleted": True}
+    assert _client(db_session, beta, user).delete(
+        "/api/v1/intelligence/feeds/feed-alpha"
+    ).json() == {"deleted": True}
     assert db_session.query(FeedSource).filter(FeedSource.id == "feed-alpha").count() == 1
 
     _client(db_session, alpha, user).delete("/api/v1/intelligence/feeds/feed-alpha")
@@ -85,7 +152,10 @@ def test_scheduler_status_is_workspace_scoped(db_session):
     unauthenticated = FastAPI()
     unauthenticated.include_router(intelligence_endpoint.router, prefix="/api/v1/intelligence")
     unauthenticated.dependency_overrides[intelligence_endpoint.get_db] = lambda: db_session
-    assert TestClient(unauthenticated).get("/api/v1/intelligence/scheduler").status_code in {401, 403}
+    assert TestClient(unauthenticated).get("/api/v1/intelligence/scheduler").status_code in {
+        401,
+        403,
+    }
 
 
 def _capability(db_session) -> Capability:
@@ -109,9 +179,28 @@ def test_watch_lists_only_marked_systems_and_creates_one_on_demand(db_session):
     db_session.add_all(
         [
             # Unrelated Systems never show up as watches, whatever their name.
-            System(workspace_id=alpha.id, name="Competitive intelligence notes", capability_id=capability.id, flow_definition={}, status="active"),
-            System(workspace_id=alpha.id, name="Veille", capability_id=capability.id, flow_definition={"variant": "intelligence"}, status="active"),
-            System(id="sys-beta-watch", workspace_id=beta.id, name="Beta watch", capability_id=capability.id, flow_definition={"template_id": INTELLIGENCE_TEMPLATE_ID}, status="active"),
+            System(
+                workspace_id=alpha.id,
+                name="Competitive intelligence notes",
+                capability_id=capability.id,
+                flow_definition={},
+                status="active",
+            ),
+            System(
+                workspace_id=alpha.id,
+                name="Veille",
+                capability_id=capability.id,
+                flow_definition={"variant": "intelligence"},
+                status="active",
+            ),
+            System(
+                id="sys-beta-watch",
+                workspace_id=beta.id,
+                name="Beta watch",
+                capability_id=capability.id,
+                flow_definition={"template_id": INTELLIGENCE_TEMPLATE_ID},
+                status="active",
+            ),
         ]
     )
     db_session.commit()
@@ -129,13 +218,25 @@ def test_watch_lists_only_marked_systems_and_creates_one_on_demand(db_session):
     assert created["system"]["template_id"] == INTELLIGENCE_TEMPLATE_ID
     assert again == {"system": created["system"], "created": False}
     assert [row["id"] for row in listed["systems"]] == [created["system"]["id"]]
-    assert db_session.query(System).filter(System.workspace_id == alpha.id, System.name == INTELLIGENCE_SYSTEM_NAME).count() == 1
+    assert (
+        db_session.query(System)
+        .filter(System.workspace_id == alpha.id, System.name == INTELLIGENCE_SYSTEM_NAME)
+        .count()
+        == 1
+    )
 
 
 def test_watch_lists_the_legacy_template_first_and_adopts_an_unmarked_seed(db_session):
     alpha, _beta, user = _seed(db_session)
     capability = _capability(db_session)
-    seeded = System(workspace_id=alpha.id, name=INTELLIGENCE_SYSTEM_NAME, capability_id=capability.id, flow_definition={"variant": "intelligence", "nodes": [], "edges": []}, status="active", created_by="system:intelligence_seed")
+    seeded = System(
+        workspace_id=alpha.id,
+        name=INTELLIGENCE_SYSTEM_NAME,
+        capability_id=capability.id,
+        flow_definition={"variant": "intelligence", "nodes": [], "edges": []},
+        status="active",
+        created_by="system:intelligence_seed",
+    )
     db_session.add(seeded)
     db_session.commit()
     client = _client(db_session, alpha, user)
@@ -145,10 +246,19 @@ def test_watch_lists_the_legacy_template_first_and_adopts_an_unmarked_seed(db_se
     assert adopted["system"]["id"] == seeded.id
     assert db_session.query(System).filter(System.workspace_id == alpha.id).count() == 1
 
-    legacy = System(workspace_id=alpha.id, name="Veille Presse", capability_id=capability.id, flow_definition={"variant": "intelligence", "template_id": "sentinel-ci-intelligence"}, status="active")
+    legacy = System(
+        workspace_id=alpha.id,
+        name="Veille Presse",
+        capability_id=capability.id,
+        flow_definition={"variant": "intelligence", "template_id": "sentinel-ci-intelligence"},
+        status="active",
+    )
     db_session.add(legacy)
     db_session.commit()
-    assert [row["id"] for row in client.get("/api/v1/intelligence/watch").json()["systems"]] == [legacy.id, seeded.id]
+    assert [row["id"] for row in client.get("/api/v1/intelligence/watch").json()["systems"]] == [
+        legacy.id,
+        seeded.id,
+    ]
 
 
 def test_watch_creation_needs_the_right_to_create_systems(db_session, monkeypatch):

@@ -20,6 +20,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import type { PendingChangesSummary } from '@app/core/workspace-switch.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { accessReasonFromError, accessStateUrl } from '@app/features/access-state/access-state.model';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from '../experience-access';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { workPageHref } from '../work/work-catalog';
@@ -67,6 +68,8 @@ import {
 } from './studio-model';
 import type { ReadyCheck } from './studio-publish';
 import { ExperiencePublishDialogComponent } from './publish-dialog.component';
+import { StudioTestPreviewComponent } from './test-preview.component';
+import { reapplyStudioChanges } from './studio-conflict';
 import type {
   CertifiedType,
   ExperienceDocument,
@@ -180,6 +183,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
     ExperienceRuntimeHostComponent,
     ExperiencePublishDialogComponent,
     ConfirmDialogComponent,
+    StudioTestPreviewComponent,
   ],
   styleUrl: './studio.scss',
   template: `
@@ -287,6 +291,25 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
 
       @if (error(); as err) {
         <p class="xp-error" role="alert">{{ err }}</p>
+      }
+      @if (draftConflict(); as conflict) {
+        <section class="xp-conflict" aria-live="polite">
+          <h2>{{ i18n.t('experience.editor.compare.title') }}</h2>
+          <p>{{ i18n.t('experience.editor.compare.body') }}</p>
+          <div class="xp-conflict-versions">
+            <details open><summary>{{ i18n.t('experience.editor.compare.base') }}</summary><pre>{{ jsonText(conflict.base) }}</pre></details>
+            <details open><summary>{{ i18n.t('experience.editor.compare.mine') }}</summary><pre>{{ jsonText(conflict.mine) }}</pre></details>
+            <details open><summary>{{ i18n.t('experience.editor.compare.theirs') }}</summary><pre>{{ conflict.remote ? jsonText(conflict.remote.draft?.pages) : i18n.t('common.loading') }}</pre></details>
+          </div>
+          @if (conflict.remote) {
+            <p>{{ i18n.t('experience.editor.compare.collisions', { count: conflictPaths().length }) }}</p>
+            @for (path of conflictPaths(); track path) { <code>{{ path }}</code> }
+            <button type="button" class="xp-btn" (click)="resolveDraftConflict(false)">{{ i18n.t('experience.editor.compare.keep_theirs') }}</button>
+            <button type="button" class="xp-btn" (click)="resolveDraftConflict(true)">{{ i18n.t('experience.editor.compare.reapply') }}</button>
+          } @else {
+            <button type="button" class="xp-btn" (click)="loadConflictVersion()">{{ i18n.t('common.retry') }}</button>
+          }
+        </section>
       }
       @if (catalogLoading()) {
         <p class="sr-only" role="status">{{ i18n.t('experience.editor.catalog.loading') }}</p>
@@ -526,6 +549,12 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
               </div>
             }
           </div>
+          <app-studio-test-preview
+            [page]="selectedPage()"
+            [bindings]="bindings()"
+            [systemNames]="systemNames()"
+            (openSetting)="openComponentSetting($event)"
+          />
           @if (!readOnly()) {
           <form class="xp-assist" (submit)="$event.preventDefault(); propose()">
             <div class="xp-assist-bar">
@@ -803,17 +832,24 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                 </select>
               </div>
               @if (bound(node); as row) {
-                <p class="xp-meta">
-                  <span>{{ bindingLabel(row) }}</span>
-                </p>
-                <p class="xp-hint">
-                  <strong>{{ i18n.t('experience.editor.action.inputs') }}</strong>
-                  @if (inputNames(node).length === 0) {
-                    {{ i18n.t('experience.editor.action.inputs.empty') }}
-                  } @else {
-                    {{ inputNames(node).join(', ') }}
-                  }
-                </p>
+                <dl class="xp-kv" data-testid="action-contract">
+                  <dt>{{ i18n.t('experience.editor.action.system') }}</dt>
+                  <dd data-testid="action-contract-system">{{ systemLabel(row.system_id) }}</dd>
+                  <dt>{{ i18n.t('experience.editor.action.version_label') }}</dt>
+                  <dd data-testid="action-contract-version" [attr.data-current]="versionCurrent(row)">
+                    {{ i18n.t(versionCurrent(row) === false ? 'experience.editor.action.version_outdated' : 'experience.editor.action.version_published', { version: row.published_flow_version_id.slice(0, 8) }) }}
+                  </dd>
+                  <dt>{{ i18n.t('experience.editor.action.inputs') }}</dt>
+                  <dd data-testid="action-contract-inputs">
+                    @switch (dataContractStates()[row.binding_key]) {
+                      @case ('ready') {
+                        {{ actionInputs(row).length === 0 ? i18n.t('experience.editor.action.inputs.empty') : actionInputs(row).join(', ') }}
+                      }
+                      @case ('error') { {{ i18n.t('experience.editor.action.inputs.unknown') }} }
+                      @default { {{ i18n.t('experience.editor.action.inputs.loading') }} }
+                    }
+                  </dd>
+                </dl>
                 @if (sharedWith(row.binding_key); as others) {
                   @if (others.length > 0) {
                     <p class="xp-warn" role="status">
@@ -974,12 +1010,19 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                     <span>{{ i18n.t('experience.editor.data.path') }}</span>
                     <select [value]="dataBinding(node)?.selector ?? ''" (change)="setDataField(node, 'selector', selectValue($event))">
                       @for (option of dataSelectorOptions(node); track option.value) {
-                        <option [value]="option.value">
-                          {{ option.value ? option.label : i18n.t('experience.editor.data.whole_result') }}
+                        <option [value]="option.value" [disabled]="option.absent">
+                          {{ option.absent
+                            ? i18n.t('experience.editor.data.absent_option', { path: option.label })
+                            : option.value ? option.label : i18n.t('experience.editor.data.whole_result') }}
                         </option>
                       }
                     </select>
                   </label>
+                  @if (selectorAbsent(node)) {
+                    <p class="xp-warn" role="alert" data-testid="data-selector-absent">
+                      {{ i18n.t('experience.editor.data.absent', { path: dataBinding(node)?.selector ?? '' }) }}
+                    </p>
+                  }
                   <p class="xp-hint">{{ i18n.t('experience.editor.data.explicit') }}</p>
                   <details>
                     <summary>{{ i18n.t('experience.editor.action.advanced') }}</summary>
@@ -1307,19 +1350,39 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                           </button>
                         }
                       </div>
-                    } @empty { <p class="xp-hint">{{ i18n.t('experience.publish.recap.none') }}</p> }
+                    } @empty { <p class="xp-hint">{{ i18n.t(releasesState() === 'ready' ? 'experience.publish.recap.none' : releasesState() === 'error' ? 'experience.publish.diff.error' : 'experience.publish.diff.loading') }}</p> }
                   </section>
                   <section>
                     <h3>{{ i18n.t('experience.editor.lifecycle.deployments') }}</h3>
+                    @if (deploymentsState() !== 'ready') {
+                      <p role="status">{{ i18n.t(deploymentsState() === 'loading' ? 'common.loading' : 'experience.editor.lifecycle.read_error') }}</p>
+                      @if (deploymentsState() === 'error') { <button class="xp-btn" type="button" (click)="reloadDeployments()">{{ i18n.t('common.retry') }}</button> }
+                    }
                     @for (deployment of detail()?.deployments ?? []; track deployment.id ?? deployment.channel) {
+                      <div class="xp-conflict-versions" data-testid="studio-service-comparison">
+                        <section>
+                          <h4>{{ i18n.t('experience.editor.service_compare.draft', { revision: detail()?.draft?.revision ?? '' }) }}</h4>
+                          <p>{{ i18n.t('experience.editor.service_compare.local') }}</p>
+                          <details><summary>{{ i18n.t('experience.editor.service_compare.content') }}</summary><pre>{{ jsonText(doc()) }}</pre></details>
+                        </section>
+                        <section>
+                          @if (releaseFor(deployment.release_id); as release) {
+                            <h4>{{ i18n.t('experience.editor.service_compare.release', { version: release.release_number, channel: deployment.channel }) }}</h4>
+                            <details><summary>{{ i18n.t('experience.editor.service_compare.content') }}</summary><pre>{{ jsonText(release.pages) }}</pre></details>
+                          } @else {
+                            <p>{{ i18n.t(releasesState() === 'loading' ? 'experience.publish.diff.loading' : 'experience.publish.diff.error') }}</p>
+                          }
+                          <p>{{ i18n.t('experience.editor.service_compare.audience') }} : {{ jsonText(deployment.audience) }}</p>
+                        </section>
+                      </div>
                       <div class="xp-journal-row">
                         <span>{{ deployment.channel }} · {{ deployment.release_id }}</span>
                         @if (canRelease()) {
                           <button
                             type="button"
                             class="xp-btn"
-                            [disabled]="lifecycleBusy() || !deployment.previous_release_id || !deployment.updated_at"
-                            (click)="rollback(deployment)"
+                            [disabled]="lifecycleBusy() || deploymentsState() !== 'ready' || !deployment.previous_release_id || !deployment.updated_at"
+                            (click)="rollbackCandidate.set(deployment)"
                           >{{ i18n.t('experience.editor.lifecycle.rollback') }}</button>
                         }
                       </div>
@@ -1349,6 +1412,18 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
     </p>
 
     <app-confirm-dialog
+      [open]="rollbackCandidate() !== null"
+      [title]="i18n.t('experience.editor.rollback.title')"
+      [description]="rollbackDescription()"
+      [confirmLabel]="i18n.t('experience.editor.lifecycle.rollback')"
+      [cancelLabel]="i18n.t('common.cancel')"
+      tone="brand"
+      icon="history"
+      (confirm)="confirmRollback()"
+      (cancel)="rollbackCandidate.set(null)"
+    />
+
+    <app-confirm-dialog
       [open]="restoreCandidate() !== null"
       [title]="i18n.t('experience.editor.history.confirm.title', { n: restoreCandidate()?.revision ?? '—' })"
       [description]="i18n.t('experience.editor.history.confirm.body', { current: detail()?.draft?.revision ?? '—', target: restoreCandidate()?.revision ?? '—' })"
@@ -1364,6 +1439,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
       @if (lockedDraft(); as draft) {
       <app-experience-publish-dialog
         [experienceId]="experienceId"
+        [appSlug]="slug()"
         [draft]="draft"
         [experienceUpdatedAt]="detail()?.updated_at ?? ''"
         [deployments]="detail()?.deployments ?? []"
@@ -1415,6 +1491,21 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly name = signal('');
   readonly slug = signal('');
   readonly detail = signal<StudioDetail | null>(null);
+  readonly draftConflict = signal<{ base: unknown; mine: unknown; remote: StudioDetail | null } | null>(null);
+  readonly conflictPaths = computed(() => {
+    const conflict = this.draftConflict();
+    return conflict?.remote?.draft ? reapplyStudioChanges(conflict.base, conflict.mine, conflict.remote.draft.pages).conflicts : [];
+  });
+  readonly rollbackCandidate = signal<StudioDeployment | null>(null);
+  readonly rollbackDescription = computed(() => {
+    const candidate = this.rollbackCandidate();
+    const release = this.releases().find(item => item.id === candidate?.previous_release_id);
+    return this.i18n.t('experience.editor.rollback.body', {
+      release: release?.release_number ?? candidate?.previous_release_id ?? '',
+      channel: candidate?.channel ?? '',
+      audience: JSON.stringify(candidate?.audience ?? {}),
+    });
+  });
   readonly stack = signal<RevisionStack>(emptyStack({ pages: [] }));
   readonly selection = signal<Selection | null>(null);
   readonly inspectorTab = signal<Tab>('content');
@@ -1441,6 +1532,7 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly apps = signal<StudioExperience[]>([]);
   readonly lockedDraft = signal<StudioDraft | null>(null);
   readonly releases = signal<StudioRelease[]>([]);
+  readonly releasesState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly draftHistory = signal<StudioDraftRevision[]>([]);
   readonly draftHistoryState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly draftHistoryBusy = signal(false);
@@ -1449,7 +1541,10 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly deploymentRelease = signal<StudioRelease | null>(null);
   readonly drifts = signal<StudioDrift[]>([]);
   readonly publishedVersions = signal<Record<string, string>>({});
+  /** Published System names, to say which System an action calls. */
+  readonly systemNames = signal<Record<string, string>>({});
   readonly lifecycleBusy = signal(false);
+  readonly deploymentsState = signal<'ready' | 'loading' | 'error'>('ready');
   readonly dataError = signal<string | null>(null);
   readonly dataContracts = signal<Record<string, StudioIngressList>>({});
   readonly dataContractStates = signal<Record<string, 'loading' | 'ready' | 'error'>>({});
@@ -1485,7 +1580,7 @@ export class ExperienceEditorComponent implements OnDestroy {
   private readonly actionBindingRequests = new Map<string, Subscription>();
 
   readonly doc = computed(() => this.stack().present);
-  readonly readOnly = computed(() => !canEditExperienceStudio(
+  readonly readOnly = computed(() => this.draftConflict() !== null || this.draftHistoryBusy() || !canEditExperienceStudio(
     this.workspace.current()?.role_template,
     this.workspace.current()?.role,
     this.workspace.isAdmin(),
@@ -2024,10 +2119,6 @@ export class ExperienceEditorComponent implements OnDestroy {
     return bindingSharedWith(this.apps(), key, this.id());
   }
 
-  inputNames(node: ExperienceNode): string[] {
-    return fieldsFromSchema(node.props?.['schema']).map((field) => field.label || field.name);
-  }
-
   setActionBinding(node: ExperienceNode, key: string): void {
     if (this.readOnly() || !node.id) return;
     this.actionBindingRequests.get(node.id)?.unsubscribe();
@@ -2061,6 +2152,7 @@ export class ExperienceEditorComponent implements OnDestroy {
           ? { bindingKey: key, schema }
           : { bindingKey: key, input: {} });
         if (!this.bindingKeys().includes(key)) this.bindingKeys.update((keys) => [...keys, key]);
+        this.loadDataContract(key);
       },
       error: () => {
         if (this.id() === routeId && this.actionBindingRequests.get(nodeId) === request) {
@@ -2213,15 +2305,53 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.dataError.set(null);
   }
 
-  dataSelectorOptions(node: ExperienceNode): Array<{ value: string; label: string }> {
+  /**
+   * Only paths the bound published version exposes are offered. A saved path
+   * it no longer exposes stays visible as the current value, disabled and
+   * flagged, so it is never offered as a choice (plan lot 4, US33).
+   */
+  dataSelectorOptions(node: ExperienceNode): Array<{ value: string; label: string; absent?: boolean }> {
     const key = this.dataContractKey(node);
     const schema = key ? this.dataContracts()[key]?.output_schema : null;
-    const options = schemaSelectorOptions(schema, node.type);
+    const options: Array<{ value: string; label: string; absent?: boolean }> = schemaSelectorOptions(schema, node.type);
     const current = this.dataBinding(node)?.selector ?? '';
-    if (current && !options.some((option) => option.value === current)) {
-      options.push({ value: current, label: humanizeIdentifier(current) || current });
+    if (current && this.selectorAbsent(node)) {
+      options.push({ value: current, label: current, absent: true });
     }
     return options.length > 0 ? options : [{ value: '', label: '' }];
+  }
+
+  /** The saved path is not in the contract the bound version publishes. */
+  selectorAbsent(node: ExperienceNode): boolean {
+    const key = this.dataContractKey(node);
+    if (!key || this.dataContractStates()[key] !== 'ready') return false;
+    const current = this.dataBinding(node)?.selector ?? '';
+    if (!current) return false;
+    const schema = this.dataContracts()[key]?.output_schema;
+    return !schemaSelectorOptions(schema, node.type).some((option) => option.value === current);
+  }
+
+  systemLabel(systemId: string): string {
+    return this.systemNames()[systemId] ?? this.i18n.t('experience.editor.action.system_unknown');
+  }
+
+  /** null while unknown; false when the System has published a newer version since. */
+  versionCurrent(row: StudioBinding): boolean | null {
+    const published = this.publishedVersions()[row.system_id];
+    return published ? published === row.published_flow_version_id : null;
+  }
+
+  /** Inputs the bound entry point of the published version expects. */
+  actionInputs(row: StudioBinding): string[] {
+    const contract = this.dataContracts()[row.binding_key];
+    const ingress = contract?.ingresses.find((item) => item.ingress_id === row.ingress_id);
+    return fieldsFromSchema(ingress?.input_schema ?? null).map((field) => field.label || field.name);
+  }
+
+  openComponentSetting(componentId: string): void {
+    this.selectNode(this.pageId(), componentId);
+    // The data source and output path are set under the Action tab.
+    this.inspectorTab.set('action');
   }
 
   queryInput(node: ExperienceNode): string {
@@ -2269,6 +2399,9 @@ export class ExperienceEditorComponent implements OnDestroy {
   private ensureNodeDataContract(node: ExperienceNode): void {
     const key = this.dataContractKey(node);
     if (key) this.loadDataContract(key);
+    // Actions and forms show their System, version and expected inputs.
+    const own = this.nodeBindingKey(node);
+    if (own && own !== key) this.loadDataContract(own);
   }
 
   private loadDataContract(key: string, force = false): void {
@@ -2595,6 +2728,7 @@ export class ExperienceEditorComponent implements OnDestroy {
   }
 
   private requestSave(): void {
+    if (this.draftConflict()) return;
     const id = this.id();
     if (!id) return;
     const current = this.detail()?.draft;
@@ -2639,6 +2773,11 @@ export class ExperienceEditorComponent implements OnDestroy {
       },
       error: (err) => {
         if (this.id() !== id) return;
+        if (apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT') {
+          this.draftConflict.set({ base: structuredClone(current.pages), mine: pagesPayload(this.doc()), remote: null });
+          if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+          this.loadConflictVersion();
+        }
         this.error.set(
           apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT'
             ? this.i18n.t('experience.editor.conflict')
@@ -2761,8 +2900,10 @@ export class ExperienceEditorComponent implements OnDestroy {
         this.draftHistoryBusy.set(false);
         this.error.set(message);
         this.draftHistoryStatus.set(message);
-        if (conflict) this.load(id);
-        else this.loadDraftHistory(id);
+        if (conflict) {
+          this.draftConflict.set({ base: structuredClone(current.pages), mine: structuredClone(target.pages), remote: null });
+          this.loadConflictVersion();
+        } else this.loadDraftHistory(id);
         this.focusDraftHistory();
       },
     });
@@ -2774,8 +2915,46 @@ export class ExperienceEditorComponent implements OnDestroy {
     if (id) this.loadDraftHistory(id);
   }
 
+  releaseFor(id: string): StudioRelease | undefined { return this.releases().find(release => release.id === id); }
+
+  jsonText(value: unknown): string { return JSON.stringify(value, null, 2); }
+
+  loadConflictVersion(): void {
+    const id = this.id();
+    if (!id || !this.draftConflict()) return;
+    this.trackRoute(this.api.getExperience(id).subscribe({
+      next: remote => {
+        if (this.id() === id) this.draftConflict.update(conflict => conflict ? { ...conflict, remote } : null);
+      },
+      error: err => {
+        if (this.id() === id) this.error.set(studioError(this.i18n, err, 'experience.editor.load_error'));
+      },
+    }));
+  }
+
+  resolveDraftConflict(reapply: boolean): void {
+    const conflict = this.draftConflict();
+    if (!conflict?.remote?.draft) return;
+    const merged = reapply ? reapplyStudioChanges(conflict.base, conflict.mine, conflict.remote.draft.pages).value : null;
+    this.hydrate(conflict.remote);
+    this.draftConflict.set(null);
+    this.error.set(null);
+    if (reapply) {
+      this.stack.set(emptyStack(hydrateDocument(merged)));
+      this.editGeneration += 1;
+      this.saved.set(false);
+      this.requestSave();
+    }
+  }
+
+  confirmRollback(): void {
+    const candidate = this.rollbackCandidate();
+    this.rollbackCandidate.set(null);
+    if (candidate) this.rollback(candidate);
+  }
+
   rollback(deployment: StudioDeployment): void {
-    if (!this.canRelease()) return;
+    if (!this.canRelease() || this.lifecycleBusy() || this.deploymentsState() !== 'ready') return;
     const id = this.id();
     const channel = deployment.channel;
     const targetReleaseId = deployment.previous_release_id;
@@ -2888,12 +3067,14 @@ export class ExperienceEditorComponent implements OnDestroy {
   reloadDeployments(): void {
     const id = this.id();
     if (!id) return;
+    this.deploymentsState.set('loading');
     const request = this.api.getExperience(id).subscribe({
       next: (row) => {
         if (this.id() !== id) return;
         this.detail.update((current) => current ? { ...current, deployments: row.deployments } : current);
+        this.deploymentsState.set('ready');
       },
-      error: () => undefined,
+      error: () => { if (this.id() === id) this.deploymentsState.set('error'); },
     });
     this.trackRoute(request);
   }
@@ -3036,6 +3217,8 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.routeScope = new Subscription();
     this.id.set(id);
     this.detail.set(null);
+    this.draftConflict.set(null);
+    this.rollbackCandidate.set(null);
     this.name.set('');
     this.slug.set('');
     this.stack.set(emptyStack({ pages: [] }));
@@ -3106,9 +3289,18 @@ export class ExperienceEditorComponent implements OnDestroy {
         if (generation === this.loadGeneration && this.id() === id) this.hydrate(row);
       },
       error: (err) => {
-        if (generation === this.loadGeneration && this.id() === id) {
+        if (generation !== this.loadGeneration || this.id() !== id) return;
+        // Absent, hidden (403 reads as not found) or switched off: the page
+        // says why instead of an editor with nothing in it.
+        const access = accessReasonFromError(err);
+        if (access.reason === 'unverifiable') {
           this.error.set(studioError(this.i18n, err, 'experience.editor.load_error'));
+          return;
         }
+        void this.router.navigateByUrl(
+          accessStateUrl(this.router, access.reason, { from: this.router.url, feature: access.feature }),
+          { replaceUrl: true },
+        );
       },
     });
     this.trackRoute(request);
@@ -3116,6 +3308,7 @@ export class ExperienceEditorComponent implements OnDestroy {
 
   private hydrate(row: StudioDetail): void {
     this.detail.set(row);
+    this.deploymentsState.set('ready');
     this.hydrateMetadata(row);
     this.name.set(row.name);
     this.slug.set(row.slug);
@@ -3216,12 +3409,13 @@ export class ExperienceEditorComponent implements OnDestroy {
 
   private loadLifecycle(id: string): void {
     this.loadDraftHistory(id);
+    this.releasesState.set('loading');
     this.trackRoute(this.api.listReleases(id).subscribe({
       next: (rows) => {
-        if (this.id() === id) this.releases.set(rows);
+        if (this.id() === id) { this.releases.set(rows); this.releasesState.set('ready'); }
       },
       error: () => {
-        if (this.id() === id) this.releases.set([]);
+        if (this.id() === id) { this.releases.set([]); this.releasesState.set('error'); }
       },
     }));
     this.loadDrifts();
@@ -3229,11 +3423,14 @@ export class ExperienceEditorComponent implements OnDestroy {
       next: (rows) => {
         if (this.id() !== id) return;
         const versions: Record<string, string> = {};
+        const names: Record<string, string> = {};
         for (const row of rows) {
           const version = row.published_flow_version_id;
           if (version) versions[row.id] = version;
+          names[row.id] = row.name;
         }
         this.publishedVersions.set(versions);
+        this.systemNames.set(names);
       },
       error: () => {
         if (this.id() === id) this.publishedVersions.set({});

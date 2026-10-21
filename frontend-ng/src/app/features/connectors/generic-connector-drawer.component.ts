@@ -1,3 +1,8 @@
+import { settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
+import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
+import { NavLinkDirective } from '@app/shared/cockpit';
+import { ConnectorCapabilitiesComponent } from './connector-capabilities.component';
+import { ConnectorChecksComponent } from './connector-checks.component';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -36,6 +41,7 @@ export interface GenericConnectorList {
 
 export type ConnectorTestStatus =
   | 'connected'
+  | 'access_denied'
   | 'auth_failed'
   | 'unreachable'
   | 'not_configured'
@@ -55,6 +61,7 @@ export function genericConnectorMap(list: GenericConnectorList | null): Record<s
 
 const TEST_TONE: Record<ConnectorTestStatus, string> = {
   connected: 'bg-emerald-500/10 text-emerald-100 ring-emerald-400/25',
+  access_denied: 'bg-amber-500/10 text-amber-100 ring-amber-400/25',
   auth_failed: 'bg-red-500/10 text-red-100 ring-red-400/25',
   error: 'bg-red-500/10 text-red-100 ring-red-400/25',
   unreachable: 'bg-amber-500/10 text-amber-100 ring-amber-400/25',
@@ -70,7 +77,7 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
 @Component({
   selector: 'app-generic-connector-drawer',
   standalone: true,
-  imports: [CommonModule, DrawerComponent, IconComponent],
+  imports: [WriteOutcomeComponent, NavLinkDirective, ConnectorCapabilitiesComponent, ConnectorChecksComponent, CommonModule, DrawerComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-drawer
@@ -83,15 +90,20 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
     >
       @if (connector; as c) {
         <div class="space-y-5">
+          <app-connector-capabilities [connector]="c.id" [available]="!!config" [testable]="config?.testable === true" />
+          @if (c.id === 's3') {
+            <p class="text-sm">{{ i18n.t('connections.s3.drawer_operations') }}</p>
+            <a class="ck-btn" [navLink]="{ leaf: 'connector-connections', params: { profile: 's3' } }">{{ i18n.t('connections.s3.open_operations') }}</a>
+          }
           <p class="text-xs text-gray-400 leading-relaxed">{{ catalogDescription(c) }}</p>
 
           @if (c.status === 'on-request' || c.status === 'configuration-only') {
-            <p class="text-[11px] text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.on_request') }}</p>
+            <p class="text-xs text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.on_request') }}</p>
           }
           @if (c.status === 'on-request' && !config) {
             <div class="rounded-md p-3 flex items-start gap-2 ring-1 bg-amber-500/5 ring-amber-500/20">
               <app-icon name="clock" [size]="14" class="mt-0.5 shrink-0 text-amber-400" />
-              <div class="text-[11px] leading-relaxed text-amber-200/90">
+              <div class="text-xs leading-relaxed text-amber-200/90">
                 <p>{{ i18n.t('connectors.drawer.planned') }}</p>
                 @if (c.fields.length) {
                   <p class="mt-2 font-semibold">{{ i18n.t('connectors.drawer.expected_fields') }}</p>
@@ -104,16 +116,16 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
               </div>
             </div>
           } @else if (!c.fields.length) {
-            <p class="text-[11px] text-gray-400 leading-relaxed">{{ i18n.t('connectors.drawer.nothing_to_set') }}</p>
+            <p class="text-xs text-gray-400 leading-relaxed">{{ i18n.t('connectors.drawer.nothing_to_set') }}</p>
           } @else if (!config) {
-            <p class="text-[11px] text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.unavailable') }}</p>
+            <p class="text-xs text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.unavailable') }}</p>
           } @else {
             <div class="rounded-md p-3 flex items-start gap-2 ring-1 bg-cyan-500/5 ring-cyan-500/20">
               <app-icon name="shield-check" [size]="14" class="mt-0.5 shrink-0 text-cyan-300" />
-              <p class="text-[11px] leading-relaxed text-cyan-200/90">{{ i18n.t('connectors.drawer.server') }}</p>
+              <p class="text-xs leading-relaxed text-cyan-200/90">{{ i18n.t('connectors.drawer.server') }}</p>
             </div>
             @if (!canConfigure) {
-              <p class="text-[11px] text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.admin_only') }}</p>
+              <p class="text-xs text-amber-200/90 leading-relaxed">{{ i18n.t('connectors.drawer.admin_only') }}</p>
             }
 
             <form (submit)="save($event)" class="space-y-4">
@@ -121,7 +133,7 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
                 <div>
                   <label
                     [attr.for]="showsInput(field) ? inputId(field) : null"
-                    class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5"
+                    class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5"
                   >
                     {{ field.label }}
                     @if (field.required && !secretSet(field)) {
@@ -156,7 +168,7 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
                       [disabled]="!canConfigure"
                       class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm disabled:opacity-50"
                     />
-                    <div class="mt-1 flex items-start justify-between gap-3 text-[11px] text-gray-500">
+                    <div class="mt-1 flex items-start justify-between gap-3 text-xs text-gray-500">
                       <span>{{ i18n.t('connectors.secret.write_only') }}</span>
                       @if (secretSet(field)) {
                         <button
@@ -213,15 +225,17 @@ const TEST_TONE: Record<ConnectorTestStatus, string> = {
                 </button>
               </div>
               @if (testHint(); as hint) {
-                <p [id]="testHintId(c)" class="text-[11px] text-gray-400 leading-relaxed">{{ hint }}</p>
+                <p [id]="testHintId(c)" class="text-xs text-gray-400 leading-relaxed">{{ hint }}</p>
               }
             </form>
 
+            <app-connector-checks [configured]="config.configured" [result]="testFailed() ? { status: 'unreachable' } : testResult()" />
+            <app-write-outcome [outcome]="writeOutcome()" [verifiable]="true" (verify)="verifyWrite()" />
             <div role="status" aria-live="polite">
               @if (testResult(); as result) {
                 <div class="rounded-md p-3 ring-1" [ngClass]="testTone(result)">
                   <p class="text-sm font-medium">{{ testStatusLabel(result) }}</p>
-                  <p class="mt-0.5 text-[11px] opacity-80">
+                  <p class="mt-0.5 text-xs opacity-80">
                     {{ i18n.t('connectors.test.checked_at', { time: checkedAt(result) }) }}
                     @if (result.detail) {
                       · <span class="font-mono">{{ result.detail }}</span>
@@ -261,12 +275,14 @@ export class GenericConnectorDrawerComponent implements OnChanges {
   secrets: Record<string, string> = {};
   readonly replacing = signal<ReadonlySet<string>>(new Set());
   readonly saving = signal(false);
+  readonly writeOutcome = signal<WriteOutcome | null>(null);
   readonly testing = signal(false);
   readonly testResult = signal<ConnectorTestResult | null>(null);
   readonly testFailed = signal(false);
   readonly confirmingClear = signal(false);
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['connector']) this.writeOutcome.set(null);
     if (changes['connector'] || changes['config'] || changes['open']) this.reset();
   }
 
@@ -389,7 +405,7 @@ export class GenericConnectorDrawerComponent implements OnChanges {
   save(event?: Event): void {
     event?.preventDefault();
     const connector = this.connector;
-    if (!connector || !this.config || !this.canConfigure || this.saving()) return;
+    if (!connector || !this.config || !this.canConfigure || this.saving() || this.writeOutcome()?.s === 'unknown') return;
     const values: Record<string, string> = {};
     for (const field of connector.fields) {
       if (!this.isSecret(field)) values[field.key] = (this.values[field.key] ?? '').trim();
@@ -398,29 +414,30 @@ export class GenericConnectorDrawerComponent implements OnChanges {
     const scope = this.workspace.captureRequestScope();
     this.saving.set(true);
     this.confirmingClear.set(false);
-    this.api
-      .put<GenericConnectorConfig>(`/connectors/${connector.id}`, { values }, { workspaceSlug: scope.workspaceSlug })
-      .subscribe({
-        next: (config) => {
-          this.saving.set(false);
-          if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          this.secrets = {};
-          this.replacing.set(new Set());
-          this.changed.emit(config);
-          this.toast.success(
-            this.i18n.t('connectors.toast.setup_saved', { name: connector.name }),
-            this.i18n.t('connectors.toast.title'),
-          );
-        },
-        error: () => {
-          this.saving.set(false);
-          if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          this.toast.error(
-            this.i18n.t('connectors.toast.save_failed', { name: connector.name }),
-            this.i18n.t('connectors.toast.title'),
-          );
-        },
-      });
+    settleWrite(this.api.put<GenericConnectorConfig>(`/connectors/${connector.id}`, { values }, { workspaceSlug: scope.workspaceSlug })).subscribe(outcome => {
+      this.saving.set(outcome.s === 'sent');
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.writeOutcome.set(outcome);
+      if (outcome.s === 'confirmed') {
+        this.secrets = {}; this.replacing.set(new Set()); this.changed.emit(outcome.value);
+        this.toast.success(this.i18n.t('connectors.toast.setup_saved', { name: connector.name }), this.i18n.t('connectors.toast.title'));
+      }
+    });
+  }
+
+  verifyWrite(): void {
+    const connector = this.connector;
+    if (!connector || this.saving()) return;
+    const scope = this.workspace.captureRequestScope();
+    this.api.get<GenericConnectorList>('/connectors', {}, { workspaceSlug: scope.workspaceSlug }).subscribe({
+      next: list => {
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        const config = list.connectors?.find(row => row.id === connector.id);
+        if (!config) return;
+        this.writeOutcome.set(null); this.changed.emit(config);
+      },
+      error: () => { /* The uncertain outcome stays visible until a verified read. */ },
+    });
   }
 
   test(): void {
@@ -448,31 +465,21 @@ export class GenericConnectorDrawerComponent implements OnChanges {
   /** Two clicks: the setup is shared by the workspace and its secrets cannot be read back. */
   clear(): void {
     const connector = this.connector;
-    if (!connector || !this.config?.configured || !this.canConfigure) return;
+    if (!connector || !this.config?.configured || !this.canConfigure || this.saving()) return;
     if (!this.confirmingClear()) {
       this.confirmingClear.set(true);
       return;
     }
     this.confirmingClear.set(false);
     const scope = this.workspace.captureRequestScope();
-    this.api
-      .delete<GenericConnectorConfig>(`/connectors/${connector.id}`, { workspaceSlug: scope.workspaceSlug })
-      .subscribe({
-        next: (config) => {
-          if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          this.changed.emit(config);
-          this.toast.info(
-            this.i18n.t('connectors.toast.setup_cleared', { name: connector.name }),
-            this.i18n.t('connectors.toast.title'),
-          );
-        },
-        error: () => {
-          if (!this.workspace.isRequestScopeCurrent(scope)) return;
-          this.toast.error(
-            this.i18n.t('connectors.toast.clear_failed', { name: connector.name }),
-            this.i18n.t('connectors.toast.title'),
-          );
-        },
-      });
+    settleWrite(this.api.delete<GenericConnectorConfig>(`/connectors/${connector.id}`, { workspaceSlug: scope.workspaceSlug })).subscribe(outcome => {
+      this.saving.set(outcome.s === 'sent');
+      if (!this.workspace.isRequestScopeCurrent(scope)) return;
+      this.writeOutcome.set(outcome);
+      if (outcome.s === 'confirmed') {
+        this.changed.emit(outcome.value);
+        this.toast.info(this.i18n.t('connectors.toast.setup_cleared', { name: connector.name }), this.i18n.t('connectors.toast.title'));
+      }
+    });
   }
 }

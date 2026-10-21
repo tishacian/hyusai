@@ -215,6 +215,32 @@ test('a late A context creation cannot attach its id or documents to B', async (
   }
 });
 
+test('a refused upload remains named and never becomes a conversation source', () => {
+  const { injector, component, http, canonical } = makeHarness();
+  try {
+    upload(component, oneFile('private.pdf'));
+    http.uploads[0].next({ total: 1, successful: 0, failed: 1, documents: [
+      { filename: 'private.pdf', status: 'error', error: 'Encrypted document' },
+    ] });
+    assert.deepEqual(component.sessionDocs(), []);
+    assert.equal(canonical.createRequests.length, 0);
+    assert.deepEqual(component.uploadRefusals(), [{ filename: 'private.pdf', reason: 'Encrypted document' }]);
+  } finally { injector.destroy(); }
+});
+
+test('queued uploads do not announce indexed sources or create a context', () => {
+  const { injector, component, http, canonical } = makeHarness();
+  try {
+    upload(component, oneFile('waiting.pdf'));
+    http.uploads[0].next({ total: 1, successful: 0, failed: 0, documents: [
+      { filename: 'waiting.pdf', status: 'queued' },
+    ] });
+    assert.deepEqual(component.sessionDocs(), []);
+    assert.equal(canonical.createRequests.length, 0);
+    assert.deepEqual(component.uploadPending(), ['waiting.pdf']);
+  } finally { injector.destroy(); }
+});
+
 test('closing then reopening the overlay keeps the in-flight session id', () => {
   const workspace = new WorkspaceStub();
   const injector = Injector.create({

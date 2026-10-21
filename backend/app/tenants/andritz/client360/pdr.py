@@ -53,6 +53,10 @@ from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.action_plans import create_action_item, update_action_item
+from app.services.email import SmtpDeliveryConfig, send_email_with_config
+from app.services.iam.app_entitlements import (
+    lock_workspace_for_app_entitlement_mutation,
+)
 from app.tenants.andritz.client360.contract import (
     CLIENT360_ADDRESSABLE_WEIGHTS,
     CLIENT360_AGENT_ROUTING_CONTRACT,
@@ -65,10 +69,6 @@ from app.tenants.andritz.client360.forecast import (
     campaign_expected_value,
     last_purchase_date_from_record,
     parse_forecast_date,
-)
-from app.services.email import SmtpDeliveryConfig, send_email_with_config
-from app.services.iam.app_entitlements import (
-    lock_workspace_for_app_entitlement_mutation,
 )
 
 _logger = logging.getLogger(__name__)
@@ -704,9 +704,15 @@ def _scope_skip_reason(record: dict[str, Any], scope: dict[str, Any]) -> str | N
 
     # scope_mode=all skips the country/customer pilot gate; wear-parts mapping gate above stays.
     if _safe_text(scope.get("scope_mode")).lower() != "all":
-        countries = {_normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item}
-        customers = {_normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item}
-        country = _normalize_token(_canonical_country(record.get("country")) or record.get("country"))
+        countries = {
+            _normalize_token(item) for item in _as_list(scope.get("pilot_countries")) if item
+        }
+        customers = {
+            _normalize_token(item) for item in _as_list(scope.get("pilot_customers")) if item
+        }
+        country = _normalize_token(
+            _canonical_country(record.get("country")) or record.get("country")
+        )
         customer = _normalize_token(record.get("customer_name") or record.get("customer_key"))
         if country and countries and country not in countries and customer not in customers:
             return "country_out_of_pilot_scope"
@@ -848,8 +854,10 @@ def classify_data_source(text: str) -> str:
         return "contact_hub"
     if "sales_by_country" in underscored or "salesbycountry" in underscored:
         return "sap_sales_history"
-    if "sales_order" in underscored or "salesorders" in underscored or re.search(
-        r"(^|_)va05($|_)", underscored
+    if (
+        "sales_order" in underscored
+        or "salesorders" in underscored
+        or re.search(r"(^|_)va05($|_)", underscored)
     ):
         return "sap_sales_history"
     if "materials_consumption" in underscored:
@@ -1435,7 +1443,11 @@ def build_customer_timeline(
                 {
                     "at": draft["sent_at"],
                     "kind": "mail_sent",
-                    "label": f"Mail envoye : {_safe_text(draft.get('subject')) or 'brouillon'}",
+                    "label": _safe_text(draft.get("subject")),
+                    "delivery_status": "accepted"
+                    if _as_dict(draft.get("metadata")).get("smtp_delivery")
+                    else "declared",
+                    "receipt_confirmed": False,
                     "opportunity_id": draft.get("opportunity_id"),
                     "mail_draft_id": draft.get("id"),
                 }
@@ -1766,7 +1778,10 @@ def _raw_source_records_by_roles(
             # base intent) can cite the originating file without re-querying.
             item.setdefault("source_id", source.id)
             item.setdefault("source_filename", source.filename or source.label)
-            item.setdefault("customer_key", _customer_key_for(item.get("customer_key") or item.get("customer_name")))
+            item.setdefault(
+                "customer_key",
+                _customer_key_for(item.get("customer_key") or item.get("customer_name")),
+            )
             records.append(item)
     return records
 
@@ -1862,8 +1877,10 @@ def _customer_machines(
         resolve_customer_for_project,
     )
 
-    registry = registry_records if registry_records is not None else _load_project_registry_records(
-        db, workspace
+    registry = (
+        registry_records
+        if registry_records is not None
+        else _load_project_registry_records(db, workspace)
     )
     registry_index = build_project_registry_index(registry)
     keys = {key for key in (customer_key, _customer_key_for(customer_name)) if key}
@@ -2134,9 +2151,7 @@ def list_customers(
                     _normalize_token(bucket["customer_name"]),
                     _normalize_token(bucket["customer_key"]),
                     " ".join(_normalize_token(c) for c in countries),
-                    " ".join(
-                        _normalize_token(p.get("project_code")) for p in bucket["projects"]
-                    ),
+                    " ".join(_normalize_token(p.get("project_code")) for p in bucket["projects"]),
                 ]
             )
             if query not in haystack:
@@ -2236,7 +2251,9 @@ def customer_payload(
     ) or _customer_key_for(customer_id)
     if not opportunities:
         for record in registry_records:
-            record_key = _customer_key_for(record.get("customer_key") or record.get("customer_name"))
+            record_key = _customer_key_for(
+                record.get("customer_key") or record.get("customer_name")
+            )
             if record_key == customer_key or customer_key in _normalize_token(
                 record.get("customer_name")
             ):
@@ -2801,9 +2818,7 @@ def _index_material_families(records: list[dict[str, Any]]) -> dict[str, set[str
         if not family:
             continue
         materials = set(_MATERIAL_TOKEN_RE.findall(_safe_text(record.get("source_part_label"))))
-        part_ref = _safe_text(
-            record.get("part_reference") or record.get("source_part_reference")
-        )
+        part_ref = _safe_text(record.get("part_reference") or record.get("source_part_reference"))
         if part_ref:
             materials.add(part_ref)
         for material in materials:
@@ -3075,7 +3090,10 @@ def _estimate_unit_price(
     family_index = _as_dict(pricing_index.get("family"))
     family_bucket = _as_dict(family_index.get(_mapping_key(family)))
     family_price = _bucket_unit_price(family_bucket)
-    if family_price is not None and float(family_bucket.get("qty") or 0.0) >= PRICING_MIN_SAMPLE_QTY:
+    if (
+        family_price is not None
+        and float(family_bucket.get("qty") or 0.0) >= PRICING_MIN_SAMPLE_QTY
+    ):
         return family_price, {
             "source": "family_average",
             "unit_price": family_price,
@@ -3214,7 +3232,9 @@ def _build_opportunity_payload(
         customer_key=_record_customer_key(record),
         customer_name=customer_name,
         site_name=_safe_text(record.get("site_name")) or None,
-        country=_canonical_country(record.get("country")) or _safe_text(record.get("country")) or None,
+        country=_canonical_country(record.get("country"))
+        or _safe_text(record.get("country"))
+        or None,
         hub=_safe_text(record.get("hub")) or None,
         technology=_safe_text(record.get("technology")) or None,
         line_label=_safe_text(record.get("line_label")) or None,
@@ -3361,9 +3381,7 @@ def run_opportunity_engine(
             record = _merge_record(record, periodicity)
             record = _merge_record(record, _sales_for_record(record, sales_index))
             if last_purchase_date_from_record(record) is None:
-                anchor = sales_anchor_index.get(
-                    _mapping_key(_record_customer_key(record), family)
-                )
+                anchor = sales_anchor_index.get(_mapping_key(_record_customer_key(record), family))
                 if anchor:
                     record["last_purchase_date"] = anchor
         if record.get("delivery_time_weeks") is None:
@@ -3747,9 +3765,7 @@ def _decrypt_smtp_password(blob: str) -> str:
     if "ciphertext" in envelope:
         fernet = _smtp_fernet_from_env()
         if fernet is None:
-            raise ValueError(
-                f"{CLIENT360_SMTP_ENV_MASTER_KEY} required to decrypt but is not set."
-            )
+            raise ValueError(f"{CLIENT360_SMTP_ENV_MASTER_KEY} required to decrypt but is not set.")
         return fernet.decrypt(envelope["ciphertext"].encode("ascii")).decode("utf-8")
     raise ValueError(f"Unknown SMTP password envelope keys={sorted(envelope)}")
 
@@ -3902,8 +3918,7 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
     smtp = _client360_smtp_settings(workspace)
     cfg, disabled_reason, _raw = _resolve_client360_smtp_config(workspace)
     password_configured = bool(
-        _smtp_stored_password(smtp, workspace)
-        or _password_from_env(smtp.get("password_env_var"))
+        _smtp_stored_password(smtp, workspace) or _password_from_env(smtp.get("password_env_var"))
     )
     if not smtp:
         password_configured = bool(settings.smtp_password)
@@ -3994,7 +4009,9 @@ def patch_client360_mail_settings(
     elif "system_prompt" in patch and patch.get("system_prompt") is not None:
         prompt = _safe_text(patch.get("system_prompt"))
         if not prompt:
-            raise ValueError("system_prompt cannot be empty; use reset_system_prompt to restore default")
+            raise ValueError(
+                "system_prompt cannot be empty; use reset_system_prompt to restore default"
+            )
         mail_settings["system_prompt"] = prompt
     workspace_settings["client360_pdr_mail"] = mail_settings
     workspace.settings = workspace_settings
@@ -4349,10 +4366,15 @@ def send_mail_draft(
     draft = (
         db.query(Client360MailDraft)
         .filter(Client360MailDraft.id == draft_id, Client360MailDraft.workspace_id == workspace.id)
+        .with_for_update()
         .first()
     )
     if not draft:
         raise LookupError("Client360 mail draft not found")
+    # Retrying the same acknowledged draft must not send a second message.
+    # Row locking serializes concurrent attempts on databases that support it.
+    if draft.sent_at and _as_dict(draft.meta_data).get("smtp_delivery"):
+        return draft, None
     recipient = _valid_email(to_email)
     cfg, disabled_reason, _raw = _resolve_client360_smtp_config(workspace)
     if cfg is None:
@@ -4377,6 +4399,8 @@ def send_mail_draft(
     draft.updated_at = now
     metadata = dict(draft.meta_data or {})
     metadata["smtp_delivery"] = {
+        "status": "accepted",
+        "receipt_confirmed": False,
         "to_email": recipient,
         "sent_at": now.isoformat(),
         "source": "workspace.settings.client360_pdr_mail.smtp",
@@ -4398,7 +4422,7 @@ def send_mail_draft(
                 "status": "in_progress",
                 "sent_body": send_body,
                 "sent_at": now,
-                "notes": f"Email envoye via SMTP a {recipient}",
+                "notes": f"Email accepte pour envoi a {recipient}; reception non confirmee",
             },
         )
     else:

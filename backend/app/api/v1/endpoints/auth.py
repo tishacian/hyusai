@@ -773,6 +773,50 @@ async def signup(body: SignupRequest, db: DBSession = Depends(get_db)):
     }
 
 
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/signup/resend-verification")
+async def resend_signup_verification(body: ResendVerificationRequest):
+    """Send the signup verification email again.
+
+    The way out when ``/signup`` answered ``verification_email_sent: false``.
+    Only an enabled, not yet verified account gets an email; the answer says
+    whether one was sent, never why not, so it reveals no more than
+    ``/signup`` already does (409 on an existing email).
+    """
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{_get_admin_url()}/users",
+            params={"email": body.email, "exact": "true"},
+            headers=headers,
+            timeout=10,
+        )
+    users = resp.json() if resp.status_code == 200 else []
+    target = body.email.strip().lower()
+    pending = next(
+        (
+            user
+            for user in users
+            if user.get("enabled", True)
+            and not user.get("emailVerified", False)
+            and str(user.get("email") or user.get("username") or "").strip().lower() == target
+        ),
+        None,
+    )
+
+    sent = False
+    if pending and pending.get("id"):
+        sent = await _send_signup_verification_email(pending["id"], admin_token)
+    return {"status": "ok", "verification_email_sent": sent}
+
+
 def _select_password_reset_user(users: list[dict], email: str) -> Optional[dict]:
     """Pick the safest Keycloak user for a password reset email.
 
@@ -802,31 +846,43 @@ def _select_password_reset_user(users: list[dict], email: str) -> Optional[dict]
 
 @router.post("/password-reset")
 async def password_reset(body: PasswordResetRequest):
-    """Trigger password reset email via Keycloak admin API."""
-    admin_token = await _get_admin_token()
-    if not admin_token:
-        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
-
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{_get_admin_url()}/users",
-            params={"email": body.email, "exact": "true"},
-            headers=headers,
-            timeout=10,
-        )
-        users = resp.json() if resp.status_code == 200 else []
-
-    kc_user = _select_password_reset_user(users, body.email)
-    if kc_user:
-        kc_user_id = kc_user["id"]
+    """Return the same success for known and unknown accounts, never for an outage."""
+    unavailable = HTTPException(
+        status_code=502,
+        detail={
+            "code": "password_reset_unavailable",
+            "message": "Password recovery is temporarily unavailable. Please retry.",
+        },
+    )
+    try:
+        admin_token = await _get_admin_token()
+        if not admin_token:
+            raise unavailable
+        headers = {"Authorization": f"Bearer {admin_token}"}
         async with httpx.AsyncClient() as client:
-            await client.put(
-                f"{_get_admin_url()}/users/{kc_user_id}/execute-actions-email",
-                json=["UPDATE_PASSWORD"],
-                headers={**headers, "Content-Type": "application/json"},
+            resp = await client.get(
+                f"{_get_admin_url()}/users",
+                params={"email": body.email, "exact": "true"},
+                headers=headers,
                 timeout=10,
             )
+            if resp.status_code != 200:
+                raise unavailable
+            users = resp.json()
+            if not isinstance(users, list):
+                raise unavailable
+            kc_user = _select_password_reset_user(users, body.email)
+            if kc_user:
+                sent = await client.put(
+                    f"{_get_admin_url()}/users/{kc_user['id']}/execute-actions-email",
+                    json=["UPDATE_PASSWORD"],
+                    headers={**headers, "Content-Type": "application/json"},
+                    timeout=10,
+                )
+                if sent.status_code not in (200, 204):
+                    raise unavailable
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raise unavailable from None
 
     return {"status": "ok", "message": "If the email exists, a reset link has been sent."}
 
@@ -1008,7 +1064,13 @@ async def list_sessions(user: User = Depends(get_current_user)):
             timeout=10,
         )
     if resp.status_code != 200:
-        return []
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "sessions_unavailable",
+                "message": "Active sessions could not be read. Please retry.",
+            },
+        )
 
     sessions = []
     for s in resp.json():
@@ -1050,14 +1112,31 @@ async def delete_me(
 
     from app.services.connectors.connections import revoke_user_grants
 
-    for membership in db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).all():
-        revoke_user_grants(db, workspace_id=membership.workspace_id, user_id=user.id, actor=user.id)
-    db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).delete()
-    db.query(MfaChallenge).filter(MfaChallenge.user_id == user.id).delete()
-    db.delete(user)
-    db.commit()
-
-    return {"status": "ok"}
+    receipt = {
+        "identity_deleted": True,
+        "profile_deleted": False,
+        "connections_revoked": False,
+        "retained": ["shared_workspaces", "shared_content", "audit_history"],
+    }
+    try:
+        for membership in (
+            db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).all()
+        ):
+            revoke_user_grants(
+                db, workspace_id=membership.workspace_id, user_id=user.id, actor=user.id
+            )
+        db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).delete()
+        db.query(MfaChallenge).filter(MfaChallenge.user_id == user.id).delete()
+        db.delete(user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Local account cleanup failed after identity deletion")
+        raise HTTPException(
+            500, detail={"code": "ACCOUNT_DELETE_PARTIAL", "receipt": receipt}
+        ) from None
+    receipt.update(profile_deleted=True, connections_revoked=True)
+    return {"status": "deleted", "receipt": receipt}
 
 
 @router.post("/mfa/toggle")
@@ -1736,6 +1815,10 @@ async def delete_workspace(
 
     for member in db.query(WorkspaceMember).filter_by(workspace_id=workspace.id).all():
         revoke_user_grants(db, workspace_id=workspace.id, user_id=member.user_id, actor=user.id)
+    from app.models.connector_connection import ConnectorConnection
+
+    for connection in db.query(ConnectorConnection).filter_by(workspace_id=workspace.id).all():
+        connection.last_test = None
     workspace.is_active = False
     workspace.deleted_at = datetime.utcnow()
     db.commit()
@@ -1744,6 +1827,9 @@ async def delete_workspace(
         "status": "ok",
         "message": f"Workspace '{workspace.name}' archived. It will be permanently deleted in 30 days.",
         "deleted_at": workspace.deleted_at.isoformat(),
+        "restorable_until": (workspace.deleted_at + timedelta(days=30)).isoformat(),
+        "retained": ["content", "memberships", "audit_history"],
+        "revoked": ["personal_connector_grants"],
     }
 
 
@@ -1769,12 +1855,53 @@ async def restore_workspace(
         raise HTTPException(status_code=403, detail="Only the owner can restore")
 
     if workspace.deleted_at is None:
-        return {"status": "ok", "message": "Workspace is already active"}
+        return {
+            "status": "ok",
+            "message": "Workspace is already active",
+            "connections": _workspace_reconnections(db, workspace.id),
+        }
+
+    if workspace.deleted_at + timedelta(days=30) <= datetime.utcnow():
+        raise HTTPException(409, detail={"code": "WORKSPACE_RESTORE_EXPIRED"})
 
     workspace.is_active = True
     workspace.deleted_at = None
     db.commit()
-    return {"status": "ok", "message": "Workspace restored"}
+    return {
+        "status": "ok",
+        "message": "Workspace restored",
+        "connections": _workspace_reconnections(db, workspace.id),
+    }
+
+
+def _workspace_reconnections(db, workspace_id):
+    from app.models.connector_connection import ConnectorConnection
+
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "status": "verified"
+            if not row.disabled_at
+            and (row.last_test or {}).get("connected") is True
+            and (row.last_test or {}).get("source") == "real"
+            and (row.last_test or {}).get("connection_revision") == row.revision
+            else "reconnect_required",
+        }
+        for row in db.query(ConnectorConnection)
+        .filter_by(workspace_id=workspace_id)
+        .order_by(ConnectorConnection.name)
+        .all()
+    ]
+
+
+@router.get("/workspaces/{slug}/reconnection-status")
+async def workspace_reconnection_status(
+    slug: str, user: User = Depends(get_current_user), db: DBSession = Depends(get_db)
+):
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
+    return {"connections": _workspace_reconnections(db, workspace.id)}
 
 
 @router.post("/workspaces/{slug}/transfer-ownership")

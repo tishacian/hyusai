@@ -11,7 +11,7 @@ import { CorrectionReviewComponent } from './correction-review.component';
 import type { Run } from '@app/core/canonical-api.service';
 
 export interface ExaminedClaim { claim?: string; text?: string; verdict?: string; excerpt_ids?: string[]; response_span?: {start: number; end: number} | null; }
-export interface ExaminedExcerpt { id: string; text: string | null; availability?: string; truncated?: boolean; document_ref?: string; page?: number; invocation_id?: string; }
+export interface ExaminedExcerpt { id: string; text: string | null; availability?: string; truncated?: boolean; document_ref?: string; page?: number; invocation_id?: string; source_version?: string | number; version?: string | number; sha256?: string; }
 export interface RunEvaluation { evaluation_id?: string; status: string; reason?: string; composite_score?: number | null; claim_audit?: { claims?: ExaminedClaim[] }; metadata?: { response_examined?: string; response_truncated?: boolean; excerpts?: ExaminedExcerpt[]; context_examined?: string; method?: string; [key: string]: unknown }; }
 
 @Component({
@@ -49,9 +49,11 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
     } @empty { <p>{{ i18n.t('runs.investigation.no_claims') }}</p> }
    </div>
    <aside><h3>{{ i18n.t('runs.investigation.evidence') }}</h3>
+    <p>{{ i18n.t('runs.investigation.evidence_scope') }}</p>
     @for (excerpt of selectedExcerpts(); track excerpt.id) {
      <article class="excerpt"><strong>{{ excerpt.document_ref || i18n.t('runs.investigation.excerpt') }} @if (excerpt.page) { · {{i18n.t('observability.quality.page',{page:excerpt.page})}} }</strong><blockquote>{{ excerpt.availability === 'source_unavailable' ? i18n.t('observability.charts.source_unavailable') : excerpt.text }}</blockquote>@if(excerpt.truncated){<p>{{i18n.t('runs.investigation.truncated')}}</p>}
-      @if (excerpt.invocation_id) { <p>{{ i18n.t('runs.investigation.invocation') }}: <a [navLink]="{type: 'skill_invocation', ref: excerpt.invocation_id}">{{ excerpt.invocation_id }}</a></p> }
+      <p data-testid="evaluated-source-version">{{ i18n.t('runs.investigation.source_version') }}: {{ excerpt.source_version ?? excerpt.version ?? excerpt.sha256 ?? i18n.t('runs.investigation.version_not_preserved') }}</p>
+      @if (excerpt.invocation_id) { <p>{{ i18n.t('runs.investigation.invocation') }}: <a [navLink]="{type: 'skill_invocation', runId: run().id, ref: excerpt.invocation_id}">{{ excerpt.invocation_id }}</a></p> }
      </article>
     } @empty { <p>{{ i18n.t('runs.investigation.no_evidence') }}</p> }
     <details><summary>{{ i18n.t('runs.investigation.method') }}</summary><p>{{code('method',evaluation()?.metadata?.method)}}</p><pre>{{ evaluation()?.metadata | json }}</pre></details>

@@ -24,7 +24,9 @@ def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool
         .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
         .first()
     )
-    return bool(membership) and is_admin_template(getattr(membership, "role_template", None), membership.role)
+    return bool(membership) and is_admin_template(
+        getattr(membership, "role_template", None), membership.role
+    )
 
 
 def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
@@ -61,9 +63,13 @@ def _require_enabled(workspace: Workspace) -> None:
 async def get_rpa_config(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
-    return rpa_service.get_config(workspace)
+    return {
+        **rpa_service.get_config(workspace),
+        "can_configure": _is_workspace_admin(db, user, workspace),
+    }
 
 
 @router.put("/config")
@@ -86,29 +92,49 @@ async def put_rpa_config(
         )
     try:
         payload = body.model_dump(exclude_unset=True, exclude={"auth_token_encrypted"})
-        return rpa_service.set_config(db, workspace, payload)
+        return {**rpa_service.set_config(db, workspace, payload), "can_configure": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/test")
-async def test_rpa_connection(
+@router.delete("/config")
+async def delete_rpa_config(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
     _require_workspace_admin(db, user, workspace)
-    config = rpa_service.get_config(workspace, include_secrets=True)
+    from app.services.audit_logger import emit_audit_event
+
+    result = rpa_service.clear_config(db, workspace)
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="connector.config.cleared",
+        actor=user.id,
+        details={"connector_id": "rpa_bridge"},
+        db=db,
+    )
+    db.commit()
+    return {**result, "can_configure": True}
+
+
+@router.post("/test")
+def test_rpa_connection(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
     try:
+        config = rpa_service.get_config(workspace, include_secrets=True)
         return rpa_service.test_connection(config)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 — surface upstream errors to the operator UI
+    except Exception:
+        # Do not echo upstream bodies, URLs or credentials into the operator page.
         raise HTTPException(
-            status_code=502,
-            detail=f"RPA Bridge connection failed: {exc}",
-        ) from exc
+            status_code=502, detail={"code": "RPA_CONNECTION_UNAVAILABLE"}
+        ) from None
 
 
 @router.post("/jobs")

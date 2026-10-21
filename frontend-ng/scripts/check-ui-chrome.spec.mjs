@@ -46,6 +46,19 @@ test('halo rule catches glow tokens and 0 0 box-shadows', () => {
   assert.equal(countMatches('box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);', byId.halo.pattern), 0);
 });
 
+test('tiny-type rule catches sizes under 12px, not the 12px floor', () => {
+  assert.equal(countMatches('  font-size: 10px;', byId['tiny-type'].pattern), 1);
+  assert.equal(countMatches('font-size:11.5px', byId['tiny-type'].pattern), 1);
+  assert.equal(countMatches('font-size: 0.7rem;', byId['tiny-type'].pattern), 1);
+  assert.equal(countMatches('class="text-[10px] uppercase"', byId['tiny-type'].pattern), 1);
+  assert.equal(countMatches('[style.fontSize.px]="11"', byId['tiny-type'].pattern), 1);
+  assert.equal(countMatches('font-size: 12px;', byId['tiny-type'].pattern), 0);
+  assert.equal(countMatches('font-size: 13px;', byId['tiny-type'].pattern), 0);
+  assert.equal(countMatches('font-size: 0.75rem;', byId['tiny-type'].pattern), 0);
+  assert.equal(countMatches('class="text-[12px]"', byId['tiny-type'].pattern), 0);
+  assert.equal(countMatches('[style.fontSize.px]="12"', byId['tiny-type'].pattern), 0);
+});
+
 test('scanText reports file and line for a chrome pill hit', () => {
   const source = [':host {', '  display: block;', '  border-radius: 999px;', '}', ''].join('\n');
   const { findings, counts } = scanText(source, 'src/app/features/layout/side-rail.component.ts', ratchetRules);

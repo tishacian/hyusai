@@ -1,4 +1,5 @@
 """Intelligence API — RSS feeds, analysis, dashboard (scoped by workspace)."""
+
 import json
 import time
 import uuid
@@ -6,7 +7,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -44,7 +45,11 @@ class FeedCreate(BaseModel):
     name: str
     url: str
     category: str = "general"
-    refresh_interval: int = 3600
+    refresh_interval: int = Field(default=3600, ge=300, le=604800)
+
+
+class FeedCadencePatch(BaseModel):
+    refresh_interval: int = Field(ge=300, le=604800)
 
 
 class TargetCreate(BaseModel):
@@ -65,7 +70,9 @@ class AnalyzeRequest(BaseModel):
     target_id: str | None = None
 
 
-def _preferred_intelligence_system(db: DBSession, workspace_id: str, requested_id: str | None = None) -> System | None:
+def _preferred_intelligence_system(
+    db: DBSession, workspace_id: str, requested_id: str | None = None
+) -> System | None:
     q = db.query(System).filter(System.workspace_id == workspace_id)
     if requested_id:
         return q.filter(System.id == requested_id).first()
@@ -80,6 +87,7 @@ def _preferred_intelligence_system(db: DBSession, workspace_id: str, requested_i
 
 
 # ── Feeds ──
+
 
 @router.post("/feeds")
 async def create_feed(
@@ -114,14 +122,43 @@ async def list_feeds(
     return {
         "feeds": [
             {
-                "id": f.id, "name": f.name, "url": f.url,
-                "category": f.category, "active": f.active,
+                "id": f.id,
+                "name": f.name,
+                "url": f.url,
+                "category": f.category,
+                "active": f.active,
                 "article_count": f.article_count,
+                "refresh_interval": f.refresh_interval,
                 "last_fetched": f.last_fetched.isoformat() if f.last_fetched else None,
             }
             for f in rows
         ]
     }
+
+
+@router.patch("/feeds/{feed_id}/cadence")
+async def update_feed_cadence(
+    feed_id: str,
+    body: FeedCadencePatch,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Save cadence only; changing configuration never executes a watch."""
+    feed = (
+        db.query(FeedSource)
+        .filter(
+            FeedSource.id == feed_id,
+            FeedSource.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not feed:
+        raise HTTPException(
+            status_code=404, detail={"code": "feed_not_found", "message": "Source not found"}
+        )
+    feed.refresh_interval = body.refresh_interval
+    db.commit()
+    return {"id": feed.id, "refresh_interval": feed.refresh_interval}
 
 
 @router.delete("/feeds/{feed_id}")
@@ -130,10 +167,14 @@ async def delete_feed(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    feed = db.query(FeedSource).filter(
-        FeedSource.id == feed_id,
-        FeedSource.workspace_id == workspace.id,
-    ).first()
+    feed = (
+        db.query(FeedSource)
+        .filter(
+            FeedSource.id == feed_id,
+            FeedSource.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if feed:
         db.query(FeedArticle).filter(
             FeedArticle.source_id == feed.id,
@@ -145,6 +186,7 @@ async def delete_feed(
 
 
 # ── Targets ──
+
 
 @router.post("/targets")
 async def create_target(
@@ -170,20 +212,30 @@ async def list_targets(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    rows = db.query(SemanticTarget).filter(
-        SemanticTarget.active == True,  # noqa: E712
-        SemanticTarget.workspace_id == workspace.id,
-    ).all()
+    rows = (
+        db.query(SemanticTarget)
+        .filter(
+            SemanticTarget.active == True,  # noqa: E712
+            SemanticTarget.workspace_id == workspace.id,
+        )
+        .all()
+    )
     return {
         "targets": [
-            {"id": t.id, "name": t.name, "description": t.description,
-             "keywords": t.keywords, "relevance_threshold": t.relevance_threshold}
+            {
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "keywords": t.keywords,
+                "relevance_threshold": t.relevance_threshold,
+            }
             for t in rows
         ]
     }
 
 
 # ── Safety Filters ──
+
 
 @router.post("/filters")
 async def create_filter(
@@ -208,19 +260,29 @@ async def list_filters(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    rows = db.query(SafetyFilter).filter(
-        SafetyFilter.active == True,  # noqa: E712
-        SafetyFilter.workspace_id == workspace.id,
-    ).all()
+    rows = (
+        db.query(SafetyFilter)
+        .filter(
+            SafetyFilter.active == True,  # noqa: E712
+            SafetyFilter.workspace_id == workspace.id,
+        )
+        .all()
+    )
     return {
         "filters": [
-            {"id": f.id, "name": f.name, "prompt_template": f.prompt_template, "severity": f.severity}
+            {
+                "id": f.id,
+                "name": f.name,
+                "prompt_template": f.prompt_template,
+                "severity": f.severity,
+            }
             for f in rows
         ]
     }
 
 
 # ── Articles ──
+
 
 @router.get("/articles")
 async def list_articles(
@@ -241,6 +303,7 @@ async def list_articles(
 
 
 # ── Batch ──
+
 
 @router.post("/analyze")
 async def trigger_batch(
@@ -384,23 +447,21 @@ async def trigger_batch(
                 invocation.completed_at = datetime.utcnow()
                 invocation.latency_ms = duration_ms
                 invocation.cost = invocation_cost.cost if invocation_cost else 0.0
-                invocation.cost_measured = bool(
-                    invocation_cost and invocation_cost.cost_measured
-                )
+                invocation.cost_measured = bool(invocation_cost and invocation_cost.cost_measured)
                 run.status = "failed" if had_error else "completed"
                 run.completed_at = datetime.utcnow()
                 run.duration_ms = duration_ms
                 run.decision = "needs_review" if had_error else "brief_ready"
                 run.confidence = 0.62 if had_error else 0.82
-                run.cost_internal = (
-                    invocation.cost if invocation.cost_measured is True else None
-                )
+                run.cost_internal = invocation.cost if invocation.cost_measured is True else None
                 run.efficiency = 1.0 if not had_error else 0.0
                 run.output_ref = {
                     "rag_context": {
                         "kind": "open_intelligence_rss",
                         "workspace_id": workspace.id,
-                        "article_count": (dashboard_payload.get("kpis") or {}).get("total_articles", 0),
+                        "article_count": (dashboard_payload.get("kpis") or {}).get(
+                            "total_articles", 0
+                        ),
                     },
                     "intelligence_dashboard": dashboard_payload,
                     "reference_synthesis": dashboard_payload.get("synthesis"),
@@ -422,10 +483,12 @@ async def trigger_batch(
         finally:
             db.close()
             yield "data: [DONE]\n\n"
+
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ── Dashboard ──
+
 
 @router.get("/dashboard")
 async def dashboard(
@@ -436,6 +499,7 @@ async def dashboard(
 
 
 # ── Scheduler ──
+
 
 @router.get("/scheduler")
 async def scheduler_status(
@@ -471,6 +535,7 @@ async def scheduler_status(
 
 
 # ── Watch Systems ──
+
 
 def _watch_row(system: System) -> dict:
     return {
@@ -527,17 +592,20 @@ async def list_watch_systems(
         .all()
     )
     capability = _watch_capability(db)
-    can_create = capability is not None and resolve_action(
-        db,
-        user=user,
-        workspace=workspace,
-        resource_kind="system",
-        action="admin",
-        legacy_allowed=_system_admin_legacy(db, user=user, workspace=workspace),
-        resource_attrs={"capability_id": capability.id},
-        audit_shadow_diff=False,
-        audit_shadow_evidence=False,
-    ).effective_allowed
+    can_create = (
+        capability is not None
+        and resolve_action(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="system",
+            action="admin",
+            legacy_allowed=_system_admin_legacy(db, user=user, workspace=workspace),
+            resource_attrs={"capability_id": capability.id},
+            audit_shadow_diff=False,
+            audit_shadow_evidence=False,
+        ).effective_allowed
+    )
     return {
         "systems": [_watch_row(system) for system in intelligence_systems(systems)],
         "can_create": bool(can_create),

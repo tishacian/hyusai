@@ -112,6 +112,7 @@ class MockApi {
   resolveSubject: Subject<Run | null> | null = null;
   stepSubject: Subject<Run | null> | null = null;
   getRunSubject: Subject<Run | null> | null = null;
+  decisionReceipt: { id: string; status: string } | null = null;
 
   triggerRun(_id: string, payload: RunTriggerRequest) {
     this.triggerRunCalls++;
@@ -134,6 +135,9 @@ class MockApi {
   getRun(_id: string) {
     this.getRunCalls++;
     return this.getRunSubject?.asObservable() ?? of(this.getRunResult);
+  }
+  getDecision(_id: string) {
+    return of(this.decisionReceipt);
   }
   resolveRunHitl(_id: string, body: { action: 'accept' | 'reject' }) {
     this.resolveHitlCalls.push(body);
@@ -611,6 +615,7 @@ test('HITL: a check that finds the decision recorded resumes the run without dec
   api.resolveSubject.error({ status: 504 });
   assert.equal(svc.hitlLocked(), true);
   api.getRunResult = mkRun('running');
+  api.decisionReceipt = { id: 'gate-2', status: 'rejected' };
   svc.verifyHitl();
   assert.equal(svc.hitlCheck()?.s, 'recorded');
   assert.equal(svc.status(), 'running');

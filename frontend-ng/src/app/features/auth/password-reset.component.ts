@@ -3,16 +3,19 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { I18nService } from '@app/core/i18n.service';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { readFailure, type LoadState } from '@app/shared/ui/load-state';
 
 @Component({
   selector: 'app-password-reset',
   standalone: true,
-  imports: [FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent, EmptyStateComponent],
   template: `
     <header class="ck-auth-head">
-      <span class="ck-auth-eyebrow">RECOVERY</span>
-      <h2 class="ck-auth-title">Reset your password</h2>
-      <p class="ck-auth-sub">We'll email a time-limited link to regain cockpit access.</p>
+      <span class="ck-auth-eyebrow">{{ i18n.t('auth.recovery.eyebrow') }}</span>
+      <h2 class="ck-auth-title">{{ i18n.t('auth.recovery.title') }}</h2>
+      <p class="ck-auth-sub">{{ i18n.t('auth.recovery.description') }}</p>
     </header>
 
     @if (sent()) {
@@ -21,16 +24,14 @@ import { IconComponent } from '@app/shared/ui/icon.component';
           <app-icon name="mail" [size]="22" />
         </div>
         <p class="ck-auth-sub">
-          If that email exists, a reset link is on its way.
-          <br />
-          Check your inbox and spam folder.
+          {{ i18n.t('auth.recovery.sent') }}
         </p>
-        <a routerLink="/auth/signin" class="ck-btn-ghost ck-btn-ghost-wide">← Back to sign in</a>
+        <a routerLink="/auth/signin" class="ck-btn-ghost ck-btn-ghost-wide">{{ i18n.t('auth.recovery.back') }}</a>
       </div>
     } @else {
       <form (ngSubmit)="onSubmit()" class="ck-auth-form">
         <div class="ck-field">
-          <label class="ck-label" for="reset-email">Email</label>
+          <label class="ck-label" for="reset-email">{{ i18n.t('auth.recovery.email') }}</label>
           <input
             id="reset-email"
             type="email"
@@ -42,19 +43,22 @@ import { IconComponent } from '@app/shared/ui/icon.component';
           />
         </div>
 
-        <button type="submit" [disabled]="loading()" class="ck-btn-primary">
+        @if (failure(); as state) {
+          <app-empty-state [state]="state" size="sm" (retry)="onSubmit()" />
+        }
+        <button type="submit" [disabled]="loading() || !email.trim()" class="ck-btn-primary">
           @if (loading()) {
             <span class="ck-btn-spinner" aria-hidden="true"></span>
-            <span>SENDING…</span>
+            <span>{{ i18n.t('auth.recovery.sending') }}</span>
           } @else {
-            <span>SEND RESET LINK</span>
+            <span>{{ i18n.t('auth.recovery.send') }}</span>
             <span class="ck-btn-chevron" aria-hidden="true">→</span>
           }
         </button>
       </form>
 
-      <nav class="ck-auth-links" aria-label="Account actions">
-        <a routerLink="/auth/signin" class="ck-auth-link">← Back to sign in</a>
+      <nav class="ck-auth-links" [attr.aria-label]="i18n.t('auth.recovery.actions')">
+        <a routerLink="/auth/signin" class="ck-auth-link">{{ i18n.t('auth.recovery.back') }}</a>
       </nav>
     }
   `,
@@ -217,21 +221,25 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 })
 export class PasswordResetComponent {
   private readonly authApi = inject(AuthApiService);
+  readonly i18n = inject(I18nService);
 
   email = '';
   loading = signal(false);
   sent = signal(false);
+  readonly failure = signal<LoadState<never> | null>(null);
 
   onSubmit(): void {
+    if (this.loading() || !this.email.trim()) return;
+    this.failure.set(null);
     this.loading.set(true);
-    this.authApi.passwordReset(this.email).subscribe({
+    this.authApi.passwordReset(this.email.trim()).subscribe({
       next: () => {
         this.loading.set(false);
         this.sent.set(true);
       },
-      error: () => {
+      error: (error: unknown) => {
         this.loading.set(false);
-        this.sent.set(true);
+        this.failure.set(readFailure(error));
       },
     });
   }

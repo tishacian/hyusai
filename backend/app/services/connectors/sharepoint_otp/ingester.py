@@ -68,9 +68,7 @@ class _WalkClient(Protocol):
         self, server_relative_url: str
     ) -> Iterator[tuple[SharePointFolder, list[SharePointFolder], list[SharePointFile]]]: ...
 
-    def download_file(
-        self, server_relative_url: str, *, destination: str | Path
-    ) -> Path: ...
+    def download_file(self, server_relative_url: str, *, destination: str | Path) -> Path: ...
 
 
 ClientFactory = Callable[[], ContextManager[_WalkClient]]
@@ -132,9 +130,7 @@ class SharedFolderIngester:
             if not force_reauth:
                 stored = session_store.load(session_key)
                 if stored is not None:
-                    logger.info(
-                        "Re-using stored SharePoint session %s", session_key
-                    )
+                    logger.info("Re-using stored SharePoint session %s", session_key)
                     return stored
             if not interactive_login_allowed:
                 raise SharePointLoginRequired(
@@ -209,14 +205,20 @@ class SharedFolderIngester:
 
     # ---- main entry point ----------------------------------------------
 
+    def probe(self) -> None:
+        """Read the target folder once; never download, prune, or ingest a file."""
+        with self._client_factory() as client:
+            next(iter(client.walk(self.folder_server_relative_url)), None)
+
     def run(
         self,
         *,
         progress: Callable[[SharePointFile, Path], None] | None = None,
+        file_outcome: Callable[[Path, str], None] | None = None,
     ) -> IngestionResult:
         try:
             with self._client_factory() as client:
-                return self._download_all(client, progress)
+                return self._download_all(client, progress, file_outcome)
         except SharePointSessionExpired:
             if self._interactive_recovery is None:
                 raise SharePointLoginRequired(
@@ -226,7 +228,7 @@ class SharedFolderIngester:
             logger.warning("Session expired; asking user to re-authenticate")
             retry_factory = self._interactive_recovery()
             with retry_factory() as client:
-                return self._download_all(client, progress)
+                return self._download_all(client, progress, file_outcome)
 
     # ---- internals ------------------------------------------------------
 
@@ -234,6 +236,7 @@ class SharedFolderIngester:
         self,
         client: _WalkClient,
         progress: Callable[[SharePointFile, Path], None] | None,
+        file_outcome: Callable[[Path, str], None] | None = None,
     ) -> IngestionResult:
         root = self.folder_server_relative_url.rstrip("/")
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -246,7 +249,7 @@ class SharedFolderIngester:
         total_files = 0
 
         for folder, _subfolders, files in client.walk(root):
-            rel = folder.server_relative_url[len(root):].lstrip("/")
+            rel = folder.server_relative_url[len(root) :].lstrip("/")
             target_dir = self.output_dir / rel if rel else self.output_dir
             target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -256,8 +259,19 @@ class SharedFolderIngester:
                 target_file = target_dir / f.name
                 if not manifest.should_download(f) and target_file.exists():
                     skipped_paths.append(target_file)
+                    if file_outcome is not None:
+                        file_outcome(target_file, "unchanged")
                     continue
-                client.download_file(f.server_relative_url, destination=target_file)
+                if file_outcome is not None:
+                    file_outcome(target_file, "downloading")
+                try:
+                    client.download_file(f.server_relative_url, destination=target_file)
+                except Exception:
+                    if file_outcome is not None:
+                        file_outcome(target_file, "download_failed")
+                    raise
+                if file_outcome is not None:
+                    file_outcome(target_file, "downloaded")
                 manifest.record(f, target_file)
                 total_bytes += f.size_bytes
                 downloaded_paths.append(target_file)

@@ -1,4 +1,5 @@
 """Background scheduler for periodic RSS intelligence batch runs and OSINT security jobs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -63,9 +64,10 @@ def _run_batch_sync() -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
+
         async def consume(workspace_id: str):
             count = 0
-            async for event in run_batch(workspace_id=workspace_id):
+            async for event in run_batch(workspace_id=workspace_id, respect_refresh_interval=True):
                 if event.get("type") == "batch_complete":
                     count = event.get("analyzed", 0)
                 elif event.get("type") == "batch_error":

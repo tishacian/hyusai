@@ -176,7 +176,14 @@ import {
                 <code>{{ shortDigest(pendingPlan.plan.to.manifest_digest) }}</code>
               </div>
             </div>
-            <div class="hashes">
+            <ol class="plan-steps">
+              @for (step of pendingPlan.plan.steps; track step.position) {
+                <li><strong>{{ i18n.t('governance.apps.step.' + step.kind) === 'governance.apps.step.' + step.kind ? step.kind : i18n.t('governance.apps.step.' + step.kind) }}</strong> · {{ step.step_id }}
+                  <p>{{ i18n.t(step.reversibility === 'irreversible' ? 'governance.apps.irreversible' : 'governance.apps.review_step') }}</p>
+                </li>
+              }
+            </ol>
+            <details><summary>{{ i18n.t('governance.apps.technical_details') }}</summary><div class="hashes">
               <label>{{ i18n.t('governance.apps.plan.manifest_sha') }}</label>
               <code data-testid="workspace-app-manifest-digest">{{ pendingPlan.request.expected_manifest_digest }}</code>
               <label>{{ i18n.t('governance.apps.plan.plan_sha') }}</label>
@@ -185,7 +192,7 @@ import {
               <code data-testid="workspace-app-lifecycle-phase">{{ pendingPlan.plan.lifecycle_phase }}</code>
               <label>{{ i18n.t('governance.apps.plan.steps_sha', { count: pendingPlan.plan.steps.length }) }}</label>
               <code data-testid="workspace-app-steps-sha">{{ pendingPlan.plan.steps_sha256 }}</code>
-            </div>
+            </div></details>
             <p class="warning">
               {{ i18n.t('governance.apps.plan.warning') }}
             </p>

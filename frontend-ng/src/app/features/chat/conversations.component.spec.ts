@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector } from '@angular/core';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { of } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ConversationsComponent } from './conversations.component';
 
-function harness(opts: { admin: boolean; facet?: string }) {
+function harness(opts: { admin: boolean; facet?: string; read?: () => Observable<unknown> }) {
   const opens: unknown[] = [];
   const injector = Injector.create({
     providers: [
@@ -19,12 +19,14 @@ function harness(opts: { admin: boolean; facet?: string }) {
         provide: WorkspaceService,
         useValue: {
           isAdmin: () => opts.admin,
+          captureRequestScope: () => ({ workspaceSlug: 'workspace-a', epoch: 1 }),
+          isRequestScopeCurrent: () => true,
           getIamSummary: () => of({ members: [] }),
         },
       },
       {
         provide: ApiService,
-        useValue: { get: () => of({ sessions: [] }) },
+        useValue: { get: () => opts.read?.() ?? of({ sessions: [] }) },
       },
       {
         provide: ChatOverlayService,
@@ -82,4 +84,18 @@ test('?facet=workspace is restored from the query map', () => {
   } finally {
     injector.destroy();
   }
+});
+
+test('a failed history stays an error until retry returns an actual empty list', () => {
+  let unavailable = true;
+  const { injector, component } = harness({ admin: false,
+    read: () => unavailable ? throwError(() => ({ status: 504 })) : of({ sessions: [] }),
+  });
+  try {
+    component.reload();
+    assert.equal(component.readState().s, 'error');
+    unavailable = false;
+    component.reload();
+    assert.equal(component.readState().s, 'empty');
+  } finally { injector.destroy(); }
 });

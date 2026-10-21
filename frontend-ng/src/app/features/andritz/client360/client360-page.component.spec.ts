@@ -108,6 +108,32 @@ function workspaceHeader(call: HttpCall): string | undefined {
   return call.options?.headers?.['X-Workspace-Slug'];
 }
 
+test('sending requires review of the exact recipient, subject and draft', () => {
+  const { component, postCalls } = createHarness();
+  component.currentDraft.set({ id: 'draft-review', subject: 'Proposal', generated_body: 'Reviewed text' } as never);
+  component.mailSettings.set({ configured: true } as never);
+  component.recipientEmail = 'buyer@example.test';
+  component.draftSubject.set('Proposal');
+  component.draftBody.set('Reviewed text');
+  component.sendCurrentDraft();
+  assert.equal(postCalls.length, 0);
+  component.reviewDraft(true);
+  assert.equal(component.canSendMail(), true);
+  component.draftBody.set('Changed after review');
+  assert.equal(component.canSendMail(), false);
+  component.reviewDraft(true);
+  component.sendCurrentDraft();
+  assert.equal(postCalls.length, 1);
+  assert.equal((postCalls[0].body as { reviewed: boolean }).reviewed, true);
+});
+
+test('mail timeline distinguishes SMTP acceptance from a declared send', () => {
+  const { component } = createHarness();
+  assert.match(component.timelineKindLabel('mail_sent', 'accepted'), /Accepté pour envoi/);
+  assert.equal(component.timelineKindLabel('mail_sent', 'declared'), 'Envoi déclaré');
+  assert.match(component.timelineKindLabel('mail_sent'), /non confirmé/);
+});
+
 test('Client360 pins validateMapping -> reload/run to A and cancels the chain on A -> B', () => {
   const harness = createHarness();
   const { component, workspace, patchCalls, postCalls, getCalls } = harness;

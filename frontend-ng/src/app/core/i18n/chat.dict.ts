@@ -6,6 +6,9 @@
  */
 
 export const CHAT_FR = {
+  'chat.workspace.upload.refused': 'Fichiers non ajoutés à la conversation',
+  'chat.workspace.upload.unconfirmed': 'Import non confirmé. Votre message est conservé.',
+  'chat.workspace.upload.pending': 'Préparation en cours : ces fichiers ne sont pas encore disponibles pour la conversation.',
   // --- Chat overlay / workspace -----------------------------------
   'chat.title': 'Chat',
   'chat.placeholder': 'Posez votre question…',
@@ -769,6 +772,9 @@ export const CHAT_FR = {
  * other, before the guard even runs.
  */
 export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
+  'chat.workspace.upload.refused': 'Files not added to the conversation',
+  'chat.workspace.upload.unconfirmed': 'Import not confirmed. Your message is preserved.',
+  'chat.workspace.upload.pending': 'Preparation in progress: these files are not available to the conversation yet.',
   // --- Chat overlay / workspace -----------------------------------
   'chat.title': 'Chat',
   'chat.placeholder': 'Ask your question…',

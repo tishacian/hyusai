@@ -73,6 +73,7 @@ interface FlowSnapshot {
 }
 
 interface FlowState {
+  readOnly: boolean;
   nodes: CanonicalFlowNode[];
   edges: CanonicalFlowEdge[];
   selectedNodeId: string | null;
@@ -107,6 +108,7 @@ const DEFAULT_META: FlowMeta = {
 };
 
 const initialState: FlowState = {
+  readOnly: false,
   nodes: [],
   edges: [],
   selectedNodeId: null,
@@ -268,6 +270,10 @@ export const FlowStore = signalStore(
 
     return {
       // ---- lifecycle / serializer boundary -------------------------------
+      /** Published graphs are inspectable, but every editing intent is inert. */
+      setReadOnly(readOnly: boolean): void {
+        patchState(store, { readOnly });
+      },
       /**
        * Replace the entire graph from a CanonicalFlow. Resets history and the
        * dirty flag (the loaded graph is, by definition, the saved baseline).
@@ -289,6 +295,7 @@ export const FlowStore = signalStore(
       /** Replace the graph as a user edit (e.g. JSON import). Unlike `load`,
        *  this preserves one undo checkpoint and remains dirty until persisted. */
       replaceAsEdit(flow: CanonicalFlow): void {
+        if (store.readOnly()) return;
         const normalized = serializer.normalize(flow);
         checkpoint();
         patchState(store, {
@@ -322,6 +329,7 @@ export const FlowStore = signalStore(
       },
 
       setSource(source: 'form' | 'flow'): void {
+        if (store.readOnly()) return;
         if (store.meta().source === source) return;
         patchState(store, {
           meta: { ...store.meta(), source },
@@ -339,6 +347,7 @@ export const FlowStore = signalStore(
       // ---- structural mutations (auto-checkpointed) ----------------------
       /** Add a node; returns its id. Selects it. */
       addNode(node: NewFlowNode): string {
+        if (store.readOnly()) return '';
         checkpoint();
         const id = node.id ?? freshNodeId();
         const created: CanonicalFlowNode = {
@@ -368,6 +377,7 @@ export const FlowStore = signalStore(
        * An operator can reconnect the remaining nodes as a separate, visible
        * and independently undoable authoring intent. */
       removeNode(nodeId: string): void {
+        if (store.readOnly()) return;
         if (!store.nodes().some((node) => node.id === nodeId)) return;
         checkpoint();
         patchState(store, {
@@ -384,6 +394,7 @@ export const FlowStore = signalStore(
 
       /** Shallow-patch a node (label, kind, config, position, …). */
       patchNode(nodeId: string, patch: Partial<CanonicalFlowNode>): void {
+        if (store.readOnly()) return;
         const exists = store.nodes().some((n) => n.id === nodeId);
         if (!exists) return;
         checkpoint();
@@ -402,6 +413,7 @@ export const FlowStore = signalStore(
        * `updateNodeData(id, 'retrieval_defaults.top_k', 8)`.
        */
       updateNodeData(nodeId: string, path: string, value: unknown): void {
+        if (store.readOnly()) return;
         const exists = store.nodes().some((n) => n.id === nodeId);
         if (!exists) return;
         checkpoint();
@@ -418,6 +430,7 @@ export const FlowStore = signalStore(
 
       /** Same as `updateNodeData` but targets the `config` bag. */
       updateNodeConfig(nodeId: string, path: string, value: unknown): void {
+        if (store.readOnly()) return;
         const exists = store.nodes().some((n) => n.id === nodeId);
         if (!exists) return;
         checkpoint();
@@ -436,6 +449,7 @@ export const FlowStore = signalStore(
        * updates its route edge labels + ports and default in the same store
        * revision; a removal drops its routes in that same undoable step. */
       mutateDecision(nodeId: string, mutation: DecisionMutation): void {
+        if (store.readOnly()) return;
         const node = store.nodes().find((candidate) => candidate.id === nodeId);
         if (!node || (node.kind ?? 'task') !== 'decision') return;
 
@@ -547,6 +561,7 @@ export const FlowStore = signalStore(
 
       /** Add an edge (deduped on semantics, endpoints, branch and ports). */
       connect(edge: CanonicalFlowEdge): void {
+        if (store.readOnly()) return;
         if (edge.from === edge.to) return;
         if (store.edges().some((e) => sameEdge(e, edge))) return;
         checkpoint();
@@ -559,6 +574,7 @@ export const FlowStore = signalStore(
 
       /** Remove the edge matching semantics, endpoints, branch and ports. */
       disconnect(edge: CanonicalFlowEdge): void {
+        if (store.readOnly()) return;
         if (!store.edges().some((e) => sameEdge(e, edge))) return;
         checkpoint();
         patchState(store, {
@@ -573,6 +589,7 @@ export const FlowStore = signalStore(
        * adds `next` as one undoable step.
        */
       reassignEdge(previous: CanonicalFlowEdge, next: CanonicalFlowEdge): void {
+        if (store.readOnly()) return;
         if (next.from === next.to) return;
         checkpoint();
         const withoutPrev = store.edges().filter((e) => !sameEdge(e, previous));
@@ -590,6 +607,7 @@ export const FlowStore = signalStore(
        * `checkpoint()` once at drag-start so a whole drag is one undo step.
        */
       moveNode(nodeId: string, position: { x: number; y: number }): void {
+        if (store.readOnly()) return;
         patchState(store, {
           nodes: store
             .nodes()
@@ -603,6 +621,7 @@ export const FlowStore = signalStore(
        * execution remains edge-driven; this order is shared by the canvas DOM,
        * the accessible outline and the persisted payload. */
       reorderNode(nodeId: string, direction: -1 | 1): void {
+        if (store.readOnly()) return;
         const nodes = store.nodes();
         const index = nodes.findIndex((node) => node.id === nodeId);
         const target = index + direction;
@@ -623,6 +642,7 @@ export const FlowStore = signalStore(
       checkpoint,
 
       undo(): void {
+        if (store.readOnly()) return;
         const past = store.past();
         if (past.length === 0) return;
         const previous = past[past.length - 1];
@@ -632,6 +652,7 @@ export const FlowStore = signalStore(
       },
 
       redo(): void {
+        if (store.readOnly()) return;
         const future = store.future();
         if (future.length === 0) return;
         const nextSnapshot = future[0];
@@ -645,6 +666,7 @@ export const FlowStore = signalStore(
        * undoable step.
        */
       setPositions(positions: Record<string, { x: number; y: number }>): void {
+        if (store.readOnly()) return;
         checkpoint();
         patchState(store, {
           nodes: store.nodes().map((n) =>
@@ -657,6 +679,7 @@ export const FlowStore = signalStore(
 
       // ---- bulk -----------------------------------------------------------
       clear(): void {
+        if (store.readOnly()) return;
         if (store.nodes().length === 0 && store.edges().length === 0) return;
         checkpoint();
         patchState(store, {

@@ -18,11 +18,12 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { Subscription, forkJoin, of } from 'rxjs';
-import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
+import { distinctUntilChanged, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { LOADING, readFailure, readValue, type LoadState } from '@app/shared/ui/load-state';
 import { PageFrameComponent } from '@app/shared/cockpit';
 import { ChatOverlayService } from './chat-overlay.service';
 
@@ -191,6 +192,7 @@ interface ConversationRow {
                 class="ck-mono"
                 style="height:28px;padding:0 8px;background:var(--ck-bg-inset);color:var(--ck-fg-1);border:1px solid var(--ck-stroke-2);border-radius:3px;font-size:11px;"
                 [ngModel]="authorFilter()"
+                [disabled]="membersState().s !== 'ready'"
                 (ngModelChange)="setAuthorFilter($event)"
                 data-testid="conversations-author-filter"
               >
@@ -199,6 +201,9 @@ interface ConversationRow {
                   <option [value]="m.user_id">{{ m.label }}</option>
                 }
               </select>
+              @if (membersState().s === 'error' || membersState().s === 'denied') {
+                <app-empty-state [state]="membersState()" size="sm" (retry)="loadMembers()" />
+              }
 
               <label class="ck-mono" style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ck-fg-4);" for="conversations-kind">
                 {{ i18n.t('conversations.filter.kind') }}
@@ -216,9 +221,11 @@ interface ConversationRow {
               </select>
             }
 
-            <span class="ml-auto ck-mono" style="font-size:10px;color:var(--ck-fg-4);">
-              {{ i18n.t('conversations.count', { count: rows().length }) }}
-            </span>
+            @if (readState().s === 'ready' || readState().s === 'empty' || readState().s === 'no-results') {
+              <span class="ml-auto ck-mono" style="font-size:10px;color:var(--ck-fg-4);">
+                {{ i18n.t('conversations.count', { count: rows().length }) }}
+              </span>
+            }
           </div>
         </section>
 
@@ -227,11 +234,13 @@ interface ConversationRow {
             <div class="ck-mono" style="font-size:11px;padding:48px;text-align:center;color:var(--ck-fg-4);">
               {{ i18n.t('common.loading') }}
             </div>
-          } @else if (!rows().length) {
+          } @else if (readState().s !== 'ready') {
             <app-empty-state
+              [state]="readState()"
               icon="message-square"
               [title]="i18n.t('conversations.empty.title')"
               [description]="i18n.t('conversations.empty.description')"
+              (retry)="reload()"
             />
           } @else {
             <table class="w-full text-sm">
@@ -298,15 +307,19 @@ export class ConversationsComponent implements OnInit, OnDestroy {
 
   readonly rows = signal<ConversationRow[]>([]);
   readonly loading = signal(false);
+  readonly readState = signal<LoadState<ConversationRow[]>>(LOADING);
   readonly facet = signal<ConversationsFacet>('mine');
   readonly linkedFilter = signal('');
   readonly authorFilter = signal('');
   readonly kindFilter = signal<'all' | RowKind>('all');
   readonly members = signal<Array<{ user_id: string; label: string }>>([]);
+  readonly membersState = signal<LoadState<Array<{ user_id: string; label: string }>>>(LOADING);
   readonly linkedOptions = signal<Array<{ id: string; label: string }>>([]);
   searchDraft = '';
   private searchQ = '';
   private querySub: Subscription | null = null;
+  private readSub: Subscription | null = null;
+  private membersSub: Subscription | null = null;
   private requestGeneration = 0;
 
   readonly isAdmin = computed(() => this.workspace.isAdmin());
@@ -327,6 +340,9 @@ export class ConversationsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.querySub?.unsubscribe();
+    this.readSub?.unsubscribe();
+    this.membersSub?.unsubscribe();
+    this.requestGeneration += 1;
   }
 
   /** Exposed for storeSpecs — restore facet from the URL. */
@@ -373,22 +389,32 @@ export class ConversationsComponent implements OnInit, OnDestroy {
     this.overlay.open({ mode: 'quick' });
   }
 
-  private loadMembers(): void {
-    this.workspace.getIamSummary().subscribe({
+  loadMembers(): void {
+    const scope = this.workspace.captureRequestScope();
+    this.membersSub?.unsubscribe();
+    this.membersState.set(LOADING);
+    this.members.set([]);
+    this.membersSub = this.workspace.getIamSummary().subscribe({
       next: (summary) => {
-        this.members.set(
-          summary.members
+        if (!this.workspace.isRequestScopeCurrent(scope)) return;
+        const members = summary.members
             .map((m) => ({ user_id: m.user_id, label: m.email || m.username }))
-            .sort((a, b) => a.label.localeCompare(b.label)),
-        );
+            .sort((a, b) => a.label.localeCompare(b.label));
+        this.members.set(members);
+        this.membersState.set(readValue(members));
       },
-      error: () => this.members.set([]),
+      error: (error: unknown) => {
+        if (this.workspace.isRequestScopeCurrent(scope)) this.membersState.set(readFailure(error));
+      },
     });
   }
 
-  private reload(): void {
+  reload(): void {
     const generation = ++this.requestGeneration;
+    const scope = this.workspace.captureRequestScope();
+    this.readSub?.unsubscribe();
     this.loading.set(true);
+    this.readState.set(LOADING);
     const workspaceScope = this.showAuthorColumn();
     const chatParams: Record<string, string> = {
       status: 'all',
@@ -409,9 +435,7 @@ export class ConversationsComponent implements OnInit, OnDestroy {
     const chat$ =
       workspaceScope && kind === 'capture'
         ? of<SessionListResponse>({ sessions: [] })
-        : this.api.get<SessionListResponse>('/sessions', chatParams).pipe(
-            catchError(() => of<SessionListResponse>({ sessions: [] })),
-          );
+        : this.api.get<SessionListResponse>('/sessions', chatParams, { workspaceSlug: scope.workspaceSlug });
 
     const capture$ =
       workspaceScope && kind !== 'chat'
@@ -419,13 +443,12 @@ export class ConversationsComponent implements OnInit, OnDestroy {
             .get<CaptureSessionListResponse>('/knowledge-capture/sessions', {
               limit: '100',
               include_archived: 'true',
-            })
-            .pipe(catchError(() => of<CaptureSessionListResponse>({ sessions: [] })))
+            }, { workspaceSlug: scope.workspaceSlug })
         : of<CaptureSessionListResponse>({ sessions: [] });
 
-    forkJoin({ chat: chat$, capture: capture$ }).subscribe({
+    this.readSub = forkJoin({ chat: chat$, capture: capture$ }).subscribe({
       next: ({ chat, capture }) => {
-        if (generation !== this.requestGeneration) return;
+        if (generation !== this.requestGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
         const chatRows = (chat.sessions ?? []).map((s) => this.chatToRow(s));
         let captureRows = (capture.sessions ?? []).map((s) => this.captureToRow(s));
         if (this.authorFilter()) {
@@ -444,12 +467,14 @@ export class ConversationsComponent implements OnInit, OnDestroy {
                   String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')),
                 );
         this.rows.set(merged);
+        this.readState.set(readValue(merged, { query: this.searchQ || this.linkedFilter() || this.authorFilter() || (kind === 'all' ? null : kind) }));
         this.refreshLinkedOptions(chat.sessions ?? []);
         this.loading.set(false);
       },
-      error: () => {
-        if (generation !== this.requestGeneration) return;
+      error: (error: unknown) => {
+        if (generation !== this.requestGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
         this.rows.set([]);
+        this.readState.set(readFailure(error));
         this.loading.set(false);
       },
     });

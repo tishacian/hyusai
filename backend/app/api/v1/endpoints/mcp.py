@@ -29,7 +29,9 @@ def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool
         .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
         .first()
     )
-    return bool(membership) and is_admin_template(getattr(membership, "role_template", None), membership.role)
+    return bool(membership) and is_admin_template(
+        getattr(membership, "role_template", None), membership.role
+    )
 
 
 def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
@@ -153,7 +155,7 @@ async def put_mcp_server(
 
 
 @router.post("/servers/{server_id}/test")
-async def test_mcp_server(
+def test_mcp_server(
     server_id: str,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -162,9 +164,15 @@ async def test_mcp_server(
     try:
         server = mcp_service.resolve_server(workspace, server_id)
         return mcp_client.test_connection(server)
-    except Exception as exc:  # noqa: BLE001
-        _raise_mcp(exc)
-        raise  # pragma: no cover
+    except McpError as exc:
+        status = {
+            "mcp_auth_failed": "auth_failed",
+            "mcp_access_denied": "access_denied",
+            "mcp_unconfigured": "not_configured",
+        }.get(exc.code, "unreachable")
+        return {"ok": False, "status": status}
+    except Exception:
+        return {"ok": False, "status": "unreachable"}
 
 
 @router.get("/servers/{server_id}/tools")

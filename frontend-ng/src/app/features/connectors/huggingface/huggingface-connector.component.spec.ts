@@ -80,3 +80,30 @@ test('dataset imports preserve projection order and row cap; a blank projection 
   assert.equal('columns' in h.calls.filter(c => c.method === 'POST')[1].body, false);
   h.component.ngOnDestroy();
 });
+
+test('an unknown import outcome blocks another request until existing jobs are reread', async () => {
+  const h = harness();
+  h.component.repository.set(repository); h.component.chooseFormat('safetensors');
+  const pending = new Subject(); h.replies.set('POST /huggingface/imports', pending);
+  const action = h.component.importSelection();
+  pending.error({ status: 0 }); await action;
+  assert.equal(h.component.importOutcome()?.s, 'unknown');
+  assert.equal(h.component.canImport(), false);
+  await h.component.importSelection();
+  assert.equal(h.calls.filter(call => call.method === 'POST').length, 1);
+  await h.component.load();
+  assert.ok(h.calls.some(call => call.path === '/huggingface/jobs'));
+  assert.ok(h.calls.some(call => call.path === '/huggingface/artifacts'));
+  assert.equal(h.component.importOutcome(), null);
+  h.component.ngOnDestroy();
+});
+
+test('an accepted import job does not manufacture a ready artifact', async () => {
+  const h = harness();
+  h.component.repository.set(repository); h.component.chooseFormat('safetensors');
+  h.replies.set('POST /huggingface/imports', { artifact: { artifact_id: 'new', status: 'pending' }, job: { id: 'job', status: 'queued' } });
+  await h.component.importSelection();
+  assert.equal(h.component.importOutcome()?.s, 'accepted');
+  assert.equal(h.component.artifacts().some(artifact => artifact.status === 'ready'), false);
+  h.component.ngOnDestroy();
+});

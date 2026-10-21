@@ -106,7 +106,7 @@ async function setup(page: Page, locale: 'fr' | 'en') {
 }
 
 async function openWorkshop(page: Page, locale: 'fr' | 'en') {
-  await page.goto(`/systems/${systemId}/flow?lens=build`);
+  await page.goto(`/systems/${systemId}/flow?lens=build`);await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();
   await expect(page.locator('app-flow-node')).toHaveCount(9);
   await page.locator('app-flow-node').filter({ hasText: 'Historical order features' }).click();
   await expect(page.getByTestId('transform-summary')).toContainText(locale === 'fr' ? 'Agrégats historiques' : 'Historical aggregates');

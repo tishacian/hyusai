@@ -33,7 +33,7 @@ import {
   type CkChartTick,
   type CkStreamTone,
 } from './chart.types';
-import { accumulateStackedSeries, cubicSmoothAreaPath, cubicSmoothPath, niceStep, spreadLabelRows } from './svg-path';
+import { accumulateStackedSeries, cubicSmoothAreaPath, cubicSmoothPath, integerStep, linearAreaPath, linearPath, niceStep, spreadLabelRows } from './svg-path';
 
 export interface CkStreamSeries {
   id?: string;
@@ -348,6 +348,8 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   @Input() dayLabels: string[] = [];
   /** Explicit gridlines; when empty, round steps are derived from the maximum. */
   @Input() gridLines: CkStreamGridLine[] = [];
+  /** Counts use straight segments and integral ticks; continuous series retain their smoothing. */
+  @Input() discrete = false;
   /** Formats a derived gridline value (e.g. `40 h`). */
   @Input() gridLabel: (value: number) => string = (value) => String(value);
   @Input() ticks: CkChartTick[] = [];
@@ -484,7 +486,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (shouldRebuildLayout(Object.keys(changes)) || !this.built) {
+    if (changes['discrete'] || shouldRebuildLayout(Object.keys(changes)) || !this.built) {
       this.built = this.build();
     }
     if (this.focusDay != null && this.focusDay >= this.pointCount()) this.focusDay = null;
@@ -706,11 +708,11 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
       const lower = band.lower.map((value, i) => ({ x: xOf(i), y: this.yOf(value, max) }));
       const onBaseline = band.lower.every((value) => value === 0);
       areas.push({
-        d: onBaseline ? cubicSmoothAreaPath(upper, null, this.yOf(0, max)) : cubicSmoothAreaPath(upper, lower),
+        d: this.discrete ? linearAreaPath(upper, onBaseline ? null : lower, this.yOf(0, max)) : onBaseline ? cubicSmoothAreaPath(upper, null, this.yOf(0, max)) : cubicSmoothAreaPath(upper, lower),
         fill: this.fillFor(tone),
         hatch: this.hatchFor(tone),
-        top: cubicSmoothPath(upper),
-        base: onBaseline ? null : cubicSmoothPath(lower),
+        top: this.discrete ? linearPath(upper) : cubicSmoothPath(upper),
+        base: onBaseline ? null : this.discrete ? linearPath(lower) : cubicSmoothPath(lower),
         id: row.id,
       });
       upperY.push(upper.map((point) => point.y));
@@ -759,7 +761,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     if (this.gridLines.length) return this.gridLines;
     if (!this.series.length) return [];
     const max = this.resolvedMax();
-    const step = niceStep(max);
+    const step = this.discrete ? integerStep(max) : niceStep(max);
     const lines: CkStreamGridLine[] = [];
     for (let value = step; value < max * 0.98 && lines.length < 6; value += step) {
       lines.push({ value, label: this.gridLabel(value) });

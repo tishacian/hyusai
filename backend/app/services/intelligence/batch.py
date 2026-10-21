@@ -1,4 +1,5 @@
 """Batch processor for scheduled RSS intelligence analysis"""
+
 import uuid
 from datetime import datetime
 from typing import AsyncGenerator
@@ -13,6 +14,7 @@ from app.services.intelligence.profile import (
 )
 
 logger = get_logger(__name__)
+
 
 def _risk_rank(level: str | None) -> int:
     return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(level or "low", 1)
@@ -87,7 +89,7 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
     (``DEFAULT_FEEDS`` / ``DEFAULT_TARGET`` / ``DEFAULT_FILTER``). Nothing is
     ever written without a workspace.
     """
-    from app.models.intelligence import FeedSource, SemanticTarget, SafetyFilter
+    from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 
     if not workspace_id:
         return False
@@ -114,7 +116,11 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
                 )
             )
         added = True
-        logger.info("Seeded default RSS feeds for intelligence batch", count=len(profile.default_feeds), workspace_id=workspace_id)
+        logger.info(
+            "Seeded default RSS feeds for intelligence batch",
+            count=len(profile.default_feeds),
+            workspace_id=workspace_id,
+        )
     default_target = profile.default_target
     if default_target and targets_q.count() == 0:
         db.add(
@@ -129,7 +135,9 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
             )
         )
         added = True
-        logger.info("Seeded default semantic target for intelligence batch", workspace_id=workspace_id)
+        logger.info(
+            "Seeded default semantic target for intelligence batch", workspace_id=workspace_id
+        )
     elif default_target:
         default_t = (
             db.query(SemanticTarget)
@@ -142,7 +150,11 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
         if default_t and default_t.relevance_threshold != default_target["relevance_threshold"]:
             default_t.relevance_threshold = default_target["relevance_threshold"]
             added = True
-            logger.info("Updated default target relevance_threshold", new=default_target["relevance_threshold"], workspace_id=workspace_id)
+            logger.info(
+                "Updated default target relevance_threshold",
+                new=default_target["relevance_threshold"],
+                workspace_id=workspace_id,
+            )
     default_filter = profile.default_filter
     if default_filter and filters_q.count() == 0:
         db.add(
@@ -156,22 +168,26 @@ def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
             )
         )
         added = True
-        logger.info("Seeded default safety filter for intelligence batch", workspace_id=workspace_id)
+        logger.info(
+            "Seeded default safety filter for intelligence batch", workspace_id=workspace_id
+        )
     if added:
         db.commit()
     return added
 
 
-async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGenerator[dict, None]:
+async def run_batch(
+    target_id: str = None, workspace_id: str = None, *, respect_refresh_interval: bool = False
+) -> AsyncGenerator[dict, None]:
     """Run one workspace's intelligence batch: fetch feeds -> analyze -> score -> store.
 
     Yields SSE-compatible progress events. Only the workspace's own feeds,
     targets, safety filters and articles take part; a batch without a
     workspace is refused rather than run over every workspace at once.
     """
-    from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
-    from app.services.intelligence.feed_manager import fetch_feed, save_articles
+    from app.models.intelligence import FeedArticle, FeedSource, SafetyFilter, SemanticTarget
     from app.services.intelligence.analyzer import get_analyzer
+    from app.services.intelligence.feed_manager import fetch_feed, save_articles
 
     batch_id = str(uuid.uuid4())[:8]
     if not workspace_id:
@@ -223,7 +239,9 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
             return
 
         target_desc = " | ".join(t.description for t in targets)
-        filter_rules = " | ".join(f.prompt_template for f in filters) if filters else "standard safety"
+        filter_rules = (
+            " | ".join(f.prompt_template for f in filters) if filters else "standard safety"
+        )
 
         total_sources = len(sources)
         total_articles = 0
@@ -243,6 +261,13 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
         relevance_threshold = min((t.relevance_threshold for t in targets), default=0.25)
 
         for si, source in enumerate(sources):
+            if respect_refresh_interval:
+                from app.services.intelligence.cadence import source_is_due
+
+                if not source_is_due(
+                    source.last_fetched, source.refresh_interval, datetime.utcnow()
+                ):
+                    continue
             yield {
                 "type": "batch_fetch",
                 "batch_id": batch_id,
@@ -263,7 +288,8 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
 
         unanalyzed_q = db.query(FeedArticle).filter(FeedArticle.analysis.is_(None))
         if settings.intelligence_batch_retry_skipped:
-            from sqlalchemy import or_, cast, String as SAString
+            from sqlalchemy import String as SAString
+            from sqlalchemy import cast, or_
 
             unanalyzed_q = db.query(FeedArticle).filter(
                 or_(
@@ -338,7 +364,7 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
     Only rows stamped with the workspace are read; without a workspace the
     dashboard is empty rather than global.
     """
-    from app.models.intelligence import FeedSource, FeedArticle
+    from app.models.intelligence import FeedArticle, FeedSource
 
     profile = profile_for_workspace_id(db, workspace_id)
     if workspace_id:
@@ -363,13 +389,19 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
     else:
         sources, total_articles, analyzed_count, recent = [], 0, 0, []
     source_ids = [article.source_id for article in recent if article.source_id]
-    source_by_id = {
-        source.id: source
-        for source in db.query(FeedSource).filter(
-            FeedSource.id.in_(source_ids),
-            FeedSource.workspace_id == workspace_id,
-        ).all()
-    } if source_ids else {}
+    source_by_id = (
+        {
+            source.id: source
+            for source in db.query(FeedSource)
+            .filter(
+                FeedSource.id.in_(source_ids),
+                FeedSource.workspace_id == workspace_id,
+            )
+            .all()
+        }
+        if source_ids
+        else {}
+    )
 
     sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0}
     risk_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
@@ -384,21 +416,27 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
         risk_counts[risk] = risk_counts.get(risk, 0) + 1
         for ent in analysis.get("entities", []):
             entity_freq[ent] = entity_freq.get(ent, 0) + 1
-        articles_data.append({
-            "id": art.id,
-            "source_id": art.source_id,
-            "source_name": source_by_id.get(art.source_id).name if source_by_id.get(art.source_id) else None,
-            "source_category": source_by_id.get(art.source_id).category if source_by_id.get(art.source_id) else None,
-            "title": art.title,
-            "url": art.url,
-            "summary": art.summary,
-            "published_at": art.published_at.isoformat() if art.published_at else None,
-            "relevance_score": art.relevance_score,
-            "sentiment": sent,
-            "risk_level": risk,
-            "safety_flag": art.safety_flag,
-            "entities": analysis.get("entities", []),
-        })
+        articles_data.append(
+            {
+                "id": art.id,
+                "source_id": art.source_id,
+                "source_name": source_by_id.get(art.source_id).name
+                if source_by_id.get(art.source_id)
+                else None,
+                "source_category": source_by_id.get(art.source_id).category
+                if source_by_id.get(art.source_id)
+                else None,
+                "title": art.title,
+                "url": art.url,
+                "summary": art.summary,
+                "published_at": art.published_at.isoformat() if art.published_at else None,
+                "relevance_score": art.relevance_score,
+                "sentiment": sent,
+                "risk_level": risk,
+                "safety_flag": art.safety_flag,
+                "entities": analysis.get("entities", []),
+            }
+        )
 
     top_entities = sorted(entity_freq.items(), key=lambda x: -x[1])[:15]
 

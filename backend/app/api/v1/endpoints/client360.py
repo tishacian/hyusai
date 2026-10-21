@@ -16,6 +16,12 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.action_plans import serialize_action_item
+from app.services.iam.app_entitlements import (
+    CLIENT360_APP,
+    WorkspaceEntitlementMutationConflictError,
+    lock_workspace_for_app_entitlement_mutation,
+)
+from app.services.iam.decision_plane import enforce_action, enforce_candidate_permission
 from app.tenants.andritz.client360.alerts import alerts_payload
 from app.tenants.andritz.client360.chat import handle_client360_chat_query
 from app.tenants.andritz.client360.contract import CLIENT360_INSTALLED_BASE_COLLECTION_SLUG
@@ -54,12 +60,6 @@ from app.tenants.andritz.client360.spl_adapter import (
     preview_archive_mvp_orphan_sources,
     sync_sources_from_collection,
 )
-from app.services.iam.app_entitlements import (
-    CLIENT360_APP,
-    WorkspaceEntitlementMutationConflictError,
-    lock_workspace_for_app_entitlement_mutation,
-)
-from app.services.iam.decision_plane import enforce_action, enforce_candidate_permission
 
 router = APIRouter(dependencies=[Depends(require_app_entitlement(CLIENT360_APP))])
 
@@ -71,6 +71,7 @@ class MailDraftCreate(BaseModel):
 
 
 class MailDraftSend(BaseModel):
+    reviewed: bool = False
     to_email: str = Field(..., min_length=3, max_length=320)
     subject: Optional[str] = Field(default=None, max_length=255)
     body: Optional[str] = None
@@ -185,8 +186,7 @@ class SyncFromCollectionBody(BaseModel):
     include_purchase_history: bool = Field(
         default=False,
         description=(
-            "Phase-2 opt-in: sync Histo_Achat purchase_history feed "
-            "(also included when scope=all)"
+            "Phase-2 opt-in: sync Histo_Achat purchase_history feed (also included when scope=all)"
         ),
     )
     include_spc: bool = Field(
@@ -323,7 +323,12 @@ def client360_summary(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return summary_payload(
         db,
@@ -341,7 +346,12 @@ def client360_alerts(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return alerts_payload(db, workspace, limit=limit)
 
@@ -392,7 +402,12 @@ def client360_scope_get(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return {"scope": client360_scope(workspace)}
 
@@ -412,7 +427,12 @@ def client360_opportunities(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return {
         "items": list_opportunities(
@@ -546,7 +566,12 @@ def client360_campaigns(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return {"items": list_campaigns(db, workspace, status=status, limit=limit)}
 
@@ -677,7 +702,12 @@ def client360_campaign_stats(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     try:
         return campaign_stats(db, workspace, campaign_id)
@@ -693,7 +723,12 @@ def client360_mappings(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return {"items": list_mapping_rules(db, workspace, status=status)}
 
@@ -767,7 +802,12 @@ def client360_customers(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return list_customers(
         db,
@@ -867,7 +907,12 @@ def client360_mail_settings_get(
     db: DBSession = Depends(get_db),
 ):
     _enforce_client360_action(
-        db, workspace=workspace, user=user, resource_kind="system", action="read", legacy_allowed=True
+        db,
+        workspace=workspace,
+        user=user,
+        resource_kind="system",
+        action="read",
+        legacy_allowed=True,
     )
     return {"mail_settings": client360_mail_settings_payload(workspace)}
 
@@ -950,6 +995,14 @@ def client360_mail_draft_send(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    if not body.reviewed:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "mail_review_required",
+                "message": "Review the recipient, subject and draft before sending",
+            },
+        )
     try:
         _enforce_client360_action(
             db,
@@ -979,7 +1032,7 @@ def client360_mail_draft_send(
         return {
             "mail_draft": serialize_mail_draft(draft),
             "action": serialize_action_item(action) if action else None,
-            "delivery": {"status": "sent"},
+            "delivery": {"status": "accepted", "receipt_confirmed": False},
         }
     except LookupError as exc:
         db.rollback()

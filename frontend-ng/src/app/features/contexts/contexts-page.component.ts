@@ -11,6 +11,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  OnDestroy,
   computed,
   inject,
   signal,
@@ -28,6 +29,10 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { contextFreshness } from './context-freshness';
+import { LOADING, readFailure, readValue, type LoadState } from '@app/shared/ui/load-state';
 
 @Component({
   selector: 'app-contexts-page',
@@ -55,6 +60,12 @@ import { I18nService } from '@app/core/i18n.service';
       </a>
     </ck-object-header>
 
+    @if (state().s === 'error' || state().s === 'denied') {
+      <app-empty-state [state]="state()" (retry)="refresh()" />
+    }
+    @if (systemsState().s === 'error' || systemsState().s === 'denied') {
+      <app-empty-state [state]="systemsState()" (retry)="refresh()" />
+    }
     @if (loading() && contexts().length === 0) {
       <div class="space-y-2">
         @for (_ of [0, 1, 2]; track $index) {
@@ -63,7 +74,7 @@ import { I18nService } from '@app/core/i18n.service';
           </div>
         }
       </div>
-    } @else if (contexts().length === 0) {
+    } @else if (state().s === 'empty') {
       <app-empty-state
         icon="database"
         [title]="i18n.t('contexts.empty.title')"
@@ -97,14 +108,14 @@ import { I18nService } from '@app/core/i18n.service';
                   >
                     v{{ c.version ?? 1 }}
                   </span>
-                  @if (isUsed(c)) {
+                  @if (systemsState().s === 'ready' && isUsed(c)) {
                     <span
                       class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                       style="color: var(--ck-signal-pos); border: 1px solid rgba(16,185,129,0.25); background: rgba(16,185,129,0.05);"
                     >
                       {{ i18n.t('contexts.list.in_use') }}
                     </span>
-                  } @else {
+                  } @else if (systemsState().s === 'ready' || systemsState().s === 'empty') {
                     <span
                       class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                       style="color: var(--ck-signal-warn); border: 1px solid color-mix(in srgb, var(--ck-signal-warn) 35%, transparent); background: color-mix(in srgb, var(--ck-signal-warn) 8%, transparent);"
@@ -116,6 +127,7 @@ import { I18nService } from '@app/core/i18n.service';
                     {{ systemNames(c) || '—' }}
                   </span>
                 </div>
+                <p class="text-xs ck-fg-3" data-testid="context-freshness">{{ i18n.t('contexts.freshness.' + freshness(c)) }}</p>
                 <div class="text-[11px] text-gray-500 font-mono mt-0.5">
                   {{
                     i18n.t('contexts.list.meta', {
@@ -134,24 +146,36 @@ import { I18nService } from '@app/core/i18n.service';
     }
   `,
 })
-export class ContextsPageComponent implements OnInit {
+export class ContextsPageComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   readonly i18n = inject(I18nService);
 
   readonly contexts = signal<Context[]>([]);
   readonly systems = signal<System[]>([]);
   readonly loading = signal(false);
+  readonly state = signal<LoadState<Context[]>>(LOADING);
+  readonly systemsState = signal<LoadState<System[]>>(LOADING);
+  readonly freshness = contextFreshness;
+  private readonly workspace = inject(WorkspaceService);
+  private readonly view = new WorkspaceViewContext(this.workspace, () => {
+    this.contexts.set([]); this.systems.set([]); this.loading.set(true);
+    this.state.set(LOADING); this.systemsState.set(LOADING);
+  }, () => this.refresh());
+
+  ngOnDestroy(): void { this.view.destroy(); }
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
+    const known = this.state().s === 'ready' || this.state().s === 'empty';
+    const bindingsKnown = known && (this.systemsState().s === 'ready' || this.systemsState().s === 'empty');
     const total = this.contexts().length;
     const pinned = this.contexts().filter((c) => this.systemsBound(c).length > 0).length;
     const unused = total - pinned;
-    const stale = this.contexts().filter((c) => (c.version ?? 1) >= 3).length;
+    const stale = this.contexts().filter((c) => contextFreshness(c) === 'old').length;
     return [
-      { label: this.i18n.t('contexts.kpi.total'), value: String(total), tone: 'cool', hint: this.i18n.t('contexts.kpi.total_hint') },
-      { label: this.i18n.t('contexts.kpi.pinned'), value: String(pinned), tone: 'pos', hint: this.i18n.t('contexts.kpi.pinned_hint') },
-      { label: this.i18n.t('contexts.kpi.unused'), value: String(unused), tone: unused ? 'warn' : 'neutral', hint: this.i18n.t('contexts.kpi.unused_hint') },
-      { label: this.i18n.t('contexts.kpi.stale'), value: String(stale), tone: stale ? 'warn' : 'neutral', hint: this.i18n.t('contexts.kpi.stale_hint') },
+      { label: this.i18n.t('contexts.kpi.total'), value: known ? String(total) : '—', tone: 'cool', hint: this.i18n.t('contexts.kpi.total_hint') },
+      { label: this.i18n.t('contexts.kpi.pinned'), value: bindingsKnown ? String(pinned) : '—', tone: 'pos', hint: this.i18n.t('contexts.kpi.pinned_hint') },
+      { label: this.i18n.t('contexts.kpi.unused'), value: bindingsKnown ? String(unused) : '—', tone: unused ? 'warn' : 'neutral', hint: this.i18n.t('contexts.kpi.unused_hint') },
+      { label: this.i18n.t('contexts.kpi.stale'), value: known ? String(stale) : '—', tone: stale ? 'warn' : 'neutral', hint: this.i18n.t('contexts.kpi.stale_hint') },
     ];
   });
 
@@ -160,20 +184,29 @@ export class ContextsPageComponent implements OnInit {
   }
 
   refresh(): void {
+    const request = this.view.beginRequest();
     this.loading.set(true);
-    this.canonical.listContexts().subscribe({
+    const previous = this.state();
+    this.state.set(LOADING);
+    this.canonical.listContexts(undefined, { propagateErrors: true }).subscribe({
       next: (list) => {
+        if (!this.view.isCurrent(request)) return;
         this.contexts.set(list ?? []);
+        this.state.set(readValue(list));
         this.loading.set(false);
       },
-      error: () => {
-        this.contexts.set([]);
+      error: (error) => {
+        if (!this.view.isCurrent(request)) return;
+        this.state.set(readFailure(error, previous));
+        if (this.state().s === 'denied') this.contexts.set([]);
         this.loading.set(false);
       },
     });
-    this.canonical.listSystems().subscribe({
-      next: (list) => this.systems.set(list ?? []),
-      error: () => this.systems.set([]),
+    const previousSystems = this.systemsState();
+    this.systemsState.set(LOADING);
+    this.canonical.listSystems({ propagateErrors: true }).subscribe({
+      next: (list) => { if (!this.view.isCurrent(request)) return; this.systems.set(list ?? []); this.systemsState.set(readValue(list)); },
+      error: (error) => { if (!this.view.isCurrent(request)) return; this.systems.set([]); this.systemsState.set(readFailure(error, previousSystems)); },
     });
   }
 

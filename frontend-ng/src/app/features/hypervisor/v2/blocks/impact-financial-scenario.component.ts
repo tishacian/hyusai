@@ -20,6 +20,7 @@ import type { HypervisorBlockRef } from '../hypervisor-v2-views';
           <div><dt>{{ i18n.t('hypervisor.v2.scenario.threshold') }}</dt><dd>{{ number(result.breakEvenMinutes) }} <small>min</small></dd></div>
           <div><dt>{{ i18n.t('hypervisor.v2.scenario.monthly') }}</dt><dd>{{ money(result.monthlyNet, result.currency) }}</dd></div>
         </dl>
+        <p class="product-note">{{ i18n.t('governance.impact.formula') }}</p>
       } @else { <p>{{ i18n.t('hypervisor.v2.scenario.incomplete') }}</p> }
       <details open><summary>{{ i18n.t('hypervisor.v2.scenario.assumptions') }}</summary>
         <dl class="product-assumptions">

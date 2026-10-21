@@ -196,7 +196,7 @@ def test_dispatch_timeout(monkeypatch):
 
 def test_test_connection_health(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/health")
+        assert request.url.path.endswith("/jobs")
         assert request.headers.get("Authorization") == "Bearer tok"
         return httpx.Response(200, json={"ok": True})
 
@@ -208,11 +208,10 @@ def test_test_connection_health(monkeypatch):
         return real_client(*args, **kwargs)
 
     monkeypatch.setattr(rpa_service.httpx, "Client", client_factory)
-    out = rpa_service.test_connection(
-        {"base_url": "http://mock-rpa", "auth_token": "tok"}
-    )
+    out = rpa_service.test_connection({"base_url": "http://mock-rpa", "auth_token": "tok"})
     assert out["ok"] is True
-    assert out["body"]["ok"] is True
+    assert out["status"] == "connected"
+    assert "body" not in out
 
 
 def test_hana_key_seals_a_new_token_when_the_rpa_key_is_absent(monkeypatch):
@@ -249,7 +248,9 @@ def test_reencrypt_seals_a_plaintext_envelope_with_the_hana_key(monkeypatch):
         ws,
         {"base_url": "https://rpa.example.test", "auth_token": "secret-token"},
     )
-    assert "plaintext" in json.loads(ws.settings["connectors"]["rpa_bridge"]["auth_token_encrypted"])
+    assert "plaintext" in json.loads(
+        ws.settings["connectors"]["rpa_bridge"]["auth_token_encrypted"]
+    )
 
     monkeypatch.setenv(rpa_service.ENV_MASTER_KEY_FALLBACK, Fernet.generate_key().decode())
     rewritten, changed = rpa_service.reencrypt_workspace_rpa_token(ws.settings)
@@ -263,4 +264,51 @@ def test_reencrypt_seals_a_plaintext_envelope_with_the_hana_key(monkeypatch):
 
     again, changed_again = rpa_service.reencrypt_workspace_rpa_token(rewritten)
     assert changed_again is False
-    assert again["connectors"]["rpa_bridge"]["auth_token_encrypted"] == rewritten["connectors"]["rpa_bridge"]["auth_token_encrypted"]
+    assert (
+        again["connectors"]["rpa_bridge"]["auth_token_encrypted"]
+        == rewritten["connectors"]["rpa_bridge"]["auth_token_encrypted"]
+    )
+
+
+@pytest.mark.parametrize(
+    "status, expected",
+    [(401, "auth_failed"), (403, "access_denied"), (503, "unreachable"), (404, "unsupported")],
+)
+def test_connection_separates_auth_resource_and_transport_without_echoing_secret(
+    monkeypatch, status, expected
+):
+    real_client = httpx.Client
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(status, text="token=private-server-secret")
+    )
+    monkeypatch.setattr(
+        rpa_service.httpx, "Client", lambda **kwargs: real_client(transport=transport, **kwargs)
+    )
+    result = rpa_service.test_connection(
+        {"base_url": "https://rpa.example.test", "auth_token": "private-token"}
+    )
+    assert result["ok"] is False
+    assert result["status"] == expected
+    assert "private" not in json.dumps(result)
+
+
+def test_clear_config_removes_endpoint_without_disabling_other_connectors(monkeypatch):
+    monkeypatch.setattr(rpa_service, "flag_modified", lambda *args: None)
+    ws = _workspace(
+        settings={
+            "connectors": {"rpa_bridge": {"base_url": "https://rpa.test"}, "other": {"value": True}}
+        }
+    )
+    db = _mock_db()
+    result = rpa_service.clear_config(db, ws)
+    assert result["configured"] is False
+    assert ws.settings["connectors"] == {"other": {"value": True}}
+
+
+@pytest.mark.parametrize(
+    "url", ["https://user:secret@example.test", "https://example.test?token=secret"]
+)
+def test_configuration_rejects_credentials_in_visible_url(monkeypatch, url):
+    monkeypatch.setattr(rpa_service, "flag_modified", lambda *args: None)
+    with pytest.raises(ValueError, match="credentials"):
+        rpa_service.set_config(_mock_db(), _workspace(), {"base_url": url})

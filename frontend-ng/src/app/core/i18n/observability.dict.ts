@@ -1,4 +1,6 @@
 export const OBSERVABILITY_FR = {
+  'observability.quality.sample_count': 'Moyenne · n = {count} évaluations observées',
+  'observability.quality.small_sample': 'Moins de 30 observations : conclusion limitée',
 "observability.flow.cost_basis.provider_measured":"Fournisseur mesuré",
 "observability.flow.cost_basis.catalogue_calculated":"Tarif calculé",
 "observability.flow.cost_basis.infrastructure_allocation":"Allocation d’infrastructure",
@@ -469,6 +471,8 @@ export const OBSERVABILITY_FR = {
 "observability.bench.col.revision":"Révision",
 } as const;
 export const OBSERVABILITY_EN: Record<keyof typeof OBSERVABILITY_FR,string> = {
+  "observability.quality.sample_count": "Mean · n = {count} observed evaluations",
+  "observability.quality.small_sample": "Fewer than 30 observations: limited conclusion",
 "observability.flow.cost_basis.provider_measured":"Measured provider cost",
 "observability.flow.cost_basis.catalogue_calculated":"Calculated tariff",
 "observability.flow.cost_basis.infrastructure_allocation":"Infrastructure allocation",

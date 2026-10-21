@@ -482,6 +482,16 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
           }
 
           @case ('review') {
+            <section class="ck-surface rounded-md p-3 mb-3">
+              <h3>{{ i18n.t('flow.skill.review.contract') }}</h3>
+              @for (side of contractReview(); track side.key) {
+                <h4>{{ i18n.t(side.key) }}</h4>
+                @for (field of side.fields; track field.name) {
+                  <p>{{ field.name }} · {{ field.type }} · {{ i18n.t(field.required ? 'flow.skill.review.required' : 'flow.skill.review.optional') }}</p>
+                } @empty { <p>{{ i18n.t('flow.skill.review.unspecified') }}</p> }
+              }
+              <p>{{ i18n.t('flow.skill.review.separate') }}</p>
+            </section>
             <div class="flex flex-col" style="gap:10px;">
               @for (row of review(); track row.label) {
                 <div class="flex items-start justify-between" style="gap:16px;">
@@ -969,6 +979,22 @@ export class NewSkillDialogComponent implements OnInit, OnDestroy {
       });
     }
     return rows;
+  }
+
+  contractReview(): Array<{ key: string; fields: Array<{ name: string; type: string; required: boolean }> }> {
+    return [
+      { key: 'skills.contract.input', schema: this.inputSchema() },
+      { key: 'skills.contract.output', schema: this.outputSchema() },
+    ].map(({ key, schema }) => {
+      const properties = schema?.['properties'];
+      const required = Array.isArray(schema?.['required']) ? schema['required'] as string[] : [];
+      const fields = properties && typeof properties === 'object' && !Array.isArray(properties)
+        ? Object.entries(properties).map(([name, raw]) => {
+          const field = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+          return { name, type: typeof field['type'] === 'string' ? field['type'] : this.i18n.t('flow.skill.review.type_unspecified'), required: required.includes(name) };
+        }) : schema?.['type'] ? [{ name: this.i18n.t(key), type: String(schema['type']), required: true }] : [];
+      return { key, fields };
+    });
   }
 
   problems(): AuthoringProblem[] {
