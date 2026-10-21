@@ -51,7 +51,7 @@ const columns = schema.map((column) => ({
 const model = {
   id: modelId, name: 'Cellules Nawa · prb_utilization_pct +24', slug: 'nawa-cells-prb', version: 1,
   task: 'forecasting', family: 'forecasting', algo: 'gradient_boosting', target: 'prb_utilization_pct',
-  features: ['technology'], status: 'ready', is_champion: true, dataset_id: datasetId, dataset_slug: 'nawa-cells',
+  features: ['technology'], status: 'ready', is_champion: true, callable: true, dataset_id: datasetId, dataset_slug: 'nawa-cells',
   row_count: 2688, test_size: 0.11, cross_validation: 3, trained_at: '2026-10-07T09:12:00Z', train_duration_ms: 28100,
   primary_metric: fixture.panel.metrics.primary, metrics: fixture.panel.metrics, signature: fixture.panel.signature,
   input_example: [], classes: [], params: { knobs: {} },
@@ -121,7 +121,7 @@ async function setup(page: Page, options: { theme: string; locale: string; found
     if (path === '/auth/workspaces') return json(route, [workspace]);
     if (path === `/auth/workspaces/${workspace.slug}`) return json(route, workspace);
     if (path === '/ml-models/catalog') return json(route, { catalog: fixture.catalog });
-    if (path === '/ml-models' && request.method() === 'GET') return json(route, { models: [model], catalog: fixture.catalog });
+    if (path === '/ml-models' && request.method() === 'GET') return json(route, { models: [model], catalog: fixture.catalog, permissions: { train: true } });
     if (path === '/ml-models' && request.method() === 'POST') {
       trains.push(request.postDataJSON());
       return json(route, { model: { ...model, id: 'fc-cells-2', version: 2, status: 'pending', metrics: {} } });
@@ -327,4 +327,24 @@ test('zero-shot Play clamps requests to the artifact horizon', async ({page}, in
   await expect(play.getByTestId('forecast-horizon')).toHaveValue('64');
   await play.getByTestId('forecast-run').click();
   await expect.poll(() => api.forecasts.at(-1)?.params?.horizon).toBe(64);
+});
+
+test('Play clears a previous forecast when the question changes and a retry fails', async ({page}, info) => {
+  test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1' || !['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname), 'Local mocked QA only.');
+  await setup(page, { theme: 'dark', locale: 'en' });
+  await page.goto(`/models/${modelId}`);
+  await page.getByRole('tab', { name: 'Predict', exact: true }).click();
+  const play = page.getByTestId('forecast-playground');
+  await play.getByTestId('forecast-run').click();
+  await expect(play.getByTestId('forecast-peak')).toBeVisible();
+  await play.getByTestId('forecast-horizon').fill('12');
+  await expect(play.getByTestId('forecast-peak')).toHaveCount(0);
+  await expect(play.locator('canvas')).toHaveCount(0);
+  await page.route(`**/ml-models/${modelId}/forecast`, route => route.fulfill({
+    status: 503, contentType: 'application/json', body: JSON.stringify({ detail: { message: 'Forecast temporarily unavailable' } }),
+  }));
+  await play.getByTestId('forecast-run').click();
+  await expect(play.locator('.ck-fplay__error')).toContainText('Forecast temporarily unavailable');
+  await expect(play.getByTestId('forecast-peak')).toHaveCount(0);
+  await expect(play.locator('canvas')).toHaveCount(0);
 });

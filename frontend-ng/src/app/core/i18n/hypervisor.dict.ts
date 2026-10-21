@@ -5,6 +5,12 @@
  */
 
 export const HYPERVISOR_FR = {
+  "hypervisor.v2.activity.day_hint": "Sélectionnez un jour pour voir ses exécutions.",
+  "hypervisor.v2.activity.day_evidence": "Exécutions du {date}",
+  "hypervisor.v2.activity.evidence_coverage": "Preuves affichées : {shown} / {total}",
+  "hypervisor.v2.activity.all_days": "Toute la période",
+  "hypervisor.v2.activity.day_empty": "Aucune exécution visible ce jour.",
+  "hypervisor.v2.activity.evidence_partial": "Les totaux incluent des exécutions dont la preuve n’est pas chargée dans cet aperçu.",
   "steering.loop.unavailable": "Suivi indisponible",
   "hypervisor.v2.block.activity": "Activité des exécutions",
   "hypervisor.v2.block.financial_scenario": "Scénario financier",
@@ -640,6 +646,12 @@ export const HYPERVISOR_FR = {
  * other, before the guard even runs.
  */
 export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
+  "hypervisor.v2.activity.day_hint": "Select a day to see its executions.",
+  "hypervisor.v2.activity.day_evidence": "Executions on {date}",
+  "hypervisor.v2.activity.evidence_coverage": "Evidence shown: {shown} / {total}",
+  "hypervisor.v2.activity.all_days": "Entire period",
+  "hypervisor.v2.activity.day_empty": "No visible execution on this day.",
+  "hypervisor.v2.activity.evidence_partial": "Totals include executions whose evidence is not loaded in this preview.",
   "steering.loop.unavailable": "Tracking unavailable",
   "hypervisor.v2.block.activity": "Execution activity",
   "hypervisor.v2.block.financial_scenario": "Financial scenario",

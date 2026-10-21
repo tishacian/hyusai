@@ -1,6 +1,7 @@
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
+import { decisionNoticeKey, noticeForRun, type DecisionNoticeMap, type DecisionNoticeTarget } from '@app/shared/ui/run-decision-notice';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
@@ -24,7 +25,7 @@ import { WorkAppHeaderComponent } from './work-app-header.component';
 import { WorkReleasePagesNavComponent } from './work-release-pages-nav.component';
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
 import { WorkApiService } from './work-api.service';
-import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
+import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 
 @Component({
@@ -40,7 +41,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
           [hostedPage]="{ pageId: 'dossier', routeSegment: 'studio' }" />
         @if (machineAidsAllowed() && run(); as current) { <a class="xp-work-btn" [navLink]="{ type: 'run', lens: 'operate', ref: current.id }">{{ i18n.t('experience.claims.trace') }}</a> }
       </app-work-app-header>
-      @if (!loading() && !error()) { <app-claims-benchmark [sources]="detail()?.sources ?? []" (caseSelected)="select($event)" (manualActive)="manualMode.set($event)" (modeReady)="benchmarkReady.set($event)" /> }
+      @if (!loading() && !error()) { <app-claims-benchmark [compact]="true" [sources]="detail()?.sources ?? []" (caseSelected)="select($event)" (manualActive)="manualMode.set($event)" (modeReady)="benchmarkReady.set($event)" /> }
       <main class="claims-main" aria-labelledby="work-app-title">
         @if (loading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
         @if (error()) { <div class="claims-data-error claims-data-error-queue" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
@@ -48,10 +49,21 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
           @if (machineAidsAllowed()) {
             <section class="claims-triage" aria-labelledby="claims-triage-title">
               <div class="claims-section-title"><h2 id="claims-triage-title">{{ i18n.t(triage()?.composition ? 'experience.claims.triage.composed_title' : 'experience.claims.triage.title') }}</h2>
-                @if (triage()?.scoring) { <button class="xp-work-btn claims-compact" [disabled]="triageBusy() || busy()" (click)="recalculatePriority()">{{ i18n.t(triageBusy() ? 'experience.claims.triage.running' : 'experience.claims.triage.recalculate') }}</button> }
+                @if (triage()?.scoring; as scoring) {
+                  <div class="claims-triage-actions">
+                    <a class="claims-triage-flow" [navLink]="{ leaf: 'system-flow', lens: 'build', ref: scoring.system_id }">{{ i18n.t(triage()?.composition ? 'experience.claims.triage.composed_flow' : 'experience.claims.triage.flow') }} <app-icon name="arrow-right" [size]="12" /></a>
+                    <button class="xp-work-btn claims-compact" [disabled]="triageBusy() || busy()" (click)="recalculatePriority()">{{ i18n.t(triageBusy() ? 'experience.claims.triage.running' : 'experience.claims.triage.recalculate') }}</button>
+                  </div>
+                }
               </div>
               @if (triageLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
               @else if (triage()?.model; as model) {
+                <p class="claims-provenance" [attr.data-state]="triage()?.status" aria-live="polite">{{ i18n.t('experience.claims.triage.' + triage()!.status) }}
+                  @if (triage()?.captured_at; as captured) { · {{ captured | date:'dd/MM HH:mm:ss' }} }
+                  @if (triage()?.run_id; as runId) { · <a [navLink]="{ type: 'run', lens: 'operate', ref: runId }">{{ i18n.t('experience.claims.triage.trace') }}</a> }
+                </p>
+                <details class="claims-triage-details">
+                  <summary>{{ i18n.t('experience.claims.triage.details') }}</summary>
                 <div class="claims-triage-path">
                   @if (triage()?.composition) {
                     @if (canConfigureData()) { <a [navLink]="{ leaf: 'connector-postgresql' }">PostgreSQL</a> }
@@ -61,14 +73,10 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                   } @else if (triage()?.training_dataset; as dataset) { <a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.history') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a><span aria-hidden="true">→</span> }
                   <a [navLink]="{ leaf: 'model-doc', ref: model.id }">{{ i18n.t('experience.claims.triage.model') }} <span>v{{ model.version }}</span></a>
                   @if (triage()?.scored_dataset; as dataset) { <span aria-hidden="true">→</span><a [navLink]="{ leaf: 'data-doc', ref: dataset.id }">{{ i18n.t('experience.claims.triage.scored') }} <span>{{ dataset.rows }} {{ i18n.t('experience.claims.triage.cases') }}</span></a> }
-                  @if (triage()?.scoring; as scoring) { <a class="claims-triage-flow" [navLink]="{ leaf: 'system-flow', lens: 'build', ref: scoring.system_id }">{{ i18n.t(triage()?.composition ? 'experience.claims.triage.composed_flow' : 'experience.claims.triage.flow') }} <app-icon name="arrow-right" [size]="12" /></a> }
                 </div>
                 @if (triage()?.composition) { <p class="claims-quiet">{{ i18n.t('experience.claims.triage.composed_path') }}</p> }
                 <p class="claims-quiet">{{ i18n.t('experience.claims.triage.notice') }}</p>
-                <p class="claims-provenance" [attr.data-state]="triage()?.status" aria-live="polite">{{ i18n.t('experience.claims.triage.' + triage()!.status) }}
-                  @if (triage()?.captured_at; as captured) { · {{ captured | date:'dd/MM HH:mm:ss' }} }
-                  @if (triage()?.run_id; as runId) { · <a [navLink]="{ type: 'run', lens: 'operate', ref: runId }">{{ i18n.t('experience.claims.triage.trace') }}</a> }
-                </p>
+                </details>
               } @else { <p class="claims-quiet">{{ i18n.t('experience.claims.triage.unavailable') }}</p> }
               @if (triageError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.triage.error') }}</p> }
             </section>
@@ -82,27 +90,30 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
           @if (!detail() && !detailLoading() && actionError()) { <div class="claims-data-error" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
           @if (detail(); as dossier) {
             <section class="claims-dossier" [attr.aria-label]="i18n.t('experience.claims.dossier')">
-              <div class="claims-section-title"><h2>{{ dossier.data.context[0].order_id }}</h2><span>{{ i18n.t('experience.claims.dossier') }}</span></div>
+              <header class="claims-dossier-heading">
+                <div><p class="claims-dossier-reference">{{ i18n.t('experience.claims.dossier') }} · {{ dossier.data.context[0].claim_id }}</p><h2>{{ dossier.data.context[0].order_id }}</h2></div>
+                <p class="claims-dossier-customer">{{ dossier.data.context[0].display_name }}<span>{{ i18n.t(reasonLabel(dossier.data.context[0].reason)) }}</span></p>
+              </header>
               <div class="claims-facts">
-                <article><span>{{ i18n.t('experience.claims.paid') }}</span><strong>{{ money(dossier.data.context[0].paid_amount, dossier.data.context[0].currency) }}</strong></article>
+                <article class="claims-fact-amount"><span>{{ i18n.t('experience.claims.paid') }}</span><strong>{{ money(dossier.data.context[0].paid_amount, dossier.data.context[0].currency) }}</strong></article>
                 <article><span>{{ i18n.t('experience.claims.postcode') }}</span><strong>{{ dossier.data.context[0].shipping_postcode }}</strong></article>
                 <article><span>{{ i18n.t('experience.claims.shipping') }}</span><strong>{{ shipping(dossier.data.shipments[0]?.status) }}</strong></article>
               </div>
               <p class="claims-provenance">{{ i18n.t('experience.claims.database') }} · {{ dossier.provenance.captured_at | date:'dd/MM HH:mm:ss' }}</p>
-              <article class="claims-panel"><h3>{{ i18n.t('experience.claims.order') }}</h3>
+              <article class="claims-panel claims-panel-order"><h3>{{ i18n.t('experience.claims.order') }}</h3>
                 @for (item of dossier.data.items; track $index) { <p>{{ item.product_name }} · {{ item.quantity }} × {{ money(item.unit_price, 'EUR') }}</p> }
                 @for (shipment of dossier.data.shipments; track shipment.tracking_id) { <p class="claims-quiet">{{ shipment.carrier }} · {{ shipment.tracking_id }}</p> }
                 <h3>{{ i18n.t('experience.claims.refunds') }}</h3>
                 @for (refund of dossier.data.refunds; track refund.refund_id) { <p>{{ refund.refund_id }} · {{ money(refund.amount, refund.currency) }} · {{ refundState(refund.status) }}</p> }
                 @empty { <p class="claims-quiet">{{ i18n.t('experience.claims.no_refund') }}</p> }
               </article>
-              <article class="claims-panel"><h3>{{ i18n.t('experience.claims.documents') }}</h3>
+              <article class="claims-panel claims-panel-evidence"><h3>{{ i18n.t('experience.claims.documents') }}</h3>
                 <div class="claims-source-list">@for (source of sources(); track source.documentId) {
-                  <button class="claims-source" (click)="selectSource(source.n)"><app-icon name="external-link" [size]="14" /><span>{{ source.title }}</span></button>
+                  <button class="claims-source" [class.is-selected]="source.documentId === sourceDocumentId()" [attr.aria-expanded]="source.documentId === sourceDocumentId()" (click)="selectSource(source.n)"><span class="claims-source-index" aria-hidden="true">{{ source.n }}</span><span class="claims-source-title">{{ source.title }}</span><app-icon name="external-link" [size]="14" /></button>
                 } @empty { <p>{{ i18n.t('experience.claims.no_sources') }}</p> }</div>
                 @if (sourceIndex(); as n) { <app-work-source-panel [sources]="sources()" [selected]="n" (selectedChange)="selectSource($event)" (closed)="sourceDocumentId.set(null)" /> }
               </article>
-              <article class="claims-panel"><h3>{{ i18n.t('experience.claims.inquiry') }}</h3>
+              <article class="claims-panel claims-panel-progress"><h3>{{ i18n.t('experience.claims.inquiry') }}</h3>
                 <ol class="claims-steps" aria-live="polite">@for (step of projection().steps; track step.id) {
                   @let outcome = stepOutcome(step);
                   <li [attr.data-state]="outcome?.state ?? step.status"><span class="claims-step-dot" aria-hidden="true"></span><span>{{ i18n.t(toolLabel(step.skill_slug)) }}</span><span class="claims-quiet">{{ outcome ? i18n.t(outcome.label) : stepState(step.status) }}</span></li>
@@ -121,20 +132,29 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               </div> }
               @if (projection().proposal; as proposal) {
                 @if (!proposal.receipt_id) {
+                @if (actionGroups().previous.length) { <p class="claims-inquiry-context">{{ i18n.t('experience.claims.new_inquiry_notice') }}</p> }
                 <div class="claims-recommendation" [class.is-warning]="proposal.action !== 'refund'"><span class="claims-eyebrow">{{ i18n.t('experience.claims.proposal') }}</span><h3>{{ i18n.t(actionLabel(proposal.action)) }}</h3><p>{{ i18n.t(reasonLabel(proposal.reason)) }}</p>
                   @if (proposal.action === 'refund') { <strong class="claims-amount">{{ money(proposal.amount, proposal.currency) }}</strong> }
                   @if (proposal.missing_references.length) { <p>{{ i18n.t('experience.claims.missing') }}</p> }
                 </div>
                 }
               } @else if (!recordedActions().length) { <p class="claims-quiet">{{ i18n.t('experience.claims.start_hint') }}</p> }
-              @if (recordedActions()[0]; as receipt) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }
+              @if (actionGroups().current; as receipt) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }
               @if (machineAidsAllowed()) { <app-run-quality-review [run]="run()" /> }
+              @if (machineAidsAllowed() && decisionNotice(); as notice) {
+                <div class="claims-decision-notice" [attr.data-tone]="notice.tone" [attr.role]="notice.role">
+                  <p data-testid="claims-decision-notice">{{ i18n.t(notice.key, notice.params) }}</p>
+                  @if (notice.verifiable) { <button type="button" class="xp-work-btn claims-compact" data-testid="claims-decision-verify" [disabled]="busy()" (click)="checkDecision()">{{ i18n.t('state.decision.verify') }}</button> }
+                </div>
+              }
               @if (machineAidsAllowed() && run()?.status === 'hitl_pending') {
                 <div class="claims-approval"><p>{{ i18n.t('experience.claims.approval_hint') }}</p>
                   <app-decision-right [hitl]="run()?.hitl" />
                   @if (mayDecide(run()?.hitl)) {
+                  <div class="claims-decision-actions">
                   <button class="xp-work-btn xp-work-btn-primary" [disabled]="busy() || !!decisionNotice()?.unknown" (click)="decide('accept')">{{ i18n.t('experience.claims.approve') }}</button>
                   <button class="xp-work-btn" [disabled]="busy() || !!decisionNotice()?.unknown" (click)="decide('reject')">{{ i18n.t('experience.claims.reject') }}</button>
+                  </div>
                   }
                 </div>
               } @else if (run()?.status === 'running' || run()?.status === 'pending') { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
@@ -146,12 +166,8 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                 </details>
               } @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
               @if (actionError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.action_error') }}</p> }
-              @if (decisionNotice(); as notice) {
-                <p class="claims-error" data-testid="claims-decision-notice" [attr.role]="notice.role">{{ i18n.t(notice.key, notice.params) }}</p>
-                @if (notice.unknown) { <button class="xp-work-btn" data-testid="claims-decision-verify" [disabled]="busy()" (click)="checkDecision()">{{ i18n.t('state.decision.verify') }}</button> }
-              }
               <p class="claims-quiet">{{ i18n.t('experience.claims.action_notice') }}</p>
-              @if (recordedActions().length > 1) { <details class="claims-reexamine"><summary>{{ i18n.t('experience.claims.history') }}</summary>@for (receipt of recordedActions().slice(1); track receipt.receipt_id) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }</details> }
+              @if (actionGroups().previous.length) { <details class="claims-reexamine claims-history" data-testid="claims-previous-actions"><summary>{{ i18n.t('experience.claims.previous_actions') }} · {{ actionGroups().previous.length }}</summary>@for (receipt of actionGroups().previous; track receipt.receipt_id) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }</details> }
             </aside>
           } @else if (detailLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
         }
@@ -209,11 +225,14 @@ export class ClaimsStudioComponent {
   readonly caseData = computed(() => caseDatasets(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   protected readonly mayDecide = mayDecide;
   readonly busy = signal(false); readonly actionError = signal(false);
-  /** The last decision's outcome when it was not recorded, or the check that followed it. */
-  readonly decisionNotice = signal<(DecisionMessage & { unknown: boolean }) | null>(null);
+  /** Unresolved answers survive record/workspace changes, without leaking into
+   * another record. The target pause is retained independently of live polling. */
+  private readonly decisionNotices = signal<DecisionNoticeMap>({});
+  readonly decisionNotice = computed(() => noticeForRun(this.decisionNotices(), this.workspace.current()?.id ?? null, this.run()));
   readonly sourceDocumentId = signal<string | null>(null);
   readonly projection = computed(() => claimRunProjection(this.machineAidsAllowed() ? this.run() : null));
   readonly recordedActions = computed(() => this.machineAidsAllowed() ? recordedClaimActions(this.detail(), this.projection().proposal) : []);
+  readonly actionGroups = computed(() => claimActionGroups(this.recordedActions(), this.projection().proposal, this.run()?.id ?? null));
   readonly sources = computed(() => {
     const cited = this.projection().proposal?.citations ?? [];
     const originals: Record<string, unknown>[] = this.detail()?.sources ?? [];
@@ -366,37 +385,53 @@ export class ClaimsStudioComponent {
   }
   async decide(action: 'accept' | 'reject'): Promise<void> {
     const run = this.run(); if (!run || this.busy() || !this.machineAidsAllowed() || this.decisionNotice()?.unknown || !mayDecide(run.hitl)) return;
+    const workspaceId = this.workspace.current()?.id;
+    if (!workspaceId) return;
+    const target: DecisionNoticeTarget = { workspaceId, runId: run.id, decisionId: run.hitl?.decision_id ?? null };
     this.busy.set(true); this.actionError.set(false);
     const generation = this.generation;
-    this.decisionNotice.set(null);
+    // If the workspace changes while the request is in flight, its original
+    // pause remains locked until the response arrives or that pause is checked.
+    this.setDecisionNotice(target, decisionMessage({ s: 'sent' }, action), true, false);
     try {
       const outcome = await lastValueFrom(this.work.decide(run, action, this.i18n.t('experience.claims.decision_note')));
+      if (outcome.s === 'confirmed' || outcome.s === 'accepted') this.setDecisionNotice(target, null);
+      else this.setDecisionNotice(target, decisionMessage(outcome, action), outcome.s === 'unknown', outcome.s === 'unknown' || (outcome.s === 'failed' && outcome.status === 409));
       if (generation !== this.generation || this.run()?.id !== run.id) return;
       if (outcome.s === 'confirmed' || outcome.s === 'accepted') {
         const updated = outcome.value;
         this.run.set({ ...run, ...updated, skill_invocations: updated.skill_invocations ?? run.skill_invocations });
-      } else {
-        // A lost answer is not a refusal: say which one, and lock until checked.
-        this.decisionNotice.set({ ...decisionMessage(outcome, action), unknown: outcome.s === 'unknown' });
       }
     }
-    catch { if (generation === this.generation) this.actionError.set(true); } finally { if (generation === this.generation) this.busy.set(false); }
+    catch { this.setDecisionNotice(target, decisionMessage({ s: 'unknown', status: null, code: null }, action), true, true); }
+    finally { if (generation === this.generation) this.busy.set(false); }
   }
   /** Reads the Run back after a lost answer; deciding again is allowed only if it still waits. */
   async checkDecision(): Promise<void> {
     const run = this.run(); if (!run || this.busy()) return;
+    const notice = this.decisionNotice();
+    if (!notice?.verifiable) return;
     const generation = this.generation;
     this.busy.set(true);
     try {
-      const check = await lastValueFrom(this.work.checkDecision(run));
+      const check = await lastValueFrom(this.work.checkDecision({ ...run, hitl: { ...run.hitl, decision_id: notice.decisionId ?? undefined } }));
+      if (check.s === 'pending') this.setDecisionNotice(notice, null);
+      else this.setDecisionNotice(notice, checkMessage(check), check.s !== 'recorded', check.s !== 'recorded');
       if (generation !== this.generation || this.run()?.id !== run.id) return;
       if (check.s === 'recorded' || check.s === 'pending') {
         this.run.set({ ...run, ...check.run, skill_invocations: check.run.skill_invocations ?? run.skill_invocations });
-        this.decisionNotice.set(check.s === 'pending' ? null : { ...checkMessage(check), unknown: false });
-      } else {
-        this.decisionNotice.set({ ...checkMessage(check), unknown: true });
       }
-    } finally { if (generation === this.generation) this.busy.set(false); }
+    } catch { this.setDecisionNotice(notice, checkMessage({ s: 'unknown' }), true, true); }
+    finally { if (generation === this.generation) this.busy.set(false); }
+  }
+  private setDecisionNotice(target: DecisionNoticeTarget, message: DecisionMessage | null, unknown = false, verifiable = false): void {
+    this.decisionNotices.update(current => {
+      const next = { ...current };
+      const key = decisionNoticeKey(target);
+      if (message) next[key] = { ...target, ...message, unknown, verifiable };
+      else delete next[key];
+      return next;
+    });
   }
   money(value: string | null | undefined, currency: string): string {
     if (value == null || !value.trim() || !/^[A-Z]{3}$/.test(currency) || !Number.isFinite(Number(value))) return this.i18n.t('experience.claims.unknown');
@@ -405,7 +440,9 @@ export class ClaimsStudioComponent {
   receiptView(receipt: ClaimProposal): WorkActionReceipt {
     return { reference: receipt.receipt_id!, label: this.i18n.t('experience.claims.recorded.' + receipt.action),
       ...(receipt.action === 'refund' ? { value: this.money(receipt.amount, receipt.currency) } : {}),
-      notice: this.i18n.t('experience.claims.simulated'),
+      notice: [this.i18n.t('experience.claims.simulated'),
+        ...(receipt.idempotent_replay && receipt.reused_for_run_id === this.run()?.id ? [this.i18n.t('experience.claims.receipt_reused')] : []),
+      ].join('. '),
       ...(receipt.executed_at && Number.isFinite(Date.parse(receipt.executed_at)) ? { recordedAt: receipt.executed_at } : {}),
     };
   }

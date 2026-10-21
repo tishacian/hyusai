@@ -12,6 +12,7 @@ export interface ClaimProposal {
   claim_id: string; order_id: string; action: string; reason: string; amount: string; currency: string;
   missing_references: string[]; requires_human: boolean; requires_sav_manager: boolean;
   evidence_kind: string; receipt_id?: string; status?: string; executed_at?: string;
+  idempotent_replay?: boolean; reused_for_run_id?: string;
   citations: Array<Record<string, unknown>>;
 }
 
@@ -61,6 +62,16 @@ export function recordedClaimActions(snapshot: ClaimSnapshot | null, proposal: C
     seen.add(receipt.receipt_id);
     return true;
   });
+}
+
+/** An earlier receipt must never look like the outcome of a new investigation.
+ * Only the current Run's evidenced receipt occupies its decision area. */
+export function claimActionGroups(recorded: ClaimProposal[], proposal: ClaimProposal | null, currentRunId: string | null): { current: ClaimProposal | null; previous: ClaimProposal[] } {
+  const current = currentRunId
+    ? recorded.find(receipt => receipt.receipt_id === proposal?.receipt_id
+      && (!proposal?.idempotent_replay || proposal.reused_for_run_id === currentRunId)) ?? null
+    : recorded[0] ?? null;
+  return { current, previous: recorded.filter(receipt => receipt !== current) };
 }
 
 /** Only settled server invocations are proposals, never planner prose or a failed call. */

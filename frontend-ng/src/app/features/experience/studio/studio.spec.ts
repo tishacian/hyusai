@@ -40,7 +40,8 @@ import {
   type ReadyBindingEvidence,
   type ReleaseReviewSnapshot,
 } from './studio-publish';
-import type { ExperienceDocument } from '../runtime/model';
+import { runtimeDataBinding, type ExperienceDocument } from '../runtime/model';
+import { boundOutputs } from './test-preview.model';
 
 const DOC: ExperienceDocument = {
   pages: [
@@ -958,4 +959,27 @@ test('Accessibility facet lists app-wide controls and selects the concerned bloc
   assert.doesNotMatch(EDITOR_SOURCE, /inspectorTab\(\) === 'a11y'/);
   assert.doesNotMatch(EDITOR_SOURCE, /\['content', 'action', 'appearance', 'a11y'\]/);
   assert.match(EDITOR_SOURCE, /\['content', 'action', 'appearance'\]/);
+});
+
+test('form-result generation wires status, result and evidence to the chosen action and preserves other sources', () => {
+  const template = seedDocument('form_result', 'Team priorities', { subtitle: 'Refresh', empty: 'No data', approvalBody: 'Review' });
+  const linked = bindSeedDocument(template, [
+    { bindingKey: 'team.refresh', ingressId: 'refresh', inputSchema: { type: 'object', properties: {} } },
+    { bindingKey: 'team.audit', ingressId: 'audit', inputSchema: { type: 'object', properties: {} } },
+  ]);
+  const page = linked.pages[0]!;
+  for (const id of ['seed-status', 'seed-result', 'seed-evidence']) {
+    assert.equal(runtimeDataBinding(page.components.find(node => node.id === id)!)?.componentId, 'seed-form');
+  }
+  const extra = page.components.find(node => node.props?.['bindingKey'] === 'team.audit')!;
+  assert.equal(runtimeDataBinding(page.components.find(node => node.id === 'wizard-result-2')!)?.componentId, extra.id);
+  assert.ok(boundOutputs(page).some(row => row.componentId === 'seed-result' && row.bindingKey === 'team.refresh'));
+  assert.ok(boundOutputs(page).some(row => row.componentId === 'wizard-result-2' && row.bindingKey === 'team.audit'));
+  const explicit = { ...template, pages: [{ ...template.pages[0]!, components: [
+    ...template.pages[0]!.components,
+    { id: 'custom', type: 'result', props: { dataBinding: { source: 'system-binding', bindingKey: 'ignored' }, queryBinding: { source: 'system-binding', bindingKey: 'independent', selector: 'items' } } },
+  ] }] };
+  const rebound = bindSeedDocument(explicit, [{ bindingKey: 'team.refresh', ingressId: 'refresh' }]);
+  assert.equal(runtimeDataBinding(rebound.pages[0]!.components.find(node => node.id === 'custom')!)?.bindingKey, 'independent');
+  assert.equal(template.pages[0]!.components.find(node => node.id === 'seed-result')?.props, undefined);
 });

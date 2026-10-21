@@ -409,6 +409,9 @@ _PROMPT_TEMPLATE = (
     "Use one short sentence per explanation and only the exact citation spans needed "
     "to support each answer. Do not repeat source passages in explanations. "
     "Cite exact text spans using zero-based Unicode character offsets [start,end). "
+    "Text_spans partition the complete source: concatenating their quotes restores it. "
+    "Copy a relevant span's start/end/quote unchanged and its parent id as evidence_id. "
+    "Offsets count decoded Unicode, not JSON escapes. A span does not itself prove an answer. "
     "For an image cite kind=image, its evidence_id, exact image_sha256, a normalized "
     "[left,top,right,bottom] region (or null for the whole image) and a brief visible description. "
     "If required evidence is missing or ambiguous, abstain. Return only schema-valid JSON.\n"
@@ -416,22 +419,44 @@ _PROMPT_TEMPLATE = (
 )
 
 
+def _citation_spans(text: str) -> list[dict[str, Any]]:
+    """Give the model exact locators without changing or dropping source text.
+
+    This only changes prompt presentation. Validation still compares each returned
+    quote to the authorized, immutable source at the returned Unicode offsets.
+    Bounded, contiguous windows avoid asking a model to count thousands of
+    characters in nested JSON, while keeping prompt overhead small.
+    """
+    spans, start = [], 0
+    while start < len(text):
+        end = min(start + 1024, len(text))
+        if end < len(text):
+            # Prefer a word boundary near the end of the window. Keep the space
+            # in the current span so concatenation is lossless, including CRLF.
+            boundary = text.rfind(" ", start + 768, end)
+            if boundary >= 0:
+                end = boundary + 1
+        spans.append({"start": start, "end": end, "quote": text[start:end]})
+        start = end
+    return spans
+
+
 def _prompt(spec) -> str:
     # All content is quoted JSON data. The model has no tools and receives no
     # credentials, object-store paths or access to sources outside this list.
     prompt = _PROMPT_TEMPLATE.format(
-        questions=_json([q.model_dump() for q in spec.questions]),
+        questions=_json([q.model_dump(exclude_none=True) for q in spec.questions]),
         evidence=_json(
             [
                 {
                     "id": e.id,
                     "kind": e.kind,
                     "sha256": e.sha256,
-                    "text": e.text if e.kind == "text" else "",
+                    **({"text_spans": _citation_spans(e.text)} if e.kind == "text" else {}),
                 }
                 for e in spec.evidence
             ]
-        )
+        ),
     )
     if len(prompt.encode()) > spec.budget.max_prompt_bytes:
         raise TypedEvaluationError("JUDGE_PROMPT_TOO_LARGE")
@@ -495,7 +520,11 @@ def _parse(completion, spec, schema):
             question_index = None
             if len(path) >= 2 and path[0] == "answers":
                 question_index = next(
-                    (index for index, question in enumerate(spec.questions) if question.key == path[1]),
+                    (
+                        index
+                        for index, question in enumerate(spec.questions)
+                        if question.key == path[1]
+                    ),
                     None,
                 )
             raise _ResponseValidationError("schema", question_index=question_index)

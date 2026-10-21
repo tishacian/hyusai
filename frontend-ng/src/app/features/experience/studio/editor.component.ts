@@ -69,7 +69,7 @@ import {
 import type { ReadyCheck } from './studio-publish';
 import { ExperiencePublishDialogComponent } from './publish-dialog.component';
 import { StudioTestPreviewComponent } from './test-preview.component';
-import { reapplyStudioChanges } from './studio-conflict';
+import { describeStudioConflict, reapplyStudioChanges } from './studio-conflict';
 import type {
   CertifiedType,
   ExperienceDocument,
@@ -296,16 +296,35 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
         <section class="xp-conflict" aria-live="polite">
           <h2>{{ i18n.t('experience.editor.compare.title') }}</h2>
           <p>{{ i18n.t('experience.editor.compare.body') }}</p>
-          <div class="xp-conflict-versions">
-            <details open><summary>{{ i18n.t('experience.editor.compare.base') }}</summary><pre>{{ jsonText(conflict.base) }}</pre></details>
-            <details open><summary>{{ i18n.t('experience.editor.compare.mine') }}</summary><pre>{{ jsonText(conflict.mine) }}</pre></details>
-            <details open><summary>{{ i18n.t('experience.editor.compare.theirs') }}</summary><pre>{{ conflict.remote ? jsonText(conflict.remote.draft?.pages) : i18n.t('common.loading') }}</pre></details>
-          </div>
           @if (conflict.remote) {
             <p>{{ i18n.t('experience.editor.compare.collisions', { count: conflictPaths().length }) }}</p>
+            <div class="xp-conflict-changes" data-testid="studio-conflict-changes">
+              @for (row of conflictRows(); track row.path) {
+                <article>
+                  <h3>{{ row.context.join(' · ') || i18n.t('experience.editor.compare.application') }} · {{ conflictFieldLabel(row.field) }}</h3>
+                  <dl>
+                    @for (version of ['base', 'mine', 'theirs']; track version; let index = $index) {
+                      <div><dt>{{ i18n.t('experience.editor.compare.' + version) }}</dt><dd>{{ conflictValueLabel(row.values[index]) }}</dd></div>
+                    }
+                  </dl>
+                </article>
+              }
+            </div>
+          }
+          <details class="xp-conflict-source">
+            <summary>{{ i18n.t('experience.editor.compare.technical') }}</summary>
+            <div class="xp-conflict-versions">
+              <details><summary>{{ i18n.t('experience.editor.compare.base') }}</summary><pre>{{ jsonText(conflict.base) }}</pre></details>
+              <details><summary>{{ i18n.t('experience.editor.compare.mine') }}</summary><pre>{{ jsonText(conflict.mine) }}</pre></details>
+              <details><summary>{{ i18n.t('experience.editor.compare.theirs') }}</summary><pre>{{ conflict.remote ? jsonText(conflict.remote.draft?.pages) : i18n.t('common.loading') }}</pre></details>
+            </div>
             @for (path of conflictPaths(); track path) { <code>{{ path }}</code> }
-            <button type="button" class="xp-btn" (click)="resolveDraftConflict(false)">{{ i18n.t('experience.editor.compare.keep_theirs') }}</button>
-            <button type="button" class="xp-btn" (click)="resolveDraftConflict(true)">{{ i18n.t('experience.editor.compare.reapply') }}</button>
+          </details>
+          @if (conflict.remote) {
+            <div class="xp-conflict-actions">
+              <button type="button" class="xp-btn" (click)="resolveDraftConflict(false)">{{ i18n.t('experience.editor.compare.keep_theirs') }}</button>
+              <button type="button" class="xp-btn" (click)="resolveDraftConflict(true)">{{ i18n.t('experience.editor.compare.reapply') }}</button>
+            </div>
           } @else {
             <button type="button" class="xp-btn" (click)="loadConflictVersion()">{{ i18n.t('common.retry') }}</button>
           }
@@ -550,7 +569,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
             }
           </div>
           <app-studio-test-preview
-            [page]="selectedPage()"
+            [page]="previewPage()"
             [bindings]="bindings()"
             [systemNames]="systemNames()"
             (openSetting)="openComponentSetting($event)"
@@ -731,6 +750,11 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                 </label>
               }
               @if (node.type === 'form') {
+                <label class="xp-field">
+                  <span>{{ i18n.t('experience.editor.form_copy.submit') }}</span>
+                  <input [value]="localizedProp(node, 'submitLabel')" [placeholder]="i18n.t('experience.runtime.form.submit')"
+                    (input)="setLocalizedProp(node, 'submitLabel', inputValue($event))" data-testid="form-submit-label" />
+                </label>
                 <section class="xp-inspector-section xp-form-copy">
                   <h3>{{ i18n.t('experience.editor.form_copy.title') }}</h3>
                   <p class="xp-hint">{{ i18n.t('experience.editor.form_copy.hint') }}</p>
@@ -1496,6 +1520,10 @@ export class ExperienceEditorComponent implements OnDestroy {
     const conflict = this.draftConflict();
     return conflict?.remote?.draft ? reapplyStudioChanges(conflict.base, conflict.mine, conflict.remote.draft.pages).conflicts : [];
   });
+  readonly conflictRows = computed(() => {
+    const conflict = this.draftConflict();
+    return conflict?.remote?.draft ? this.conflictPaths().map(path => describeStudioConflict(path, conflict.base, conflict.mine, conflict.remote!.draft!.pages, this.contentLocale())) : [];
+  });
   readonly rollbackCandidate = signal<StudioDeployment | null>(null);
   readonly rollbackDescription = computed(() => {
     const candidate = this.rollbackCandidate();
@@ -1591,6 +1619,7 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.workspace.isAdmin(),
   ));
   readonly previewDoc = computed(() => localizeDocument(this.doc(), this.contentLocale()));
+  readonly previewPage = computed(() => this.previewDoc().pages.find(page => page.id === this.pageId()) ?? null);
   readonly editableLocales = computed(() => {
     const configured = [...new Set(
       this.detail()?.languages
@@ -2916,6 +2945,28 @@ export class ExperienceEditorComponent implements OnDestroy {
   }
 
   releaseFor(id: string): StudioRelease | undefined { return this.releases().find(release => release.id === id); }
+
+  conflictFieldLabel(field: string): string {
+    if (field === '$order') return this.i18n.t('experience.editor.compare.order');
+    const labels: Record<string, string> = {
+      title: 'experience.editor.field.title', body: 'experience.editor.field.body',
+      label: 'experience.editor.field.label', subtitle: 'experience.editor.field.subtitle',
+      caption: 'experience.editor.field.caption',
+    };
+    const key = labels[field];
+    return key ? this.i18n.t(key) : this.i18n.t('experience.editor.compare.setting');
+  }
+
+  conflictValueLabel(value: unknown): string {
+    if (value === undefined) return this.i18n.t('experience.editor.compare.removed');
+    if (value === null) return this.i18n.t('experience.editor.compare.empty');
+    if (Array.isArray(value) && value.every(item => typeof item === 'string')) return value.join(' → ');
+    if (typeof value === 'object') {
+      const fallback = (value as Record<string, unknown>)['fallback'];
+      return typeof fallback === 'string' ? fallback : this.i18n.t('experience.editor.compare.structured');
+    }
+    return String(value) || this.i18n.t('experience.editor.compare.empty');
+  }
 
   jsonText(value: unknown): string { return JSON.stringify(value, null, 2); }
 

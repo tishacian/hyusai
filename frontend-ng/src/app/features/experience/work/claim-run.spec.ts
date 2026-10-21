@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimSnapshot } from './claim-run';
+import { claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimSnapshot } from './claim-run';
 import type { Run } from '@app/core/canonical-api.service';
 
 test('only completed claim tools produce financial proposals', () => {
@@ -36,4 +36,20 @@ test('recorded actions require settled evidence for the selected order and dedup
   assert.deepEqual(recordedClaimActions(snapshot, receipt).map(r => r.receipt_id), ['receipt-1', 'older-action']);
   assert.deepEqual(recordedClaimActions(snapshot, { ...receipt, receipt_id: undefined }).map(r => r.receipt_id), ['receipt-1', 'older-action']);
   assert.deepEqual(recordedClaimActions(null, receipt), []);
+});
+
+test('an earlier action is historical evidence, not a receipt for a new investigation', () => {
+  const previous = { receipt_id: 'receipt-old', action: 'carrier_investigation' } as ClaimProposal;
+  const proposal = { action: 'carrier_investigation' } as ClaimProposal;
+  assert.deepEqual(claimActionGroups([previous], proposal, 'run-new'), { current: null, previous: [previous] });
+  assert.deepEqual(claimActionGroups([previous], null, 'run-new'), { current: null, previous: [previous] });
+  assert.deepEqual(claimActionGroups([previous], null, null), { current: previous, previous: [] });
+  const current = { ...previous, receipt_id: 'receipt-current' };
+  assert.deepEqual(claimActionGroups([current, previous], current, 'run-new'), { current, previous: [previous] });
+});
+
+test('a reused receipt belongs to the current outcome only with its explicit replay Run id', () => {
+  const reused = { receipt_id: 'receipt-old', action: 'refund', idempotent_replay: true, reused_for_run_id: 'run-new' } as ClaimProposal;
+  assert.deepEqual(claimActionGroups([reused], reused, 'run-new'), { current: reused, previous: [] });
+  assert.deepEqual(claimActionGroups([reused], reused, 'other-run'), { current: null, previous: [reused] });
 });

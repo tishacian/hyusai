@@ -41,3 +41,49 @@ export function reapplyStudioChanges(base: unknown, mine: unknown, theirs: unkno
   };
   return { value: merge(base, mine, theirs, ''), conflicts };
 }
+
+export interface StudioConflictDescription {
+  path: string;
+  context: string[];
+  field: string;
+  values: unknown[];
+}
+
+/** Resolve stable ids into page and component headings without changing merge semantics. */
+export function describeStudioConflict(path: string, base: unknown, mine: unknown, theirs: unknown, locale = ''): StudioConflictDescription {
+  const parts = path.split('/').filter(Boolean);
+  const documents = [base, mine, theirs];
+  let cursors: unknown[] = [...documents];
+  const context: string[] = [];
+  const localized = (value: unknown, document: unknown): unknown => {
+    if (!record(value) || typeof value['$i18n'] !== 'string' || typeof value['fallback'] !== 'string') return value;
+    const dictionaries = record(document) && record(document['i18n']) ? document['i18n'] : {};
+    const dictionary = record(dictionaries[locale]) ? dictionaries[locale] : {};
+    const translated = dictionary[value['$i18n']];
+    return typeof translated === 'string' ? translated : value['fallback'];
+  };
+  const title = (value: unknown, document: unknown): string => {
+    if (!record(value)) return '';
+    const props = record(value['props']) ? value['props'] : {};
+    for (const raw of [value['title'], props['title'], props['label'], props['caption']]) {
+      const candidate = localized(raw, document);
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    }
+    return '';
+  };
+  for (const part of parts) {
+    if (part === '$order') {
+      cursors = cursors.map((value, index) => Array.isArray(value) ? value.map(item => title(item, documents[index]) || (record(item) ? item['id'] : '')) : value);
+      break;
+    }
+    const isItem = cursors.some(Array.isArray);
+    cursors = cursors.map(value => Array.isArray(value)
+      ? value.find(item => record(item) && item['id'] === part)
+      : record(value) ? value[part] : undefined);
+    if (isItem) {
+      const name = title(cursors[1], mine) || title(cursors[2], theirs) || title(cursors[0], base);
+      if (name) context.push(name);
+    }
+  }
+  return { path, context, field: parts.at(-1) ?? '', values: cursors.map((value, index) => localized(value, documents[index])) };
+}

@@ -4,7 +4,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { CkChartStreamComponent, NavLinkDirective, type CkStreamSeries } from '@app/shared/cockpit';
-import { activityMetrics, activityRunsForDay, type ExecutionActivity } from '../impact-product-blocks';
+import { activityEvidence, activityMetrics, type ExecutionActivity } from '../impact-product-blocks';
 import type { HypervisorBlockRef } from '../hypervisor-v2-views';
 
 @Component({
@@ -29,6 +29,7 @@ export class ImpactActivityComponent {
   readonly problem = signal(false);
   readonly refresh = signal(0);
   readonly selectedDay = signal<number | null>(null);
+  readonly evidenceOpen = signal(false);
   readonly metrics = computed(() => activityMetrics(this.block()));
   readonly dates = computed(() => {
     const data = this.data();
@@ -54,14 +55,17 @@ export class ImpactActivityComponent {
     return date ? { date, attempts: 0, completed: 0, failed: 0, cancelled: 0, pending: 0, ...this.data()?.buckets.find(bucket => bucket.date === date) } : null;
   });
   readonly prices = computed(() => Object.entries(this.data()?.costs.by_currency ?? {}).map(([currency, amount]) => this.money(Number(amount), currency)).join(' / ') || '—');
-  readonly visibleRuns = computed(() => activityRunsForDay(this.data()?.runs ?? [], this.selected()?.date ?? null));
+  readonly evidence = computed(() => {
+    const data = this.data();
+    return data ? activityEvidence(data, this.selected()?.date ?? null) : null;
+  });
 
   constructor() {
     effect(onCleanup => {
       const workspaceId = this.workspace.current()?.id;
       this.auth.authEpoch(); this.refresh();
       const window = this.period(), systemId = this.systemId();
-      this.data.set(null); this.problem.set(false); this.busy.set(true); this.selectedDay.set(null);
+      this.data.set(null); this.problem.set(false); this.busy.set(true); this.selectedDay.set(null); this.evidenceOpen.set(false);
       if (!workspaceId) return;
       const subscription = this.api.get<ExecutionActivity>('/hypervisor/activity', {
         window, ...(systemId ? { system_id: systemId } : {}),
@@ -73,6 +77,10 @@ export class ImpactActivityComponent {
     });
   }
   refreshActivity(): void { this.refresh.update(value => value + 1); }
+  selectDay(index: number | null): void {
+    this.selectedDay.set(index != null && Number.isInteger(index) && index >= 0 && index < this.dates().length ? index : null);
+    this.evidenceOpen.set(true);
+  }
   number(value: number | null, digits = 0): string {
     return value == null ? '—' : new Intl.NumberFormat(this.i18n.locale(), { maximumFractionDigits: digits }).format(value);
   }
@@ -81,6 +89,10 @@ export class ImpactActivityComponent {
   }
   date(value: string): string {
     return new Intl.DateTimeFormat(this.i18n.locale(), { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(value.slice(0, 10) + 'T00:00:00Z'));
+  }
+  dateTime(value: string): string {
+    const utcValue = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : value + 'Z';
+    return new Intl.DateTimeFormat(this.i18n.locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(utcValue));
   }
   status(value: string): string {
     return this.i18n.t('hypervisor.v2.activity.' + (['completed', 'failed', 'cancelled'].includes(value) ? value : 'pending'));

@@ -23,20 +23,38 @@
     @if (activity.counts.attempts) {
       <div class="product-chart" data-testid="impact-activity-chart">
         <h3>{{ i18n.t('hypervisor.v2.activity.daily') }}</h3>
-        <ck-chart-stream [series]="chart()" [discrete]="true" [dayLabels]="dayLabels()" [ticks]="ticks()" [height]="150" [fluid]="true" [lockedDay]="selectedDay()" (dayLock)="selectedDay.set($event)" />
-        @if (selected(); as day) { <p role="status">{{ date(day.date) }} · {{ day.attempts }} {{ i18n.t('hypervisor.v2.activity.attempts') }} · {{ day.completed }} {{ i18n.t('hypervisor.v2.activity.completed') }} · {{ day.failed + day.cancelled }} {{ i18n.t('hypervisor.v2.activity.failed_cancelled') }}</p> }
+        <p class="activity-chart-hint">{{ i18n.t('hypervisor.v2.activity.day_hint') }}</p>
+        <ck-chart-stream [series]="chart()" [discrete]="true" [dayLabels]="dayLabels()" [ticks]="ticks()" [height]="150" [fluid]="true" [lockedDay]="selectedDay()" (dayLock)="selectDay($event)" />
       </div>
     } @else { <p>{{ i18n.t('hypervisor.v2.activity.empty') }}</p> }
+    @if (activity.counts.attempts || selected()) {
+      @if (evidence(); as proof) {
+        <details class="activity-evidence" data-testid="impact-evidence" [open]="evidenceOpen()" #evidencePanel (toggle)="evidenceOpen.set(evidencePanel.open)">
+          <summary>
+            <span>{{ selected() ? i18n.t('hypervisor.v2.activity.day_evidence', { date: date(selected()!.date) }) : i18n.t('hypervisor.v2.activity.evidence') }}</span>
+            <span class="activity-evidence-count" data-testid="impact-evidence-coverage">{{ i18n.t('hypervisor.v2.activity.evidence_coverage', { shown: number(proof.runs.length), total: number(proof.counts.attempts) }) }}</span>
+          </summary>
+          <div class="activity-evidence-toolbar">
+            <p class="activity-statuses" role="status" data-testid="impact-evidence-statuses">
+              <span><strong>{{ number(proof.counts.completed) }}</strong> {{ i18n.t('hypervisor.v2.activity.completed') }}</span>
+              <span><strong>{{ number(proof.counts.failed + proof.counts.cancelled) }}</strong> {{ i18n.t('hypervisor.v2.activity.failed_cancelled') }}</span>
+              <span><strong>{{ number(proof.counts.pending) }}</strong> {{ i18n.t('hypervisor.v2.activity.pending') }}</span>
+            </p>
+            @if (selected()) { <button type="button" (click)="selectDay(null)" data-testid="impact-evidence-all-days">{{ i18n.t('hypervisor.v2.activity.all_days') }}</button> }
+          </div>
+          @if (proof.partial) { <p class="activity-evidence-note" role="status" data-testid="impact-evidence-partial">{{ i18n.t('hypervisor.v2.activity.evidence_partial') }}</p> }
+          @if (!proof.counts.attempts) { <p class="activity-evidence-note" data-testid="impact-evidence-empty">{{ i18n.t('hypervisor.v2.activity.day_empty') }}</p> }
+          @if (proof.runs.length) {
+            <div class="product-table"><table><thead><tr><th scope="col">{{ i18n.t('hypervisor.v2.activity.date') }}</th><th scope="col">{{ i18n.t('hypervisor.v2.activity.status') }}</th><th scope="col">{{ i18n.t('hypervisor.v2.activity.execution') }}</th></tr></thead><tbody>
+              @for (run of proof.runs; track run.id) { <tr><td>{{ dateTime(run.started_at) }}</td><td>{{ status(run.status) }}</td><td><a [navLink]="{ type: 'run', ref: run.id }">{{ i18n.t('hypervisor.v2.activity.open') }} <span class="sr-only">{{ run.id }}</span></a></td></tr> }
+            </tbody></table></div>
+          }
+        </details>
+      }
+    }
     @if (metrics().includes('costs')) {
       <p class="product-note" data-testid="impact-costs">{{ i18n.t('hypervisor.v2.activity.costs') }} : {{ prices() }} · {{ activity.costs.priced_invocations }}/{{ activity.counts.invocations }} {{ i18n.t('hypervisor.v2.activity.priced') }}. {{ i18n.t('hypervisor.v2.activity.cost_note') }}</p>
     }
     <p class="product-note">{{ i18n.t('hypervisor.v2.activity.time_note') }} @if (metrics().includes('duration')) { {{ i18n.t('hypervisor.v2.activity.sample', { count: activity.technical_sample_count }) }} }</p>
-    @if (activity.runs.length) {
-      <details><summary>{{ i18n.t('hypervisor.v2.activity.evidence') }}</summary>
-        <div class="product-table"><table><thead><tr><th>{{ i18n.t('hypervisor.v2.activity.date') }}</th><th>{{ i18n.t('hypervisor.v2.activity.status') }}</th><th>{{ i18n.t('hypervisor.v2.activity.execution') }}</th></tr></thead><tbody>
-          @for (run of visibleRuns(); track run.id) { <tr><td>{{ date(run.started_at) }}</td><td>{{ status(run.status) }}</td><td><a [navLink]="{ type: 'run', ref: run.id }">{{ i18n.t('hypervisor.v2.activity.open') }} <span class="sr-only">{{ run.id }}</span></a></td></tr> }
-        </tbody></table></div>
-      </details>
-    }
   }
 </section>

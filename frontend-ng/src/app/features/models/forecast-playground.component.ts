@@ -89,7 +89,7 @@ import { pinnedVersion, servingErrorKey, type ModelDto, type ServingBlock } from
               <select
                 class="ck-fplay__input ck-mono"
                 [ngModel]="series()"
-                (ngModelChange)="series.set($event)"
+                (ngModelChange)="onSeries($event)"
                 data-testid="forecast-series"
               >
                 @for (name of levels(); track name) {
@@ -302,6 +302,8 @@ export class ForecastPlaygroundComponent {
   protected readonly running = signal(false);
   protected readonly answer = signal<ForecastAnswer | null>(null);
   protected readonly error = signal<string | null>(null);
+  private requestGeneration = 0;
+  private modelContext = '';
 
   private readonly metrics = computed(() => {
     const metrics = this.model().metrics;
@@ -398,23 +400,57 @@ export class ForecastPlaygroundComponent {
     value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 });
 
   constructor() {
-    // Open on the question the model was trained to answer.
-    effect(() => {
-      const spec = this.model().spec ?? {};
-      if (typeof spec['horizon'] === 'number') this.horizon.set(Math.min(spec['horizon'] as number, this.maxSteps()));
-      if (typeof spec['interval_level'] === 'number') this.level.set(spec['interval_level'] as number);
-    });
+    effect(() => this.syncModelContext());
     effect(() => this.requestChange.emit(this.request()));
+  }
+
+  /** Monitoring refreshes replace DTOs without changing the forecast question. */
+  private forecastIdentity(): string {
+    const model = this.model(), serving = this.serving();
+    const forecast = isForecast(model.metrics) ? model.metrics.forecast : undefined;
+    return stableForecastIdentity({
+      id: model.id, version: model.version, spec: model.spec, signature: model.signature,
+      forecast: { lastTimestamp: forecast?.last_timestamp, frequency: forecast?.frequency, maxSteps: forecast?.max_steps },
+      serving: { id: serving.serving_model_id, version: serving.serving_version, selected: serving.is_serving,
+        enabled: serving.enabled, callable: serving.callable, mode: serving.mode },
+    });
+  }
+
+  private syncModelContext(): void {
+    const identity = this.forecastIdentity();
+    if (identity === this.modelContext) return;
+    this.modelContext = identity;
+    this.invalidateAnswer();
+    const spec = this.model().spec ?? {};
+    const horizon = typeof spec['horizon'] === 'number' && Number.isFinite(spec['horizon']) ? spec['horizon'] : 24;
+    this.horizon.set(Math.max(1, Math.min(Math.round(horizon), this.maxSteps())));
+    this.level.set(typeof spec['interval_level'] === 'number' ? spec['interval_level'] : .8);
+    this.series.set('');
+    this.planned.set({});
   }
 
   protected onHorizon(value: unknown): void {
     const steps = Math.round(Number(value));
-    if (Number.isFinite(steps) && steps >= 1) this.horizon.set(Math.min(steps, this.maxSteps()));
+    if (!Number.isFinite(steps) || steps < 1) return;
+    const horizon = Math.min(steps, this.maxSteps());
+    if (horizon === this.horizon()) return;
+    this.invalidateAnswer();
+    this.horizon.set(horizon);
   }
 
   protected onLevel(event: Event): void {
     const raw = Number((event.target as HTMLInputElement).value);
-    if (Number.isFinite(raw)) this.level.set(Math.round(raw * 100) / 100);
+    if (!Number.isFinite(raw)) return;
+    const level = Math.round(raw * 100) / 100;
+    if (level === this.level()) return;
+    this.invalidateAnswer();
+    this.level.set(level);
+  }
+
+  protected onSeries(series: string): void {
+    if (series === this.series()) return;
+    this.invalidateAnswer();
+    this.series.set(series);
   }
 
   protected plannedValue(name: string): number {
@@ -423,13 +459,27 @@ export class ForecastPlaygroundComponent {
 
   protected onPlanned(name: string, value: unknown): void {
     const number = Number(value);
-    this.planned.update((planned) => ({ ...planned, [name]: Number.isFinite(number) ? number : 0 }));
+    const plannedValue = Number.isFinite(number) ? number : 0;
+    if (plannedValue === this.plannedValue(name)) return;
+    this.invalidateAnswer();
+    this.planned.update((planned) => ({ ...planned, [name]: plannedValue }));
+  }
+
+  /** An answer belongs to the question that produced it, including in-flight calls. */
+  private invalidateAnswer(): void {
+    this.requestGeneration++;
+    this.answer.set(null);
+    this.error.set(null);
+    this.running.set(false);
   }
 
   protected async run(): Promise<void> {
-    if (this.running()) return;
+    if (this.running() || !this.canAsk()) return;
+    this.invalidateAnswer();
+    const generation = this.requestGeneration;
+    const identity = this.forecastIdentity();
     const id = this.model().id, scope = this.workspace.captureRequestScope();
-    const current = () => id === this.model().id && this.workspace.isRequestScopeCurrent(scope);
+    const current = () => generation === this.requestGeneration && identity === this.forecastIdentity() && this.workspace.isRequestScopeCurrent(scope);
     this.running.set(true);
     this.error.set(null);
     try {
@@ -453,4 +503,12 @@ export class ForecastPlaygroundComponent {
   protected round(value: number): number {
     return Math.round(value);
   }
+}
+
+/** Object key order is not a model change; array order remains significant. */
+function stableForecastIdentity(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableForecastIdentity).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => `${JSON.stringify(key)}:${stableForecastIdentity(item)}`).join(',')}}`;
+  return JSON.stringify(value) ?? 'null';
 }

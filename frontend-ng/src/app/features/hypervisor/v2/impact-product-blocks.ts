@@ -24,6 +24,15 @@ export function activityRunsForDay(runs: ExecutionActivity['runs'], date: string
   return date ? runs.filter(run => run.started_at.slice(0, 10) === date) : runs;
 }
 
+/** Counts cover the selected scope; the response only carries recent evidence. */
+export function activityEvidence(activity: ExecutionActivity, date: string | null) {
+  const counts = date
+    ? activity.buckets.find(bucket => bucket.date === date) ?? { attempts: 0, completed: 0, failed: 0, cancelled: 0, pending: 0 }
+    : activity.counts;
+  const runs = activityRunsForDay(activity.runs, date);
+  return { counts, runs, partial: runs.length < counts.attempts };
+}
+
 /** User-entered assumptions only. A missing value never becomes zero. */
 export function financialScenario(settings: Record<string, unknown>) {
   const required = SCENARIO_FIELDS.filter(field => field !== 'monthly_volume');

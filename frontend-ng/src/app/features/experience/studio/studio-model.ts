@@ -7,6 +7,7 @@ import {
   CERTIFIED_TYPES,
   fieldsFromSchema,
   humanizeIdentifier,
+  runtimeDataBinding,
   type CertifiedType,
   type ExperienceDocument,
   type ExperienceNode,
@@ -375,7 +376,7 @@ export function bindSeedDocument(
   );
   if (source?.id) {
     for (const node of page.components) {
-      if (!DATA_COMPONENTS.has(node.type)) continue;
+      if (!DATA_COMPONENTS.has(node.type) || runtimeDataBinding(node) || node.props?.['sourceComponentId']) continue;
       node.props = {
         ...(node.props ?? {}),
         dataBinding: { source: 'run-output', componentId: source.id, selector: '' },
@@ -385,7 +386,7 @@ export function bindSeedDocument(
   return next;
 }
 
-const DATA_COMPONENTS = new Set(['kpi', 'table', 'queue', 'approval_card', 'history']);
+const DATA_COMPONENTS = new Set(['kpi', 'table', 'queue', 'approval_card', 'history', 'result', 'runtime_status', 'evidence']);
 
 export function seedDocument(
   pattern: ExperiencePattern,
