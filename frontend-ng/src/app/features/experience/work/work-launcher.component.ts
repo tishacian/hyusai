@@ -3,7 +3,7 @@ import { appearanceStyles } from '@app/core/brand-appearance';
 import { AdoptionService } from '@app/core/adoption.service';
 import { AdoptionJourneyComponent } from './adoption-journey.component';
 import { WorkBarComponent } from './work-bar.component';
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, ElementRef, inject, signal } from '@angular/core';
+import { afterNextRender, ChangeDetectionStrategy, Component, computed, DestroyRef, ElementRef, inject, Injector, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -220,7 +220,7 @@ const ENRICHED_DECISIONS = 3;
                               <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
                             </a>
                           } @else if (tile.target) {
-                            <a class="xp-home-tile" [class.xp-home-tile-lead]="tile.emphasis" [routerLink]="tile.target.url">
+                            <a class="xp-home-tile" [class.xp-home-tile-lead]="tile.emphasis" [routerLink]="routeUrl(tile.target.url)">
                               <ng-container [ngTemplateOutlet]="tileBody" [ngTemplateOutletContext]="{ $implicit: tile }" />
                             </a>
                           } @else {
@@ -286,7 +286,7 @@ const ENRICHED_DECISIONS = 3;
                                   [attr.aria-label]="actionLabel(item)" (click)="rememberQueue(item)"
                                 >{{ i18n.t('experience.work.home.action.' + item.kind) }}</a>
                               } @else {
-                                <a class="xp-home-action" [routerLink]="target.url" [attr.aria-label]="actionLabel(item)" (click)="rememberQueue(item)">
+                                <a class="xp-home-action" [routerLink]="routeUrl(target.url)" [attr.aria-label]="actionLabel(item)" (click)="rememberQueue(item)">
                                   {{ i18n.t('experience.work.home.action.' + item.kind) }}
                                 </a>
                               }
@@ -343,7 +343,7 @@ const ENRICHED_DECISIONS = 3;
                             @if (runHref(work); as href) {
                               <a
                                 class="xp-home-id"
-                                [routerLink]="href"
+                                [routerLink]="routeUrl(href)"
                                 [attr.aria-label]="i18n.t('experience.work.home.agents.ref_label', { id: short(work.run_id), app: workName(work) })"
                               >{{ short(work.run_id) }}</a>
                             } @else { <span class="xp-home-id">{{ short(work.run_id) }}</span> }
@@ -380,6 +380,7 @@ export class WorkLauncherComponent {
   private readonly navigationResolver = inject(NavigationResolverService);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   readonly workspace = inject(WorkspaceService);
   readonly theme = inject(ThemeService);
   readonly brandStyles = computed(() => {
@@ -489,7 +490,7 @@ export class WorkLauncherComponent {
         }
         if (result.kind !== 'ok') {
           this.state.set('error');
-          queueMicrotask(() => this.focusRouteTarget());
+          afterNextRender(() => this.focusRouteTarget(), { injector: this.injector });
           return;
         }
         // One app and nothing waiting: go straight to it, as before L33.
@@ -503,7 +504,7 @@ export class WorkLauncherComponent {
         this.allJobs.set(result.jobs);
         this.state.set('ready');
         this.enrichDecisions();
-        queueMicrotask(() => this.focusRouteTarget());
+        afterNextRender(() => this.focusRouteTarget(), { injector: this.injector });
       });
   }
 
@@ -614,6 +615,11 @@ export class WorkLauncherComponent {
       systemId: work.source?.system_id?.trim() || null,
     });
     return this.navigationResolver.resolve(url) === null ? url : null;
+  }
+
+  /** These catalogue URLs already include their query string. */
+  routeUrl(url: string) {
+    return this.router.parseUrl(url);
   }
 
   receipt(work: HomeWork): string[] {

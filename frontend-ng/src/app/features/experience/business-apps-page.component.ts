@@ -93,23 +93,24 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
         </app-empty-state>
       } @else {
         <div class="xp-table-wrap">
-          <table class="xp-table">
+          <table class="xp-table" role="table">
             <caption class="xp-sr-only">{{ i18n.t('experience.apps.description') }}</caption>
-            <thead>
-              <tr>
-                <th>{{ i18n.t('experience.apps.col.name') }}</th>
-                <th>{{ i18n.t('experience.apps.col.pattern') }}</th>
-                <th>{{ i18n.t('experience.apps.col.systems') }}</th>
-                <th>{{ i18n.t('experience.apps.col.state') }}</th>
-                <th>{{ i18n.t('experience.apps.col.release') }}</th>
-                <th>{{ i18n.t('experience.apps.col.audience') }}</th>
-                <th>{{ i18n.t('experience.apps.col.actions') }}</th>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th id="xp-app-name" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.name') }}</th>
+                <th id="xp-app-pattern" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.pattern') }}</th>
+                <th id="xp-app-systems" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.systems') }}</th>
+                <th id="xp-app-state" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.state') }}</th>
+                <th id="xp-app-release" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.release') }}</th>
+                <th id="xp-app-audience" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.audience') }}</th>
+                <th id="xp-app-actions" scope="col" role="columnheader">{{ i18n.t('experience.apps.col.actions') }}</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               @for (app of rows(); track app.id) {
-                <tr>
-                  <td>
+                <tr role="row">
+                  <td headers="xp-app-name" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.name') }}</span>
                     <div class="xp-app-name">
                       <strong>{{ app.name }}</strong>
                       <ck-tag [tone]="originOf(app) === 'existing' ? 'cool' : 'neutral'" variant="outline">
@@ -118,16 +119,30 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                     </div>
                     <code>{{ viewHref(app) || '/work/' + app.slug }}</code>
                   </td>
-                  <td>{{ patternLabel(app.pattern) }}</td>
-                  <td>{{ systemsLabel(app) }}</td>
-                  <td>
+                  <td headers="xp-app-pattern" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.pattern') }}</span>
+                    {{ patternLabel(app.pattern) }}
+                  </td>
+                  <td headers="xp-app-systems" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.systems') }}</span>
+                    {{ systemsLabel(app) }}
+                  </td>
+                  <td headers="xp-app-state" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.state') }}</span>
                     <ck-tag [tone]="stateTone(stateOf(app))">{{
                       i18n.t('experience.apps.state.' + stateOf(app))
                     }}</ck-tag>
                   </td>
-                  <td>{{ releaseLabel(app) }}</td>
-                  <td class="xp-audience">{{ audienceText(app) }}</td>
-                  <td>
+                  <td headers="xp-app-release" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.release') }}</span>
+                    {{ releaseLabel(app) }}
+                  </td>
+                  <td class="xp-audience" headers="xp-app-audience" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.audience') }}</span>
+                    {{ audienceText(app) }}
+                  </td>
+                  <td headers="xp-app-actions" role="cell">
+                    <span class="xp-cell-label" aria-hidden="true">{{ i18n.t('experience.apps.col.actions') }}</span>
                     <div class="xp-actions">
                       @if (canEdit() && app.wizard_step) {
                         <a class="ck-btn ck-btn--sm ck-btn-quiet" [routerLink]="wizardPath" [queryParams]="wizardParams(app)" data-testid="apps-resume-wizard">

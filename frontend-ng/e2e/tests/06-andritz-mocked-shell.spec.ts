@@ -1,5 +1,12 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test.use({ serviceWorkers: 'block', video: 'off' });
+test.beforeEach(async ({ baseURL, context }) => {
+  test.skip(!baseURL || !['localhost', '127.0.0.1'].includes(new URL(baseURL).hostname), 'Andritz mocked contracts require a loopback frontend.');
+  await context.route('**/*', (route) => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname)
+    ? route.fallback() : route.abort('blockedbyclient'));
+});
+
 const workspace = {
   id: 'ws-andritz-qa',
   name: 'Andritz QA',

@@ -1,0 +1,740 @@
+{
+  "scope": "Local Chromium browser scenarios with mocked API on loopback; no production business data used or mutated.",
+  "base_revision": "34244ab77ca0b1ecfcf0835abe02a748b6440544",
+  "success_definition": "111 distinct scenarios each have a successful execution across the initial deployed-code build and targeted executions of the corrected working tree; not one full-suite execution on the final candidate.",
+  "automatic_retries": 0,
+  "base_url": "http://127.0.0.1:4322",
+  "unique_passed": 111,
+  "per_file": {
+    "26-work-home-mocked.spec.ts": 8,
+    "28-claims-studio-mocked.spec.ts": 26,
+    "33-work-ml-blocks-mocked.spec.ts": 12,
+    "50-flow-data-prep-mocked.spec.ts": 8,
+    "53-flow-triggers-mocked.spec.ts": 6,
+    "70-typed-judge-diagnostics-mocked.spec.ts": 4,
+    "72-access-state-activation-mocked.spec.ts": 16,
+    "73-blank-start-mocked.spec.ts": 13,
+    "74-wizard-resume-mocked.spec.ts": 6,
+    "75-studio-contract-receipt-mocked.spec.ts": 12
+  },
+  "executions": [
+    {
+      "log": "creation-luma-browser.log",
+      "sha256": "f54fe019974a996e6a437231a25348a372d9cd4793319676dc9b46f4815eab50",
+      "result": {
+        "passed": 86,
+        "failed": 6,
+        "interrupted": 1,
+        "did not run": 18
+      }
+    },
+    {
+      "log": "creation-remainder-browser.log",
+      "sha256": "32e2223bff1b8e8bbbff2714b04c68a6a6b8ee985a02a64a9c95d8907d8b763c",
+      "result": {
+        "passed": 18,
+        "failed": 1,
+        "interrupted": 0,
+        "did not run": 0
+      }
+    },
+    {
+      "log": "creation-fixes-browser.log",
+      "sha256": "798be0f558110dc23e523cf12be381d4ec8e7c81705f9c742fa56417739a1887",
+      "result": {
+        "passed": 3,
+        "failed": 4,
+        "interrupted": 0,
+        "did not run": 0
+      }
+    },
+    {
+      "log": "creation-last-four-browser.log",
+      "sha256": "2dd8bd61d637a601a17121045595e6701c11351d04ca444adb9b67d73dce4bf3",
+      "result": {
+        "passed": 3,
+        "failed": 1,
+        "interrupted": 0,
+        "did not run": 0
+      }
+    },
+    {
+      "log": "creation-drag-final-browser.log",
+      "sha256": "839108258a97c5a8b7873c8a0e36006068245475bb71ebb197ca63928b2e69b3",
+      "result": {
+        "passed": 2,
+        "failed": 0,
+        "interrupted": 0,
+        "did not run": 0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › automatic reviews use business language and one application stays singular (en, dark)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 9.6
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › automatic reviews use business language and one application stays singular (en, light)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 8.5
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › automatic reviews use business language and one application stays singular (fr, dark)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 10.7
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › automatic reviews use business language and one application stays singular (fr, light)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 13.2
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › empty week: fixed title, no fabricated count, next useful action (dark)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 12.4
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › empty week: fixed title, no fabricated count, next useful action (light)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 15.1
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › home with items, receipts and a keyboard path to the first decision (dark)",
+      "last_success_log": "creation-fixes-browser.log",
+      "seconds": 8.9
+    },
+    {
+      "file": "26-work-home-mocked.spec.ts",
+      "scenario": "L33 — Work home « À faire » › home with items, receipts and a keyboard path to the first decision (light)",
+      "last_success_log": "creation-fixes-browser.log",
+      "seconds": 13.3
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › 23-case mobile queue keeps the action near the top and preserves a searchable selection through reload and history",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 19.1
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › PostgreSQL: TLS failure gives proportionate recovery for a consumer",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 10.2
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › PostgreSQL: TLS failure gives proportionate recovery for an administrator",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 13.9
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › PostgreSQL: a case-level TLS failure can be retried while the queue remains available",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.8
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › PostgreSQL: an unknown reader failure remains generic and never renders server text",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.2
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › PostgreSQL: authentication failure uses the server capability, not the apparent owner role",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.1
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › PostgreSQL: connection failure stays actionable when permissions cannot be verified",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.5
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › a failed benchmark mode check is actionable while automated aids stay unavailable",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.0
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › a manual benchmark hides the model and all predictive aid",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.5
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › a recorded action is visible without inviting an accidental duplicate investigation",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.9
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › an original stays open when incoming citations reorder the sources",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 6.1
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › connection failure offers recovery with no synthetic data replacement",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.1
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › dark: evidence, distinct tools, canonical human decision and unknown ROI",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 14.3
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › dark: model scores prioritize cases, expose lineage and rescore through the pinned Flow",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 13.6
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › desktop search leaves the selected dossier in place and recovers from an empty filter",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 6.4
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › expired scores retain dataset links and the usual queue order",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 6.0
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › judge: a failed evaluation is explicit without exposing provider diagnostics",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.3
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › judge: evidence-based abstention remains visible before human approval at 1440px",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 12.2
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › judge: evidence-based abstention remains visible before human approval at 390px",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 10.6
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › judge: interrupted evaluation keeps five questions without repeating failures in en",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 12.2
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › judge: interrupted evaluation keeps five questions without repeating failures in fr",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 17.4
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › light: evidence, distinct tools, canonical human decision and unknown ROI",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 12.2
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › light: model scores prioritize cases, expose lineage and rescore through the pinned Flow",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 14.4
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › machine aids stay hidden while a manual benchmark session loads slowly",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.1
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › mobile English and a failed data connection remain readable",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.9
+    },
+    {
+      "file": "28-claims-studio-mocked.spec.ts",
+      "scenario": "Claims studio — isolated end-user QA › mobile priority stays readable in English",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.5
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › Studio exposes typed controls and persists mappings and prediction semantics",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 6.5
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › dark/fr/1440: run output, forecast band, provenance and keyboard",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 12.2
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › denied: unavailable data is never replaced by a preview or another model",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.9
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › empty: unavailable data is never replaced by a preview or another model",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.4
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › en: returning and reloading restores the last authorised result without another action",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 8.0
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › failed restoration shows an unavailable status, without a fabricated empty chart or automatic submission",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.5
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › fr: returning and reloading restores the last authorised result without another action",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 9.4
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › light/en/1440: run output, forecast band, provenance and keyboard",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 13.1
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › light/fr/390: run output, forecast band, provenance and keyboard",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 10.1
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › partial: unavailable data is never replaced by a preview or another model",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.8
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › release change disables a pending confirmation and asks to reload instead of reporting a network failure",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.8
+    },
+    {
+      "file": "33-work-ml-blocks-mocked.spec.ts",
+      "scenario": "Generic Work prediction and time series — local product QA › stale: unavailable data is never replaced by a preview or another model",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.7
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › en: author five stable steps, preview, join pins and persist split edges",
+      "last_success_log": "creation-drag-final-browser.log",
+      "seconds": 22.7
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › en: compiled SQL fills an opaque scrollable dialog above table headers",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 13.6
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › en: isolated source test feeds the visual workshop without pinning or saving the user draft",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 12.2
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › en: preview an existing Run dataset without changing the Flow or its pins",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 14.2
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › fr: author five stable steps, preview, join pins and persist split edges",
+      "last_success_log": "creation-drag-final-browser.log",
+      "seconds": 26.5
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › fr: compiled SQL fills an opaque scrollable dialog above table headers",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 9.4
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › fr: isolated source test feeds the visual workshop without pinning or saving the user draft",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 16.1
+    },
+    {
+      "file": "50-flow-data-prep-mocked.spec.ts",
+      "scenario": "Data preparation workshops — isolated mocked QA › fr: preview an existing Run dataset without changing the Flow or its pins",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 15.0
+    },
+    {
+      "file": "53-flow-triggers-mocked.spec.ts",
+      "scenario": "Flow trigger setup — local fixtures only › en/light/390: configure a paused schedule and inspect its next execution",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 13.1
+    },
+    {
+      "file": "53-flow-triggers-mocked.spec.ts",
+      "scenario": "Flow trigger setup — local fixtures only › en/light/390: published reading never writes and identifies accepted delivery separately from failure",
+      "last_success_log": "creation-last-four-browser.log",
+      "seconds": 7.9
+    },
+    {
+      "file": "53-flow-triggers-mocked.spec.ts",
+      "scenario": "Flow trigger setup — local fixtures only › en/light/390: webhook setup is scoped and explains signed delivery",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 8.3
+    },
+    {
+      "file": "53-flow-triggers-mocked.spec.ts",
+      "scenario": "Flow trigger setup — local fixtures only › fr/dark/1440: configure a paused schedule and inspect its next execution",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 17.0
+    },
+    {
+      "file": "53-flow-triggers-mocked.spec.ts",
+      "scenario": "Flow trigger setup — local fixtures only › fr/dark/1440: published reading never writes and identifies accepted delivery separately from failure",
+      "last_success_log": "creation-last-four-browser.log",
+      "seconds": 9.2
+    },
+    {
+      "file": "53-flow-triggers-mocked.spec.ts",
+      "scenario": "Flow trigger setup — local fixtures only › fr/dark/1440: webhook setup is scoped and explains signed delivery",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 11.6
+    },
+    {
+      "file": "70-typed-judge-diagnostics-mocked.spec.ts",
+      "scenario": "Typed Judge diagnostics — local read-only QA › en: invalid citation separates the review from a completed call",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 6.3
+    },
+    {
+      "file": "70-typed-judge-diagnostics-mocked.spec.ts",
+      "scenario": "Typed Judge diagnostics — local read-only QA › en: truncated response separates the review from a completed call",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.1
+    },
+    {
+      "file": "70-typed-judge-diagnostics-mocked.spec.ts",
+      "scenario": "Typed Judge diagnostics — local read-only QA › fr: invalid citation separates the review from a completed call",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 7.4
+    },
+    {
+      "file": "70-typed-judge-diagnostics-mocked.spec.ts",
+      "scenario": "Typed Judge diagnostics — local read-only QA › fr: truncated response separates the review from a completed call",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.2
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › a read that fails with 403 locks the setting instead of showing \"off\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.3
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › a read that fails with 500 locks the setting instead of showing \"off\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.0
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › a value changed by another administrator is refused, then read again",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.5
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › a write that ends in 504 is \"unknown, check\", never a success",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.9
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › a write that ends in failed is \"unknown, check\", never a success",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.6
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › a write that ends in timedout is \"unknown, check\", never a success",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 5.5
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — Work and Studio setting › the effect is shown before confirming and the state shown afterwards is the server one",
+      "last_success_log": "creation-fixes-browser.log",
+      "seconds": 5.0
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › Work off: the page says so and who can turn it on, without redirecting (dark)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.6
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › Work off: the page says so and who can turn it on, without redirecting (light)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.9
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › a viewer opening the Studio gets \"role insufficient\" with the current role",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.5
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › an administrator sees the way to the setting",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.5
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › an unknown address and a hidden application both read as not found",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.2
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › workspaces read 500: access not verifiable, Retry, no redirect",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.7
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › workspaces read 504: access not verifiable, Retry, no redirect",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 1.8
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › workspaces read failed: access not verifiable, Retry, no redirect",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.8
+    },
+    {
+      "file": "72-access-state-activation-mocked.spec.ts",
+      "scenario": "Lot 4 — closed destinations › workspaces read timedout: access not verifiable, Retry, no redirect",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.1
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › a failed example list offers Retry, an empty one says so",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 1.8
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › a failed inventory read (403) shows \"unknown\" with Retry, never \"missing\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.0
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › a failed inventory read (500) shows \"unknown\" with Retry, never \"missing\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.4
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › a failed inventory read (504) shows \"unknown\" with Retry, never \"missing\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.5
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › a failed inventory read (failed) shows \"unknown\" with Retry, never \"missing\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.2
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › a failed inventory read (timedout) shows \"unknown\" with Retry, never \"missing\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.0
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › an example import refused by the server says so and creates nothing",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.1
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › an example shows its origin, objects and missing dependencies before anything is created",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 4.5
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › blank workspace: an explicit choice, nothing imported, and the real inventory (dark)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 8.4
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › blank workspace: an explicit choice, nothing imported, and the real inventory (light)",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 6.4
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › from scratch refused by the server reads differently from a missing model",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.5
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › from scratch with no answer is \"unknown\", not \"failed\"",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 2.5
+    },
+    {
+      "file": "73-blank-start-mocked.spec.ts",
+      "scenario": "Lot 4 — where to start › from scratch without a completion model: named, linked, nothing created",
+      "last_success_log": "creation-luma-browser.log",
+      "seconds": 3.5
+    },
+    {
+      "file": "74-wizard-resume-mocked.spec.ts",
+      "scenario": "Lot 4 — addressable wizard › \"Create the System\" keeps the way back, from Créer and from the applications list",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 4.7
+    },
+    {
+      "file": "74-wizard-resume-mocked.spec.ts",
+      "scenario": "Lot 4 — addressable wizard › a failed resume read offers Retry and keeps the step",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.3
+    },
+    {
+      "file": "74-wizard-resume-mocked.spec.ts",
+      "scenario": "Lot 4 — addressable wizard › an address the server refuses is explained under the field",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 4.5
+    },
+    {
+      "file": "74-wizard-resume-mocked.spec.ts",
+      "scenario": "Lot 4 — addressable wizard › an unknown application in the address reads as not found",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.4
+    },
+    {
+      "file": "74-wizard-resume-mocked.spec.ts",
+      "scenario": "Lot 4 — addressable wizard › step 2 is in the address and a reload comes back to it with everything chosen",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 4.4
+    },
+    {
+      "file": "74-wizard-resume-mocked.spec.ts",
+      "scenario": "Lot 4 — addressable wizard › the step list does not scroll at 320 px",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.0
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › a failed deployment shows no receipt",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 1.3
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › a failed run list (500) is an error with Retry, not \"no run\"",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 1.8
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › a failed run list (timedout) is an error with Retry, not \"no run\"",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 1.8
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › a pilot deployment ends on a receipt with Release, channel, audience and Open in Work",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.6
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › a saved output the bound version does not expose is flagged, not offered",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 1.7
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › an action names its System, version and expected inputs",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.2
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 4 — Studio contract, test preview and receipt › the page is previewed on a named test result that is not presented as accepted",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 1.8
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 5 — compare before replacing › en: a concurrent draft is shown before keeping theirs",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.1
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 5 — compare before replacing › en: a concurrent draft is shown before reapplying",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.1
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 5 — compare before replacing › fr: a concurrent draft is shown before keeping theirs",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.2
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 5 — compare before replacing › fr: a concurrent draft is shown before reapplying",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 2.1
+    },
+    {
+      "file": "75-studio-contract-receipt-mocked.spec.ts",
+      "scenario": "Lot 5 — compare before replacing › rollback names its target and a conflict refreshes deployment state before another attempt",
+      "last_success_log": "creation-remainder-browser.log",
+      "seconds": 1.7
+    }
+  ]
+}

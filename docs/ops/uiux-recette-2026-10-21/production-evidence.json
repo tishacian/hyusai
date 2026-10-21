@@ -1,0 +1,696 @@
+{
+  "served_revision": "34244ab77ca0b1ecfcf0835abe02a748b6440544",
+  "production_mode": "read-only business data; auth login and JWT validation allowed; audit writes blocked",
+  "accounts": [
+    {
+      "account": "creator",
+      "login_status": 200,
+      "mfa_required": false,
+      "profile_status": 200,
+      "platform_role": "user",
+      "active": true,
+      "workspaces_status": 200,
+      "workspace_count": 7,
+      "workspace_roles": [
+        "owner"
+      ]
+    },
+    {
+      "account": "restricted",
+      "login_status": 200,
+      "mfa_required": false,
+      "profile_status": 200,
+      "platform_role": "user",
+      "active": true,
+      "workspaces_status": 200,
+      "workspace_count": 2,
+      "workspace_roles": [
+        "member",
+        "owner"
+      ]
+    },
+    {
+      "account": "platform_admin",
+      "login_status": 200,
+      "mfa_required": false,
+      "profile_status": 200,
+      "platform_role": "admin",
+      "active": true,
+      "workspaces_status": 200,
+      "workspace_count": 1,
+      "workspace_roles": [
+        "member"
+      ]
+    }
+  ],
+  "api_reads": [
+    {
+      "account": "creator",
+      "workspace": "agentium-showcase",
+      "path": "/work",
+      "status": 200,
+      "response_keys": [
+        "automation_jobs",
+        "experiences"
+      ],
+      "count": 2,
+      "luma_present": true
+    },
+    {
+      "account": "creator",
+      "workspace": "agentium-showcase",
+      "path": "/work/_home",
+      "status": 200
+    },
+    {
+      "account": "creator",
+      "workspace": "agentium-showcase",
+      "path": "/auth/workspaces/agentium-showcase",
+      "status": 200,
+      "role": "owner",
+      "role_template": "workspace_owner"
+    },
+    {
+      "account": "creator",
+      "workspace": "andritz",
+      "path": "/auth/workspaces/andritz",
+      "status": 200
+    },
+    {
+      "account": "restricted",
+      "workspace": "agentium-showcase",
+      "path": "/work",
+      "status": 200,
+      "response_keys": [
+        "automation_jobs",
+        "experiences"
+      ],
+      "count": 2,
+      "luma_present": true
+    },
+    {
+      "account": "restricted",
+      "workspace": "agentium-showcase",
+      "path": "/work/_home",
+      "status": 200
+    },
+    {
+      "account": "restricted",
+      "workspace": "agentium-showcase",
+      "path": "/auth/workspaces/agentium-showcase",
+      "status": 200,
+      "role": "member",
+      "role_template": "workspace_contributor"
+    },
+    {
+      "account": "restricted",
+      "workspace": "andritz",
+      "path": "/auth/workspaces/andritz",
+      "status": 403
+    },
+    {
+      "account": "platform_admin",
+      "workspace": "agentium-showcase",
+      "path": "/work",
+      "status": 200,
+      "response_keys": [
+        "automation_jobs",
+        "experiences"
+      ],
+      "count": 2,
+      "luma_present": true
+    },
+    {
+      "account": "platform_admin",
+      "workspace": "agentium-showcase",
+      "path": "/work/_home",
+      "status": 200
+    },
+    {
+      "account": "platform_admin",
+      "workspace": "agentium-showcase",
+      "path": "/auth/workspaces/agentium-showcase",
+      "status": 200,
+      "role": "member",
+      "role_template": "workspace_contributor"
+    },
+    {
+      "account": "platform_admin",
+      "workspace": "andritz",
+      "path": "/auth/workspaces/andritz",
+      "status": 403
+    }
+  ],
+  "luma_before": {
+    "observed_at": "2026-10-21T16:20:59.752962+00:00",
+    "method": "GET only",
+    "resources": [
+      {
+        "path": "/systems/f3ea83de-df89-45ec-8a85-c00d676b2713/flow-state",
+        "status": 200,
+        "sha256": "cf3779d67435f348830d2f255c4291519addcc632a05a9252ad35f4522768848",
+        "draft_revision": 38,
+        "published_version_id": "b8eb64d3-e417-41bf-898a-7b1ad232d64a"
+      },
+      {
+        "path": "/work/reclamations",
+        "status": 200,
+        "sha256": "66c343819b7aa30a51d370b9952e7eefe34f173305ed6bb0de9815ec33d30532"
+      },
+      {
+        "path": "/datasets/336aed57-8637-42bc-9d81-ab4f820f68f6",
+        "status": 200,
+        "sha256": "3eb8e5f51a99b54e01795431f0ca56a7a7814013c9b0cee6a9f4b6fa4762e3d7",
+        "version": 7,
+        "row_count": 23
+      },
+      {
+        "path": "/datasets/7f5350c4-3346-437a-bf53-aa3ef46aae36",
+        "status": 200,
+        "sha256": "c9f74f4caf5cffa84a09ff1a83816012a656444daf8f3a7d4a2844f5fc7bbe43",
+        "version": 1,
+        "row_count": 70
+      }
+    ]
+  },
+  "luma_after": {
+    "observed_at": "2026-10-21T16:26:25.503192+00:00",
+    "method": "GET only",
+    "resources": [
+      {
+        "path": "/systems/f3ea83de-df89-45ec-8a85-c00d676b2713/flow-state",
+        "status": 200,
+        "sha256": "cf3779d67435f348830d2f255c4291519addcc632a05a9252ad35f4522768848",
+        "draft_revision": 38,
+        "published_version_id": "b8eb64d3-e417-41bf-898a-7b1ad232d64a"
+      },
+      {
+        "path": "/work/reclamations",
+        "status": 200,
+        "sha256": "66c343819b7aa30a51d370b9952e7eefe34f173305ed6bb0de9815ec33d30532"
+      },
+      {
+        "path": "/datasets/336aed57-8637-42bc-9d81-ab4f820f68f6",
+        "status": 200,
+        "sha256": "3eb8e5f51a99b54e01795431f0ca56a7a7814013c9b0cee6a9f4b6fa4762e3d7",
+        "version": 7,
+        "row_count": 23
+      },
+      {
+        "path": "/datasets/7f5350c4-3346-437a-bf53-aa3ef46aae36",
+        "status": 200,
+        "sha256": "c9f74f4caf5cffa84a09ff1a83816012a656444daf8f3a7d4a2844f5fc7bbe43",
+        "version": 1,
+        "row_count": 70
+      }
+    ]
+  },
+  "browser": [
+    {
+      "account": "creator",
+      "path": "/work",
+      "finalPath": "/work",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "creator",
+      "path": "/create/apps",
+      "finalPath": "/create/apps",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "creator",
+      "path": "/connectors/connections",
+      "finalPath": "/connectors/connections",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "creator",
+      "path": "/tasks",
+      "finalPath": "/tasks",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "creator",
+      "path": "/account/security",
+      "finalPath": "/account/security",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/work",
+      "finalPath": "/work",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/create/apps",
+      "finalPath": "/create/apps",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/connectors/connections",
+      "finalPath": "/connectors/connections",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/tasks",
+      "finalPath": "/tasks",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/account/security",
+      "finalPath": "/account/security",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/work",
+      "finalPath": "/work",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/create/apps",
+      "finalPath": "/create/apps",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/connectors/connections",
+      "finalPath": "/connectors/connections",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/tasks",
+      "finalPath": "/tasks",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/account/security",
+      "finalPath": "/account/security",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": null,
+      "error": null,
+      "api_error_statuses": []
+    }
+  ],
+  "luma_browser": [
+    {
+      "account": "creator",
+      "path": "/work/reclamations/dossier",
+      "finalPath": "/work/reclamations/dossier",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "creator",
+      "path": "/work/reclamations/charge",
+      "finalPath": "/work/reclamations/charge",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "creator",
+      "path": "/work/reclamations/amelioration",
+      "finalPath": "/work/reclamations/amelioration",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/work/reclamations/dossier",
+      "finalPath": "/work/reclamations/dossier",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/work/reclamations/charge",
+      "finalPath": "/work/reclamations/charge",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "restricted",
+      "path": "/work/reclamations/amelioration",
+      "finalPath": "/work/reclamations/amelioration",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/work/reclamations/dossier",
+      "finalPath": "/work/reclamations/dossier",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/work/reclamations/charge",
+      "finalPath": "/work/reclamations/charge",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    },
+    {
+      "account": "platform_admin",
+      "path": "/work/reclamations/amelioration",
+      "finalPath": "/work/reclamations/amelioration",
+      "documentStatus": 200,
+      "rendered": true,
+      "accessReason": null,
+      "pageErrors": [],
+      "blockedWrites": [
+        {
+          "method": "POST",
+          "path": "/api/v1/audit"
+        }
+      ],
+      "axe": {
+        "version": "4.13.0",
+        "violations": []
+      },
+      "error": null,
+      "api_error_statuses": []
+    }
+  ],
+  "temporary_auth_files_removed": true
+}

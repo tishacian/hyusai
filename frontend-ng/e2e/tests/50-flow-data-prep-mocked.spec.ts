@@ -55,9 +55,29 @@ async function setup(page:Page,locale:'fr'|'en',options:{upstreamNodeTest?:boole
  return {writes,graph:()=>graph,node:(operation:string)=>graph.nodes.find((node:any)=>node.config?.params?.spec?.operation===operation)};
 }
 async function add(page:Page,operation:string){await page.locator('.ck-flow-palette__search-input').fill('data_prep');await page.getByTestId('palette-data_prep_v1#'+operation).click();await page.getByTestId('open-prep-workshop').click();const workshop=page.locator('app-flow-data-prep-workshop');await expect(workshop).toBeVisible();return workshop;}
-async function connect(page:Page,sourceId:string,sourcePort:string,targetId:string,targetPort:string){
+async function connect(page:Page,api:Awaited<ReturnType<typeof setup>>,sourceId:string,sourcePort:string,targetId:string,targetPort:string){
  const from=page.locator(`[data-f-output-id="${sourceId}::out::${sourcePort}"]`),to=page.locator(`[data-f-input-id="${targetId}::in::${targetPort}"]`);
- await page.getByRole('button',{name:/^(Ajuster à la vue|Fit to view)$/}).click();await from.hover();const a=await from.boundingBox(),b=await to.boundingBox();expect(a).toBeTruthy();expect(b).toBeTruthy();await page.mouse.move(a!.x+a!.width/2,a!.y+a!.height/2);await page.mouse.down();await page.mouse.move(b!.x+b!.width/2,b!.y+b!.height/2,{steps:16});await page.mouse.up();
+ const previous=await page.locator('f-connection').count();
+ await expect(page.locator('.ck-flow-toolbar__state')).toHaveClass(/is-saved/);
+ await page.getByRole('button',{name:/^(Ajuster à la vue|Fit to view)$/}).click();
+ // Fit and the autosave receipt can move the canvas. Resolve the target at
+ // the end of the real drag instead of dropping at its earlier coordinates.
+ await from.hover();
+ const start=await from.boundingBox();expect(start).toBeTruthy();
+ const point={x:start!.x+start!.width/2,y:start!.y+start!.height/2};
+ await page.mouse.move(point.x,point.y);
+ expect(await from.evaluate((element,point)=>element.contains(document.elementFromPoint(point.x,point.y)),point)).toBe(true);
+ await page.mouse.down();
+ // Foblex starts its connection gesture on the first move, then resolves the
+ // destination on a following move. Keep the pointer down through both.
+ await page.mouse.move(start!.x+start!.width/2+12,start!.y+start!.height/2,{steps:3});
+ await to.hover();
+ await to.hover();
+ await page.mouse.up();
+ await expect(page.locator('.flow-builder__handle-backdrop')).toHaveCount(0);
+ await expect(page.locator('f-connection')).toHaveCount(previous+1);
+ await expect.poll(()=>api.graph().edges.some((edge:any)=>edge.from===sourceId&&edge.from_port===sourcePort&&edge.to===targetId&&edge.to_port===targetPort)).toBe(true);
+ await expect(page.locator('.ck-flow-toolbar__state')).toHaveClass(/is-saved/);
 }
 test.describe('Data preparation workshops — isolated mocked QA',()=>{
  test.beforeEach(async({},info)=>{test.skip(process.env['E2E_CHROME_V2_MOCKED']!=='1'||!['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname),'Local mocked QA only.');});
@@ -236,9 +256,11 @@ test.describe('Data preparation workshops — isolated mocked QA',()=>{
   workshop=await add(page,'join');await workshop.getByTestId('prep-input-left').selectOption('customers-v3');await workshop.getByTestId('prep-input-right').selectOption('segments-v2');await workshop.getByTestId('prep-match-keys').click();await workshop.getByTestId('close-prep-workshop').click();
   await expect.poll(()=>api.node('join')?.config.params.sources.length).toBe(2);expect(api.node('join').config.params.spec.params.on).toEqual([{left:'id',right:'id',op:'eq'}]);expect(api.node('join').inputs.map((port:any)=>port.name)).toEqual(['left','right']);
   workshop=await add(page,'split');await workshop.getByTestId('prep-output-name-0').fill('Training customers');await workshop.getByTestId('prep-output-name-1').fill('Test customers');await workshop.getByTestId('close-prep-workshop').click();await expect.poll(()=>api.node('split')?.config.params.outputs[1].name).toBe('Test customers');
-  // The saved nodes are reloaded at separated positions, so real pointer wiring is deterministic.
+  // Reload separated, unconnected fixture nodes so each real pointer gesture
+  // creates an edge, independently of palette insertion's automatic wiring.
   api.graph().nodes.forEach((node:any)=>{const operation=node.config?.params?.spec?.operation;if(operation==='prepare')node.position={x:20,y:30};if(operation==='join')node.position={x:280,y:30};if(operation==='split')node.position={x:280,y:350};});
-  await page.reload();await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();await expect(page.locator('app-flow-node')).toHaveCount(5);await connect(page,api.node('join').id,'out',api.node('split').id,'in');await connect(page,api.node('split').id,'train','sql-train','in');await connect(page,api.node('split').id,'test','sql-test','in');
+  api.graph().edges=[];
+  await page.reload();await page.getByRole('button', { name: /Modifier le brouillon|Edit draft/ }).click();await expect(page.locator('app-flow-node')).toHaveCount(5);await connect(page,api,api.node('join').id,'out',api.node('split').id,'in');await connect(page,api,api.node('split').id,'train','sql-train','in');await connect(page,api,api.node('split').id,'test','sql-test','in');
   await expect.poll(()=>api.graph().edges.map((edge:any)=>[edge.from_port,edge.to_port])).toEqual(expect.arrayContaining([['out','in'],['train','in'],['test','in']]));expect(api.graph().edges.map((edge:any)=>[edge.from_port,edge.to_port])).toEqual(expect.arrayContaining([['out','in'],['train','in'],['test','in']]));
   expect(api.node('split').outputs.map((port:any)=>port.name)).toEqual(['train','test']);expect(api.node('prepare').config.params.spec.params.steps.map((step:any)=>step.id)).toEqual(steps.map((step:any)=>step.id));
   expect(api.writes.filter(write=>/\/runs$|\/publish$|\/executions$/.test(write.path))).toHaveLength(0);await page.screenshot({path:info.outputPath(`data-prep-${locale}.png`),fullPage:true});

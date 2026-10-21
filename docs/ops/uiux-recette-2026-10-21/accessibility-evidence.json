@@ -1,0 +1,1459 @@
+{
+  "date_utc": "2026-10-21",
+  "scope": "Isolated Chromium browser tests with mocked APIs; no provider or production validation.",
+  "candidate_base_revision": "34244ab77ca0b1ecfcf0835abe02a748b6440544",
+  "candidate": "Working tree on feat/uiux-recette, including the application table/search reflow fix.",
+  "tools": {
+    "playwright": "1.59.1",
+    "axe-core": "4.13.0",
+    "chromium": "151.0.7922.173"
+  },
+  "summary": {
+    "distinct_tests": 45,
+    "passed": 45,
+    "failed": 0,
+    "skipped": 0,
+    "expected_failures": 0,
+    "matrix_screens": 4,
+    "matrix_combinations": 48,
+    "axe_violations": 0,
+    "axe_incomplete_rules": [
+      "aria-prohibited-attr",
+      "aria-valid-attr-value",
+      "color-contrast"
+    ]
+  },
+  "limits": [
+    "API responses are mocked.",
+    "Automated axe results retain incomplete ARIA/contrast checks for manual review.",
+    "The 320 CSS px reflow matrix does not establish an actual 200% browser zoom session.",
+    "Screen reader and human panel sessions were not performed."
+  ],
+  "runs": [
+    {
+      "report": "accessibility-final.json",
+      "stats": {
+        "startTime": "2026-10-21T16:37:21.244Z",
+        "duration": 269015.05,
+        "expected": 43,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      }
+    },
+    {
+      "report": "accessibility-palette-final.json",
+      "stats": {
+        "startTime": "2026-10-21T16:40:00.711Z",
+        "duration": 21427.568,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report": "accessibility-reflow-final.json",
+      "stats": {
+        "startTime": "2026-10-21T16:44:45.382Z",
+        "duration": 95566.561,
+        "expected": 14,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "tests": [
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L1 — swallowed gestures"
+      ],
+      "title": "the sommaire goes from Data to Models and marks only the open one",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 4191,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L1 — swallowed gestures"
+      ],
+      "title": "the active item leads back to its list, then to the top of it",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 6078,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L1 — swallowed gestures"
+      ],
+      "title": "⌘Z undoes on the canvas and zooms out from the chrome",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 7974,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "System Flow — direct navigation"
+      ],
+      "title": "dark/fr/1440: card, header and menu open the existing graph",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 13109,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "System Flow — direct navigation"
+      ],
+      "title": "light/fr/390: card, header and menu open the existing graph",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 5803,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "System Flow — direct navigation"
+      ],
+      "title": "light/en/1440: card, header and menu open the existing graph",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 9466,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L3 — route focus on the title"
+      ],
+      "title": "Enter on a rail item focuses the h1 without a ring; Tab shows a 2px ring",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2569,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L3 — route focus on the title"
+      ],
+      "title": "axe-core finds no violations on Impact, Create and Monitor",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 7382,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L4 — titles in Space Grotesk, text in IBM Plex Sans, no Inter nor JetBrains Mono",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1575,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L6/L27 — hidden labels: icon rail stays 56px, tooltip on Tab, Escape closes, no link-name",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2271,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L27 — before the preference is known the rail never flashes labels",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2042,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L27 — a newcomer's labelled rail pushes the content, names = labels, axe clean (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 3936,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L27 — a newcomer's labelled rail pushes the content, names = labels, axe clean (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 3625,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L27 — the toggle saves at once, by keyboard, and a failed save reverts politely",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1397,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L27 — ⌘K asks the agent when nothing matches and defines lexicon terms (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 10640,
+      "report": "accessibility-palette-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "Chrome v2 — mocked"
+      ],
+      "title": "L27 — ⌘K asks the agent when nothing matches and defines lexicon terms (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 7610,
+      "report": "accessibility-palette-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L5 — chrome ratchet / reduced-motion atom"
+      ],
+      "title": "reduced-motion freezes the auth atom across 500 ms",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1669,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L30 — chat overlay: sourced thread and open proof"
+      ],
+      "title": "⌘J, a streamed answer, citation [1] opened by keyboard, Escape gives focus back (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 5135,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L30 — chat overlay: sourced thread and open proof"
+      ],
+      "title": "⌘J, a streamed answer, citation [1] opened by keyboard, Escape gives focus back (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 4690,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L31 — sentence case, one filled button, honest bottom bar"
+      ],
+      "title": "/systems reads in sentence case with a single filled button; axe (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2067,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L31 — sentence case, one filled button, honest bottom bar"
+      ],
+      "title": "/systems reads in sentence case with a single filled button; axe (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2128,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L31 — sentence case, one filled button, honest bottom bar"
+      ],
+      "title": "a builder keeps a compact context control beside the scope, no « Avancé »",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1103,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L34 — getting started on the client’s own documents"
+      ],
+      "title": "a ready collection: choose it, see its counts, ask, confirm — the decision is recorded (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 4366,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L34 — getting started on the client’s own documents"
+      ],
+      "title": "no readable collection: no card on the Work home, the page explains (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2218,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L34 — getting started on the client’s own documents"
+      ],
+      "title": "a ready collection: choose it, see its counts, ask, confirm — the decision is recorded (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 4065,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L34 — getting started on the client’s own documents"
+      ],
+      "title": "no readable collection: no card on the Work home, the page explains (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1893,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L36 — cited sources readable in place in Work"
+      ],
+      "title": "getting started: citation 1 opens its passage and page, keyboard to source 2, Escape back, a deleted source says so (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 17998,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L36 — cited sources readable in place in Work"
+      ],
+      "title": "getting started: citation 1 opens its passage and page, keyboard to source 2, Escape back, a deleted source says so (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 17759,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L36 — cited sources readable in place in Work"
+      ],
+      "title": "the chat opened from Work reads sources in place, with no Cockpit link",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 3965,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L38 — French System and Flow history"
+      ],
+      "title": "System, version history and error copy, axe (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 7438,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "24-chrome-v2-mocked.spec.ts",
+      "groups": [
+        "L38 — French System and Flow history"
+      ],
+      "title": "System, version history and error copy, axe (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 17760,
+      "report": "accessibility-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "Work anchors are buttons at least 32 px high (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2009,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "the title-bar glyph is centred on its label (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2277,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "Connections sits in the page frame, with one main landmark (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2457,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "wizard groups are 20 px apart and keep their 6 px inner gap (dark)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1559,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "Work anchors are buttons at least 32 px high (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1580,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "the title-bar glyph is centred on its label (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1208,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "Connections sits in the page frame, with one main landmark (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1608,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "wizard groups are 20 px apart and keep their 6 px inner gap (light)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1488,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "the applications table keeps actions on one line and the audience on two (en)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 2017,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "the applications table keeps actions on one line and the audience on two (fr)",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 1753,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "/work passes the accessibility matrix, 320 px included",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 19100,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "/connectors/connections passes the accessibility matrix, 320 px included",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 19205,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "/create/apps passes the accessibility matrix, 320 px included",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 19693,
+      "report": "accessibility-reflow-final.json"
+    },
+    {
+      "file": "72-finish-geometry-mocked.spec.ts",
+      "groups": [
+        "Measured finish — shared geometry"
+      ],
+      "title": "/create/apps/new passes the accessibility matrix, 320 px included",
+      "project": "chromium",
+      "expected_status": "passed",
+      "status": "passed",
+      "duration_ms": 18001,
+      "report": "accessibility-reflow-final.json"
+    }
+  ],
+  "matrices": {
+    "/work": {
+      "combinations": 12,
+      "wcag_tags": [
+        "wcag2a",
+        "wcag2aa",
+        "wcag21a",
+        "wcag21aa",
+        "wcag22aa"
+      ],
+      "reduced_motion": true,
+      "reflow_320_css_px": true,
+      "entries": [
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr"
+          ]
+        }
+      ]
+    },
+    "/connectors/connections": {
+      "combinations": 12,
+      "wcag_tags": [
+        "wcag2a",
+        "wcag2aa",
+        "wcag21a",
+        "wcag21aa",
+        "wcag22aa"
+      ],
+      "reduced_motion": true,
+      "reflow_320_css_px": true,
+      "entries": [
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        }
+      ]
+    },
+    "/create/apps": {
+      "combinations": 12,
+      "wcag_tags": [
+        "wcag2a",
+        "wcag2aa",
+        "wcag21a",
+        "wcag21aa",
+        "wcag22aa"
+      ],
+      "reduced_motion": true,
+      "reflow_320_css_px": true,
+      "entries": [
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 1155,
+              "right": 1408
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 442
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 306
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 1155,
+              "right": 1408
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 442
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 306
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 1155,
+              "right": 1408
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 442
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 306
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 1155,
+              "right": 1408
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 442
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [
+            {
+              "selector": ".xp-search input",
+              "left": 70,
+              "right": 306
+            }
+          ],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        }
+      ]
+    },
+    "/create/apps/new": {
+      "combinations": 12,
+      "wcag_tags": [
+        "wcag2a",
+        "wcag2aa",
+        "wcag21a",
+        "wcag21aa",
+        "wcag22aa"
+      ],
+      "reduced_motion": true,
+      "reflow_320_css_px": true,
+      "entries": [
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "fr",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "light",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "desktop",
+          "viewport_width": 1440,
+          "page_scroll_width": 1440,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-prohibited-attr",
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "456",
+          "viewport_width": 456,
+          "page_scroll_width": 456,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        },
+        {
+          "locale": "en",
+          "theme": "dark",
+          "viewport": "320-reflow",
+          "viewport_width": 320,
+          "page_scroll_width": 320,
+          "reflow_bounds": [],
+          "reduced_motion": true,
+          "active_motion": [],
+          "axe_violations": [],
+          "axe_incomplete": [
+            "aria-valid-attr-value",
+            "color-contrast"
+          ]
+        }
+      ]
+    }
+  }
+}

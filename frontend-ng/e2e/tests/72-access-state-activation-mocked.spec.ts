@@ -38,6 +38,7 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 
 interface Mock {
   workspaces: (route: Route) => Promise<void>;
+  workspace?: (route: Route) => Promise<void>;
   activation?: (route: Route) => Promise<void>;
   experiences?: (route: Route) => Promise<void>;
 }
@@ -63,7 +64,7 @@ async function install(page: Page, mock: Mock, locale: 'fr' | 'en' = 'fr', theme
     if (path === '/auth/workspaces') return mock.workspaces(route);
     if (path === `/auth/workspaces/${workspace().slug}/features/experience` && mock.activation) return mock.activation(route);
     if (path.startsWith('/experiences/') && mock.experiences) return mock.experiences(route);
-    if (path === `/auth/workspaces/${workspace().slug}`) return json(route, workspace());
+    if (path === `/auth/workspaces/${workspace().slug}`) return mock.workspace ? mock.workspace(route) : json(route, workspace());
     if (path === '/help-content') return json(route, { version: 'local', personas: [], languages: [], items: [] });
     if (request.method() === 'GET') return json(route, path.endsWith('s') ? [] : {});
     return json(route, { ok: true });
@@ -159,6 +160,7 @@ test.describe('Lot 4 — Work and Studio setting', () => {
     let current = false;
     await install(page, {
       workspaces: (route) => json(route, [workspace({ settings: { features: { experience_v1: current } } })]),
+      workspace: (route) => json(route, workspace({ settings: { features: { experience_v1: current } } })),
       activation: async (route) => {
         if (route.request().method() === 'PUT') {
           puts.push(route.request().postDataJSON());
