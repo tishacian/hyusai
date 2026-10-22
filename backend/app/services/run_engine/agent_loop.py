@@ -27,6 +27,9 @@ DEFAULT_MAX_TURNS = 6
 MAX_AUTHOR_TURNS = 20
 MAX_ALLOWLIST = 8
 MAX_RATIONALE = 400
+# Decide emits one bounded JSON choice, not a long answer. The provider ceiling
+# includes reasoning tokens and makes each attempt reservable before dispatch.
+DECISION_MAX_OUTPUT_TOKENS = 4096
 # A purpose rides in every Decide prompt, once per visible skill. An authored
 # description is free text, so it is capped here rather than trusted to be short.
 MAX_PURPOSE = 240

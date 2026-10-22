@@ -176,7 +176,7 @@ async def test_native_planner_normalization_is_retained_in_invocation_trace(
         "done": False,
     }
 
-    async def complete(prompt, model, ctx):
+    async def complete(prompt, model, ctx, **options):
         return json.dumps({**raw, "rationale": "Read the permitted source"})
 
     monkeypatch.setattr(wrappers.skills, "_route_llm_complete", complete)
@@ -800,7 +800,7 @@ async def test_first_decision_uses_only_selected_context_and_snapshot_model(
 ):
     calls = []
 
-    async def complete(prompt, model, ctx):
+    async def complete(prompt, model, ctx, **options):
         calls.append((prompt, model))
         return json.dumps({"next_skill": None, "done": True, "exit": "complete", "confidence": 0.9})
 

@@ -189,7 +189,7 @@ async def test_retained_context_reaches_native_planner_without_executing_selecte
     client, workspace, user, system, source_run, invocation = decision
     prompts = []
 
-    async def generation(prompt, model, context):
+    async def generation(prompt, model, context, **options):
         prompts.append(prompt)
         return '{"next_skill":"propose","rationale":"The evidence is complete","confidence":0.9,"needs_human":false,"done":false,"exit":null}'
 

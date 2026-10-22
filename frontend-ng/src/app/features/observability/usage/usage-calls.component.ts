@@ -2,10 +2,11 @@ import { ChangeDetectionStrategy, Component, inject, input, output } from '@angu
 import { I18nService } from '@app/core/i18n.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import type { UsageCallPage } from './usage.models';
+import { TariffProvenanceComponent } from './tariff-provenance.component';
 import { diagnosticCode, usageAmount, usageNumber } from './usage.vm';
 
 @Component({
-  selector: 'app-usage-calls', standalone: true, imports: [NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush,
+  selector: 'app-usage-calls', standalone: true, imports: [NavLinkDirective, TariffProvenanceComponent], changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="table-wrap" tabindex="0" role="region" [attr.aria-label]="t('call_log')">
       <table><caption>{{ t('call_log') }} <span>{{ number(page().total) }}</span></caption>
@@ -24,7 +25,8 @@ import { diagnosticCode, usageAmount, usageNumber } from './usage.vm';
                 }
               </td>
               <td class="numeric">{{ amount(call.amount, call.currency) }}
-                @if (call.amount === null) { <small>{{ t('unpriced') }}</small> }</td>
+                @if (call.amount === null) { <small>{{ t('unpriced') }}</small> }
+                @if (call.tariff_snapshot; as tariff) { <small>{{ t('revision') }} {{ tariff.revision ?? tariff.version ?? '—' }}</small><app-tariff-provenance [provenance]="tariff.provenance" [currency]="tariff.currency" /> }</td>
               <td>@if (call.run_id && call.invocation_id) { <a [navLink]="{type:'skill_invocation',runId:call.run_id,ref:call.invocation_id}">{{ t('invocation') }}</a> }
                 @else if (call.run_id) { <a [navLink]="{type:'run',ref:call.run_id}">{{ t('run') }}</a> }
                 @else { <span class="muted">{{ t('no_run') }}</span> }</td>

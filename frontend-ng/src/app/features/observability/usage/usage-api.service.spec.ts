@@ -42,3 +42,10 @@ test('versioned tariff rates retain unknown cache prices', async () => {
   const tariff = (await api.tariffs()).items[0];
   assert.equal(tariff.input_per_million, '0'); assert.equal(tariff.cached_input_per_million, null); assert.equal(tariff.revision, 2);
 });
+test('tariff reads retain declared provenance and call reads retain their own historical snapshot', async () => {
+  const oldSource={reference:'Original price sheet',observed_on:'2026-10-20'};
+  const newSource={reference:'New price sheet',observed_on:'2026-10-22'};
+  const api=setup(async url => Response.json(url.includes('/calls') ? {items:[{id:'call-a',tariff_snapshot:{id:'old',revision:1,currency:'EUR',rates:{input_per_million:'1'},provenance:oldSource}}],total:1,offset:0,limit:25} : {can_manage:true,items:[{id:'new',revision:2,currency:'EUR',rates:{input_per_million:'2',output_per_million:'4'},provenance:newSource}]}));
+  const tariff=(await api.tariffs()).items[0];assert.equal(tariff.input_per_million,'2');assert.deepEqual(tariff.provenance,newSource);
+  const call=(await api.calls({})).items[0];assert.deepEqual(call.tariff_snapshot?.provenance,oldSource);assert.equal(call.tariff_snapshot?.revision,1);
+});

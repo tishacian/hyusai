@@ -15,8 +15,11 @@ export function usageAmount(value: unknown, currency: string | null, locale = 'f
   if (value === null || value === undefined || value === '' || !currency) return '—';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '—';
-  try { return new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(amount); }
-  catch { return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 6 }).format(amount)} ${currency}`; }
+  const belowPrecision = amount > 0 && amount < 0.000001;
+  const shown = belowPrecision ? 0.000001 : amount;
+  const prefix = belowPrecision ? '< ' : '';
+  try { return prefix + new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(shown); }
+  catch { return `${prefix}${new Intl.NumberFormat(locale, { maximumFractionDigits: 6 }).format(shown)} ${currency}`; }
 }
 export function usageCostCoverage(summary: UsageSummary): { known: number; total: number } {
   return { known: summary.costs.reduce((sum, cost) => sum + cost.known_calls, 0), total: summary.counts.dispatched };

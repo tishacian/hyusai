@@ -632,6 +632,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'governance-chat-history', parent: 'governance', route: '/governance/chat-history', label: 'Chat history' },
   { id: 'governance-canonical-answers', parent: 'governance', route: '/governance/canonical-answers', label: 'Canonical answers' },
   { id: 'observability-quality', parent: 'observability', route: '/observability/quality', label: 'Quality' },
+  { id: 'observability-usage', parent: 'observability', route: '/observability/usage', label: 'Usage and costs' },
   { id: 'observability-performance', parent: 'observability', route: '/observability/performance', label: 'Performance' },
   { id: 'observability-traces', parent: 'observability', route: '/observability/traces', label: 'Traces (compat)' },
   { id: 'preset-evaluation', parent: 'presets', route: '/presets/evaluation', label: 'Evaluation preset' },

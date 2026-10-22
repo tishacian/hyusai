@@ -27,6 +27,7 @@ export interface UsageCall {
   input_tokens: number | null; output_tokens: number | null; total_tokens: number | null;
   cached_input_tokens: number | null; cache_write_tokens: number | null; reasoning_tokens: number | null;
   amount: number | string | null; currency: string | null; cost_basis: string | null;
+  tariff_snapshot?: Pick<UsageTariff, 'id' | 'revision' | 'version' | 'provider' | 'model' | 'currency' | 'provenance'> & { rates: Partial<Record<UsageRateKey, string>> } | null;
   usage_coverage: string | Record<string, unknown> | null; diagnostic: string | Record<string, unknown> | null;
 }
 export interface UsageCallPage { items: UsageCall[]; total: number | null; limit: number; offset: number; coverage: UsageCoverage; }
@@ -45,15 +46,21 @@ export interface UsageBudgetWrite {
   max_tokens: number | null; currency_limits: Record<string, string>; expected_revision: number;
 }
 export interface UsageBudgetPage { items: UsageBudget[]; can_manage: boolean; readiness: UsageReadiness; }
+export type UsageRateKey = 'input_per_million' | 'output_per_million' | 'cached_input_per_million' | 'cache_write_per_million';
+export interface UsageTariffProvenance {
+  reference: string; observed_on: string;
+  conversion?: { source_currency: string; source_rates: Partial<Record<UsageRateKey, string>>; rate: string;
+    reference: string; observed_on: string; convention?: 'target_per_source'; rounding?: 'half_even_12dp' } | null;
+}
 export interface UsageTariff {
   id: string; provider: string; model: string; currency: string; version?: number; revision?: number;
   input_per_million: number | string; output_per_million: number | string;
   cached_input_per_million?: number | string | null; cache_write_per_million?: number | string | null;
-  created_at?: string; effective_at?: string;
+  created_at?: string; effective_at?: string; provenance?: UsageTariffProvenance | null;
 }
 export interface UsageTariffWrite {
   provider: string; model: string; currency: string; input_per_million: string; output_per_million: string;
-  cached_input_per_million?: string; cache_write_per_million?: string;
+  cached_input_per_million?: string; cache_write_per_million?: string; provenance?: UsageTariffProvenance;
 }
 export interface UsageTariffPage { items: UsageTariff[]; can_manage: boolean; }
 export interface UsageSystemOption { id: string; name: string; }

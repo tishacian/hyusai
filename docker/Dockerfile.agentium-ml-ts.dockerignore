@@ -98,3 +98,11 @@ docs/**/*.pptx
 docs/**/*.docx
 docs/**/*.xlsx
 docs/**/*.mp4
+
+# Test suites are host-side qualification material, except the connector kit:
+# runtime_identity hashes its manifest and every Python recipe at runtime.
+# Keep the parent explicitly traversable so BuildKit reaches the exception.
+backend/app/tests/*
+!backend/app/tests/connectors/
+backend/app/tests/connectors/*
+!backend/app/tests/connectors/kit/

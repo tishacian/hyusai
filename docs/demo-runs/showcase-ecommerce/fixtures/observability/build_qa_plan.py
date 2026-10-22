@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROTOCOL = ROOT.parent / "benchmark/protocol.json"
+DOCUMENT_MANIFEST = ROOT.parent / "manifest.json"
 FAMILIES = (
     ("delivery_contradiction", 0),
     ("confirmed_loss", 1),
@@ -26,6 +27,11 @@ FAMILIES = (
 
 def build(system_id: str, collection_ids: list[str]) -> dict:
     protocol = json.loads(PROTOCOL.read_text())
+    policy_document = next(
+        document
+        for document in json.loads(DOCUMENT_MANIFEST.read_text())["documents"]
+        if document["reference"] == "refund-policy-v2" and document["current"]
+    )
     cases = []
     for family, pair_index in FAMILIES:
         pair = protocol["pairs"][pair_index]
@@ -120,10 +126,70 @@ def build(system_id: str, collection_ids: list[str]) -> dict:
                             "value": expected["action"],
                         },
                         {
+                            "id": "expected-amount",
+                            "path": ["amount"],
+                            "operator": "equals",
+                            "value": expected["amount"],
+                        },
+                        {
+                            "id": "expected-currency",
+                            "path": ["currency"],
+                            "operator": "equals",
+                            "value": "EUR",
+                        },
+                        {
+                            "id": "matching-claim",
+                            "path": ["claim_id"],
+                            "operator": "equals",
+                            "value": claim_id,
+                        },
+                        {
+                            "id": "matching-order",
+                            "path": ["order_id"],
+                            "operator": "equals",
+                            "value": claim_id.replace("RC-", "LM-", 1),
+                        },
+                        {
                             "id": "human-required",
                             "path": ["requires_human"],
                             "operator": "equals",
                             "value": True,
+                        },
+                        {
+                            "id": "ready-proposal",
+                            "path": ["summary"],
+                            "operator": "equals",
+                            "value": "resolution_ready",
+                        },
+                        {
+                            "id": "no-missing-references",
+                            "path": ["missing_references"],
+                            "operator": "equals",
+                            "value": [],
+                        },
+                        {
+                            "id": "simulated-financial-execution",
+                            "path": ["financial_execution"],
+                            "operator": "equals",
+                            "value": "simulated",
+                        },
+                        {
+                            "id": "current-policy-document",
+                            "path": ["resolution_policy", "document_key"],
+                            "operator": "equals",
+                            "value": policy_document["reference"],
+                        },
+                        {
+                            "id": "current-policy-version",
+                            "path": ["resolution_policy", "document_version"],
+                            "operator": "equals",
+                            "value": policy_document["version"],
+                        },
+                        {
+                            "id": "current-policy-digest",
+                            "path": ["resolution_policy", "document_sha256"],
+                            "operator": "equals",
+                            "value": policy_document["sha256"],
                         },
                         {
                             "id": "snapshot-recorded",
@@ -175,6 +241,12 @@ def build(system_id: str, collection_ids: list[str]) -> dict:
         "provenance": {
             "source": str(PROTOCOL.relative_to(ROOT.parents[4])),
             "sha256": hashlib.sha256(PROTOCOL.read_bytes()).hexdigest(),
+            "policy_document_manifest": str(
+                DOCUMENT_MANIFEST.relative_to(ROOT.parents[4])
+            ),
+            "policy_document_manifest_sha256": hashlib.sha256(
+                DOCUMENT_MANIFEST.read_bytes()
+            ).hexdigest(),
             "source_oracles": "synthetic_fixture_proposals",
             "human_review": None,
         },

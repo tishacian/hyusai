@@ -285,6 +285,109 @@ def test_quote_protocol_keeps_the_declared_prompt_budget(payload):
         judge._prompt(spec)
 
 
+def structured_spec(payload):
+    # Repeated nested JSON, escaped characters and Unicode occur in frozen Run
+    # projections. Repetition is not evidence ambiguity when its occurrence is known.
+    text = json.dumps(
+        {"citations": ["x" * 3200, 'Été 🚚 e\u0301\r\n\\ "reçu"'], "references": ["x" * 3200]},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    payload["evidence"][0].update(text=text, sha256=hashlib.sha256(text.encode()).hexdigest())
+    return TypedEvaluationInput.model_validate(payload)
+
+
+def passage_response(payload, source, passage):
+    response = answers(payload)
+    for answer in response["answers"].values():
+        answer["evidence"] = [{"evidence_id": source.id, "passage_id": passage["id"]}]
+    return response
+
+
+def test_structured_passages_preserve_all_frozen_text_and_distinguish_occurrences(payload):
+    spec = structured_spec(payload)
+    source = spec.evidence[0]
+    spans = judge._source_passages(source)
+    assert judge._uses_passages(spec)
+    assert spans == judge._source_passages(source)
+    assert "".join(span["text"] for span in spans) == source.text
+    assert len({span["id"] for span in spans}) == len(spans)
+    repeated = [span for span in spans if span["text"] == "x" * 1000]
+    assert len(repeated) >= 2 and repeated[0]["id"] != repeated[1]["id"]
+    for span in spans:
+        assert source.text[span["start"] : span["end"]] == span["text"]
+        assert 0 < len(span["text"]) <= 1000
+    presented = json.loads(judge._prompt(spec).split("\nEvidence: ", 1)[1])[0]
+    assert presented["sha256"] == source.sha256 and "text" not in presented
+    assert presented["passages"] == [{"id": span["id"], "text": span["text"]} for span in spans]
+    response = passage_response(payload, source, repeated[1])
+    parsed = judge._parse(
+        json.dumps(response),
+        spec,
+        judge._provider_schema(spec.questions, passages=True),
+        resolve_passages=True,
+    )
+    citation = parsed["safe"]["evidence"][0]
+    assert citation == {
+        "evidence_id": source.id,
+        "quote": repeated[1]["text"],
+        "start": repeated[1]["start"],
+        "end": repeated[1]["end"],
+    }
+    canonical = {"answers": copy.deepcopy(parsed)}
+    for answer in canonical["answers"].values():
+        del answer["confidence"]
+    # The same unchanged persisted source-span validator accepts resolved IDs.
+    assert judge._parse(json.dumps(canonical), spec, compile_question_schema(spec.questions))
+
+
+@pytest.mark.parametrize("mistake", ["unknown_id", "wrong_source", "quote", "offset"])
+def test_structured_passages_reject_invented_or_cross_source_citations(payload, mistake):
+    spec = structured_spec(payload)
+    payload["evidence"].append({**payload["evidence"][0], "id": "other"})
+    spec = TypedEvaluationInput.model_validate(payload)
+    source = spec.evidence[0]
+    span = judge._source_passages(source)[0]
+    response = passage_response(payload, source, span)
+    citation = response["answers"]["safe"]["evidence"][0]
+    if mistake == "unknown_id":
+        citation["passage_id"] = "p-" + "0" * 24
+    elif mistake == "wrong_source":
+        # Identical bytes in another authorized source still have different IDs.
+        citation["evidence_id"] = "other"
+    elif mistake == "quote":
+        citation["quote"] = span["text"]
+    else:
+        citation["start"] = span["start"]
+    with pytest.raises(judge._ResponseValidationError) as caught:
+        judge._parse(
+            json.dumps(response),
+            spec,
+            judge._provider_schema(spec.questions, passages=True),
+            resolve_passages=True,
+        )
+    assert caught.value.diagnostic["category"] == (
+        "evidence_passage" if mistake in {"unknown_id", "wrong_source"} else "schema"
+    )
+
+
+def test_passage_identity_changes_with_source_content_and_budget_is_not_relaxed(payload):
+    spec = structured_spec(payload)
+    original = judge._source_passages(spec.evidence[0])[0]
+    payload["evidence"][0]["text"] += " "
+    payload["evidence"][0]["sha256"] = hashlib.sha256(
+        payload["evidence"][0]["text"].encode()
+    ).hexdigest()
+    changed = TypedEvaluationInput.model_validate(payload)
+    assert judge._source_passages(changed.evidence[0])[0]["id"] != original["id"]
+    prompt = judge._prompt(spec)
+    spec.budget.max_prompt_bytes = len(prompt.encode())
+    assert judge._prompt(spec) == prompt
+    spec.budget.max_prompt_bytes -= 1
+    with pytest.raises(judge.TypedEvaluationError, match="JUDGE_PROMPT_TOO_LARGE"):
+        judge._prompt(spec)
+
+
 @pytest.fixture()
 def provider(monkeypatch, payload):
     class Provider:
@@ -321,6 +424,51 @@ def provider(monkeypatch, payload):
 def job(db_session):
     db_session.expire_all()
     return db_session.query(WorkspaceJob).filter_by(kind=judge.KIND).one()
+
+
+@pytest.mark.parametrize("unknown_passage", [False, True])
+async def test_structured_judge_uses_server_passages_and_preserves_charge_on_invalid_reference(
+    payload, context, provider, db_session, unknown_passage
+):
+    spec = structured_spec(payload)
+    run = db_session.get(Run, context["run_id"])
+    run.input_ref = {"evidence": copy.deepcopy(payload["evidence"])}
+    db_session.commit()
+    span = judge._source_passages(spec.evidence[0])[1]
+    provider.response = passage_response(payload, spec.evidence[0], span)
+    if unknown_passage:
+        provider.response["answers"]["safe"]["evidence"][0]["passage_id"] = "p-" + "0" * 24
+    result = await judge.typed_evaluate(payload, context)
+    assert len(provider.calls) == 1 and result["usage"]["total_tokens"] == 200
+    assert job(db_session).result["charged_tokens"] == 200
+    assert result["generation_contract"]["prompt_protocol_sha256"] == judge._text_hash(
+        judge._PASSAGE_PROMPT_TEMPLATE
+    )
+    assert result["generation_contract"]["prompt_protocol_sha256"] != judge._text_hash(
+        judge._PROMPT_TEMPLATE
+    )
+    assert result["generation_contract"]["response_schema_sha256"] == judge._hash(
+        judge._provider_schema(spec.questions, passages=True)
+    )
+    assert result["confidence"] is None and result["disposition"] == "review"
+    if unknown_passage:
+        assert result["status"] == "failed" and result["reason"] == "JUDGE_RESPONSE_INVALID"
+        assert result["quality_status"] == "unassessed"
+        assert result["response_diagnostic"] == {
+            "category": "evidence_passage",
+            "question_index": 0,
+            "citation_index": 0,
+        }
+        assert all(answer["evidence"] == [] for answer in result["answers"].values())
+    else:
+        assert result["status"] == "completed" and result["quality_status"] == "failed"
+        citation = result["answers"]["safe"]["evidence"][0]
+        assert citation["start"] == span["start"] and citation["quote"] == span["text"]
+        assert "passage_id" not in citation
+        assert (await judge.typed_evaluate(payload, context))["cached"]
+        assert len(provider.calls) == 1
+    persisted = db_session.get(EvaluationScore, result["evaluation_id"])
+    assert persisted.metadata_["typed_evaluation"]["answers"] == result["answers"]
 
 
 async def test_questions_are_asked_independently_with_more_than_two_choices(

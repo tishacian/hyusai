@@ -50,6 +50,7 @@ class AnthropicClient(ModelClient):
                 "content": response.content[0].text,
                 "model": response.model,
                 "id": getattr(response, "id", None),
+                "output_truncated": getattr(response, "stop_reason", None) == "max_tokens",
                 "usage": response_usage(response, provider="anthropic"),
             }
         except ImportError:

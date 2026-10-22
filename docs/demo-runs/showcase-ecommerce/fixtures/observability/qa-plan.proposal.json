@@ -3,6 +3,8 @@
   "provenance": {
     "source": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/protocol.json",
     "sha256": "af32229326200da740c6631bd6e9f75a40df2a288558c7c3ea07189f8b455156",
+    "policy_document_manifest": "docs/demo-runs/showcase-ecommerce/fixtures/manifest.json",
+    "policy_document_manifest_sha256": "13819da32616bb55ceb665d779578ed490ffc6c1bf2cd0a2e8fbf7d3eb23ad27",
     "source_oracles": "synthetic_fixture_proposals",
     "human_review": null
   },
@@ -52,12 +54,95 @@
             "value": "carrier_investigation"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "0"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5001"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5001"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -170,12 +255,95 @@
             "value": "carrier_investigation"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "0"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5002"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5002"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -288,12 +456,95 @@
             "value": "refund"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "49.90"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5003"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5003"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -406,12 +657,95 @@
             "value": "refund"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "49.90"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5004"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5004"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -524,12 +858,95 @@
             "value": "close_duplicate"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "0"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5005"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5005"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -642,12 +1059,95 @@
             "value": "close_duplicate"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "0"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5006"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5006"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -936,12 +1436,95 @@
             "value": "carrier_investigation"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "0"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5009"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5009"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -1054,12 +1637,95 @@
             "value": "carrier_investigation"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "0"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5010"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5010"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -1172,12 +1838,95 @@
             "value": "refund"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "49.90"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5011"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5011"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
@@ -1290,12 +2039,95 @@
             "value": "refund"
           },
           {
+            "id": "expected-amount",
+            "path": [
+              "amount"
+            ],
+            "operator": "equals",
+            "value": "49.90"
+          },
+          {
+            "id": "expected-currency",
+            "path": [
+              "currency"
+            ],
+            "operator": "equals",
+            "value": "EUR"
+          },
+          {
+            "id": "matching-claim",
+            "path": [
+              "claim_id"
+            ],
+            "operator": "equals",
+            "value": "RC-5012"
+          },
+          {
+            "id": "matching-order",
+            "path": [
+              "order_id"
+            ],
+            "operator": "equals",
+            "value": "LM-5012"
+          },
+          {
             "id": "human-required",
             "path": [
               "requires_human"
             ],
             "operator": "equals",
             "value": true
+          },
+          {
+            "id": "ready-proposal",
+            "path": [
+              "summary"
+            ],
+            "operator": "equals",
+            "value": "resolution_ready"
+          },
+          {
+            "id": "no-missing-references",
+            "path": [
+              "missing_references"
+            ],
+            "operator": "equals",
+            "value": []
+          },
+          {
+            "id": "simulated-financial-execution",
+            "path": [
+              "financial_execution"
+            ],
+            "operator": "equals",
+            "value": "simulated"
+          },
+          {
+            "id": "current-policy-document",
+            "path": [
+              "resolution_policy",
+              "document_key"
+            ],
+            "operator": "equals",
+            "value": "refund-policy-v2"
+          },
+          {
+            "id": "current-policy-version",
+            "path": [
+              "resolution_policy",
+              "document_version"
+            ],
+            "operator": "equals",
+            "value": "2"
+          },
+          {
+            "id": "current-policy-digest",
+            "path": [
+              "resolution_policy",
+              "document_sha256"
+            ],
+            "operator": "equals",
+            "value": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5"
           },
           {
             "id": "snapshot-recorded",
