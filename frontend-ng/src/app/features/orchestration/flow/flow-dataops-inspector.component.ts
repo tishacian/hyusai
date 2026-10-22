@@ -21,15 +21,18 @@ import { FlowStore } from './flow.store';
 @Component({
   selector: 'app-flow-dataops-inspector', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FlowDataPrepWorkshopComponent, TypedJudgeEditorComponent, NavLinkDirective], styleUrl: '../../data/dataops-editor.scss',
+  styles: ['.dp-inspector-fence{display:contents;border:0;margin:0;padding:0;min-width:0}'],
   template: `@if (slug() === 'data_prep_v1') {
     @if (failed()) { <p role="alert">{{ i18n.t('dataops.error.load') }}</p> }
     @if(workspace.surfaceFeatureEnabled('data-preparation')) {
       <p class="dp-note" data-testid="prep-summary">{{i18n.t(summary().key,{count:summary().count})}}</p>
-      <button class="dp-button" type="button" data-testid="open-prep-workshop" (click)="opened.set(true)">{{i18n.t('dataops.open_workshop')}}</button>
+      <button class="dp-button" type="button" data-testid="open-prep-workshop" (click)="opened.set(true)">{{i18n.t(readOnly() ? 'dataops.view_workshop' : 'dataops.open_workshop')}}</button>
+      <fieldset class="dp-inspector-fence" [disabled]="readOnly()">
       @for(out of prep().spec.outputs;track $index;let n=$index){<label class="dp-field"><span>{{i18n.t('dataops.output_name')}} · {{out.port}}</span><input class="dp-input" [value]="out.name" (change)="name(n,val($event))" /></label>}
       <details><summary>{{i18n.t('dataops.advanced')}}</summary><label class="dp-field"><span>{{i18n.t('dataops.placement')}}</span><select class="dp-input" [value]="prep().placement??'auto'" (change)="placement(val($event))">@for(mode of placements();track mode){<option [value]="mode">{{mode}}</option>}</select></label><label class="dp-field"><span>{{i18n.t('dataops.timeout')}}</span><input class="dp-input" type="number" min="1" max="86400" [value]="prep().timeout_s??''" (change)="timeout(val($event))" /></label></details>
+      </fieldset>
       @if(written().length){<label class="dp-field"><span>{{i18n.t('dataops.written_output')}}</span><select class="dp-input" [value]="selectedWrittenPort()" (change)="selectedPort.set(val($event))">@for(out of written();track out.port){<option [value]="out.port">{{out.port}}</option>}</select></label>@if(writtenId();as id){<a class="dp-button" [navLink]="{type:'dataset',ref:id}">{{i18n.t('dataops.open_written_output')}}</a>}}
-      @if(opened()){<app-flow-data-prep-workshop [node]="node()" (close)="opened.set(false)" />}
+      @if(opened()){<app-flow-data-prep-workshop [node]="node()" [readOnly]="readOnly()" (close)="opened.set(false)" />}
     }
   } @else if (slug() === 'evaluate_v2') {
     @if (judgeCatalogState() === 'ready') { <app-typed-judge-editor [value]="judge()" [graph]="store.nodes()" [nodeId]="node().id" [skills]="judgeSkills()" [models]="judgeModels()" [modelCatalogState]="judgeModelsState()" (reloadModels)="loadJudgeModels()" (valueChange)="saveJudge($event)" /> }
@@ -39,6 +42,8 @@ import { FlowStore } from './flow.store';
 })
 export class FlowDataOpsInspectorComponent {
   readonly node = input.required<CanonicalFlowNode>(); readonly i18n = inject(I18nService);
+  /** Published version in reading mode: the workshop opens for consultation only. */
+  readonly readOnly = input(false);
   readonly workspace=inject(WorkspaceService); private readonly run=inject(FlowRunService); readonly opened=signal(false); readonly selectedPort=signal('out'); readonly placements=signal(['auto','local']); private readonly api=inject(DataOpsApi);
   readonly summary=computed(()=>prepSummary(this.node()));
   readonly written=computed(()=>{const data=this.run.nodeRuns()[this.node().id]?.data;return Object.entries(data?.outputs??{}).flatMap(([port,ref])=>{const id=typeof ref==='string'?ref:ref.dataset_id;return id?[{port,id}]:[];});});

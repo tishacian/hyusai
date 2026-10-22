@@ -36,3 +36,5 @@ h2 {font-size:16px;margin:0;} h3 {font-size:14px;} h4 {font-size:12px;color:var(
 .cdk-drag-preview {background:var(--ck-bg-panel);color:var(--ck-fg-1);box-shadow:0 3px 12px #0005;}
 @media(max-width:1050px){:host{inset:8px;}.dp-workshop-body{grid-template-columns:190px 1fr;}.dp-workshop-right{grid-column:1/-1;max-height:38vh;border-top:1px solid var(--ck-stroke-2);}.dp-workshop-foot{flex-wrap:wrap;}}
 @media(max-width:650px){.dp-preview-source{grid-template-columns:1fr;}.dp-preview-source .dp-field{grid-row:auto;}.dp-preview-source > small{grid-column:1;}.dp-sql-backdrop{padding:8px;}}
+.dp-fence {display:contents;border:0;margin:0;padding:0;min-width:0;}
+.dp-readonly-note {margin:0;padding:8px 16px;border-bottom:1px solid var(--ck-stroke-2);}
