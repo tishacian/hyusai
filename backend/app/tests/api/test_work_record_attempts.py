@@ -124,3 +124,11 @@ def test_backfill_preview_classifies_runs_and_writes_nothing(sample, db_session)
     assert report["sample"][0]["run_id"] == run_id
     assert report["sample"][0]["record_ref"] == "prévision"
     assert db_session.query(WorkRecordRun).count() == 0
+
+
+def test_follow_up_points_back_to_the_work_case(sample, db_session):
+    from app.tests.api.test_runs_summary import _client as runs_client
+
+    run_id = _invoke(sample, "origin")
+    body = runs_client(db_session, sample.workspace).get(f"/runs/{run_id}/follow-up").json()
+    assert body["work_origin"] == {"experience_slug": "password-reset", "page_id": "home", "record_ref": "prévision"}

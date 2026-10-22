@@ -59,6 +59,12 @@ import {
               </div>
             }
           </dl>
+          @if (!showRunLink() && workOrigin(); as origin) {
+            <a class="detail run-link" data-testid="run-situation-work-case"
+              [routerLink]="['/work', origin.experience_slug, origin.page_id]"
+              [queryParams]="origin.record_ref ? { record: origin.record_ref, attempt: runId() } : {}">{{
+                i18n.t(origin.record_ref ? 'runs.situation.open_work_case' : 'runs.situation.open_work_app', { ref: origin.record_ref ?? '' }) }}</a>
+          }
           @if (showRunLink()) {
             <a class="detail run-link" [routerLink]="['/runs', runId()]">{{ i18n.t('runs.situation.open_run', { id: runId().slice(0, 8) }) }}</a>
           }
@@ -161,6 +167,7 @@ export class RunSituationComponent {
   });
 
   readonly attempt = computed(() => this.detail()?.attempt ?? null);
+  readonly workOrigin = computed(() => this.detail()?.work_origin ?? null);
 
   readonly lines = computed<SituationLine[]>(() => {
     const detail = this.detail();

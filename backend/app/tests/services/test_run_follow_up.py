@@ -245,3 +245,23 @@ def test_detail_hides_payload_facts_when_the_reader_cannot_see_them():
     assert hidden["decision"]["decision_id"] is None
     assert hidden["decision"]["state"] == "awaiting"
     assert hidden["payload_unavailable_reason"] == "evidence_unavailable"
+
+
+from app.services.run_follow_up import run_work_origin  # noqa: E402
+
+
+def test_work_origin_reads_the_run_ingress_and_the_released_record_field():
+    run = SimpleNamespace(
+        input_ref={
+            "claim_id": "RC-7",
+            "_ingress": {"adapter": {"surface": "experience", "experience_slug": "claims", "page_id": "case"}},
+        }
+    )
+    assert run_work_origin(run, record_identity={"namespace": "claim", "input_field": "claim_id"}) == {
+        "experience_slug": "claims",
+        "page_id": "case",
+        "record_ref": "RC-7",
+    }
+    assert run_work_origin(run)["record_ref"] is None
+    assert run_work_origin(SimpleNamespace(input_ref={"_ingress": {"adapter": {"surface": "api"}}})) is None
+    assert run_work_origin(SimpleNamespace(input_ref=None)) is None

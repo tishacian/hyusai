@@ -101,6 +101,10 @@ import {
   toggleStratumBlock,
   viewDenominator,
   viewPeriod,
+  applyReading,
+  parseImpactReading,
+  readingQuery,
+  type ImpactReading,
   type HypervisorBlockRef,
   type HypervisorNamedView,
   type HypervisorStratumId,
@@ -298,7 +302,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           <div class="hv2-reader-controls">
             @if (!presentationTheme()) {
               <label class="hv2-reader-scope">{{ i18n.t('hypervisor.v2.reader.scope') }}
-                <select data-testid="impact-reading-scope" [ngModel]="activeView()?.system_id || ''" [disabled]="systemsProblem() || loading()" (ngModelChange)="setSystemScope($event)">
+                <select data-testid="impact-reading-scope" [ngModel]="activeView()?.system_id || ''" [disabled]="systemsProblem() || loading()" (ngModelChange)="setReadingScope($event)">
                   <option value="">{{ i18n.t('hypervisor.v2.product.all_systems') }}</option>
                   @if (activeView()?.system_id && !selectedScopeAvailable()) { <option [value]="activeView()!.system_id">{{ systemScopeLabel() }}</option> }
                   @for (system of activitySystems(); track system.id) { <option [value]="system.id">{{ system.name }}</option> }
@@ -306,7 +310,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               </label>
               <div class="hv2-reader-periods" role="group" [attr.aria-label]="i18n.t('hypervisor.v2.customize.period')">
                 @for (period of periods; track period) {
-                  <button type="button" [attr.data-testid]="'impact-reading-period-' + period" [attr.aria-pressed]="viewPeriod(activeView()) === period" [disabled]="loading()" (click)="setPeriod(period)">{{ i18n.t('hypervisor.v2.period.' + period) }}</button>
+                  <button type="button" [attr.data-testid]="'impact-reading-period-' + period" [attr.aria-pressed]="viewPeriod(activeView()) === period" [disabled]="loading()" (click)="setReadingPeriod(period)">{{ i18n.t('hypervisor.v2.period.' + period) }}</button>
                 }
               </div>
               <button type="button" class="hv2-text-btn" data-testid="impact-refresh" [disabled]="loading()" (click)="refreshReadingView()">{{ i18n.t('hypervisor.v2.product.refresh') }}</button>
@@ -619,8 +623,12 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                       }
                       <span class="hv2-grow">{{ item.title }}</span>
                       <span class="ck-mono hv2-muted">{{ formatDate(item.created_at) }}</span>
-                      <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
-                      <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="reject(item)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+                      @if (decisionNeedsContext(item)) {
+                        <a class="hv2-btn" data-testid="impact-decision-examine" [navLink]="{ type: 'run', ref: item.target_id! }">{{ i18n.t('hypervisor.v2.decision.examine') }}</a>
+                      } @else {
+                        <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+                        <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="reject(item)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+                      }
                     </li>
                   }
                 </ul>
@@ -998,8 +1006,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           }
         </dl>
         <div class="hv2-btn-row">
-          <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
-          <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+          @if (decisionNeedsContext(decision)) {
+            <!-- A human gate is decided with its object, proposal and evidence in view. -->
+            <a class="hv2-btn" data-testid="impact-decision-examine" [navLink]="{ type: 'run', ref: decision.target_id! }">{{ i18n.t('hypervisor.v2.decision.examine') }}</a>
+            <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.examine_hint') }}</p>
+          } @else {
+            <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+            <button type="button" class="hv2-btn" [disabled]="decisionSending()" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+          }
         </div>
         <a class="hv2-link" [navLink]="{ surface: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
       } @else {
@@ -1686,7 +1700,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       [title]="i18n.t('hypervisor.v2.customize.title')"
       width="720px"
     >
-      @if (activeView(); as view) {
+      @if (savedActiveView(); as view) {
         @if (!canEdit()) {
           <p class="hv2-muted">{{ i18n.t('hypervisor.v2.customize.preview_only') }}</p>
         }
@@ -2376,9 +2390,13 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly pageTipX = signal(0);
   readonly pageTipY = signal(0);
 
-  readonly activeView = computed(() =>
+  /** The saved view, as configured. Edits apply here, never to the reading. */
+  readonly savedActiveView = computed(() =>
     this.views().find((view) => view.id === this.activeViewId()) ?? this.views()[0] ?? null,
   );
+  /** Scope and period chosen while reading; kept across views and in the URL. */
+  readonly reading = signal<ImpactReading | null>(null);
+  readonly activeView = computed(() => applyReading(this.savedActiveView(), this.reading()));
   readonly activeImpactView = computed(() => impactGenericView(this.activeImpactViewId()));
   readonly missionRoomAvailable = computed(() => !!this.workspace.current()?.workspace_app_runtime?.experience?.mission_room);
   readonly impactViewUnavailable = computed(() => !!this.activeImpactViewId() && !this.missionRoomAvailable());
@@ -2658,6 +2676,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       const impactView = parseImpactViewQuery(params.get('view'));
       this.activeImpactViewId.set(impactView);
       this.meetingEventId.set(params.get('eventId'));
+      const reading = parseImpactReading(params.get('scope'), params.get('period'));
+      if (JSON.stringify(reading) !== JSON.stringify(this.reading())) this.reading.set(reading);
       if (impactView && this.activeFacet() !== 'synthese') {
         this.activeFacet.set('synthese');
       }
@@ -3744,7 +3764,36 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   setViewLabel(label: string): void { this.patchActive(view => ({ ...view, label })); }
 
+  /** Reader control: change what is read now, for every view, without saving. */
+  setReadingScope(systemId: string): void {
+    this.reading.set({ systemId: systemId || null, period: viewPeriod(this.activeView()) });
+    this.writeReading();
+    this.applyDayLock({ type: 'reset' }); this.reproject();
+  }
+
+  setReadingPeriod(value: '7d' | '30d' | '90d'): void {
+    this.reading.set({ systemId: this.activeView()?.system_id ?? null, period: value });
+    this.writeReading();
+    this.reload(false);
+  }
+
+  private writeReading(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: readingQuery(this.reading()),
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** A decision on a Run (a human gate) is never taken from a summary card. */
+  decisionNeedsContext(decision: { scope?: string | null; target_id?: string | null }): boolean {
+    return decision.scope === 'run' && !!decision.target_id;
+  }
+
   setSystemScope(systemId: string): void {
+    // Configuring a view sets its saved scope; the reading follows it.
+    this.reading.set(null); this.writeReading();
     this.patchActive(view => ({ ...view, system_id: systemId || null }));
     this.applyDayLock({ type: 'reset' }); this.reproject();
   }
@@ -3803,6 +3852,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   setPeriod(value: '7d' | '30d' | '90d'): void {
+    this.reading.set(null); this.writeReading();
     this.patchActive((view) => ({ ...view, period: value }));
     this.reload(false);
   }
@@ -4083,7 +4133,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   private patchActive(mutate: (view: HypervisorNamedView) => HypervisorNamedView): void {
-    const current = this.activeView();
+    const current = this.savedActiveView();
     if (!current) return;
     this.views.set(replaceView(this.views(), mutate(cloneView(current))));
     this.saveMessage.set('hypervisor.v2.product.unsaved');

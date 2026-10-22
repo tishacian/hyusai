@@ -92,6 +92,8 @@ export interface RunFollowUpDetail extends RunFollowUp {
   subject: { field: string; value: string } | null;
   proposal: string | null;
   decision: RunDecisionState | null;
+  /** Where the Run started in Work, when it did; absent on older servers. */
+  work_origin?: { experience_slug: string; page_id: string; record_ref: string | null } | null;
   payload_unavailable_reason: string | null;
 }
 

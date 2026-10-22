@@ -766,7 +766,30 @@ def get_run_follow_up(
             db, decision=candidate, paused_run=r, workspace_id=workspace.id
         ):
             decision = candidate
-    return run_follow_up_detail(r, payload_visible=payload_visible, decision=decision)
+    return run_follow_up_detail(
+        r,
+        payload_visible=payload_visible,
+        decision=decision,
+        record_identity=_released_record_identity(db, r, workspace_id=workspace.id),
+    )
+
+
+def _released_record_identity(db: DBSession, run: Run, *, workspace_id: str) -> Optional[dict]:
+    """Record identity of the released Work binding that started this Run."""
+    ingress = (run.input_ref or {}).get("_ingress") if isinstance(run.input_ref, dict) else None
+    adapter = ingress.get("adapter") if isinstance(ingress, dict) else None
+    if not isinstance(adapter, dict) or adapter.get("surface") != "experience":
+        return None
+    from app.models.experience import ExperienceRelease
+
+    release = db.get(ExperienceRelease, adapter.get("experience_release_id") or "")
+    if release is None or getattr(release, "workspace_id", workspace_id) != workspace_id:
+        return None
+    for item in release.bindings_snapshot or []:
+        if isinstance(item, dict) and item.get("binding_key") == adapter.get("binding_key"):
+            identity = item.get("record_identity")
+            return dict(identity) if isinstance(identity, dict) else None
+    return None
 
 
 @router.get("/{run_id}/execution-view")

@@ -245,3 +245,24 @@ test('Impact sommaire links keep theme within the zone and drop it on zone chang
     '/runs',
   );
 });
+
+import { applyReading, parseImpactReading, readingQuery } from './hypervisor-v2-views';
+
+test('a reading keeps scope and period across views without changing the saved view', () => {
+  const saved = { id: 'direction', label: 'Direction', system_id: null, period: '90d' } as unknown as Parameters<typeof applyReading>[0];
+  const read = applyReading(saved, { systemId: 'luma', period: '7d' });
+  assert.equal(read?.system_id, 'luma');
+  assert.equal(read?.period, '7d');
+  assert.equal((saved as { period: string }).period, '90d');
+  assert.equal(applyReading(saved, null), saved);
+});
+
+test('the reading round-trips through the URL and rejects partial or invalid values', () => {
+  assert.deepEqual(parseImpactReading('luma', '7d'), { systemId: 'luma', period: '7d' });
+  assert.deepEqual(parseImpactReading('all', '30d'), { systemId: null, period: '30d' });
+  assert.equal(parseImpactReading(null, null), null);
+  assert.equal(parseImpactReading('luma', '12d'), null);
+  assert.equal(parseImpactReading(null, '7d'), null);
+  assert.deepEqual(readingQuery({ systemId: null, period: '90d' }), { scope: 'all', period: '90d' });
+  assert.deepEqual(readingQuery(null), { scope: null, period: null });
+});
