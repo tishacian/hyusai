@@ -179,3 +179,11 @@ def test_resolver_prefers_the_released_contract_and_validates_providers(monkeypa
         "namespace": "claim", "input_field": "claim_id",
     }
     assert record_identity.resolve_record_identity({"binding_key": "k"}, workspace=None, experience_slug="app") is None
+
+
+def test_follow_up_points_back_to_the_work_case(sample, db_session):
+    from app.tests.api.test_runs_summary import _client as runs_client
+
+    run_id = _invoke(sample, "origin")
+    body = runs_client(db_session, sample.workspace).get(f"/runs/{run_id}/follow-up").json()
+    assert body["work_origin"] == {"experience_slug": "password-reset", "page_id": "home", "record_ref": "prévision"}

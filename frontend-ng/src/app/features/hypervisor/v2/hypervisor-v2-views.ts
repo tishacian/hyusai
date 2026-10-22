@@ -457,3 +457,33 @@ export function availableHypervisorViews(
     ? [...portfolio, ...IMPACT_GENERIC_VIEWS.map(cloneView)]
     : portfolio;
 }
+
+/**
+ * Reading context of Impact: the scope and period a reader chose, kept while
+ * moving between views and carried in the URL. It never changes a saved view.
+ */
+export interface ImpactReading {
+  systemId: string | null;
+  period: HypervisorViewPeriod;
+}
+
+export function applyReading(
+  view: HypervisorNamedView | null,
+  reading: ImpactReading | null,
+): HypervisorNamedView | null {
+  if (!view || !reading) return view;
+  return { ...view, system_id: reading.systemId, period: reading.period };
+}
+
+/** `scope` is a System id or `all`; `period` one of 7d/30d/90d. */
+export function parseImpactReading(scope: string | null, period: string | null): ImpactReading | null {
+  if (scope === null && period === null) return null;
+  const validPeriod = period === '7d' || period === '30d' || period === '90d' ? period : null;
+  const validScope = scope === null ? undefined : scope === 'all' ? null : scope.trim() ? scope.trim() : undefined;
+  if (validPeriod === null || validScope === undefined) return null;
+  return { systemId: validScope, period: validPeriod };
+}
+
+export function readingQuery(reading: ImpactReading | null): { scope: string | null; period: string | null } {
+  return reading ? { scope: reading.systemId ?? 'all', period: reading.period } : { scope: null, period: null };
+}

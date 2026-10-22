@@ -213,12 +213,38 @@ def run_decision_state(
     return state
 
 
+def run_work_origin(run: Any, *, record_identity: Any = None) -> Optional[dict[str, Any]]:
+    """Where a Run started in Work, so a reader can return to the case.
+
+    Read from the Run's own ingress provenance; ``record_identity`` is the
+    released binding contract (when the caller loaded it) that names the
+    payload field carrying the record reference.
+    """
+    input_ref = getattr(run, "input_ref", None)
+    ingress = input_ref.get("_ingress") if isinstance(input_ref, dict) else None
+    adapter = ingress.get("adapter") if isinstance(ingress, dict) else None
+    if not isinstance(adapter, dict) or adapter.get("surface") != "experience":
+        return None
+    slug = _text(adapter.get("experience_slug"))
+    page_id = _text(adapter.get("page_id"))
+    if not slug or not page_id:
+        return None
+    record_ref = None
+    if isinstance(record_identity, dict):
+        field = record_identity.get("input_field")
+        value = input_ref.get(field) if isinstance(field, str) else None
+        if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value).strip():
+            record_ref = str(value).strip()[:200]
+    return {"experience_slug": slug, "page_id": page_id, "record_ref": record_ref}
+
+
 def run_follow_up_detail(
     run: Any,
     *,
     payload_visible: bool,
     decision: Any = None,
     now: Optional[datetime] = None,
+    record_identity: Any = None,
 ) -> dict[str, Any]:
     """The follow-up read model served by GET /runs/{id}/follow-up."""
     follow_up = run_follow_up(run, payload_visible=payload_visible)
@@ -238,5 +264,6 @@ def run_follow_up_detail(
         "subject": run_subject(run) if payload_visible else None,
         "proposal": proposal,
         "decision": decision_state,
+        "work_origin": run_work_origin(run, record_identity=record_identity) if payload_visible else None,
         "payload_unavailable_reason": None if payload_visible else "evidence_unavailable",
     }
