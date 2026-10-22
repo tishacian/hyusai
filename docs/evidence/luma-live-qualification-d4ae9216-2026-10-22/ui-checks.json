@@ -1,0 +1,71 @@
+{
+  "served_revision": "d4ae921669195dc18c95319736808f9d9fef2987",
+  "browser": "Chromium",
+  "locale": "fr-FR",
+  "scope": "desktop, light theme, preserved results; no human approval submitted",
+  "screens": [
+    {
+      "screen": "work-expired-approval",
+      "path": "/work/reclamations/studio",
+      "errors": [],
+      "layout": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollContainers": []
+      }
+    },
+    {
+      "screen": "campaign-targeted-retry",
+      "path": "/observability",
+      "errors": [],
+      "layout": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollContainers": [
+          {
+            "tag": "MAIN",
+            "classes": "ck-scroll shell-main",
+            "height": 924,
+            "scrollHeight": 14840
+          }
+        ]
+      }
+    },
+    {
+      "screen": "retry-quality",
+      "path": "/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff",
+      "errors": [],
+      "layout": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollContainers": [
+          {
+            "tag": "MAIN",
+            "classes": "ck-scroll shell-main",
+            "height": 924,
+            "scrollHeight": 1557
+          }
+        ]
+      }
+    },
+    {
+      "screen": "retry-usage",
+      "path": "/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff",
+      "errors": [],
+      "layout": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollContainers": [
+          {
+            "tag": "MAIN",
+            "classes": "ck-scroll shell-main",
+            "height": 924,
+            "scrollHeight": 1547
+          }
+        ]
+      }
+    }
+  ],
+  "axe_live": "not_run_module_unavailable",
+  "usage_pagination_verified": "11 calls, first page 10 and second page 1"
+}

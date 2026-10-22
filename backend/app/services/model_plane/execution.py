@@ -21,7 +21,7 @@ from app.core.config import settings
 from app.services.model_plane import workspace_config
 
 TEXT_PROVIDERS = ("openai", "azure_openai", "ollama", "huggingface")
-_MODEL_PREFIXES = (*TEXT_PROVIDERS, "azure", "anthropic")
+_MODEL_PREFIXES = (*TEXT_PROVIDERS, "azure", "anthropic", "typesafe")
 
 
 class ModelExecutionError(ValueError):
@@ -132,7 +132,10 @@ def resolve_model_execution(
     model: str | None = None,
     model_source: str = "input",
     legacy_defaults: bool = False,
+    capability: str = "text_generation",
 ) -> ModelExecution:
+    if capability not in {"text_generation", "typed_decisions"}:
+        raise ModelExecutionError("Unknown model capability.")
     routing = (
         workspace_config.get_routing(workspace)
         if workspace is not None
@@ -150,7 +153,10 @@ def resolve_model_execution(
             workspace,
             provider=_text(route.get("provider")) or None,
             model=_text(route.get("model")) or None,
+            capability=capability,
         )
+        if resolved.provider == "typesafe" and route.get("fallback_chain"):
+            raise ModelExecutionError("typesafe: typed decisions do not support fallbacks.")
         fallbacks = tuple(
             resolve_model_execution(workspace, provider=_text(item))
             for item in (route.get("fallback_chain") or [])
@@ -166,6 +172,10 @@ def resolve_model_execution(
     selected = _text(routing["default_provider"]) if inherited else requested
     legacy = "azure" if selected == "azure" else None
     selected = "openai" if legacy else selected
+    if selected == "typesafe" and (capability != "typed_decisions" or inherited):
+        raise ModelExecutionError(
+            "typesafe: select this provider explicitly for typed decisions, not text generation."
+        )
     if selected.startswith("serving_"):
         return _resolve_serving_execution(
             workspace,
@@ -175,7 +185,7 @@ def resolve_model_execution(
             "workspace" if inherited else requested,
             routing if inherited else {},
         )
-    if selected not in (*TEXT_PROVIDERS, "anthropic"):
+    if selected not in (*TEXT_PROVIDERS, "anthropic", "typesafe"):
         raise ModelExecutionError(
             f"{selected or 'unknown'}: text generation is not supported by this runtime."
         )
@@ -216,7 +226,7 @@ def resolve_model_execution(
             raise ModelExecutionError("Choose a non-empty model identifier.")
         from app.services.model_plane.providers import model_compatibility
 
-        if model_compatibility(selected, chosen) == "other":
+        if selected != "typesafe" and model_compatibility(selected, chosen) == "other":
             raise ModelExecutionError(f"{selected}: this model is not a text-generation model.")
     if legacy:
         key = os.getenv("OPENAI_API_KEY")
@@ -242,6 +252,7 @@ def resolve_model_execution(
             "openai": "OPENAI_API_KEY",
             "azure_openai": "AZURE_OPENAI_API_KEY",
             "anthropic": "ANTHROPIC_API_KEY",
+            "typesafe": "TYPESAFE_API_KEY",
         }[selected]
         key, credential_source = _credential(workspace, selected, env)
     endpoint = None
@@ -296,6 +307,8 @@ def resolve_model_execution(
 
 
 def build_model_client(execution: ModelExecution, *, no_retries: bool = False):
+    if execution.provider == "typesafe":
+        raise ModelExecutionError("typesafe: use the typed-decision transport.")
     if execution.artifact_provenance:
         from app.services.huggingface.inference import ArtifactInferenceClient
 
@@ -351,6 +364,22 @@ def skill_model_request(
         slug = str(params.get("skill_slug") or "")
         frozen = params.get("frozen_input")
         payload = {**payload, **(frozen if isinstance(frozen, Mapping) else {})}
+    if slug == "evaluate_v2":
+        # DAG injection replaces this private block from the published graph;
+        # ordinary inputs and upstream output cannot select a Judge connection.
+        block = payload.get("_typed_evaluation")
+        config = block.get("typed_evaluation") if isinstance(block, Mapping) else None
+        tariff = config.get("tariff") if isinstance(config, Mapping) else None
+        if isinstance(tariff, Mapping):
+            provider, model = _text(tariff.get("provider")), _text(tariff.get("model"))
+            if not provider or not model:
+                raise ModelExecutionError("The published Judge requires a provider and model.")
+            return {
+                "provider": provider,
+                "model": model,
+                "model_source": "published_judge",
+                "capability": "typed_decisions",
+            }
     providers = {
         "azure_llm_v1": "azure",
         "ollama_llm_v1": "ollama",
@@ -428,6 +457,8 @@ async def complete_model(
     )
 
     usage = ctx.setdefault("_provider_usage_v1", new_provider_usage_accumulator())
+    if execution.provider == "typesafe" and execution._fallbacks:
+        raise ModelExecutionError("typesafe: typed decisions do not support fallbacks.")
     attempts: list[dict[str, Any]] = []
     candidates = (execution, *execution._fallbacks)
     for index, candidate in enumerate(candidates):
@@ -464,6 +495,12 @@ async def complete_model(
             if index == len(candidates) - 1 or ctx.get("_model_stream_started"):
                 if isinstance(exc, ModelExecutionError):
                     raise
+                if candidate.provider == "typesafe":
+                    from app.services.model_plane.typesafe import TypeSafeError
+
+                    if isinstance(exc, TypeSafeError):
+                        # The native adapter emits only fixed safe codes.
+                        raise
                 # SDK errors can include request details. The canonical ledger
                 # gets a safe cause; provider logs retain transport diagnostics.
                 raise ModelExecutionError(
@@ -483,6 +520,19 @@ async def complete_model(
 
 def _provider_generation_options(execution, generation_options):
     options = copy.deepcopy(dict(generation_options or {}))
+    if execution.provider == "typesafe":
+        if set(options) - {"typed_questions", "max_tokens", "timeout_s"} or not isinstance(
+            options.get("typed_questions"), dict
+        ):
+            raise ModelExecutionError("typesafe: explicit typed questions are required.")
+        if type(options.get("max_tokens")) is not int or not 1 <= options["max_tokens"] <= 8192:
+            raise ModelExecutionError("typesafe: a bounded output reservation is required.")
+        timeout = options.get("timeout_s", 60)
+        if type(timeout) not in {int, float} or not 0 < timeout <= 120:
+            raise ModelExecutionError("typesafe: timeout must be between zero and 120 seconds.")
+        return options
+    if "typed_questions" in options:
+        raise ModelExecutionError("Typed questions require a typed-decision provider.")
     if "json_schema" in options:
         from app.services.flow_contracts import validate_schema_definition
 
@@ -535,6 +585,23 @@ async def _complete_once_scoped(
 
     try:
         options = _provider_generation_options(execution, generation_options)
+        if execution.provider == "typesafe":
+            from app.services.model_plane import typesafe
+
+            if stream or images:
+                raise ModelExecutionError("typesafe: streaming and images are not supported.")
+            if (
+                not isinstance(execution._api_key, str)
+                or not execution._api_key
+                or any(not 33 <= ord(char) <= 126 for char in execution._api_key)
+                or execution.credential_source == "not_configured"
+            ):
+                raise ModelExecutionError(
+                    "typesafe: connection is not configured. Open Models & Providers."
+                )
+            typesafe.validate_request(
+                model=execution.model, state=prompt, questions=options["typed_questions"]
+            )
         if "image_parts" in options:
             raise ModelExecutionError("Images require server-resolved ModelImage bytes.")
         if images:
@@ -549,9 +616,13 @@ async def _complete_once_scoped(
     except Exception as exc:
         raise _DispatchRefused(exc) from exc
     client = (
-        build_model_client(execution, no_retries=True)
-        if ctx.get("_model_no_retries") is True or tracking_active()
-        else build_model_client(execution)
+        None
+        if execution.provider == "typesafe"
+        else (
+            build_model_client(execution, no_retries=True)
+            if ctx.get("_model_no_retries") is True or tracking_active()
+            else build_model_client(execution)
+        )
     )
     sink = ctx.get("token_sink") if stream else None
     returned_model = execution.model
@@ -575,6 +646,7 @@ async def _complete_once_scoped(
         {"prompt": prompt, "options": options},
         output_token_bound=output_limit(options),
         qualified=not callable(before_dispatch) or callable(atomic_admission),
+        operation="typed_decisions" if execution.provider == "typesafe" else "completion",
         admission_hook=(
             lambda session, record: atomic_admission(
                 session, record, execution, prompt, neutral_options
@@ -597,7 +669,29 @@ async def _complete_once_scoped(
     evidence["attempts"][-1]["dispatch_started"] = True
     ctx["_model_execution_evidence"] = evidence
     try:
-        if callable(sink):
+        if execution.provider == "typesafe":
+            from app.services.model_plane import typesafe
+
+            try:
+                result = await typesafe.evaluate(
+                    api_key=execution._api_key,
+                    model=execution.model,
+                    state=prompt,
+                    questions=options["typed_questions"],
+                    timeout_s=options.get("timeout_s", 60),
+                )
+            except typesafe.TypeSafeError as exc:
+                # A rejected response can still contain measured provider
+                # usage. Settle it without accepting its decision payload.
+                result = {"usage": exc.usage, "model": exc.returned_model}
+                call.observe(result)
+                raise
+            call.observe(result)
+            ctx["_model_response_usage"] = result.get("usage", {})
+            completion = ""
+            returned_model = result["model"]
+            returned_model_reported = result.get("returned_model_reported") is True
+        elif callable(sink):
             parts = []
             async for chunk in client.stream(model=execution.model, prompt=prompt, **options):
                 delta = chunk.get("delta") or chunk.get("content") or chunk.get("response") or ""
@@ -634,6 +728,11 @@ async def _complete_once_scoped(
         "completion": completion,
         "model": returned_model,
         "returned_model_reported": returned_model_reported,
+        **(
+            {"typed_answers": result["answers"]}
+            if execution.provider == "typesafe" and isinstance(result, dict)
+            else {}
+        ),
         **(
             {"output_truncated": True}
             if isinstance(result, dict) and result.get("output_truncated") is True

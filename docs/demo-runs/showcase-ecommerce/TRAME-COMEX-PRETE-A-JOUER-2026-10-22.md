@@ -1,8 +1,8 @@
 # Luma — conducteur COMEX prêt à jouer
 
 **Format : 20 minutes + 5 minutes de questions.** Trois casquettes : utilisateur
-SAV, builder, dirigeant. Version préparée le 22 octobre 2026 sur la révision
-en service `a2be58d1`.
+SAV, builder, dirigeant. Version préparée le 22 octobre 2026 sur `a2be58d1`,
+actualisée après déploiement de `d4ae9216` et reprise ciblée réussie.
 
 ## Avant d'entrer en salle — deux minutes
 
@@ -24,14 +24,22 @@ exécuté, sans prétendre qu'il vient d'être recalculé.
 
 **État de séance à connaître :** le pilote RC-5003 a atteint la revue humaine,
 avec cinq critères Judge satisfaits et onze appels tracés. Le plafond de
-2 000 EUR/mois est actif. La campagne de 48 essais a démarré ; son premier essai
-est passé, puis un scoring DataOps a été bloqué par une transaction du Judge.
-L'opérateur l'a débloqué ; la campagne a repris en conservant ses échecs et
-résultats non évalués. Le correctif de transaction reste à déployer.
-Ne pas annoncer la qualification des 48 essais. Avant cette livraison, utiliser
-les résultats conservés ci-dessous ; éviter les boutons Enquêter, recalcul de
-file et Actualiser la prévision. Une lecture ou l'ouverture d'une carte de
-résultat ne constitue pas un nouveau calcul.
+2 000 EUR/mois est actif. La campagne initiale est terminée : **38 conformes,
+9 non évalués techniquement, 1 sans proposition attendue**. L'incident de scoring
+lié au verrou du Judge est conservé dans l'historique ; le correctif est déployé.
+La [reprise ciblée du deuxième essai](https://agentium.papai.ai/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff)
+est passée avec **14 assertions métier, 12 contrôles de trajectoire et les cinq
+critères Judge**, puis s'est arrêtée à la revue humaine, avant toute action métier. Elle figure à part,
+sans réécrire les 48 résultats initiaux. L'attestation Usage a été renouvelée
+sur la nouvelle révision.
+
+Ne pas annoncer la qualification complète des 48 essais : huit refus Judge
+pour preuve trop longue et le parcours interrompu après erreur fournisseur
+restent non requalifiés. Utiliser les résultats conservés pour la séquence
+préparée ; une lecture ou l'ouverture d'une carte ne constitue pas un nouveau
+calcul. Une relance de la file ou de la prévision est une recette distincte.
+Le [rapport de clôture et reprise](../../ops/luma-live-qualification-d4ae9216-2026-10-22.md)
+précise les preuves et leurs limites.
 
 Si une page attend sa source, passer au Run conservé correspondant et dire
 qu'il s'agit de la dernière exécution vérifiée. La lecture de ces écrans doit
@@ -75,9 +83,12 @@ L'état courant et les reçus affichés priment sur les fixtures d'origine.
 
 **État constaté à 14:00 UTC :** la validation de l'ancienne enquête RC-1042,
 ouverte le 19 octobre, a expiré après 72 heures. Le rejet automatique a été suivi
-d'une tentative d'action refusée faute d'approbation. Son message rouge actuel
-ne signifie pas que le Judge a rejeté les preuves. Montrer ici les faits et les
-documents ; utiliser ensuite le pilote RC-5003 pour le parcours d'enquête vérifié.
+d'une tentative d'action refusée faute d'approbation. Le message rouge observé
+alors ne signifiait pas que le Judge avait rejeté les preuves.
+**Depuis d4ae9216 :** une alerte ambre explique « Le délai de validation a
+expiré », conserve l'enquête et invite à vérifier les sources avant une nouvelle
+analyse. Montrer ici les faits et les documents ; utiliser ensuite le pilote
+RC-5003 pour le parcours d'enquête vérifié.
 Ne pas présenter le reçu ancien comme le résultat de cette tentative.
 
 ### 2. L'agent mène une enquête dans un mandat précis — 1 minute 30
@@ -271,11 +282,20 @@ puis la [campagne QA](https://agentium.papai.ai/observability?facet=quality&qual
 > un planning. Avant de faire évoluer le système, on peut rejouer des dossiers
 > avec des critères relus et comparer les versions en conservant les échecs. »
 
-Planning et webhook permanents sont en pause. La campagne comprend 12 dossiers,
-deux versions et deux répétitions, soit 48 exécutions prévues. Son état courant
-est une recette, pas une certification. Le Judge du pilote est réel ; aucun
-rapport Giskard ni calibration statistique n'est établi par cette campagne.
-Ne pas ouvrir cette annexe pour présenter le blocage comme une réussite.
+Planning et webhook permanents sont en pause. La campagne a terminé ses
+12 dossiers × deux versions × deux répétitions : **38/48 conformes**, neuf
+erreurs techniques et une proposition attendue absente. Ouvrir le premier cas,
+côté candidat, puis la reprise distincte : l'échec initial reste visible et la
+nouvelle tentative passe jusqu'à la frontière humaine. Attendre le chargement
+de la liste avant de lire les compteurs. Si besoin, ouvrir le
+[Run de reprise](https://agentium.papai.ai/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff).
+
+> « On corrige un incident et on reprend un seul dossier. L'échec reste dans
+> l'historique ; la nouvelle preuve est ajoutée à côté. »
+
+C'est une recette, pas une certification. Les 38 parcours conformes comprennent
+30 contrôles Judge réussis et huit escalades humaines prévues faute de preuves.
+Aucun rapport Giskard ni calibration statistique n'est établi par cette campagne.
 
 ## Acte 3 — comment un dirigeant décide, 4 minutes
 
@@ -343,6 +363,13 @@ Le plafond est unique pour Showcase, Luma inclus. Les tarifs EUR incluent une
 conversion documentée ; les anciens appels USD restent en USD. Coût calculé ne
 signifie pas facture. Le pilote métier RC-5003, antérieur aux tarifs EUR,
 conserve **52 697 tokens / 0,0805584 USD** : ne pas mélanger les deux Runs.
+
+**Si la reprise vient d'être montrée :** ouvrir son
+[onglet Usage](https://agentium.papai.ai/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff?facet=usage) :
+**11 appels, 54 014 tokens, 0,069011 EUR calculés**. Le sous-total connu des
+48 essais initiaux reste séparé, **3,128948 EUR**, avec un appel échoué sans
+reçu de consommation. Sa réservation n'est pas une dépense mesurée. Ne pas
+additionner une vue campagne incluant la reprise avec ces mêmes 11 appels.
 
 ## Conclusion — 30 secondes, retour à Work
 

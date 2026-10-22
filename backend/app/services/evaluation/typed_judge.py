@@ -937,6 +937,22 @@ async def _evaluate(db, spec, ctx):
     # No unqualified provider fallback, including on timeouts and invalid JSON.
     execution = replace(execution, _fallbacks=())
     ctx["_model_policy_check"](execution)
+    decision_questions = None
+    decision_metadata = None
+    if execution.provider == "typesafe":
+        from app.services.evaluation.typesafe_judge import compile_request
+
+        try:
+            decision_prompt, decision_questions = compile_request(spec)
+            if ctx.get("_typed_judge_vision_route"):
+                raise ValueError("TypeSafe Judge does not support vision routes.")
+        except ValueError as exc:
+            code = (
+                "JUDGE_PROMPT_TOO_LARGE"
+                if str(exc) == "JUDGE_PROMPT_TOO_LARGE"
+                else "JUDGE_TYPESAFE_CONTRACT_UNSUPPORTED"
+            )
+            raise TypedEvaluationError(code) from None
     route = _vision_route(db, spec, ctx, workspace, user, run, execution)
     images = _images(spec, ctx, route)
     evaluation_context = (
@@ -950,7 +966,7 @@ async def _evaluate(db, spec, ctx):
         if passages
         else _provider_schema(spec.questions)
     )
-    prompt = _prompt(spec)
+    prompt = decision_prompt if decision_questions is not None else _prompt(spec)
     parameters = _generation_parameters(execution, spec)
     generation_contract = {
         "schema_version": 1,
@@ -961,6 +977,20 @@ async def _evaluate(db, spec, ctx):
         "prompt_sha256": _text_hash(prompt),
         "response_schema_sha256": _hash(schema),
     }
+    if decision_questions is not None:
+        from app.services.evaluation.typesafe_judge import PROTOCOL
+
+        schema = decision_questions
+        parameters = {"max_tokens": spec.budget.max_output_tokens, "timeout_s": timeout_s}
+        generation_contract = {
+            "schema_version": 1,
+            "protocol": PROTOCOL,
+            "parameters": parameters,
+            "state_sha256": _text_hash(prompt),
+            "questions_sha256": _hash(decision_questions),
+            "boolean_threshold": 0.5,
+            "answer_citations_available": False,
+        }
 
     def decorate(result):
         result["evaluation_context"] = evaluation_context
@@ -1173,7 +1203,11 @@ async def _evaluate(db, spec, ctx):
                 prompt,
                 local_ctx,
                 generation_options={
-                    "json_schema": schema,
+                    **(
+                        {"typed_questions": decision_questions}
+                        if decision_questions is not None
+                        else {"json_schema": schema}
+                    ),
                     **parameters,
                 },
                 stream=False,
@@ -1189,13 +1223,18 @@ async def _evaluate(db, spec, ctx):
             raise TypedEvaluationError("JUDGE_VISION_RETURNED_MODEL_CHANGED")
         if output.get("output_truncated") is True:
             raise TypedEvaluationError("JUDGE_OUTPUT_TRUNCATED")
-        answers = _parse(
-            output.get("completion"),
-            spec,
-            schema,
-            resolve_quotes=not passages,
-            resolve_passages=passages,
-        )
+        if decision_questions is not None:
+            from app.services.evaluation.typesafe_judge import canonical_answers
+
+            answers, decision_metadata = canonical_answers(spec, output.get("typed_answers"))
+        else:
+            answers = _parse(
+                output.get("completion"),
+                spec,
+                schema,
+                resolve_quotes=not passages,
+                resolve_passages=passages,
+            )
         status = (
             "completed" if all(a["status"] == "answered" for a in answers.values()) else "partial"
         )
@@ -1203,13 +1242,17 @@ async def _evaluate(db, spec, ctx):
         cancelled, reason, status = True, "JUDGE_CANCELLED", "failed"
         answers = _unanswered(spec, reason, invalid=True)
     except Exception as exc:
+        from app.services.model_plane.typesafe import TypeSafeError
         from app.services.model_usage import UsageError
 
         if isinstance(exc, _ResponseValidationError):
             response_diagnostic = exc.diagnostic
         reason = (
             exc.code
-            if isinstance(exc, (TypedEvaluationError, window_budget.GovernanceError, UsageError))
+            if isinstance(
+                exc,
+                (TypedEvaluationError, window_budget.GovernanceError, UsageError, TypeSafeError),
+            )
             else "JUDGE_TIMEOUT"
             if isinstance(exc, TimeoutError)
             else "JUDGE_PROVIDER_UNAVAILABLE"
@@ -1241,6 +1284,8 @@ async def _evaluate(db, spec, ctx):
         model=local_ctx.get("_model_execution_evidence", execution.public()),
         examined=len(spec.evidence) if status != "failed" else 0,
     )
+    if decision_metadata is not None and status != "failed":
+        result["typed_decisions"] = decision_metadata
     if response_diagnostic is not None:
         result["response_diagnostic"] = response_diagnostic
     # A late revocation prevents returning content but never rolls back usage.

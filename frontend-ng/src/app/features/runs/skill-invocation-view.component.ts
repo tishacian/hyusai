@@ -90,7 +90,7 @@ import {
       <section class="ck-surface rounded-md p-4 mb-4"><app-model-execution [resolution]="model" /></section>
     }
 
-    @if (judgeResult()?.status === 'failed') {
+    @if (judgeResult() && (!projectionEnabled() || judgeResult()?.status === 'failed')) {
       <app-typed-judge-result class="invocation-quality" [value]="invocation()?.output_ref" [compact]="true" />
     }
 

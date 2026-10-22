@@ -15,6 +15,11 @@
  */
 
 export const RESOURCES_FR = {
+  "resources.models.state.typed_decisions": "Décisions typées · Typed Evaluation",
+  "resources.providers.typed_decisions": "Moteur de décisions typées pour Typed Evaluation. Les conversations et les replis de génération utilisent leurs propres modèles.",
+  "resources.providers.typesafe_key": "Créer une clé dans la console TypeSafe ↗",
+  "resources.providers.typesafe_budget": "Les plafonds budgétaires bloquants ne sont pas encore qualifiés pour ce fournisseur ; leur activation empêche ses appels.",
+
   "resources.compare.title": "Comparer une décision d’agent",
   "resources.compare.description": "Comparez deux modèles sur les mêmes consignes et observations retenues. Les outils proposés ne seront pas exécutés.",
   "resources.compare.open": "Choisir une décision",
@@ -511,6 +516,7 @@ export const RESOURCES_FR = {
   "resources.models.search": "Rechercher un modèle",
   "resources.models.usage": "Usage",
   "resources.models.usage.text": "Génération de texte",
+  "resources.models.usage.typed_decisions": "Décisions typées",
   "resources.models.usage.all": "Tous les modèles découverts",
   "resources.models.connect": "Ouvrir les fournisseurs",
   "resources.models.filtered_empty": "Aucun modèle ne correspond aux filtres",
@@ -1217,6 +1223,11 @@ export const RESOURCES_FR = {
  * other, before the guard even runs.
  */
 export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
+  "resources.models.state.typed_decisions": "Typed decisions · Typed Evaluation",
+  "resources.providers.typed_decisions": "Typed decision engine for Typed Evaluation. Conversations and text-generation fallbacks use their own models.",
+  "resources.providers.typesafe_key": "Create a key in the TypeSafe console ↗",
+  "resources.providers.typesafe_budget": "Blocking budget limits are not yet qualified for this provider; active limits prevent its calls.",
+
   "resources.compare.title": "Compare an agent decision",
   "resources.compare.description": "Compare two models on the same retained instructions and observations. Proposed tools will not execute.",
   "resources.compare.open": "Choose a decision",
@@ -1713,6 +1724,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   "resources.models.search": "Search models",
   "resources.models.usage": "Task",
   "resources.models.usage.text": "Text generation",
+  "resources.models.usage.typed_decisions": "Typed decisions",
   "resources.models.usage.all": "All discovered models",
   "resources.models.connect": "Open providers",
   "resources.models.filtered_empty": "No models match these filters",

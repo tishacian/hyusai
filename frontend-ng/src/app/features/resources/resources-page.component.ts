@@ -268,6 +268,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             {{ i18n.t('resources.models.usage') }}
             <select [ngModel]="modelUsage()" (ngModelChange)="modelUsage.set($event)" class="block mt-1 rounded px-3 py-2" [style]="portalInputStyle">
               <option value="text_generation">{{ i18n.t('resources.models.usage.text') }}</option>
+              <option value="typed_decisions">{{ i18n.t('resources.models.usage.typed_decisions') }}</option>
               <option value="all">{{ i18n.t('resources.models.usage.all') }}</option>
             </select>
           </label>
@@ -572,7 +573,10 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             @if (p.error) {
               <p role="alert" class="text-xs break-words" style="color:var(--ck-neg);">{{ p.error }}</p>
             }
-            @if (p.runtime_available === false) {
+            @if (p.typed_decisions_available) {
+              <p class="text-xs" style="color:var(--ck-fg-2);">{{ i18n.t('resources.providers.typed_decisions') }}</p>
+              @if (p.key === 'typesafe') { <p class="text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.providers.typesafe_budget') }}</p> }
+            } @else if (p.runtime_available === false) {
               <p class="text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.providers.runtime_unavailable') }}</p>
             }
             <button type="button" class="ck-btn-quiet px-3 py-2 text-xs self-start" (click)="testConnection(p.key)" [disabled]="!canConfigure() || connectionBusy() !== null || !p.configured">
@@ -595,6 +599,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             }
             @if (canConfigure() && isConfigurableCloud(p.key)) {
               <form class="mt-1 space-y-2 border-t border-white/5 pt-3" (ngSubmit)="saveCredential(p.key)">
+                @if (p.key === 'typesafe') {
+                  <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener noreferrer" class="text-xs underline">{{ i18n.t('resources.providers.typesafe_key') }}</a>
+                }
                 <label class="block">
                   <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                     {{ i18n.t('resources.providers.api_key') }} {{ p.api_key_set ? i18n.t('resources.providers.api_key.keep') : '' }}
@@ -606,7 +613,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                     [name]="'key-' + p.key"
                     autocomplete="new-password"
                     class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                    [placeholder]="p.api_key_set ? '••••••••' : 'sk-…'"
+                    [placeholder]="p.api_key_set ? '••••••••' : p.key === 'typesafe' ? i18n.t('resources.providers.api_key') : 'sk-…'"
                   />
                 </label>
                 @if (hasEndpointFields(p.key)) {
@@ -1223,9 +1230,9 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   readonly portalConfig = signal<PortalConfigResponse | null>(null);
   readonly canConfigure = computed(() => this.showPortalTabs() && this.portalConfig()?.can_configure === true);
   readonly modelSearch = signal('');
-  readonly modelUsage = signal<'text_generation' | 'all'>('text_generation');
+  readonly modelUsage = signal<'text_generation' | 'typed_decisions' | 'all'>('text_generation');
   readonly filteredModels = computed(() => this.models().filter((model) =>
-    (this.modelUsage() === 'all' || model.compatibility === 'text_generation')
+    (this.modelUsage() === 'all' || model.compatibility === this.modelUsage())
     && `${this.modelName(model)} ${model.provider}`.toLowerCase().includes(this.modelSearch().trim().toLowerCase()),
   ));
   readonly selectedTestModel = signal<ModelInfo | null>(null);
@@ -1510,8 +1517,9 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   isSelectableModel(model: ModelInfo): boolean { return selectableTextModel(model); }
 
   modelStateLabel(model: ModelInfo): string {
-    if (model.configured && model.runtime_available && model.status === 'unreachable') return this.i18n.t('resources.providers.state.unavailable');
+    if (model.configured && (model.runtime_available || model.typed_decisions_available) && model.status === 'unreachable') return this.i18n.t('resources.providers.state.unavailable');
     const state = !model.configured ? 'connection_required'
+      : model.typed_decisions_available && model.compatibility === 'typed_decisions' ? 'typed_decisions'
       : !model.runtime_available ? 'runtime_unavailable'
       : model.compatibility !== 'text_generation' ? model.compatibility
       : 'ready_test';
@@ -1971,7 +1979,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   isConfigurableCloud(key: string): boolean {
-    return ['openai', 'azure_openai', 'azure_foundry', 'openrouter', 'anthropic', 'gemini'].includes(key);
+    return ['openai', 'azure_openai', 'azure_foundry', 'openrouter', 'anthropic', 'gemini', 'typesafe'].includes(key);
   }
 
   hasEndpointFields(key: string): boolean {

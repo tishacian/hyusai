@@ -13,7 +13,15 @@ const result = (locale: string, truncated: boolean) => ({
   cost: {amount: .0928, currency: 'USD', measurement_coverage: 'complete'},
 });
 
-async function setup(page: Page, locale: 'fr'|'en', truncated: boolean) {
+const nativeDecision = {
+  schema_version:2,evaluation_id:'native-decision',status:'completed',quality_status:'passed',disposition:'review',confidence:null,
+  questions:[{key:'priority',question:'Select the request priority',type:'choice',choices:['Urgent','Routine'],requires_evidence:false,required:true}],
+  answers:{priority:{status:'answered',value:'Urgent',reason:null,explanation:'Typed provider decision; no generated explanation or answer citation.',evidence:[],confidence:null}},
+  coverage:{questions_answered:1,questions_total:1,evidence_examined:1,evidence_total:1},
+  typed_decisions:{protocol:'typesafe-decisions-v1',source:'provider_reported',answers:{priority:{type:'choice',choice:'option_0',confidence:.6,probabilities:{option_0:.8,option_1:.2},choice_labels:{option_0:'Urgent',option_1:'Routine'}}}},
+};
+
+async function setup(page: Page, locale: 'fr'|'en', truncated: boolean, typedDecision = false) {
   const requests: string[] = [], writes: string[] = [];
   let redacted = false;
   await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
@@ -32,7 +40,7 @@ async function setup(page: Page, locale: 'fr'|'en', truncated: boolean) {
     if (path === '/auth/workspaces') return json(route, [workspace]);
     if (path === '/auth/workspaces/' + workspace.slug) return json(route, workspace);
     if (path === '/runs/judge-run') return json(route, {id: 'judge-run', system_id: 'review-system', status: 'completed', skill_invocations: [{
-      id: 'judge-invocation', run_id: 'judge-run', skill_slug: 'evaluate_v2', status: 'completed', latency_ms: 2500, output_ref: redacted ? {} : result(locale, truncated),
+      id: 'judge-invocation', run_id: 'judge-run', skill_slug: 'evaluate_v2', status: 'completed', latency_ms: 2500, output_ref: redacted ? {} : typedDecision ? nativeDecision : result(locale, truncated),
     }]});
     return json(route, {});
   });
@@ -82,3 +90,30 @@ test.describe('Typed Judge diagnostics — local read-only QA', () => {
     });
   }
 });
+
+for (const locale of ['fr', 'en'] as const) {
+  test(`Jev probabilities remain distinct from rubric confidence (${locale})`, async ({page}, info) => {
+    const api = await setup(page, locale, false, true);
+    await page.setViewportSize({width: locale === 'fr' ? 1440 : 390, height: 900});
+    await page.goto('/runs/judge-run/invocations/judge-invocation?lens=operate');
+    const review = page.getByTestId('typed-judge-result');
+    const native = review.getByTestId('judge-provider-decision');
+    await expect(native).toBeVisible();
+    await expect(review).toContainText(locale === 'fr' ? 'Ce moteur ne produit pas de justification rédigée' : 'This engine does not produce a written explanation');
+    await expect(review).not.toContainText('Typed provider decision;');
+    await native.locator('summary').focus(); await page.keyboard.press('Enter');
+    await expect(native).toContainText(locale === 'fr' ? 'non qualifiée sur cette grille' : 'not qualified for this rubric');
+    await expect(native).toContainText('60 %');
+    await expect(native).toContainText('Urgent: 80 %');
+    await expect(native).toContainText('Routine: 20 %');
+    await expect(native).toContainText(locale === 'fr' ? 'validation humaine' : 'human approval');
+    await review.getByTestId('judge-technical-details').locator('summary').click();
+    await expect(review.getByTestId('judge-technical-details')).toContainText(locale === 'fr' ? 'Non mesuré' : 'Not measured');
+    expect(await review.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect((await new AxeBuilder({page}).include('app-typed-judge-result').analyze()).violations).toEqual([]);
+    await review.screenshot({path:info.outputPath('jev-probabilities-'+locale+'.png')});
+    api.redact(); await page.reload();
+    await expect(page.getByTestId('typed-judge-result')).toHaveCount(0);
+    expect(api.writes.filter(path => !['/auth/validate','/audit'].includes(path) && !path.includes('/navigation'))).toEqual([]);
+  });
+}

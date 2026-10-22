@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
-import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, judgeDraftFromNode, judgeNodePatch, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedJudgeFailure, typedJudgeOutcome, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
+import { boundedPreview, changePrepOperation, changeQuestionType, executionDatasets, judgeDraftFromNode, judgeNodePatch, movePrepStep, newJudgeDraft, newPrepDraft, newQuestion, prepColumnsBefore, prepDraftFromNode, prepDraftPorts, prepNodePatch, prepRequest, typedDecisionObservation, typedJudgeFailure, typedJudgeOutcome, typedResult, validateJudgeDraft, validateQuestions } from './dataops.models';
 import { hashSaltOptions, prepFieldDefault, prepFields, prepNumber, prepParamChange, prepStepDefaults, prepStepParamChange } from './prep-fields';
 import type { SecretMeta } from '@app/shared/secrets/secrets.api';
 
@@ -213,6 +213,23 @@ test('judge draft validates budget ceilings and never treats blank or fractional
   assert.ok(validateJudgeDraft({...draft,tariff:{...draft.tariff,input_per_million:1001}}).includes('dataops.error.judge_tariff'));
 });
 
+test('TypeSafe requirements fail explicitly without weakening an existing rubric', () => {
+  const draft = newJudgeDraft(); draft.rubric_id = 'decision'; draft.questions[0].question = 'Is the request urgent?';
+  draft.tariff = {provider:'typesafe',model:'jev-1.13.0',reference:'reviewed-price',input_per_million:1,output_per_million:0,currency:'USD'};
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_evidence'));
+  assert.equal(draft.questions[0].requires_evidence, true);
+  draft.questions[0].requires_evidence = false;
+  assert.deepEqual(validateJudgeDraft(draft), []);
+  draft.questions[0] = {...draft.questions[0], type: 'multi_choice', choices: ['a', 'b']};
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_multiple'));
+  draft.questions[0] = {...draft.questions[0], type: 'score', choices: [], minimum: 0, maximum: 5};
+  assert.deepEqual(validateJudgeDraft(draft), []);
+  for (const [minimum,maximum] of [[0,0],[0,10],[0.5,5.5]]) {
+    draft.questions[0] = {...draft.questions[0], minimum, maximum};
+    assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_score'));
+  }
+});
+
 test('run evidence selectors must identify bounded fields and retain source scope', () => {
   const draft = newJudgeDraft();
   draft.run_evidence = { sources: [{id: 'proposal', skill_slug: 'propose_v1', paths: ['/action'], required: true}], native_refs: [] };
@@ -251,4 +268,26 @@ test('numeric selectors use the compiler float kind and clearing a key preserves
  assert.ok(PREP_SELECTOR_KINDS.includes('float'));assert.equal((PREP_SELECTOR_KINDS as readonly string[]).includes('decimal'),false);
  assert.deepEqual(prepStepParamChange('split_order',{key:['id']},'key',[]),{});
  assert.deepEqual(prepStepParamChange('hash',{salt:'workspace',salt_secret_ref:'secret://workspace/salt#3',salt_version:3},'salt','none'),{salt:'none'});
+});
+
+
+test('native provider probabilities remain separate from empirically calibrated rubric confidence', () => {
+  const result = typedResult({schema_version:2,evaluation_id:'jev-evaluation',status:'completed',quality_status:'passed',disposition:'review',confidence:null,coverage:{},answers:{urgent:{status:'answered',value:true,reason:null,explanation:'',confidence:null,evidence:[]}},typed_decisions:{protocol:'typesafe-decisions-v1',source:'provider_reported',answers:{urgent:{type:'noul',noul:.9},category:{type:'choice',confidence:.6,choice:'option_0',probabilities:{option_0:.8,option_1:.2},choice_labels:{option_0:'Urgent',option_1:'Routine'}},rating:{type:'score',score:1.4,confidence:.35,probabilities:{'0':0,'1':.6,'2':.4},score_offset:1}}}});
+  assert.ok(result);
+  assert.deepEqual(typedDecisionObservation(result,'urgent'),{yes:.9,confidence:null,distribution:[]});
+  assert.deepEqual(typedDecisionObservation(result,'category'),{yes:null,confidence:.6,distribution:[{label:'Urgent',probability:.8},{label:'Routine',probability:.2}]});
+  assert.deepEqual(typedDecisionObservation(result,'rating')?.distribution,[{label:'1',probability:0},{label:'2',probability:.6},{label:'3',probability:.4}]);
+  assert.equal(result.confidence,null);
+  assert.equal(result.answers['urgent'].confidence,null);
+  assert.equal(typedDecisionObservation({...result,typed_decisions:{...result.typed_decisions!,source:'unverified'}},'urgent'),null);
+  result.typed_decisions!.answers['urgent']={type:'noul',noul:8};
+  assert.equal(typedDecisionObservation(result,'urgent'),null);
+});
+
+
+test('typed provider failures explain contract, access and budget refusals without exposing provider text', () => {
+  const base = {schema_version:2,evaluation_id:'jev-failed',status:'failed',quality_status:'unassessed',disposition:'review',confidence:null,coverage:{},answers:{}};
+  for (const [reason,message] of [['JUDGE_TYPESAFE_CONTRACT_UNSUPPORTED','typed_contract'],['USAGE_TRANSPORT_UNQUALIFIED','typed_budget'],['TYPESAFE_AUTHENTICATION_FAILED','provider_access'],['TYPESAFE_ACCESS_DENIED','provider_access'],['TYPESAFE_RATE_LIMITED','temporarily_unavailable'],['TYPESAFE_OVERLOADED','temporarily_unavailable'],['TYPESAFE_TIMEOUT','timeout'],['TYPESAFE_RESPONSE_INVALID','validation']]) {
+    assert.equal(typedJudgeFailure(typedResult({...base,reason}))?.message,'dataops.judge.failure.'+message);
+  }
 });

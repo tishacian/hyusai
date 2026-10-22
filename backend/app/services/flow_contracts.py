@@ -926,6 +926,22 @@ def compile_execution_contract(
                 params = config.get("params") or {}
                 typed = config.get("typed_evaluation") or params.get("typed_evaluation") or {}
                 try:
+                    tariff = typed.get("tariff")
+                    if isinstance(tariff, dict) and tariff.get("provider") == "typesafe":
+                        from app.services.evaluation.typesafe_judge import validate_questions
+
+                        validate_questions(typed.get("questions") or [])
+                        evidence = typed.get("evidence", [])
+                        if not isinstance(evidence, list) or any(
+                            not isinstance(item, dict) for item in evidence
+                        ):
+                            raise ValueError("TypeSafe Judge requires a list of text evidence.")
+                        if typed.get("vision_route_ref") or any(
+                            item.get("kind", "text") != "text" for item in evidence
+                        ):
+                            raise ValueError(
+                                "TypeSafe Judge currently supports text evidence only."
+                            )
                     if "run_evidence" in typed:
                         RunEvidenceSnapshot.model_validate(typed["run_evidence"])
                         if typed.get("batch_mode", "single") != "single" or any(

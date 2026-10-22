@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-22",
+  "environment": "agentium.papai.ai",
+  "revision": "d4ae921669195dc18c95319736808f9d9fef2987",
+  "evidence_scope": "Selected API metadata and locally verified comparisons. No business payloads, prompts, quotations, actor identities, credentials or full call ledger copied.",
+  "readiness": {
+    "ready": true,
+    "code": "USAGE_ADMISSION_READY",
+    "revision": "d4ae921669195dc18c95319736808f9d9fef2987",
+    "attestation_basis": "operator_declaration",
+    "attested_at": "2026-10-22T15:50:49.615893Z",
+    "required_components": [
+      "api",
+      "connector_runner",
+      "cpu_worker",
+      "dataops_worker",
+      "livekit_agent"
+    ],
+    "missing_transports": [],
+    "guarantee": "admission_at_configured_tariffs_and_bounds"
+  },
+  "campaign": {
+    "id": "5a8a9d28-e30b-4eff-9efa-56b0fe840d6d",
+    "status": "completed",
+    "created_at": "2026-10-22T13:24:58.615622",
+    "completed_at": "2026-10-22T14:59:20.101060",
+    "original_runs": 48,
+    "paired_comparisons": 24,
+    "distinct_cases": 12,
+    "verdicts": {
+      "passed": 38,
+      "unevaluated": 9,
+      "failed": 1
+    },
+    "by_side": {
+      "baseline": {
+        "verdicts": {
+          "passed": 19,
+          "unevaluated": 5
+        },
+        "run_statuses": {
+          "cancelled": 19,
+          "failed": 5
+        }
+      },
+      "candidate": {
+        "verdicts": {
+          "unevaluated": 4,
+          "passed": 19,
+          "failed": 1
+        },
+        "run_statuses": {
+          "failed": 4,
+          "cancelled": 20
+        }
+      }
+    },
+    "judge_controls": {
+      "completed_passed": 30,
+      "failed_unassessed": 8,
+      "successful_missing_evidence_escalations_without_expected_judge": 8,
+      "other_runs_without_judge": 2
+    },
+    "runtime_failure_counts": {
+      "node_error_policy:sav.score:recipe_wait_deadline_expired": 1,
+      "node_error_policy:quality.review:JUDGE_PROMPT_TOO_LARGE": 8
+    },
+    "comparability": "limited",
+    "initial_results_unchanged_after_retry": true,
+    "initial_projection_sha256": "ad9a93759bfdfa5a9e7811e7acaf98081c13168a3e2d35f4acd84739a443ec35",
+    "snapshot_unchanged": true,
+    "dates_and_job_unchanged": true,
+    "retry_attempts": 1,
+    "retry_pending_after_completion": false
+  },
+  "retry": {
+    "id": "49d6d709-90dc-4f61-a1e4-c4850c580455",
+    "attempt_index": 1,
+    "initial_run_id": "2f54f016-e707-4f4f-aea3-b4718f243093",
+    "source_run_id": "2f54f016-e707-4f4f-aea3-b4718f243093",
+    "run_id": "f0f481fb-24cb-4cab-9d65-9d624157b1ff",
+    "job_id": "12987c37-6083-4413-bf52-5b05832ba410",
+    "created_at": "2026-10-22T15:50:52.948319Z",
+    "status": "cancelled",
+    "verdict": "passed",
+    "termination": "human_gate",
+    "quality_status": "passed",
+    "duration_ms": 121811.6,
+    "flow_sha256": "383842ab09b4e54aa303f72b2e6edb63119947fe1b2dee2e309efa384ec8e650",
+    "started_at": "2026-10-22T15:50:52.875105",
+    "completed_at": "2026-10-22T15:52:56.532889",
+    "assertions": {
+      "passed": 14,
+      "total": 14
+    },
+    "trajectory_assertions": {
+      "passed": 12,
+      "total": 12
+    },
+    "judge": {
+      "evaluation_id": "244ee1d1-3171-47d0-ade8-0927414988a3",
+      "rubric_id": "claims-resolution-review",
+      "rubric_version": "1",
+      "status": "completed",
+      "quality_status": "passed",
+      "disposition": "review",
+      "confidence": null,
+      "confidence_reason": "calibration_not_qualified",
+      "coverage": {
+        "questions_total": 5,
+        "questions_answered": 5,
+        "evidence_total": 3,
+        "evidence_examined": 3,
+        "images_total": 0,
+        "images_examined": 0,
+        "scope": "declared_unit_only"
+      }
+    }
+  },
+  "usage": {
+    "initial": {
+      "calls": 462,
+      "statuses": {
+        "completed": 460,
+        "blocked": 1,
+        "failed": 1
+      },
+      "known_tokens": {
+        "input_tokens": 2400821,
+        "output_tokens": 172755,
+        "total_tokens": 2573576,
+        "cached_input_tokens": 1073536,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 127552
+      },
+      "known_calculated_amounts": {
+        "EUR": "3.128947721215"
+      },
+      "known_calls": 460,
+      "unknown_calls": 2,
+      "as_of": "2026-10-22T15:49:43.550213Z",
+      "cost_basis": "provider_tokens_at_versioned_tariff",
+      "billed_amount": null,
+      "failed_dispatched_gpt5_reserved_amount_eur": "0.120868568631",
+      "reservation_is_not_measured_cost": true,
+      "blocked_ollama_dispatched": false
+    },
+    "retry": {
+      "counts": {
+        "calls": 11,
+        "dispatched": 11,
+        "completed": 11,
+        "failed": 0,
+        "unknown": 0,
+        "blocked": 0,
+        "pending": 0,
+        "cancelled": 0
+      },
+      "tokens": {
+        "input": 50450,
+        "output": 3564,
+        "total": 54014,
+        "cached_input": 18688,
+        "cache_write": null,
+        "reasoning": 2432,
+        "known_calls": 11,
+        "unknown_calls": 0
+      },
+      "costs": [
+        {
+          "currency": "EUR",
+          "known_amount": "0.069011224853",
+          "known_calls": 11,
+          "unknown_calls": 0,
+          "basis": "provider_tokens_at_versioned_tariff",
+          "billed_amount": null
+        }
+      ],
+      "cost_coverage": {
+        "known_calls": 11,
+        "unknown_calls": 0,
+        "complete": true
+      },
+      "coverage": {
+        "mode": "complete_retained_calls",
+        "complete": true,
+        "limit": 20000,
+        "scanned": 11,
+        "as_of": "2026-10-22T15:55:23.932638Z",
+        "historical_calls_reconstructed": false,
+        "billed_cost_available": false
+      }
+    },
+    "ledgers_disjoint": true,
+    "all_retry_calls_bound_to_retry_run_and_campaign": true,
+    "original_call_ids_sha256": "0cb4f677d66c967818dce6fda48981c566cf7681d63a098cc618c98e22da9198",
+    "retry_call_ids_sha256": "adcbf0525a07def91e8185b27bdb37fe50d5e7bad2d9805458abcd4757425966",
+    "known_combined_eur_subtotal": "3.197958946068",
+    "combined_is_full_invoice": false
+  },
+  "budget": {
+    "id": "ea7877f3-7f31-4ff6-ab38-88c92ed5260c",
+    "scope": "workspace",
+    "enabled": true,
+    "revision": 2,
+    "timezone": "Europe/Paris",
+    "currency_limits": {
+      "EUR": "2000.000000000000"
+    },
+    "final_workspace_period": {
+      "start": "2026-10-22T13:24:17.281044Z",
+      "end": "2026-10-31T23:00:00Z",
+      "consumed_tokens": 2634856,
+      "reserved_tokens": 85064,
+      "amounts": [
+        {
+          "currency": "EUR",
+          "limit": "2000.000000000000",
+          "consumed": "3.203022894795",
+          "reserved": "0.121630852769"
+        }
+      ]
+    },
+    "period_scope_note": "All workspace activity, not only this campaign."
+  },
+  "preservation_after_deployment_before_retry": {
+    "flow_state": {
+      "unchanged": true,
+      "canonical_sha256": "ef03a9fcc7012d3b45bac28ae8bdb9c303cb8af730bf08560d8beeb58fd89039"
+    },
+    "published_version": {
+      "unchanged": true,
+      "canonical_sha256": "3659255ee3f60f53359bec3300f21091d897b0973e6a8c9287bb8246ccc602e8"
+    },
+    "work_binding": {
+      "unchanged": true,
+      "canonical_sha256": "3bc281fce30007c6f71b53d0387027e7081f32bb5cf66d5559d05185efb0d818"
+    },
+    "twelve_claims_data_and_receipts_unchanged": true,
+    "model_id": "2e71ce6f-800f-4d02-b59e-498e40fe48eb",
+    "model_version": 5,
+    "stable_model_metadata_unchanged": true,
+    "stable_serving_configuration_unchanged": true,
+    "excluded_dynamic_fields": [
+      "predict_count",
+      "last_predict_at",
+      "model.updated_at"
+    ],
+    "scope_note": "These after-deploy snapshots precede the retry. They are not a fresh post-retry check of business data, models or Flow."
+  },
+  "not_claimed": [
+    "48 original Runs passed",
+    "candidate improvement",
+    "Giskard certification",
+    "Judge calibration",
+    "external invoice",
+    "realised financial ROI",
+    "post-deployment production execution of the automatic run_evaluation worker",
+    "live Axe accessibility audit"
+  ],
+  "source_sha256": {
+    "build-info.json": "d7dbfcfcf1332ca82c089135dbfbf8aa12d9f8382996b7806d8e8f2222fe21c1",
+    "frontend-build-info.json": "47a167c4d64f8557d36d3d71d9c7204412301b0c678cb776268f72d3a0f88e7f",
+    "readiness-attestation.json": "182a679191f11e33a357b4d4437bd5aea96d5d5cdfa87c60e493bc24bd731121",
+    "campaign-before-retry.json": "28a6d53be1e979e8f5f35b3e5bb5b963e7e5ad9d604027f6c6d54cfe108b89e8",
+    "campaign-after-retry.json": "200ee6fc214ae20751cb481ad73df337ceafa11f24c41e9110577f1b4063a382",
+    "retry-progress.json": "68d9caa00f4d873c4fe8d21bac982b6f01e3810bb356c2a04d9c51b6a5e68b43",
+    "retry-usage.json": "4cb2765fe1600b63756ca792dfb2a3d55f3fd708f45536443af41d6f41856c60",
+    "retry-usage-calls.json": "3f000eb0c490000e0f2500eb72445bda9afe59095aefe2097a7ccf047a7f17fb",
+    "usage-initial-page-0.json": "1009d325abd6b32877e942fab1b9ddee915957b9e4a7f72b548e2ae0beec3777",
+    "usage-initial-page-200.json": "7ab741320ad4fe81048e185f1a5796f7dbbbb4c2178385c4451f19c315e9a6ec",
+    "usage-initial-page-400.json": "f4d1416011e3e152f5a0f6b9c1e8474246e9e0af8da276c8afa82bc5479d986c",
+    "preservation-final-summary.json": "9718466f652bf70684e1fad33daee65902344dfd293e1c093cee96e0a7bf7fec",
+    "flow-state-final.json": "34e8c5a262576d96a139c63c1e1c22c8306cf95fa14214be2739be0199fec58d",
+    "binding-final.json": "92e580e74cd2e1a54c07618bdb8032bc263311b54e897509b6b750f2c2e268c4",
+    "sla-final.json": "efa14aa581674a7af8ec4f09edb494f9fe3dd6f89427abb20f754a7c35c794a6",
+    "budget-final.json": "9bcddd7c1152076af590eed594e8cb7612aaa56eadfb3bc75233a49d25ab9bed",
+    "usage-readiness-final.json": "182a679191f11e33a357b4d4437bd5aea96d5d5cdfa87c60e493bc24bd731121",
+    "03-expired-approval-visible.json": "79b45f952dfee8add6463cd5038f92b5797a1a3a875f3b273f1232cfaa6a441e",
+    "07-retry-live.json": "c51a111763929e8080f4d82faa3ab32bc5f1bf2c0589de67f72fef6f5cc0b3be",
+    "09-retry-quality-loaded.json": "7163b55bdbdb2055014c30f875101abd681d47798e0b33ae0aa999e15c81d288",
+    "11-retry-usage-loaded.json": "0b1657a45185eb8fc20947d547541ef7f049e4451918e0c64b146ff5ea9cf7dd"
+  },
+  "preservation_after_retry": {
+    "flow_state_and_publication_unchanged": true,
+    "flow_state_sha256": "ef03a9fcc7012d3b45bac28ae8bdb9c303cb8af730bf08560d8beeb58fd89039",
+    "work_binding_unchanged": true,
+    "work_binding_sha256": "3bc281fce30007c6f71b53d0387027e7081f32bb5cf66d5559d05185efb0d818",
+    "twelve_claims_data_and_receipts_unchanged": true,
+    "model_id": "2e71ce6f-800f-4d02-b59e-498e40fe48eb",
+    "model_version": 5,
+    "stable_model_metadata_unchanged": true,
+    "stable_serving_configuration_unchanged": true,
+    "excluded_dynamic_fields": [
+      "predict_count",
+      "last_predict_at",
+      "model.updated_at"
+    ]
+  },
+  "visual_checks": {
+    "03-expired-approval-visible.json": {
+      "path": "/work/reclamations/studio",
+      "desktop_width": 1440,
+      "recorded_errors": [],
+      "horizontal_overflow": false
+    },
+    "07-retry-live.json": {
+      "path": "/observability",
+      "desktop_width": 1440,
+      "recorded_errors": [],
+      "horizontal_overflow": false
+    },
+    "09-retry-quality-loaded.json": {
+      "path": "/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff",
+      "desktop_width": 1440,
+      "recorded_errors": [],
+      "horizontal_overflow": false
+    },
+    "11-retry-usage-loaded.json": {
+      "path": "/runs/f0f481fb-24cb-4cab-9d65-9d624157b1ff",
+      "desktop_width": 1440,
+      "recorded_errors": [],
+      "horizontal_overflow": false
+    }
+  },
+  "visual_checks_limitations": [
+    "Campaign counters/list initially render an empty state while requests load; wait for loaded results before interpreting them.",
+    "No live Axe audit available; module could not be resolved.",
+    "These checks cover selected desktop views, not a full product accessibility or device audit."
+  ]
+}

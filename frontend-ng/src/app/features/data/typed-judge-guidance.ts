@@ -1,5 +1,14 @@
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { TypedJudgeDraft } from './dataops.models';
+import { catalogModelName, selectableEvaluationModel, type ModelCatalogEntry } from '@app/core/model-catalog';
+
+/** Changing the engine never silently changes the rubric or reuses another model's price. */
+export function selectJudgeModel(draft: TypedJudgeDraft, model: ModelCatalogEntry): TypedJudgeDraft {
+  if (!selectableEvaluationModel(model)) return draft;
+  const name = catalogModelName(model);
+  if (draft.tariff.provider === model.provider && draft.tariff.model === name) return draft;
+  return { ...structuredClone(draft), tariff: {provider: model.provider, model: name, input_per_million: 0, output_per_million: 0, currency: 'USD', reference: ''} };
+}
 
 export function guidedJudgeIdentity(draft: TypedJudgeDraft, systemId: string | null, nodeId: string): TypedJudgeDraft {
   if (draft.rubric_id || !systemId || !nodeId) return draft;

@@ -8,7 +8,9 @@ export interface ModelCatalogEntry {
   configured: boolean;
   discovered: boolean;
   runtime_available: boolean;
-  compatibility: 'text_generation' | 'other' | 'unknown';
+  compatibility: 'text_generation' | 'typed_decisions' | 'other' | 'unknown';
+  capabilities?: string[];
+  typed_decisions_available?: boolean;
   compatibility_source?: string;
   credential_source?: 'workspace' | 'env' | string | null;
   context_length?: number;
@@ -37,6 +39,13 @@ export function catalogModelName(entry: ModelCatalogEntry): string {
 export function selectableTextModel(entry: ModelCatalogEntry): boolean {
   return entry.configured === true && entry.runtime_available === true
     && entry.compatibility === 'text_generation' && !!catalogModelName(entry);
+}
+
+/** Typed decisions use their own runtime; they must never become a chat fallback. */
+export function selectableEvaluationModel(entry: ModelCatalogEntry): boolean {
+  return selectableTextModel(entry) || entry.configured === true
+    && entry.typed_decisions_available === true && entry.compatibility === 'typed_decisions'
+    && !!catalogModelName(entry);
 }
 
 /** Read only recorded provider provenance; a current setting cannot stand in for a Run fact. */

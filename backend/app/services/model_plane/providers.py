@@ -166,6 +166,45 @@ async def _health_openai(*, api_key: Optional[str] = None) -> dict[str, Any]:
     return result
 
 
+async def _health_typesafe(*, api_key: Optional[str] = None) -> dict[str, Any]:
+    """Authenticate and discover decisions without running a billable evaluation."""
+    key = api_key or os.getenv("TYPESAFE_API_KEY")
+    if not key:
+        return {"status": "available", "latency_ms": None, "models": [], "error": None}
+    cache_key = f"typesafe:{'ws' if api_key else 'env'}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+    started = time.perf_counter()
+    result: dict[str, Any] = {"status": "unreachable", "models": [], "error": None}
+    try:
+        async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT, follow_redirects=False) as client:
+            response = await client.get(
+                "https://api.typesafe.ai/v1/models",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+        if response.status_code != 200:
+            result["error"] = f"HTTP {response.status_code}"
+        else:
+            payload = response.json()
+            models = payload.get("models") if isinstance(payload, dict) else None
+            if not isinstance(models, list) or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("name"), str)
+                or not item["name"].strip()
+                or len(item["name"]) > 256
+                for item in models
+            ):
+                result["error"] = "TypeSafe returned an invalid model catalog."
+            else:
+                result.update(status="active", models=[item["name"] for item in models[:500]])
+    except Exception:  # noqa: BLE001 — never expose the response, headers or exception text
+        result["error"] = "TypeSafe model discovery failed."
+    result["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
+    _cache_set(cache_key, result)
+    return result
+
+
 async def _health_azure(
     *,
     api_key: Optional[str] = None,
@@ -469,11 +508,32 @@ def _base_catalog(
             if keys.get("gemini")
             else ("env" if os.getenv("GEMINI_API_KEY") else None),
         },
+        {
+            "key": "typesafe",
+            "label": "TypeSafe",
+            "kind": "cloud",
+            "configured": bool(keys.get("typesafe") or os.getenv("TYPESAFE_API_KEY")),
+            # A documented example before connection, never a discovery claim.
+            "fallback_models": ["jev-1.13.0"],
+            "use_fallback_models_on_probe": False,
+            "notes": "Jev typed decisions (choice, score and probability); not a chat model",
+            "health": lambda: _health_typesafe(api_key=keys.get("typesafe")),
+            "api_key_set": bool(keys.get("typesafe") or os.getenv("TYPESAFE_API_KEY")),
+            "credential_source": "workspace"
+            if keys.get("typesafe")
+            else ("env" if os.getenv("TYPESAFE_API_KEY") else None),
+            "capabilities": ["typed_decisions"],
+            "typed_decisions_available": True,
+            "portal_url": "https://console.typesafe.ai/keys",
+            "documentation_url": "https://docs.typesafe.ai/introduction",
+        },
     ]
 
 
 def model_compatibility(provider: str, model: str) -> str:
-    """Conservative name-based classification, never an inference attestation."""
+    """Provider contracts and conservative name hints, never inference attestation."""
+    if provider == "typesafe":
+        return "typed_decisions"
     name = model.lower().strip()
     if any(
         part in name
@@ -585,8 +645,12 @@ async def list_models(*, workspace: "Workspace") -> list[dict[str, Any]]:
             "configured": provider.get("configured", False),
             "discovered": provider.get("models_source") == "provider_catalog",
             "runtime_available": provider.get("runtime_available", False),
+            "capabilities": provider.get("capabilities", []),
+            "typed_decisions_available": provider.get("typed_decisions_available", False),
             "compatibility": model_compatibility(provider["key"], model),
-            "compatibility_source": "name_heuristic",
+            "compatibility_source": "provider_contract"
+            if provider["key"] == "typesafe"
+            else "name_heuristic",
             "credential_source": provider.get("credential_source"),
             "generation_verified": False,
         }
@@ -641,7 +705,9 @@ async def _list_providers(
             # Credentials present but probe not yet conclusive → configured.
             if status == "available":
                 status = "configured"
-            models = health.get("models") or entry["fallback_models"]
+            models = health.get("models") or (
+                entry["fallback_models"] if entry.get("use_fallback_models_on_probe", True) else []
+            )
             latency_ms = health.get("latency_ms")
             error = health.get("error")
         else:
@@ -649,6 +715,17 @@ async def _list_providers(
             models = entry["fallback_models"]
             latency_ms = None
             error = None
+        models_source = (
+            "provider_catalog"
+            if entry["configured"] and health.get("models") and status == "active"
+            else "configured_default"
+        )
+        if entry["key"] == "typesafe":
+            models_source = (
+                ("provider_catalog" if status == "active" else "unavailable")
+                if entry["configured"]
+                else "documented_catalog"
+            )
         providers.append(
             {
                 "key": entry["key"],
@@ -663,11 +740,18 @@ async def _list_providers(
                 "credential_source": entry.get("credential_source"),
                 "configured": entry["configured"],
                 "runtime_available": entry["key"] in RUNTIME_PROVIDERS,
-                "models_source": "provider_catalog"
-                if entry["configured"] and health.get("models") and status == "active"
-                else "configured_default",
+                "capabilities": entry.get(
+                    "capabilities", ["text_generation"] if entry["key"] in RUNTIME_PROVIDERS else []
+                ),
+                "typed_decisions_available": entry.get("typed_decisions_available", False),
+                "models_source": models_source,
                 "models_truncated": len(models) >= 500,
                 "generation_verified": False,
+                **{
+                    field: entry[field]
+                    for field in ("portal_url", "documentation_url")
+                    if entry.get(field)
+                },
             }
         )
 

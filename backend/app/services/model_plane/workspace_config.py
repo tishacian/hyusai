@@ -36,6 +36,7 @@ CLOUD_PROVIDERS = (
     "openrouter",
     "anthropic",
     "gemini",
+    "typesafe",
 )
 
 # Non-secret fields allowed per cloud provider (stored in clear).

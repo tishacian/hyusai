@@ -1815,6 +1815,10 @@ def _build_skill_input(
     payload: dict[str, Any] = {}
     payload.update(run_input or {})
     payload.update(last_output or {})
+    # A sequential Run has no trusted per-node Judge configuration. Only the
+    # DAG may inject this block; caller input or an upstream result must not
+    # select the Judge's provider, rubric or proof requirements.
+    payload.pop("_typed_evaluation", None)
     if slug.startswith("eval_radar") and "answer" not in payload:
         payload["answer"] = last_output.get("answer")
     if slug.startswith("claim_audit") and "citations" not in payload:
