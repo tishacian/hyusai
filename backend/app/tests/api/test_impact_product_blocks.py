@@ -295,3 +295,39 @@ def test_quality_and_usage_configuration_is_opt_in_and_keeps_population(db_sessi
     view["strata"]["comprendre"][1]["settings"] = {}
     view["strata"]["comprendre"].append({"type": "quality", "settings": {}})
     assert client.put("/hypervisor/views", json={"views": [view]}).status_code == 422
+
+
+def test_activity_block_and_day_series_count_the_same_completed_runs(db_session):
+    """One source, one scope: published, completed, started in the window."""
+    seeded = _activity_seed(db_session)
+    now = datetime.utcnow()
+    # Started before the window but completed inside it: in neither count.
+    db_session.add(
+        Run(
+            id="late-finish",
+            workspace_id=seeded["workspace"].id,
+            system_id=seeded["system"].id,
+            status="completed",
+            started_at=now - timedelta(days=9),
+            completed_at=now - timedelta(days=1),
+        )
+    )
+    db_session.commit()
+    client = _hypervisor_client(db_session, seeded["workspace"], seeded["user"])
+    activity = client.get("/hypervisor/activity", params={"window": "7d"}).json()
+    series = client.get("/hypervisor/series", params={"window": "7d"}).json()
+
+    def series_runs(body, system_id=None):
+        return sum(
+            bucket["runs"]["value"]
+            for system in body["systems"]
+            if system_id is None or system["system_id"] == system_id
+            for bucket in system["buckets"]
+        )
+
+    assert series_runs(series) == activity["counts"]["completed"]
+    per_system = client.get(
+        "/hypervisor/activity", params={"window": "7d", "system_id": seeded["system"].id}
+    ).json()
+    assert series_runs(series, seeded["system"].id) == per_system["counts"]["completed"]
+    assert series["from"] == activity.get("from", series["from"])

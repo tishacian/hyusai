@@ -537,13 +537,24 @@ async def hypervisor_series(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    from app.services.impact_activity import impact_window_start, published_runs
+
     now = datetime.utcnow()
-    start = (
-        (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
-        if window == "7d"
-        else now - timedelta(days=WINDOW_DAYS[window])
+    start = impact_window_start(window, now)
+    # Same scope as the activity block: published, completed, started in the
+    # window, bucketed by start day.
+    completed_runs = readable_runs(
+        db,
+        runs=published_runs(
+            db.query(Run).filter(Run.workspace_id == workspace.id, Run.status == "completed"),
+            start=start,
+            now=now,
+        )
+        .order_by(Run.started_at.desc(), Run.id.asc())
+        .all(),
+        user=user,
+        workspace=workspace,
     )
-    completed_runs = _visible_completed_runs(db, workspace, user, start=start)
     runs_by_system: dict[str, list[Run]] = defaultdict(list)
     for run in completed_runs:
         if run.system_id:
@@ -586,7 +597,7 @@ async def hypervisor_series(
         )
         by_day: dict[str, list[Run]] = defaultdict(list)
         for run in system_runs:
-            moment = _run_at(run)
+            moment = run.started_at
             if moment is None:
                 continue
             by_day[moment.date().isoformat()].append(run)
