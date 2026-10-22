@@ -61,6 +61,12 @@ import { FlowManifestService } from './flow-manifest.service';
 import { FlowPersistenceService } from './flow-persistence.service';
 import { FlowCatalogService } from './flow-catalog.service';
 import { FlowRunService } from './flow-run.service';
+import { FlowObservationService } from './flow-observation.service';
+import { FlowObservationWindowsService } from './flow-observation-windows.service';
+import { FlowObservationBarComponent } from './flow-observation-bar.component';
+import { FlowObservationPanelComponent } from './flow-observation-panel.component';
+import { FlowObservationModalComponent } from './flow-observation-modal.component';
+import { observationFlowMatch } from './flow-observation.vm';
 import { FlowRunControlsComponent } from './flow-run-controls.component';
 import { FlowTerminalComponent } from './flow-terminal.component';
 import { FlowVersionsComponent } from './flow-versions.component';
@@ -118,6 +124,8 @@ const PUBLICATION_HYDRATION_CODES = new Set([
   providers: [
     FlowStore,
     FlowRunService,
+    FlowObservationService,
+    FlowObservationWindowsService,
     FlowWorkbenchService,
     FlowPersistenceService,
     FlowValidationService,
@@ -137,6 +145,9 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     CkBackLinkComponent,
     IconComponent,
     FlowCanvasComponent,
+    FlowObservationBarComponent,
+    FlowObservationPanelComponent,
+    FlowObservationModalComponent,
     FlowOutlineComponent,
     FlowInspectorComponent,
     FlowTriggersPanelComponent,
@@ -207,7 +218,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         [canUndo]="store.canUndo()"
         [canRedo]="store.canRedo()"
         [routingLabel]="routingLabel()"
-        [paletteOpen]="paletteOpen()"
+        [paletteOpen]="paletteOpen() && !observation.enabled()"
         [inspectorOpen]="inspectorOpen()"
         [canInspect]="!!store.selectedNode()"
         [focusMode]="focusMode()"
@@ -315,7 +326,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           </div>
         }
 
-        @if (persistence.readOnly() && systemId(); as sid) {
+        @if (persistence.readOnly() && !observation.enabled() && systemId(); as sid) {
           <app-flow-triggers-panel [systemId]="sid" kind="all" [journalOpen]="deliveryJournalOpen" />
         }
         <p class="flow-builder__validation-version">{{ i18n.t(persistence.readOnly() ? 'flow.builder.diagnostics.published' : 'flow.builder.diagnostics.draft', { version: persistence.publishedVersionNumber() ?? '', revision: persistence.draftRevision() ?? '' }) }}</p>
@@ -367,12 +378,13 @@ const PUBLICATION_HYDRATION_CODES = new Set([
 
         <div
           class="flow-builder__body"
-          [class.has-palette]="paletteOpen() && !focusMode() && !persistence.readOnly()"
-          [class.is-inspecting]="inspectorOpen() && !focusMode()"
+          [class.has-palette]="paletteOpen() && !focusMode() && !persistence.readOnly() && !observation.enabled()"
+          [class.is-inspecting]="inspectorOpen() && !focusMode() && !observation.selectedNodeId()"
+          [class.is-observing]="!!observation.selectedNodeId()"
           [class.is-focus-mode]="focusMode()"
           [class.is-locked]="persistence.actionsDisabled() && !persistence.readOnly()"
         >
-          @if (paletteOpen() && !focusMode() && !persistence.readOnly()) {
+          @if (paletteOpen() && !focusMode() && !persistence.readOnly() && !observation.enabled()) {
             <app-flow-palette
               class="flow-builder__palette"
               [items]="automationMode() ? automationPalette() : palette"
@@ -386,7 +398,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           }
 
           <div class="flow-builder__surface">
-            @if (!focusMode()) {
+            @if (!focusMode() || systemId()) {
               <div
                 class="flow-builder__view-switch"
                 role="group"
@@ -412,7 +424,18 @@ const PUBLICATION_HYDRATION_CODES = new Set([
                 >
                   {{ i18n.t('flow.builder.view.outline') }}
                 </button>
+                @if (systemId()) {
+                  <button type="button" data-testid="flow-observation-toggle"
+                    [attr.aria-pressed]="observation.enabled()" [class.is-active]="observation.enabled()"
+                    (click)="toggleObservation()">
+                    <app-icon name="eye" [size]="14" /> {{ i18n.t('flow.observation.toggle') }}
+                  </button>
+                }
               </div>
+            }
+
+            @if (observation.enabled()) {
+              <app-flow-observation-bar [flowMatch]="observedFlowMatch()" />
             }
 
             <div
@@ -426,6 +449,8 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               <app-flow-canvas
                 (connectFromHandle)="onConnectFromHandle($event)"
                 (runStep)="onRunStep($event)"
+                (configureNode)="onOutlineInspect($event)"
+                (observeNode)="onObserveNode($event)"
               />
               @if (store.nodeCount() === 0) {
                 <!-- First-Flow guide. The three steps are the shape of every Flow,
@@ -463,11 +488,18 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               aria-labelledby="flow-builder-view-outline"
               [hidden]="surfaceMode() !== 'outline'"
               [editingLocked]="persistence.actionsDisabled()"
+              [canObserve]="!!systemId()"
               (inspectNode)="onOutlineInspect($event)"
+              (observeNode)="onObserveNode($event)"
             />
           </div>
 
-          @if (inspectorOpen() && !focusMode()) {
+          @if (observation.selectedNodeId()) {
+            <app-flow-observation-panel class="flow-builder__observation"
+              [nodeTitle]="observationNodeTitle()"
+              [pinPosition]="observationPinPosition()"
+              (closed)="observation.closeNode()" />
+          } @else if (inspectorOpen() && !focusMode()) {
             <app-flow-inspector
               class="flow-builder__inspector"
               [systemId]="systemId()"
@@ -585,7 +617,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
       [systemId]="systemId()"
       (close)="versionsOpen.set(false)"
       (rolledBack)="onRolledBack($event)"
-      (reloadRequired)="reloadAuthoritativeSystem()"
+      (reloadRequired)="editDraft()"
     />
 
     <app-confirm-dialog
@@ -615,11 +647,28 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     />
 
     <app-flow-publication-panel />
+    <app-flow-observation-modal />
   `,
 })
 export class FlowBuilderComponent {
   protected readonly store = inject(FlowStore);
   protected readonly run = inject(FlowRunService);
+  protected readonly observation = inject(FlowObservationService);
+  protected readonly observationWindows = inject(FlowObservationWindowsService);
+  protected readonly observedFlowMatch = computed(() => observationFlowMatch(this.observation.currentRun(), {
+    flowSha256: this.persistence.readOnly() ? this.persistence.publishedFlowSha256() : this.persistence.savedFlowSha256(),
+    dirty: this.store.dirty(),
+  }));
+  protected readonly observationNodeTitle = computed(() => {
+    const id = this.observation.selectedNodeId();
+    return this.store.nodes().find(node => node.id === id)?.label || id || '';
+  });
+  protected readonly observationPinPosition = computed(() => {
+    const node = this.store.nodes().find(candidate => candidate.id === this.observation.selectedNodeId());
+    const index = this.observationWindows.pins().length;
+    return { x: (node?.position?.x ?? 120) + 320 + (index % 2) * 36,
+      y: (node?.position?.y ?? 120) + 190 + Math.floor(index / 2) * 320 };
+  });
   /** Provided here (see decorator) so the toolbar + validation strip share it. */
   protected readonly persistence = inject(FlowPersistenceService);
   protected readonly workbench = inject(FlowWorkbenchService);
@@ -848,6 +897,7 @@ export class FlowBuilderComponent {
     // Bind the run orchestrator to the route's System (or scratchpad) so the
     // projected controls / terminal / nodes all gate + execute consistently.
     this.run.bindSystem(sid);
+    this.observation.bindSystem(sid);
     this.workbench.bindSystem(sid);
     this.destroyRef.onDestroy(() => {
       this.persistence.setWorkbenchAutosaveHold(false);
@@ -1041,6 +1091,12 @@ export class FlowBuilderComponent {
 
   protected togglePalette(): void {
     if (this.focusMode()) return;
+    if (this.observation.enabled()) {
+      this.observation.close();
+      this.paletteOpen.set(true);
+      this.scheduleCanvasFit();
+      return;
+    }
     this.paletteOpen.update((open) => !open);
     this.scheduleCanvasFit();
   }
@@ -1053,7 +1109,29 @@ export class FlowBuilderComponent {
     if (mode === 'canvas') this.scheduleCanvasFit();
   }
 
+  protected toggleObservation(): void {
+    if (this.observation.enabled()) this.observation.close();
+    else {
+      this.inspectorOpen.set(false);
+      this.observation.open();
+    }
+  }
+
+  protected onObserveNode(nodeId: string): void {
+    if (!this.systemId()) return;
+    this.observation.open();
+    this.observation.inspectNode(nodeId);
+    setTimeout(() => {
+      if (this.observation.selectedNodeId() === nodeId) {
+        this.builderRoot()?.nativeElement.querySelector<HTMLElement>('.fo-panel')?.focus({ preventScroll: true });
+      }
+    }, 0);
+    this.lastInspectorSelectionId = this.store.selectedNodeId();
+    this.inspectorOpen.set(false);
+  }
+
   protected onOutlineInspect(nodeId: string): void {
+    this.observation.closeNode();
     this.store.setSelection(nodeId);
     this.inspectorOpen.set(true);
   }
@@ -1073,6 +1151,7 @@ export class FlowBuilderComponent {
       return;
     }
     if (this.store.selectedNode()) {
+      this.observation.closeNode();
       this.inspectorOpen.set(true);
       this.scheduleCanvasFit();
     }

@@ -42,6 +42,7 @@ import {
 } from './flow-node-run.vm';
 import { FlowPersistenceService } from './flow-persistence.service';
 import { FlowRunService } from './flow-run.service';
+import { FlowObservationService } from './flow-observation.service';
 import { FlowStore } from './flow.store';
 import { isConnectorSource, sourceConnectorId, sourceReadMode, sourceResources } from './flow-data-sources.vm';
 
@@ -90,6 +91,15 @@ interface RuntimeBadge {
         }
         <span class="ck-flow-node__pill">{{ typeLabel() }}</span>
         <span class="ck-flow-node__spacer"></span>
+        @if (canObserve()) {
+          <button type="button" class="ck-flow-node__observe"
+            data-testid="flow-node-observe"
+            (click)="onObserve($event)" (mousedown)="$event.stopPropagation()"
+            [attr.aria-label]="i18n.t('flow.observation.node.open', { name: label() })"
+            [title]="i18n.t('flow.observation.node.hint')">
+            <app-icon name="eye" [size]="14" />
+          </button>
+        }
         @if (badge(); as b) {
           <span
             class="ck-flow-node__badge"
@@ -149,6 +159,14 @@ interface RuntimeBadge {
         <div class="ck-flow-node__source" data-testid="flow-source-summary"><span>{{ summary }}</span><span>{{ i18n.t(sourceModeKey()) }}</span></div>
       }
 
+      @if (observing()) {
+        <div class="ck-flow-node__observation" data-testid="flow-node-observed-status"
+          [attr.data-status]="displayedStatus()">
+          <span class="ck-flow-node__observation-dot" aria-hidden="true"></span>
+          {{ observationLabel() }}
+        </div>
+      }
+
       @if (runBadge(); as run) {
         <div
           class="ck-flow-node__run"
@@ -199,22 +217,42 @@ export class FlowNodeComponent {
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: present whenever the node renders inside the builder shell. */
   private readonly run = inject(FlowRunService, { optional: true });
+  private readonly observation = inject(FlowObservationService, { optional: true });
   readonly i18n = inject(I18nService);
 
   readonly view = input.required<FlowNodeView>();
   readonly selected = input(false);
   readonly runStep = output<string>();
+  readonly observe = output<string>();
+  readonly canObserve = computed(() => !!this.run?.systemId());
+  readonly observing = computed(() => !!this.observation?.enabled());
+  readonly displayedStatus = computed(() => this.displayedRun()?.status ?? 'unavailable');
+  readonly observationLabel = computed(() => {
+    if (this.observation?.detailStatus() === 'loading') return this.i18n.t('flow.observation.node.loading');
+    const status = this.displayedStatus();
+    const key = status === 'completed' ? 'flow.observation.node.completed'
+      : status === 'failed' || status === 'cancelled' ? 'flow.observation.node.failed'
+      : status === 'running' || status === 'pending' ? 'flow.observation.node.running'
+      : status === 'hitl_pending' || status === 'debug_pending' ? 'flow.observation.node.paused'
+      : 'flow.observation.node.unavailable';
+    return this.i18n.t(key);
+  });
+  private readonly displayedRun = computed(() => this.observation?.enabled()
+    ? this.observation.summaries()[this.node().id] ?? null
+    : this.run?.nodeRunFor(this.node().id) ?? null);
 
   private readonly node = computed<CanonicalFlowNode>(() => this.view().node);
 
   readonly dataPrepSummary = computed(()=>isPrepNode(this.node())?prepSummary(this.node()):null);
-  readonly prepPortCounts = computed(()=>{const data=this.run?.nodeRuns()[this.node().id]?.data;return [...Object.entries(data?.inputs??{}).flatMap(([port,ref])=>typeof ref.rows==='number'?[{label:'→ '+port,rows:ref.rows}]:[]),...Object.entries(data?.outputs??{}).flatMap(([port,ref])=>typeof ref==='object'&&typeof ref.rows==='number'?[{label:port+' →',rows:ref.rows}]:[])];});
+  readonly prepPortCounts = computed(()=>{const data=this.displayedRun()?.data;return [...Object.entries(data?.inputs??{}).flatMap(([port,ref])=>typeof ref.rows==='number'?[{label:'→ '+port,rows:ref.rows}]:[]),...Object.entries(data?.outputs??{}).flatMap(([port,ref])=>typeof ref==='object'&&typeof ref.rows==='number'?[{label:port+' →',rows:ref.rows}]:[])];});
 
   /** Breakpoint affordance shows only while the step-debugger is armed. */
   readonly debugArmed = computed(() => (this.run ? this.run.debugMode() !== 'off' : false));
   readonly breakpoint = computed(() => this.run?.isBreakpoint(this.node().id) ?? false);
   /** Pulse overlay while this node is the one currently executing / paused. */
-  readonly runActive = computed(() => this.run?.isActiveNode(this.node().id) ?? false);
+  readonly runActive = computed(() => this.observation?.enabled()
+    ? this.displayedRun()?.status === 'running'
+    : this.run?.isActiveNode(this.node().id) ?? false);
   readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
   readonly canRunStep = computed(() => {
     const node = this.node();
@@ -230,10 +268,14 @@ export class FlowNodeComponent {
    * settles, and cleared the moment it starts again.
    */
   readonly runBadge = computed<NodeRunBadge | null>(() =>
-    this.run
-      ? nodeRunBadge(this.run.nodeRunFor(this.node().id), this.i18n.locale())
-      : null,
+    nodeRunBadge(this.displayedRun(), this.i18n.locale()),
   );
+
+  onObserve(event: MouseEvent): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.observe.emit(this.node().id);
+  }
 
   /**
    * The badge's own parameters, with a metric's raw name resolved to the label

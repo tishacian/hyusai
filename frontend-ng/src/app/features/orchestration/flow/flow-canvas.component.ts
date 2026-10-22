@@ -45,6 +45,8 @@ import {
   type ParsedConnector,
 } from './flow-foblex.adapter';
 import { FlowNodeComponent } from './flow-node.component';
+import { FlowObservationWindowsService } from './flow-observation-windows.service';
+import { FlowObservationCardComponent } from './flow-observation-card.component';
 
 /** Emitted when a connection is dragged from a handle and dropped on empty
  *  canvas — the shell opens a type-filtered insertion palette at `position`. */
@@ -58,7 +60,7 @@ export interface ConnectFromHandleEvent {
   selector: 'app-flow-canvas',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FFlowModule, FlowNodeComponent],
+  imports: [FFlowModule, FlowNodeComponent, FlowObservationCardComponent],
   // Foblex 18.6 made `FLayoutEngine` (the base of `DagreLayoutEngine`) inject
   // `FLayoutController` at field-init, and that token is NOT `providedIn:'root'`
   // (it ships only via `provideFLayout()`). Since we instantiate the engine
@@ -90,8 +92,28 @@ export interface ConnectFromHandleEvent {
             [view]="view"
             [selected]="view.id === selectedId()"
             (runStep)="runStep.emit($event)"
+            (observe)="observeNode.emit($event)"
             (click)="onNodeClick(view.id)"
+            (dblclick)="onNodeDoubleClick(view.id, $event)"
           />
+        }
+
+        @for (pin of windows.pins(); track pin.id) {
+          <div fNode class="ck-flow-observation-node"
+            [fNodeId]="pin.id" [fNodePosition]="pin.position"
+            (fNodePositionChange)="windows.move(pin.id, $event)"
+            [attr.data-observation-id]="pin.id">
+            <div fNodeInput [fInputId]="pin.id + '-input'" [fInputDisabled]="true"
+              class="ck-flow-observation-port" aria-hidden="true"></div>
+            <app-flow-observation-card [pin]="pin"
+              (expand)="windows.show(pin)" (closed)="windows.unpin(pin.id)" />
+          </div>
+        }
+
+        @for (link of observationLinks(); track link.id) {
+          <f-connection [fConnectionId]="link.id" [fOutputId]="link.source" [fInputId]="link.target"
+            [fType]="routing()" [fBehavior]="behavior" [fSelectionDisabled]="true"
+            [fReassignDisabled]="true" data-kind="observation" />
         }
 
         @for (conn of connectionViews(); track conn.id) {
@@ -121,6 +143,7 @@ export interface ConnectFromHandleEvent {
 })
 export class FlowCanvasComponent {
   private readonly store = inject(FlowStore);
+  protected readonly windows = inject(FlowObservationWindowsService);
   private readonly canvas = viewChild(FCanvasComponent);
   private readonly layout = new DagreLayoutEngine();
 
@@ -130,19 +153,35 @@ export class FlowCanvasComponent {
   /** On-handle insertion: a connection dropped on empty canvas. */
   readonly connectFromHandle = output<ConnectFromHandleEvent>();
   readonly runStep = output<string>();
+  readonly observeNode = output<string>();
+  readonly configureNode = output<string>();
 
   readonly nodeViews = computed(() => toNodeViews(this.store.nodes()));
   readonly connectionViews = computed(() =>
     toConnectionViews(this.store.edges(), this.store.nodes()),
   );
   readonly selectedId = this.store.selectedNodeId;
+  readonly observationLinks = computed(() => this.windows.pins().flatMap(pin => {
+    const source = this.nodeViews().find(node => node.id === pin.nodeId)?.outputs[0]?.id;
+    return source ? [{ id: pin.id + '-link', source, target: pin.id + '-input' }] : [];
+  }));
 
   /** True while a node drag is in progress (one undo checkpoint per drag). */
   private moving = false;
   /** Guards the one-shot initial auto-fit once the first nodes render. */
   private hasFitted = false;
+  private observedPinIds = new Set<string>();
 
   constructor() {
+    effect(() => {
+      const pins = this.windows.pins();
+      const added = pins.find(pin => !this.observedPinIds.has(pin.id));
+      this.observedPinIds = new Set(pins.map(pin => pin.id));
+      // Wait for Foblex to register the new consultative node before framing it.
+      if (added) setTimeout(() => {
+        if (this.windows.pins().some(pin => pin.id === added.id)) this.focusNode(added.id);
+      }, 80);
+    });
     // Auto-fit the first time the graph gains content (covers async loads
     // where `fLoaded` fired before the system flow arrived).
     effect(() => {
@@ -197,11 +236,22 @@ export class FlowCanvasComponent {
   }
 
   onSelectionChange(event: FSelectionChangeEvent): void {
-    this.store.setSelection(event.nodeIds.length > 0 ? event.nodeIds[0] : null);
+    const id = event.nodeIds.find(candidate => this.store.nodes().some(node => node.id === candidate));
+    if (id) this.store.setSelection(id);
+    else this.store.setSelection(null);
+  }
+
+  onNodeDoubleClick(id: string, event: MouseEvent): void {
+    // Reading is separate from controls that can run, delete or connect nodes.
+    if ((event.target as Element | null)?.closest('button, input, select, textarea, a, .ck-flow-port')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.observeNode.emit(id);
   }
 
   onNodeClick(id: string): void {
     this.store.setSelection(id);
+    this.configureNode.emit(id);
   }
 
   onNodeMoved(id: string, position: { x: number; y: number }): void {

@@ -219,6 +219,10 @@
     grid-template-columns: 1fr;
   }
 
+  &.is-observing {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+  }
+
   &.is-locked {
     pointer-events: none;
     opacity: 0.72;
@@ -409,6 +413,15 @@
   }
 }
 
+.flow-builder__observation {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-panel);
+}
+
 .flow-builder__inspector {
   min-width: 0;
   min-height: 0;
@@ -570,7 +583,8 @@
    while it is open. */
 @media (max-width: 1024px) {
   .flow-builder__body,
-  .flow-builder__body.is-inspecting {
+  .flow-builder__body.is-inspecting,
+  .flow-builder__body.is-observing {
     grid-template-columns: 1fr;
     position: relative;
   }
@@ -580,7 +594,8 @@
     grid-template-columns: 180px 1fr;
   }
 
-  .flow-builder__inspector {
+  .flow-builder__inspector,
+  .flow-builder__observation {
     position: absolute;
     top: 0;
     right: 0;
@@ -596,11 +611,21 @@
   .flow-builder__body,
   .flow-builder__body.has-palette,
   .flow-builder__body.is-inspecting,
-  .flow-builder__body.has-palette.is-inspecting {
+  .flow-builder__body.has-palette.is-inspecting,
+  .flow-builder__body.is-observing {
     grid-template-columns: 1fr;
   }
   .flow-builder__palette {
     max-height: 160px;
+  }
+}
+
+@media (max-width: 720px) {
+  .flow-builder__observation {
+    position: fixed;
+    inset: 60px 12px 36px;
+    width: auto;
+    z-index: 80;
   }
 }
 
