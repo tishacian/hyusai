@@ -112,6 +112,23 @@ test('catalog filters provider, task and runtime and preserves explicit empty fa
     });
   } finally { h.close(); }
 });
+test('TypeSafe is configurable and visible as a typed engine without entering chat routing', () => {
+  const h = harness(); try {
+    h.component.refresh();
+    const jev: ModelCatalogEntry = {...openai, provider:'typesafe', model:'jev-1.13.0', compatibility:'typed_decisions', runtime_available:false, typed_decisions_available:true, capabilities:['typed_decisions']};
+    h.component.models.update(all => [...all, jev]);
+    assert.equal(h.component.isConfigurableCloud('typesafe'), true);
+    assert.equal(h.component.hasEndpointFields('typesafe'), false);
+    assert.equal(h.component.isSelectableModel(jev), false);
+    assert.deepEqual(h.component.modelsForProvider('typesafe'), []);
+    assert.equal(h.component.routingProviderOptions().includes('typesafe'), false);
+    assert.equal(h.component.modelStateLabel(jev), 'Typed decisions · Typed Evaluation');
+    assert.equal(h.component.modelStateLabel({...jev, configured:false}), 'Connection required');
+    assert.equal(h.component.modelStateLabel({...jev, status:'unreachable'}), 'Unavailable');
+    h.component.modelUsage.set('typed_decisions');
+    assert.deepEqual(h.component.filteredModels(), [jev]);
+  } finally { h.close(); }
+});
 test('saved Azure metadata pre-fills without exposing or inventing secrets', () => {
   const h = harness(); try {
     h.component.refresh(); assert.deepEqual(h.component.credentialDrafts['azure_openai'], { api_key: '', endpoint: 'https://example.test', deployment: 'summary', api_version: '2024-10-21' });

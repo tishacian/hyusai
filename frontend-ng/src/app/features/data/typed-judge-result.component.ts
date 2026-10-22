@@ -3,7 +3,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { I18nService } from '@app/core/i18n.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { qualityMessage, type QualityMessage } from '../observability/quality-messages';
-import { typedJudgeFailure, typedResult, type TypedAnswer } from './dataops.models';
+import { typedDecisionObservation, typedJudgeFailure, typedResult, type TypedAnswer } from './dataops.models';
 @Component({
   selector: 'app-typed-judge-result', standalone: true, imports: [NgTemplateOutlet, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
   template: `@if (result(); as evaluation) {
@@ -32,10 +32,21 @@ import { typedJudgeFailure, typedResult, type TypedAnswer } from './dataops.mode
       @if (evaluation.cost; as cost) { <p class="dp-note">{{ i18n.t('dataops.judge.cost') }}: {{ cost.amount == null ? i18n.t('dataops.unknown') : cost.amount }} {{ cost.currency }}</p> }
       </ng-template>
       @if (!compact()) { <ng-container [ngTemplateOutlet]="technical" /> }
+      <ng-template #decision let-key="questionKey">
+        @if (providerDecision(key); as native) {
+          <details class="dp-section" data-testid="judge-provider-decision"><summary>{{ i18n.t('dataops.judge.provider_decision') }}</summary>
+            @if (native.yes != null) { <p class="dp-note">{{ i18n.t('dataops.judge.provider_yes') }}: {{ percent(native.yes) }}</p> }
+            @if (native.confidence != null) { <p class="dp-note">{{ i18n.t('dataops.judge.provider_confidence') }}: {{ percent(native.confidence) }}</p> }
+            @for (option of native.distribution; track $index) { <p class="dp-note">{{ option.label }}: {{ percent(option.probability) }}</p> }
+            <p class="dp-note">{{ i18n.t('dataops.judge.provider_decision_hint') }}</p>
+          </details>
+        }
+      </ng-template>
       @for (entry of answers(); track entry.key) {
         @if (compact()) { <div class="dp-answer">
           <h3>{{ entry.question }}</h3><p class="dp-note">{{ i18n.t('dataops.status.' + entry.answer.status) }}@if (entry.answer.value != null) { · {{ display(entry.answer.value) }} }@if (entry.answer.reason) { · {{ reason(entry.answer.reason) }} }</p>
-          <p class="dp-note">{{ entry.answer.explanation }}</p>
+          <p class="dp-note">{{ explanation(entry.answer) }}</p>
+          <ng-container [ngTemplateOutlet]="decision" [ngTemplateOutletContext]="{questionKey:entry.key}" />
           @if (entry.answer.evidence.length) { <details><summary>{{ i18n.t('dataops.judge.proofs') }} · {{ entry.answer.evidence.length }}</summary>
             @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} · {{ proof.kind === 'image' ? proof.image_sha256 : sourceVersion(proof.evidence_id) }}</small>
               @if (sourcePreview(proof); as source) {<details><summary>{{i18n.t('observability.assurance.source_context')}}</summary><p>{{source.before}}<mark>{{source.quote}}</mark>{{source.after}}</p></details>}
@@ -44,7 +55,8 @@ import { typedJudgeFailure, typedResult, type TypedAnswer } from './dataops.mode
           </details> }
         </div> }
         @else { <details class="dp-section"><summary>{{ entry.question }} · {{ i18n.t('dataops.status.' + entry.answer.status) }} · {{ display(entry.answer.value) }}</summary>
-        <p class="dp-note">{{ entry.answer.explanation }}</p>@if (entry.answer.reason) { <p class="dp-note">{{ reason(entry.answer.reason) }}</p> }
+        <p class="dp-note">{{ explanation(entry.answer) }}</p>@if (entry.answer.reason) { <p class="dp-note">{{ reason(entry.answer.reason) }}</p> }
+        <ng-container [ngTemplateOutlet]="decision" [ngTemplateOutletContext]="{questionKey:entry.key}" />
         @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} · {{ sourceVersion(proof.evidence_id) }} }</small>
           @if (sourcePreview(proof); as source) {<details><summary>{{i18n.t('observability.assurance.source_context')}}</summary><p>{{source.before}}<mark>{{source.quote}}</mark>{{source.after}}</p></details>}
               @if (sourceInvocation(proof.evidence_id); as sourceId) { @if(runId()) { <p><a [navLink]="{type:'skill_invocation',runId:runId() || undefined,ref:sourceId}">{{t('invocation')}}</a></p> } }
@@ -57,6 +69,13 @@ import { typedJudgeFailure, typedResult, type TypedAnswer } from './dataops.mode
   styles: [`.judge-failure{margin:12px 0;padding:12px 14px;border-inline-start:2px solid var(--ck-signal-warn);background:var(--ck-bg-inset);border-radius:4px;overflow-wrap:anywhere}.judge-failure h3{margin:0 0 6px}.judge-failure p{margin:4px 0;font-size:12px;line-height:1.5}.judge-questions{margin:8px 0}.judge-questions ol{padding-inline-start:20px;list-style:decimal}.judge-questions li{margin:4px 0;overflow-wrap:anywhere}`],
 })
 export class TypedJudgeResultComponent {
+  providerDecision(key: string) { return typedDecisionObservation(this.result(), key); }
+  percent(value: number): string { return `${Math.round(value * 1000) / 10} %`; }
+  explanation(answer: TypedAnswer): string {
+    const native = this.result()?.typed_decisions;
+    return native?.protocol === 'typesafe-decisions-v1' && native.source === 'provider_reported'
+      ? this.i18n.t('dataops.judge.native_explanation') : answer.explanation;
+  }
   readonly i18n = inject(I18nService); readonly value = input<unknown>(null); readonly result = computed(() => typedResult(this.value()));
   readonly runId = input<string|null>(null); readonly invocationId = input<string|null>(null);
   readonly evidenceSources = input<Array<{evidence_id:string;text?:string;sha256?:string;asset_ref?:{version?:number|string;digest?:string};invocation_id?:string|null}>>([]);

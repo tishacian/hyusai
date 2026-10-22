@@ -15,6 +15,8 @@ export interface ModelProvider {
   credential_source?: 'workspace' | 'env' | string | null;
   configured?: boolean;
   runtime_available?: boolean;
+  capabilities?: string[];
+  typed_decisions_available?: boolean;
   endpoint?: string | null;
   deployment?: string | null;
   api_version?: string | null;

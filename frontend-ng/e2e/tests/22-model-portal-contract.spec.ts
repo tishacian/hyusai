@@ -6,7 +6,8 @@ test.beforeEach(async ({ baseURL }) => {
   test.skip(!baseURL || !['localhost', '127.0.0.1'].includes(new URL(baseURL).hostname), 'Model Portal contract runs only against a local frontend.');
 });
 const model = (provider: string, name: string) => ({ provider, model: name, name, id: `${provider}:${name}`, status: 'active', configured: true, discovered: true, runtime_available: true, compatibility: 'text_generation', credential_source: 'workspace' });
-const MODELS = [model('openai', 'gpt-mini'), model('ollama', 'llama'), model('azure_openai', 'summary-deployment'), { ...model('openai', 'embed-only'), compatibility: 'other' }];
+const JEV = {...model('typesafe', 'jev-1.13.0'), runtime_available: false, typed_decisions_available: true, capabilities: ['typed_decisions'], compatibility: 'typed_decisions'};
+const MODELS = [JEV, model('openai', 'gpt-mini'), model('ollama', 'llama'), model('azure_openai', 'summary-deployment'), { ...model('openai', 'embed-only'), compatibility: 'other' }];
 const TARGET = { system_id: 'system-portal', system_name: 'Document review', node_id: 'summary', node_label: 'Summarise document', skill_slug: 'ws.portal.summary', skill_name: 'Summary', provider: 'openai', model: 'gpt-mini', input_schema: { type: 'object', properties: { document_text: { type: 'string', description: 'Supplied text' } }, required: ['document_text'] }, input_defaults: { document_text: 'S1: a synthetic inspection excerpt.' }, expected_flow_sha256: 'a'.repeat(64) };
 const RUN = { id: 'run-portal', system_id: 'system-portal', status: 'completed', execution_surface: 'workbench_node', source_flow_sha256: 'a'.repeat(64), duration_ms: 2814, output_ref: {}, skill_invocations: [{ id: 'inv-portal', run_id: 'run-portal', status: 'completed', cost: 0, cost_measured: true, output_ref: { completion: 'The synthetic inspection was reviewed. [S1]', model: 'do-not-trust-output-model' }, trace: { model_execution: { provider: 'openai', model: 'gpt-mini', returned_model: 'gpt-mini-2026', credential_source: 'workspace', model_source: 'executor', fallback: false } }, metrics: { total_tokens: 232, token_evidence: { measurement_coverage: 'complete' }, cost_evidence: { method: 'catalog_unit_price', currency: 'USD', state: 'calculated' } } }] };
 async function setup(page: Page, options: { admin?: boolean; routingError?: boolean; modelError?: boolean; enabled?: boolean; targets?: boolean; comparisonUnknown?: boolean; restoreUnknown?: boolean; locale?: 'en' | 'fr'; dark?: boolean } = {}) {
@@ -20,7 +21,7 @@ async function setup(page: Page, options: { admin?: boolean; routingError?: bool
   const promptSkill = () => ({id: 'prompt-skill', slug: 'ws.portal.reply', name: 'Draft a customer response', description: 'Compose from supplied evidence.', workspace_scope: 'workspace', version: '1', category: 'LLM', input_schema: {type: 'object', properties: {details: {type: 'string'}}}, output_schema: {type: 'object'}, executor: {kind: 'prompt_template', params: {provider: 'openai', model: 'gpt-mini', template: restored ? 'Published: {details}' : 'Current: {details}'}}, metrics: {}});
   const sample = {invocation_id: 'decision-reference', run_id: 'run-reference', system_id: 'system-portal', system_name: 'Document review', started_at: '2026-10-22T10:35:00Z', objective: 'Check the delivery before proposing a resolution.', observations_count: 3, input_sha256: 'c'.repeat(64), instruction_sha256: 'd'.repeat(64), model: {provider: 'openai', model: 'gpt-mini'}};
   const comparisonRuns = ['first', 'second'].map((id, index) => ({id: `compare-${id}`, system_id: 'system-portal', status: 'completed', execution_surface: 'node_preview', skill_invocations: [{id: `inv-${id}`, skill_slug: 'decide_next_v1', status: 'completed', latency_ms: 800 + index * 100, cost_measured: index === 0, cost: index === 0 ? .003 : null, input_ref: {visible_skills: [{slug: 'read_delivery_v1', purpose: 'Read the delivery receipt'}]}, output_ref: {next_skill: index === 0 ? 'read_delivery_v1' : null, done: index === 1, exit: index === 1 ? 'complete' : null, rationale: index === 0 ? 'The delivery evidence needs checking.' : 'The supplied observations answer the question.'}, trace: {model_execution: {provider: index === 0 ? 'openai' : 'ollama', model: index === 0 ? 'gpt-mini' : 'llama', model_source: 'input', credential_source: 'workspace', fallback: false}}, metrics: index === 0 ? {total_tokens: 120, token_evidence: {measurement_coverage: 'complete'}, cost_evidence: {state: 'measured', currency: 'USD', method: 'provider_measurement'}} : {}}]}));
-  const provider = (key: string) => ({ key, label: key === 'azure_openai' ? 'Azure OpenAI' : key === 'openai' ? 'OpenAI' : 'Ollama', kind: key === 'ollama' ? 'local' : 'cloud', status: 'active', configured: true, runtime_available: true, api_key_set: key !== 'ollama', credential_source: 'workspace', models: MODELS.filter((m) => m.provider === key).map((m) => m.model), ...(key === 'azure_openai' ? metadata : {}) });
+  const provider = (key: string) => ({ key, label: key === 'azure_openai' ? 'Azure OpenAI' : key === 'openai' ? 'OpenAI' : key === 'typesafe' ? 'TypeSafe' : 'Ollama', kind: key === 'ollama' ? 'local' : 'cloud', status: 'active', configured: true, runtime_available: key !== 'typesafe', typed_decisions_available: key === 'typesafe', capabilities: key === 'typesafe' ? ['typed_decisions'] : ['text_generation'], api_key_set: key !== 'ollama', credential_source: 'workspace', models: MODELS.filter((m) => m.provider === key).map((m) => m.model), ...(key === 'azure_openai' ? metadata : {}) });
   const json = (route: Route, data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
   await page.route('**/*', (route) => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort('blockedbyclient'));
   await page.route('**/api/v1/**', async (route) => {
@@ -43,8 +44,8 @@ async function setup(page: Page, options: { admin?: boolean; routingError?: bool
     if (path === '/audit' && method === 'POST') return json(route, { id: 'local-audit' }, 201);
     if (path === '/telemetry/live') return json(route, { throughput_rpm: null, latency_ms: null, yield_pct: null, runs_count: 0 });
     if (path === '/models') return options.modelError ? json(route, { detail: { message: 'Catalog unavailable' } }, 503) : json(route, { models: MODELS });
-    if (path === '/models/providers') return json(route, { providers: ['openai', 'azure_openai', 'ollama'].map(provider), can_configure: admin });
-    if (path === '/models/config') return json(route, { can_configure: admin, runtime_providers: ['openai', 'azure_openai', 'ollama'], cloud_credentials: [{ key: 'openai', api_key_set: true }, { key: 'azure_openai', api_key_set: true, ...metadata }] });
+    if (path === '/models/providers') return json(route, { providers: ['openai', 'azure_openai', 'ollama', 'typesafe'].map(provider), can_configure: admin });
+    if (path === '/models/config') return json(route, { can_configure: admin, runtime_providers: ['openai', 'azure_openai', 'ollama'], cloud_credentials: [{ key: 'typesafe', api_key_set: true }, { key: 'openai', api_key_set: true }, { key: 'azure_openai', api_key_set: true, ...metadata }] });
     if (path === '/models/routing') return options.routingError ? json(route, { detail: { message: 'Routing unavailable' } }, 503) : json(route, { default_provider: 'openai', default_model: 'gpt-mini', fallback_chain: [], model_usage: [{ system_id: 'system-portal', system_name: 'Document review', node_id: 'summary', provider: 'openai', model: 'gpt-mini', source: 'current_flow' }] });
     if (path === '/models/distribution') return json(route, { by_model: [{ provider: 'openai', model: 'gpt-mini', invocations: 2, cost: 0, currency: 'USD', cost_source: 'skill_catalog', cost_state: 'partial', evidence: [{ run_id: 'run-portal', invocation_id: 'inv-portal' }] }] });
     if (path === '/models/nodes') return json(route, { nodes: [] });
@@ -71,6 +72,7 @@ async function setup(page: Page, options: { admin?: boolean; routingError?: bool
     if (path === '/models/test' && method === 'POST') return json(route, { id: RUN.id, system_id: RUN.system_id, status: 'pending' }, 201);
     if (path === '/runs/run-portal') return json(route, RUN);
     if (/^\/models\/providers\/[^/]+\/test$/.test(path)) return json(route, { provider: provider(path.split('/')[3]), test_kind: 'connection', generation_verified: false });
+    if (path === '/models/credentials/typesafe' && method === 'PUT') return json(route, { saved: true });
     if (path === '/models/credentials/azure_openai' && method === 'PUT') { metadata = { ...metadata, ...body }; return json(route, { saved: true }); }
     if (['/capabilities', '/systems', '/runs', '/skills'].includes(path) && method === 'GET') return json(route, { [path.slice(1)]: [] });
     unexpected.push(`${method} ${path}`); return json(route, { detail: `Unhandled fixture ${method} ${path}` }, 501);
@@ -239,3 +241,30 @@ test('agent comparison and instruction history keep French labels and localized 
   await expect(history).toContainText('Seules les consignes du catalogue seront remplacées');
   await history.screenshot({path: info.outputPath('prompt-history-fr-dark.png')});
 });
+
+for (const locale of ['en', 'fr'] as const) {
+  test(`TypeSafe is configured as a typed evaluator, without entering chat routing (${locale})`, async ({ page }, info) => {
+    const h = await setup(page, {locale, dark: locale === 'fr'});
+    await page.setViewportSize({width: 1280, height: 900});
+    await page.goto('/resources?facet=providers');
+    const app = page.locator('app-resources-page');
+    const card = app.locator('section').filter({has: page.getByRole('heading', {name:'TypeSafe', exact:true})});
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(locale === 'fr' ? 'Moteur de décisions typées' : 'Typed decision engine');
+    await expect(card).toContainText(locale === 'fr' ? 'plafonds budgétaires' : 'Blocking budget limits');
+    await expect(card.locator('a[href="https://console.typesafe.ai/keys"]')).toHaveAttribute('rel', 'noopener noreferrer');
+    const key = card.locator('input[type=password]');
+    await expect(key).toHaveValue('');
+    await key.fill('synthetic-typesafe-key');
+    await card.getByRole('button', {name: locale === 'fr' ? 'Enregistrer la connexion' : 'Save connection', exact:true}).click();
+    await expect.poll(() => h.calls.filter(c => c.path === '/models/credentials/typesafe' && c.method === 'PUT').length).toBe(1);
+    expect(h.calls.find(c => c.path === '/models/credentials/typesafe' && c.method === 'PUT')?.body).toEqual({api_key:'synthetic-typesafe-key'});
+    await expect(key).toHaveValue('');
+    expect(await app.locator('select').evaluateAll(selects => selects.some(select => Array.from((select as HTMLSelectElement).options).some(option => option.value === 'typesafe')))).toBe(false);
+    await card.screenshot({path:info.outputPath('typesafe-provider-'+locale+'.png')});
+    await page.setViewportSize({width:390, height:844});
+    expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(h.calls.some(c => c.path === '/models/test')).toBe(false);
+    expect(h.unexpected).toEqual([]);
+  });
+}

@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
 import type { Skill } from '@app/core/canonical-api.service';
+import type { ModelCatalogEntry } from '@app/core/model-catalog';
 import { guidedJudgeIdentity } from '@app/features/data/typed-judge-guidance';
 import { FlowPersistenceService } from './flow-persistence.service';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
@@ -31,7 +32,7 @@ import { FlowStore } from './flow.store';
       @if(opened()){<app-flow-data-prep-workshop [node]="node()" (close)="opened.set(false)" />}
     }
   } @else if (slug() === 'evaluate_v2') {
-    @if (judgeCatalogState() === 'ready') { <app-typed-judge-editor [value]="judge()" [graph]="store.nodes()" [nodeId]="node().id" [skills]="judgeSkills()" (valueChange)="saveJudge($event)" /> }
+    @if (judgeCatalogState() === 'ready') { <app-typed-judge-editor [value]="judge()" [graph]="store.nodes()" [nodeId]="node().id" [skills]="judgeSkills()" [models]="judgeModels()" [modelCatalogState]="judgeModelsState()" (reloadModels)="loadJudgeModels()" (valueChange)="saveJudge($event)" /> }
     @else if (judgeCatalogState() === 'error') { <p role="alert">{{ i18n.t('dataops.error.load') }}</p><button type="button" (click)="loadJudgeCatalog()">{{ i18n.t('common.retry') }}</button> }
     @else { <p role="status">{{ i18n.t('common.loading') }}</p> }
   }`,
@@ -52,6 +53,9 @@ export class FlowDataOpsInspectorComponent {
   private readonly catalogApi = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
   readonly judgeSkills = signal<Skill[]>([]);
+  readonly judgeModels = signal<ModelCatalogEntry[]>([]);
+  readonly judgeModelsState = signal<'loading' | 'ready' | 'error'>('loading');
+  private judgeModelsGeneration = 0;
   readonly judgeCatalogState = signal<'loading' | 'ready' | 'error'>('loading');
   private judgeCatalogGeneration = 0;
   readonly datasets = signal<DatasetDto[]>([]); readonly failed = signal(false);
@@ -60,7 +64,7 @@ export class FlowDataOpsInspectorComponent {
   readonly judge = computed(() => guidedJudgeIdentity(judgeDraftFromNode(this.node()), this.persistence.systemId(), this.node().id));
   constructor() {
     effect(() => { if (this.slug() === 'data_prep_v1') void this.loadDatasets(); });
-    effect(() => { if (this.slug() === 'evaluate_v2') this.loadJudgeCatalog(); });
+    effect(() => { if (this.slug() === 'evaluate_v2') { this.loadJudgeCatalog(); this.loadJudgeModels(); } });
   }
   loadJudgeCatalog(): void {
     const generation = ++this.judgeCatalogGeneration;
@@ -71,6 +75,17 @@ export class FlowDataOpsInspectorComponent {
     this.catalogApi.get<{ skills: Skill[] }>('/skills').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: result => { if (current()) { this.judgeSkills.set(result.skills ?? []); this.judgeCatalogState.set('ready'); } },
       error: () => { if (current()) this.judgeCatalogState.set('error'); },
+    });
+  }
+  loadJudgeModels(): void {
+    const generation = ++this.judgeModelsGeneration;
+    const scope = this.workspace.captureRequestScope();
+    const current = () => generation === this.judgeModelsGeneration && this.workspace.isRequestScopeCurrent(scope);
+    this.judgeModelsState.set('loading');
+    this.judgeModels.set([]);
+    this.catalogApi.get<{models: ModelCatalogEntry[]} | ModelCatalogEntry[]>('/models').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: result => { if (current()) { this.judgeModels.set(Array.isArray(result) ? result : result.models ?? []); this.judgeModelsState.set('ready'); } },
+      error: () => { if (current()) this.judgeModelsState.set('error'); },
     });
   }
   private async loadDatasets(): Promise<void> { this.failed.set(false); try { const [datasets,catalog]=await Promise.all([this.data.refresh(),this.api.catalog()]);this.datasets.set(datasets);this.placements.set([...new Set(['auto',...(catalog.feature?.placements??catalog.placements)])]); } catch { this.failed.set(true); } }

@@ -1,4 +1,23 @@
 export const DATAOPS_FR = {
+  "dataops.judge.native_explanation": "Ce moteur ne produit pas de justification rédigée ni de citation par réponse.",
+  "dataops.judge.output_token_reservation": "Réserve locale de tokens de sortie",
+  "dataops.judge.typesafe_reservation_hint": "Cette réserve sert au suivi local. L’API Jev ne garantit pas de plafond de tokens de sortie.",
+  "dataops.judge.failure.typed_contract": "Ce moteur ne prend pas en charge les exigences de la grille : citations, images, choix multiples ou échelle de score. Aucun appel fournisseur n’a été lancé.",
+  "dataops.judge.failure.typed_budget": "Les plafonds budgétaires bloquants ne sont pas encore qualifiés pour ce moteur. Choisissez un moteur qualifié ; aucun appel fournisseur n’a été lancé.",
+  "dataops.judge.failure.provider_access": "Le fournisseur a refusé l’accès. Vérifiez la clé et les droits du compte dans Fournisseurs.",
+
+  "dataops.judge.provider_decision": "Probabilités du fournisseur",
+  "dataops.judge.provider_yes": "Probabilité de « oui »",
+  "dataops.judge.provider_confidence": "Confiance du fournisseur — non qualifiée sur cette grille",
+  "dataops.judge.provider_decision_hint": "Ces probabilités ne constituent pas une mesure de fiabilité sur votre grille et ne remplacent pas la validation humaine.",
+
+  "dataops.judge.engine": "Moteur d’évaluation",
+  "dataops.judge.typesafe_hint": "Jev produit des décisions typées à partir des sources conservées. Cette intégration ne produit pas de justification ni de citation par réponse et accepte uniquement le texte. Les exigences existantes restent inchangées.",
+  "dataops.judge.tariff_review": "Vérifiez les tarifs et leur référence pour ce moteur. Changer de modèle exige une nouvelle référence tarifaire.",
+  "dataops.error.judge_typesafe_evidence": "Jev ne produit pas les citations exigées par cette grille. Conservez un juge avec citations ou définissez explicitement une grille adaptée aux décisions typées.",
+  "dataops.error.judge_typesafe_multiple": "Jev ne prend pas en charge les questions à choix multiples dans cette intégration.",
+  "dataops.error.judge_typesafe_score": "Pour Jev, un score doit comporter de 2 à 10 niveaux entiers consécutifs, par exemple de 0 à 5.",
+
   'dataops.judge.source_version_unknown': 'Version source non conservée ; extrait figé ci-dessus.',
   "dataops.work.sources": "Sources du service",
   "dataops.work.expected_output": "Résultat attendu",
@@ -581,6 +600,25 @@ export const DATAOPS_FR = {
 } as const;
 
 export const DATAOPS_EN: Record<keyof typeof DATAOPS_FR, string> = {
+  "dataops.judge.native_explanation": "This engine does not produce a written explanation or citations per answer.",
+  "dataops.judge.output_token_reservation": "Local output token reservation",
+  "dataops.judge.typesafe_reservation_hint": "This reservation supports local accounting. The Jev API does not guarantee an output token cap.",
+  "dataops.judge.failure.typed_contract": "This engine does not support the rubric requirements: citations, images, multiple selections or score scale. No provider call was made.",
+  "dataops.judge.failure.typed_budget": "Blocking budget limits are not yet qualified for this engine. Choose a qualified engine; no provider call was made.",
+  "dataops.judge.failure.provider_access": "The provider denied access. Check the key and account permissions in Providers.",
+
+  "dataops.judge.provider_decision": "Provider probabilities",
+  "dataops.judge.provider_yes": "Probability of “yes”",
+  "dataops.judge.provider_confidence": "Provider confidence — not qualified for this rubric",
+  "dataops.judge.provider_decision_hint": "These probabilities are not a reliability measurement on your rubric and do not replace human approval.",
+
+  "dataops.judge.engine": "Evaluation engine",
+  "dataops.judge.typesafe_hint": "Jev produces typed decisions from the retained sources. This integration does not produce explanations or citations per answer and supports text only. Existing requirements remain unchanged.",
+  "dataops.judge.tariff_review": "Check this engine’s prices and tariff reference. Changing models requires a new tariff reference.",
+  "dataops.error.judge_typesafe_evidence": "Jev cannot produce the citations this rubric requires. Keep a judge with citations or explicitly define a rubric for typed decisions.",
+  "dataops.error.judge_typesafe_multiple": "This integration does not support multiple-choice selections with Jev.",
+  "dataops.error.judge_typesafe_score": "A Jev score must contain 2 to 10 consecutive integer levels, such as 0 to 5.",
+
   'dataops.judge.source_version_unknown': 'Source version not retained; frozen excerpt shown above.',
   "dataops.work.sources": "Service sources",
   "dataops.work.expected_output": "Expected output",

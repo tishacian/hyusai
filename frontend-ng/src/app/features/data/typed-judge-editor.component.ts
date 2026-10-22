@@ -2,13 +2,26 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output, si
 import { I18nService } from '@app/core/i18n.service';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { Skill } from '@app/core/canonical-api.service';
-import { judgeGraphSources, judgeOutputPaths, nextRubricVersion } from './typed-judge-guidance';
+import { judgeGraphSources, judgeOutputPaths, nextRubricVersion, selectJudgeModel } from './typed-judge-guidance';
+import { catalogModelName, selectableEvaluationModel, type ModelCatalogEntry } from '@app/core/model-catalog';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { changeQuestionType, newQuestion, JUDGE_BUDGET_LIMITS, validateJudgeDraft, type QuestionType, type TypedJudgeDraft, type TypedQuestion } from './dataops.models';
 
 @Component({
-  selector: 'app-typed-judge-editor', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
+  selector: 'app-typed-judge-editor', standalone: true, imports: [NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
   template: `
     <p class="dp-note">{{ i18n.t('dataops.judge.contract_hint') }}</p>
+    <label class="dp-field"><span>{{ i18n.t('dataops.judge.engine') }}</span>
+      <select class="dp-input" [value]="selectedModel()" (change)="selectModel(val($event))" [disabled]="modelCatalogState() !== 'ready'">
+        <option value="" [selected]="!selectedModel()">{{ i18n.t('resources.models.choose_model') }}</option>
+        @if (selectedModel() && !selectedModelAvailable()) { <option [value]="selectedModel()" selected disabled>{{ selectedModel() }} · {{ i18n.t('resources.models.unavailable') }}</option> }
+        @for (model of availableModels(); track modelKey(model)) { <option [value]="modelKey(model)" [selected]="selectedModel() === modelKey(model)">{{ model.provider }} · {{ modelName(model) }}</option> }
+      </select>
+    </label>
+    @if (modelCatalogState() === 'loading') { <p class="dp-note" role="status">{{ i18n.t('common.loading') }}</p> }
+    @else if (modelCatalogState() === 'error') { <p class="dp-error" role="alert">{{ i18n.t('resources.models.load_failed') }}</p><button type="button" class="dp-button" (click)="reloadModels.emit()">{{ i18n.t('common.retry') }}</button> }
+    <a class="dp-note" [navLink]="{surface: 'resources', facet: 'providers'}" target="_blank" rel="noopener">{{ i18n.t('resources.models.connect') }}</a>
+    @if (value().tariff.provider === 'typesafe') { <p class="dp-note" role="status">{{ i18n.t('dataops.judge.typesafe_hint') }} {{ i18n.t('resources.providers.typesafe_budget') }}</p> }
     <p class="dp-note">{{ i18n.t('flow.judge.guidance.identity') }} · {{ value().rubric_id }} · {{ value().rubric_version }}</p>
     <button type="button" class="dp-button" (click)="rubric('rubric_version', nextVersion())">{{ i18n.t('flow.judge.guidance.next', { version: nextVersion() }) }}</button>
     <details><summary>{{ i18n.t('dataops.advanced') }}</summary>
@@ -75,10 +88,12 @@ import { changeQuestionType, newQuestion, JUDGE_BUDGET_LIMITS, validateJudgeDraf
     }
     <button type="button" class="dp-button" [disabled]="value().questions.length >= 32" (click)="add()">{{ i18n.t('dataops.judge.add_question') }}</button>
     @for (error of errors(); track error) { <p class="dp-error" role="status">{{ i18n.t(error) }}</p> }
-    <section class="dp-section"><h3>{{ i18n.t('dataops.judge.budgets') }}</h3><p class="dp-note">{{ i18n.t('dataops.judge.budget_hint') }}</p><div class="dp-grid">
-      @for (field of budgetFields; track field) { <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + field) }}</span><input class="dp-input" type="number" [min]="budgetLimits[field].min" [max]="budgetLimits[field].max" [step]="budgetLimits[field].step" [value]="value().budget[field]" (input)="budget(field, number($event))" /></label> }
+    <section class="dp-section"><h3>{{ i18n.t('dataops.judge.budgets') }}</h3><p class="dp-note">{{ i18n.t('dataops.judge.budget_hint') }}</p>
+    @if (value().tariff.provider === 'typesafe') { <p class="dp-note">{{ i18n.t('dataops.judge.typesafe_reservation_hint') }}</p> }
+    <div class="dp-grid">
+      @for (field of budgetFields; track field) { <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + (field === 'max_output_tokens' && value().tariff.provider === 'typesafe' ? 'output_token_reservation' : field)) }}</span><input class="dp-input" type="number" [min]="budgetLimits[field].min" [max]="budgetLimits[field].max" [step]="budgetLimits[field].step" [value]="value().budget[field]" (input)="budget(field, number($event))" /></label> }
     </div></section>
-    <section class="dp-section"><h3>{{ i18n.t('dataops.judge.tariff') }}</h3><div class="dp-grid">
+    <section class="dp-section"><h3>{{ i18n.t('dataops.judge.tariff') }}</h3><p class="dp-note">{{ selectedModel() }} · {{ i18n.t('dataops.judge.tariff_review') }}</p><div class="dp-grid">
       @for (field of tariffText; track field) { <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + field) }}</span><input class="dp-input" [value]="value().tariff[field]" (input)="tariff(field, val($event))" /></label> }
       @for (field of tariffNumbers; track field) { <label class="dp-field"><span>{{ i18n.t('dataops.judge.' + field) }}</span><input class="dp-input" type="number" min="0" max="1000" step="any" [value]="value().tariff[field]" (input)="tariffNumber(field, number($event))" /></label> }
     </div></section>
@@ -89,6 +104,12 @@ export class TypedJudgeEditorComponent {
   readonly graph = input<CanonicalFlowNode[]>([]);
   readonly nodeId = input('');
   readonly skills = input<Skill[]>([]);
+  readonly models = input<ModelCatalogEntry[]>([]);
+  readonly modelCatalogState = input<'loading' | 'ready' | 'error'>('loading');
+  readonly reloadModels = output<void>();
+  readonly availableModels = computed(() => this.models().filter(selectableEvaluationModel));
+  readonly selectedModel = computed(() => this.value().tariff.provider && this.value().tariff.model ? `${this.value().tariff.provider}:${this.value().tariff.model}` : '');
+  readonly selectedModelAvailable = computed(() => this.availableModels().some(model => this.modelKey(model) === this.selectedModel()));
   readonly sources = computed(() => judgeGraphSources(this.graph(), this.nodeId()));
   readonly sourceSkills = computed(() => [...new Set(this.sources().map(source => source.skillSlug))]);
   readonly nextVersion = computed(() => nextRubricVersion(this.value().rubric_version));
@@ -97,7 +118,7 @@ export class TypedJudgeEditorComponent {
   readonly types: QuestionType[] = ['boolean', 'choice', 'multi_choice', 'score', 'probability'];
   readonly rubricFields = ['rubric_id', 'rubric_version'] as const;
   readonly budgetFields = ['max_calls', 'max_tokens', 'max_cost_usd', 'max_output_tokens', 'timeout_s', 'max_prompt_bytes'] as const;
-  readonly tariffText = ['provider', 'model', 'reference'] as const; readonly tariffNumbers = ['input_per_million', 'output_per_million'] as const;
+  readonly tariffText = ['reference'] as const; readonly tariffNumbers = ['input_per_million', 'output_per_million'] as const;
   readonly budgetLimits = JUDGE_BUDGET_LIMITS;
   readonly nativeKinds = ['document_set', 'dataset', 'model'] as const;
   readonly errors = computed(() => [
@@ -105,6 +126,12 @@ export class TypedJudgeEditorComponent {
     ...(this.value().run_evidence?.sources.some(source => this.hasOutputContract(source.skill_slug) && source.paths.some(path => !this.outputPaths(source.skill_slug).includes(path))) ? ['flow.judge.guidance.invalid_path'] : []),
   ]);
   sourceNodes(slug: string) { return this.sources().filter(source => source.skillSlug === slug); }
+  modelName(model: ModelCatalogEntry): string { return catalogModelName(model); }
+  modelKey(model: ModelCatalogEntry): string { return `${model.provider}:${catalogModelName(model)}`; }
+  selectModel(key: string): void {
+    const model = this.availableModels().find(entry => this.modelKey(entry) === key);
+    if (model) this.valueChange.emit(selectJudgeModel(this.value(), model));
+  }
   skillName(slug: string): string { return this.skills().find(skill => skill.slug === slug)?.name ?? slug; }
   hasOutputContract(slug: string): boolean { const schema = this.skills().find(skill => skill.slug === slug)?.output_schema; return !!schema && Object.keys(schema).length > 0; }
   outputPaths(slug: string): string[] { return judgeOutputPaths(this.skills().find(skill => skill.slug === slug)?.output_schema); }

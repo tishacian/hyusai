@@ -204,6 +204,12 @@ export function validateJudgeDraft(draft: TypedJudgeDraft): string[] {
     if (!Number.isFinite(value) || (key === 'max_cost_usd' ? value <= 0 : value < limits.min) || value > limits.max || limits.step === 1 && !Number.isInteger(value)) errors.push('dataops.error.judge_budget');
   }
   if ([draft.tariff.input_per_million,draft.tariff.output_per_million].some(value => !Number.isFinite(value) || value < 0 || value > 1000)) errors.push('dataops.error.judge_tariff');
+  if (draft.tariff.provider === 'typesafe') {
+    if (draft.questions.some(q => q.requires_evidence)) errors.push('dataops.error.judge_typesafe_evidence');
+    if (draft.questions.some(q => q.type === 'multi_choice')) errors.push('dataops.error.judge_typesafe_multiple');
+    if (draft.questions.some(q => q.type === 'score' && (!Number.isInteger(q.minimum) || !Number.isInteger(q.maximum)
+      || q.maximum! - q.minimum! < 1 || q.maximum! - q.minimum! > 9))) errors.push('dataops.error.judge_typesafe_score');
+  }
   if (!draft.rubric_id.trim() || draft.rubric_id.length > 160 || !draft.rubric_version.trim() || draft.rubric_version.length > 60 || !draft.tariff.provider.trim() || draft.tariff.provider.length > 100 || !draft.tariff.model.trim() || draft.tariff.model.length > 200 || !draft.tariff.reference.trim() || draft.tariff.reference.length > 300) errors.push('dataops.error.judge_identity');
   return [...new Set(errors)];
 }
@@ -249,7 +255,29 @@ export function validateQuestions(questions: TypedQuestion[]): string[] {
   return [...new Set(errors)];
 }
 export interface TypedAnswer { status: 'answered' | 'abstained' | 'invalid'; value: unknown; reason: string | null; explanation: string; confidence: number | null; evidence: Array<{ kind?: 'text'|'image'; evidence_id: string; start?: number; end?: number; quote?: string; image_sha256?:string; region?:number[]|null; description?:string }>; }
-export interface TypedEvaluationResult { schema_version: 2; evaluation_id: string; questions?: TypedQuestion[]; answers: Record<string, TypedAnswer>; status: string; disposition: string; quality_status: string; reason?: string | null; response_diagnostic?: {category: string; question_index?: number}; confidence: number | null; coverage: Record<string, number | string>; calibration?: {scope: string}; cost?: { amount: number | null; currency: string; measurement_coverage: string }; }
+export interface TypedEvaluationResult { schema_version: 2; evaluation_id: string; questions?: TypedQuestion[]; answers: Record<string, TypedAnswer>; status: string; disposition: string; quality_status: string; reason?: string | null; response_diagnostic?: {category: string; question_index?: number}; confidence: number | null; coverage: Record<string, number | string>; calibration?: {scope: string}; cost?: { amount: number | null; currency: string; measurement_coverage: string }; typed_decisions?: {protocol: string; source: string; answers: Record<string, unknown>}; }
+/** Provider probabilities describe a native decision, not empirical rubric calibration. */
+export function typedDecisionObservation(result: TypedEvaluationResult | null, key: string): {yes: number | null; confidence: number | null; distribution: Array<{label: string; probability: number}>} | null {
+  const decisions = result?.typed_decisions;
+  if (decisions?.protocol !== 'typesafe-decisions-v1' || decisions.source !== 'provider_reported') return null;
+  const raw = decisions.answers?.[key];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const answer = raw as Record<string, unknown>;
+  const probability = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+  if (answer['type'] === 'noul') return probability(answer['noul']) ? {yes: answer['noul'], confidence: null, distribution: []} : null;
+  if (!['choice', 'score'].includes(String(answer['type']))) return null;
+  const entries = answer['probabilities'];
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries) || Object.keys(entries).length > 100) return null;
+  const labels = answer['choice_labels'] as Record<string, unknown> | undefined;
+  const offset = answer['score_offset'];
+  const distribution = Object.entries(entries).flatMap(([option, value]) => {
+    const label = answer['type'] === 'choice' ? labels?.[option]
+      : Number.isInteger(offset) && /^\d+$/.test(option) ? String(Number(option) + Number(offset)) : null;
+    return probability(value) && typeof label === 'string' && label.length <= 200 ? [{label, probability: value}] : [];
+  });
+  if (!distribution.length || distribution.length !== Object.keys(entries).length) return null;
+  return {yes: null, confidence: probability(answer['confidence']) ? answer['confidence'] : null, distribution};
+}
 const JUDGE_RESPONSE_CATEGORIES = ['response_size_or_type', 'json', 'schema', 'abstention', 'answer_state', 'evidence_required', 'evidence_scope', 'image_citation', 'evidence_kind', 'evidence_span', 'evidence_quote', 'validation'] as const;
 /** A returned evaluation is distinct from the transport status of its call. */
 export function typedJudgeOutcome(result: TypedEvaluationResult | null): {label: string; state: 'completed'|'partial'|'failed'} | null {
@@ -271,6 +299,12 @@ export function typedJudgeFailure(result: TypedEvaluationResult | null): {messag
   else if (reason === 'JUDGE_TIMEOUT') { message = 'timeout'; action = 'retry'; }
   else if (reason === 'JUDGE_PROVIDER_UNAVAILABLE') { message = 'temporarily_unavailable'; action = 'retry'; }
   else if (reason === 'JUDGE_ACCESS_REVOKED') { message = 'access'; action = 'access'; }
+  else if (reason === 'JUDGE_TYPESAFE_CONTRACT_UNSUPPORTED') { message = 'typed_contract'; action = 'configuration'; }
+  else if (reason === 'USAGE_TRANSPORT_UNQUALIFIED') { message = 'typed_budget'; action = 'configuration'; }
+  else if (['TYPESAFE_AUTHENTICATION_FAILED', 'TYPESAFE_ACCESS_DENIED'].includes(reason ?? '')) { message = 'provider_access'; action = 'configuration'; }
+  else if (['TYPESAFE_RATE_LIMITED', 'TYPESAFE_OVERLOADED', 'TYPESAFE_REQUEST_FAILED', 'TYPESAFE_CONNECTION_FAILED'].includes(reason ?? '')) { message = 'temporarily_unavailable'; action = 'retry'; }
+  else if (reason === 'TYPESAFE_TIMEOUT') { message = 'timeout'; action = 'retry'; }
+  else if (reason === 'TYPESAFE_RESPONSE_INVALID') { message = 'validation'; action = 'configuration'; }
   else if (['JUDGE_BUDGET_EXHAUSTED', 'JUDGE_MEASURED_BUDGET_EXCEEDED', 'SERVICE_BUDGET_EXHAUSTED'].includes(reason ?? '')) { message = 'budget'; action = 'budget'; }
   const index = reason === 'JUDGE_RESPONSE_INVALID' ? result.response_diagnostic?.question_index : undefined;
   const question = Number.isInteger(index) && index! >= 0 && Array.isArray(result.questions) ? result.questions[index!]?.question : null;
