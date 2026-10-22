@@ -221,6 +221,7 @@ async def replay_run_async(
     actor: Optional[str] = None,
     source_decision_id: Optional[str] = None,
     source_feedback_id: Optional[str] = None,
+    dedup_key: Optional[str] = None,
 ) -> Tuple[Run, str]:
     """Drive the orchestrator with the override-patched input and persist
     a new ``Run`` linked back to ``parent``. Returns ``(new_run, response_text)``.
@@ -358,6 +359,7 @@ async def replay_run_async(
         capability_id=parent.capability_id,
         status=("completed" if not error_text else "failed"),
         trigger="replay",
+        trigger_dedup_key=dedup_key,
         parent_run_id=parent.id,
         replay_overrides=overrides or {},
         input_ref={
