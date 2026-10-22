@@ -255,5 +255,8 @@ function formatInstant(value: string | null | undefined, locale: string): string
   const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`;
   const time = Date.parse(normalized);
   if (!Number.isFinite(time)) return null;
-  return new Date(time).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' });
+  // dateStyle/timeStyle cannot be combined with timeZoneName: spell the parts.
+  return new Date(time).toLocaleString(locale, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+  });
 }
