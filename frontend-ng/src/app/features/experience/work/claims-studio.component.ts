@@ -1,3 +1,5 @@
+import { ThemeService } from '@app/core/theme.service';
+import { workTheme, workThemeMode } from './work-catalog';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
@@ -58,7 +60,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
   imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
-    <div class="xp-work claims-app">
+    <div class="xp-work claims-app" data-brand-scope [attr.data-theme]="themeMode()">
       <app-work-bar [appContext]="i18n.t('experience.claims.title')" />
       <app-work-app-header [title]="i18n.t('experience.claims.title')" [eyebrow]="i18n.t('experience.claims.brand')"
         [description]="i18n.t('experience.claims.promise')" [status]="i18n.t('experience.claims.demo')" emblem="◈">
@@ -250,6 +252,10 @@ export class ClaimsStudioComponent {
   private readonly router = inject(Router);
   private readonly destroy = inject(DestroyRef);
   readonly releasePages = signal<unknown>(null);
+  /** Same theme rule as every Work page: release mode, else the reader's. */
+  private readonly readerTheme = inject(ThemeService);
+  readonly releaseTheme = signal<ReturnType<typeof workTheme> | null>(null);
+  readonly themeMode = computed(() => workThemeMode(this.releaseTheme(), this.readerTheme.resolved()));
   readonly rows = signal<ClaimRow[]>([]); readonly selected = signal<string | null>(null);
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
@@ -341,6 +347,7 @@ export class ClaimsStudioComponent {
       if (generation !== this.generation) return;
       if (release.kind !== 'ok') throw Error('Release unavailable');
       this.releasePages.set(release.body.release.pages ?? null);
+      this.releaseTheme.set(workTheme(release.body.release.theme as Record<string, unknown> | null | undefined));
       void this.loadDataAccess(generation);
       const response = await firstValueFrom(this.api.get<{ data: { queue: ClaimRow[] } }>('/ecommerce-claims'));
       if (generation !== this.generation) return;

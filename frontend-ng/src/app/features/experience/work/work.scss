@@ -730,8 +730,9 @@
   font-size: 11px;
 }
 
-/* ————— Studio skin — the workspace appearance, always dark —————
-   The Studio root carries data-brand-scope, data-theme="dark" and the
+/* ————— Studio skin — the workspace appearance —————
+   The Studio root carries data-brand-scope, the Work theme rule (release mode,
+   else the reader's preference) and the
    workspace appearance (platform_brand.appearance), so these tokens follow the
    workspace's palette and accent. A workspace that declares none wears the
    product's dark tokens. Status colours stay the product's signals. */

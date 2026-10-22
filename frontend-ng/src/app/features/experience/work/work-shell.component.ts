@@ -1,3 +1,4 @@
+import { ThemeService } from '@app/core/theme.service';
 import { runIsSettled } from '../runtime/model';
 import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
@@ -56,6 +57,7 @@ import {
   studioHref,
   workPageHref,
   workTheme,
+  workThemeMode,
   workLocales,
   workEmblem,
   workIdentity,
@@ -89,7 +91,7 @@ const POLL_MS = 8000;
       class="xp-work"
       data-brand-scope
       [ngStyle]="brandStyles()"
-      [attr.data-theme]="theme().mode || 'light'"
+      [attr.data-theme]="themeMode()"
       [style.--xp-app-accent]="appearance().accent || theme().accent || null"
       [style.--xp-on-accent]="brandStyles()['--xp-on-accent'] || theme().onAccent || null"
     >
@@ -332,14 +334,17 @@ export class WorkShellComponent {
     releaseId: this.releaseId(),
     mode: 'live',
   }));
-  readonly theme = signal<{ mode: 'light' | 'dark'; accent: string; onAccent: string }>({
+  private readonly readerTheme = inject(ThemeService);
+  readonly theme = signal<{ mode: 'light' | 'dark'; accent: string; onAccent: string; declaredMode?: boolean }>({
     mode: 'light',
     accent: '',
     onAccent: '',
   });
   readonly appearance = signal<BrandAppearance>({});
-  readonly brandStyles = computed(() => appearanceStyles(this.appearance(), this.theme().mode));
-  readonly brandLogo = computed(() => appearanceLogo(this.appearance(), this.theme().mode));
+  /** Release mode when declared, otherwise the reader's preference. */
+  readonly themeMode = computed(() => workThemeMode(this.theme(), this.readerTheme.resolved()));
+  readonly brandStyles = computed(() => appearanceStyles(this.appearance(), this.themeMode()));
+  readonly brandLogo = computed(() => appearanceLogo(this.appearance(), this.themeMode()));
   readonly activePage = signal<string | null>(null);
   readonly locales = signal<Locale[]>([]);
   readonly pending = signal<Run[]>([]);

@@ -19,8 +19,7 @@ import {
   workPageHref,
   workTheme,
   type SystemLinkedWorkApp,
-  type WorkExperience,
-} from './work-catalog';
+  type WorkExperience, workThemeMode } from './work-catalog';
 import { isStandaloneApplicationPath } from '@app/core/navigation.catalog';
 import { isCataloguedReturnTo, returnToFromParams } from './work-return';
 
@@ -125,12 +124,16 @@ test('validations surface from pattern or certified nodes', () => {
 test('release theme and page links are safe, stable projections', () => {
   assert.deepEqual(
     workTheme({ mode: 'dark', accent: '#0e7490' }),
-    { mode: 'dark', accent: '#0e7490', onAccent: '#ffffff' },
+    { mode: 'dark', accent: '#0e7490', onAccent: '#ffffff', declaredMode: true },
   );
   assert.deepEqual(
     workTheme({ mode: 'other', accent: 'url(evil)' }),
     { mode: 'light', accent: '', onAccent: '' },
   );
+  assert.equal(workThemeMode(workTheme({ mode: 'light' }), 'dark'), 'light');
+  assert.equal(workThemeMode(workTheme({}), 'dark'), 'dark');
+  assert.equal(workThemeMode(workTheme({ mode: 'other' }), 'light'), 'light');
+  assert.equal(workThemeMode(null, 'dark'), 'dark');
   assert.equal(workPageHref('my app', 'daily/queue'), '/work/my%20app/daily%2Fqueue');
   assert.equal(isInternalWorkHref('/work/my%20app/daily%2Fqueue', 'my app'), true);
   assert.equal(isInternalWorkHref('/work/my%20application', 'my app'), false);

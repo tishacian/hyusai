@@ -44,7 +44,7 @@ function loadHarness() {
   const releases = [new Subject<WorkResolveResult>(), new Subject<WorkResolveResult>()];
   let next = 0;
   const host = Object.assign(Object.create(ClaimsStudioComponent.prototype), {
-    generation: 0,
+    generation: 0, releaseTheme: signal(null),
     releasePages: signal<unknown>({ pages: [{ id: 'previous', title: 'Previous' }] }),
     rows: signal([]), detail: signal(null), run: signal(null), selected: signal(null), sourceDocumentId: signal(null),
     loading: signal(false), error: signal(false), busy: signal(false), benchmarkReady: signal(false),
