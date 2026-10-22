@@ -10,6 +10,15 @@ export function selectJudgeModel(draft: TypedJudgeDraft, model: ModelCatalogEntr
   return { ...structuredClone(draft), tariff: {provider: model.provider, model: name, input_per_million: 0, output_per_million: 0, currency: 'USD', reference: ''} };
 }
 
+/** A provider's catalogue may expose aliases while its documented versions remain usable.
+ * An explicit identifier does not attest availability, change evidence rules, or retain old prices.
+ */
+export function selectExplicitJudgeModel(draft: TypedJudgeDraft, models: readonly ModelCatalogEntry[], name: string): TypedJudgeDraft {
+  const provider = models.find(model => model.provider === draft.tariff.provider && selectableEvaluationModel(model));
+  if (!provider || name !== name.trim() || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(name)) return draft;
+  return selectJudgeModel(draft, {...provider, model: name, discovered: false});
+}
+
 export function guidedJudgeIdentity(draft: TypedJudgeDraft, systemId: string | null, nodeId: string): TypedJudgeDraft {
   if (draft.rubric_id || !systemId || !nodeId) return draft;
   return { ...draft, rubric_id: `${systemId}:${nodeId}`.slice(0, 160), rubric_version: draft.rubric_version || '1' };

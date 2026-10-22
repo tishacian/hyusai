@@ -355,7 +355,7 @@ def _tariff_snapshot(row):
 
 
 def _price(snapshot, inputs, outputs, cached=None, cache_write=None, *, reserve=False):
-    if not snapshot or inputs is None or outputs is None:
+    if not snapshot or (inputs is None and outputs is None):
         return None
     rates = snapshot["rates"]
     inp, out = _decimal(rates["input_per_million"]), _decimal(rates["output_per_million"])
@@ -371,14 +371,27 @@ def _price(snapshot, inputs, outputs, cached=None, cache_write=None, *, reserve=
                 ],
             ]
         )
+        # An unbounded dimension can contribute no monetary exposure only
+        # when its versioned tariff is exactly zero. Its counter stays unknown
+        # in the ledger, so a total-token ceiling still refuses admission.
+        if (inputs is None and inp != 0) or (outputs is None and out != 0):
+            return None
         with localcontext() as context:
             context.prec = 50
-            amount = ((inp * inputs + out * outputs) / Decimal(1_000_000)).quantize(
+            amount = ((inp * (inputs or 0) + out * (outputs or 0)) / Decimal(1_000_000)).quantize(
                 Decimal("0.000000000001"), rounding=ROUND_CEILING
             )
         if amount > Decimal("999999999999.999999999999"):
             raise UsageError("USAGE_MONETARY_BOUND_TOO_LARGE", 422)
         return amount
+    if outputs is None and out != 0:
+        return None
+    if inputs is None and any(
+        _decimal(rates[key]) != 0
+        for key in ("input_per_million", "cached_input_per_million", "cache_write_per_million")
+        if rates.get(key) is not None
+    ):
+        return None
     # When a tariff distinguishes cache categories, their absence is not proof
     # of a zero cache hit. Keep the monetary reservation until those reported
     # counters arrive rather than showing a full-price estimate as measured.
@@ -386,6 +399,9 @@ def _price(snapshot, inputs, outputs, cached=None, cache_write=None, *, reserve=
         rates.get("cache_write_per_million") is not None and cache_write is None
     ):
         return None
+    # Substitute zero only in the arithmetic of a proven zero-priced dimension;
+    # no usage field or total-token count is filled from this calculation.
+    inputs, outputs = inputs or 0, outputs or 0
     cached, cache_write = cached or 0, cache_write or 0
     if cached + cache_write > inputs:
         return None
@@ -706,6 +722,22 @@ def settle_call(
         call = _locked_call(db, call_id)
         if call.status in {"prepared", "blocked"} or not call.dispatched_at:
             raise UsageError("USAGE_CALL_NOT_DISPATCHED", 409)
+        from app.services.model_plane.typesafe import PINNED_MONETARY_MODELS
+
+        pinned_native = (
+            call.provider == "typesafe"
+            and call.operation == "typed_decisions"
+            and call.model in PINNED_MONETARY_MODELS
+        )
+        if (
+            pinned_native
+            and returned_model
+            and call.returned_model
+            and str(returned_model) != call.returned_model
+        ):
+            # A late usage report cannot rewrite the model identity of this
+            # already observed native attempt, including a mismatched model.
+            raise UsageError("USAGE_MEASUREMENT_CHANGED", 409)
         for key, value in counters.items():
             previous = getattr(call, key)
             if value is not None and previous is not None and value < previous:
@@ -720,6 +752,18 @@ def settle_call(
                 setattr(call, key, value)
         if returned_model:
             call.returned_model = str(returned_model)[:200]
+        tariff_model_mismatch = bool(
+            pinned_native and call.returned_model and call.returned_model != call.model
+        )
+        tariff_model_unverified = bool(
+            pinned_native
+            and not call.returned_model
+            and any(
+                value is not None
+                for value in (call.input_tokens, call.output_tokens, call.total_tokens)
+            )
+        )
+        tariff_model_invalid = tariff_model_mismatch or tariff_model_unverified
         if provider_request_id:
             call.provider_request_id = str(provider_request_id)[:200]
         call.status = status
@@ -734,21 +778,41 @@ def settle_call(
             "complete"
             if call.input_tokens is not None and call.output_tokens is not None
             else "partial"
-            if call.total_tokens is not None
+            if any(
+                value is not None
+                for value in (call.input_tokens, call.output_tokens, call.total_tokens)
+            )
             else "unavailable"
         )
-        priced = _price(
-            call.tariff_snapshot,
-            call.input_tokens,
-            call.output_tokens,
-            call.cached_input_tokens,
-            call.cache_write_tokens,
+        priced = (
+            None
+            if tariff_model_invalid
+            else _price(
+                call.tariff_snapshot,
+                call.input_tokens,
+                call.output_tokens,
+                call.cached_input_tokens,
+                call.cache_write_tokens,
+            )
         )
+        if tariff_model_invalid:
+            # The provider answered outside the pinned pricing/context
+            # contract. Preserve observed usage, but do not price it using
+            # another model's tariff or release its monetary reservation.
+            call.amount = None
+            call.status = "failed"
+            call.diagnostic = (
+                "TYPESAFE_RETURNED_MODEL_MISMATCH"
+                if tariff_model_mismatch
+                else "TYPESAFE_RETURNED_MODEL_UNVERIFIED"
+            )
+            key = "tariff_model_mismatch" if tariff_model_mismatch else "tariff_model_unverified"
+            call.details = {**call.details, key: True}
         if priced is not None:
             if call.amount is not None and priced < call.amount:
                 raise UsageError("USAGE_MEASUREMENT_CHANGED", 409)
             call.amount = priced
-        if (
+        reservation_exceeded = (
             call.total_tokens is not None
             and call.reserved_tokens is not None
             and call.total_tokens > call.reserved_tokens
@@ -756,8 +820,10 @@ def settle_call(
             call.amount is not None
             and call.reserved_amount is not None
             and call.amount > call.reserved_amount
-        ):
+        )
+        if reservation_exceeded:
             call.details = {**call.details, "reservation_exceeded": True}
+        if reservation_exceeded or tariff_model_invalid:
             for entry in db.query(UsageReservation).filter_by(call_id=call.id).all():
                 bucket = db.get(UsageBudgetBucket, entry.bucket_id)
                 db.get(UsageBudgetPolicy, bucket.policy_id).reconciliation_required = True

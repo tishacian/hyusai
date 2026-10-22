@@ -4,6 +4,7 @@ These tests don't touch the database — they only exercise
 :class:`DagGraph.from_flow_definition` and :func:`should_use_dag` against
 representative ``flow_definition`` payloads.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -41,6 +42,35 @@ def test_should_use_dag_rejects_v2_without_control_nodes() -> None:
     assert should_use_dag(_system(flow)) is False
 
 
+@pytest.mark.parametrize("schema_version", [2, 3])
+@pytest.mark.parametrize("kind", ["task", None, ""])
+def test_mapped_task_requires_dag_without_changing_inherited_or_pinned_modes(schema_version, kind):
+    flow = {
+        "schema_version": schema_version,
+        "nodes": [{"id": "task", "kind": kind, "config": {"input_mode": "mapped"}}],
+        "edges": [],
+    }
+    resolution = resolve_flow_execution(flow)
+    assert resolution.runtime_mode == "dag_overlay"
+    assert resolution.reason == "mapped_task_inputs_require_dag"
+    assert (
+        resolve_flow_execution(flow, pinned_runtime_mode="dag_strict").runtime_mode == "dag_strict"
+    )
+    flow["nodes"][0]["config"]["input_mode"] = "inherit"
+    assert resolve_flow_execution(flow).runtime_mode == "sequential_legacy"
+
+
+def test_inherit_task_cannot_downgrade_authoritative_strict_flow():
+    workspace = SimpleNamespace(settings={"features": {"flow_v3_dag_authoritative": True}})
+    flow = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [{"id": "task", "kind": "task", "config": {"input_mode": "inherit"}}],
+        "edges": [],
+    }
+    assert resolve_flow_execution(flow, workspace).runtime_mode == "dag_strict"
+
+
 def test_should_use_dag_accepts_v2_with_decision_node() -> None:
     flow = {
         "schema_version": 2,
@@ -55,9 +85,7 @@ def test_should_use_dag_accepts_v2_with_decision_node() -> None:
 
 
 def test_runtime_resolver_names_strict_overlay_and_legacy_truthfully() -> None:
-    strict_workspace = SimpleNamespace(
-        settings={"features": {"flow_v3_dag_authoritative": True}}
-    )
+    strict_workspace = SimpleNamespace(settings={"features": {"flow_v3_dag_authoritative": True}})
     strict = {
         "schema_version": 3,
         "io_mode": "strict",
@@ -74,9 +102,7 @@ def test_runtime_resolver_names_strict_overlay_and_legacy_truthfully() -> None:
     assert resolve_flow_execution(strict, strict_workspace).runtime_mode == "dag_strict"
     assert resolve_flow_execution(overlay).runtime_mode == "dag_overlay"
     assert resolve_flow_execution(strict).runtime_mode == "sequential_legacy"
-    assert canonical_flow_sha256({"b": 1, "a": 2}) == canonical_flow_sha256(
-        {"a": 2, "b": 1}
-    )
+    assert canonical_flow_sha256({"b": 1, "a": 2}) == canonical_flow_sha256({"a": 2, "b": 1})
 
 
 def test_a_data_plane_flow_routes_to_the_walker_that_configures_its_nodes() -> None:
@@ -118,9 +144,7 @@ def test_a_data_plane_flow_routes_to_the_walker_that_configures_its_nodes() -> N
 
     # A strict workspace still gets the strict walker: this rule only rescues the
     # flows that would otherwise have had no walker at all.
-    strict_workspace = SimpleNamespace(
-        settings={"features": {"flow_v3_dag_authoritative": True}}
-    )
+    strict_workspace = SimpleNamespace(settings={"features": {"flow_v3_dag_authoritative": True}})
     assert (
         resolve_flow_execution({**flow, "io_mode": "strict"}, strict_workspace).runtime_mode
         == "dag_strict"
@@ -182,9 +206,7 @@ def test_run_runtime_uses_even_an_empty_frozen_snapshot_and_pinned_mode() -> Non
         flow_snapshot=mutable_system.flow_definition,
         input_ref={"execution": {"runtime_mode": "dag_overlay"}},
     )
-    strict_workspace = SimpleNamespace(
-        settings={"features": {"flow_v3_dag_authoritative": True}}
-    )
+    strict_workspace = SimpleNamespace(settings={"features": {"flow_v3_dag_authoritative": True}})
     assert (
         resolve_run_flow_execution(pinned, mutable_system, strict_workspace).runtime_mode
         == "dag_overlay"
@@ -230,8 +252,8 @@ def test_graph_parsing_ignores_dangling_edges() -> None:
         "schema_version": 2,
         "nodes": [{"id": "a", "kind": "task"}],
         "edges": [
-            {"from": "a", "to": "ghost"},      # target missing
-            {"from": "nowhere", "to": "a"},    # source missing
+            {"from": "a", "to": "ghost"},  # target missing
+            {"from": "nowhere", "to": "a"},  # source missing
         ],
     }
     g = DagGraph.from_flow_definition(flow)

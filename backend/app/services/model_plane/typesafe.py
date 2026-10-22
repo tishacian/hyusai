@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 API_URL = "https://api.typesafe.ai/v1/systemone"
+PINNED_MONETARY_MODELS = frozenset({"jev-1.13.0", "jev-1.14.0"})
 MAX_BODY_BYTES = 32 * 1024 * 1024
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}\Z")
 
@@ -237,4 +238,14 @@ async def evaluate(
         body = response.json()
     except (ValueError, UnicodeError, RecursionError):
         raise TypeSafeError("TYPESAFE_RESPONSE_INVALID") from None
-    return normalize_response(body, questions=questions)
+    result = normalize_response(body, questions=questions)
+    if model in PINNED_MONETARY_MODELS and result["model"] != model:
+        # A pinned request cannot silently become another model whose tariff
+        # and context bounds were not admitted. Keep its counters for the
+        # ledger, but do not return the decision as a qualified result.
+        raise TypeSafeError(
+            "TYPESAFE_RETURNED_MODEL_MISMATCH",
+            usage=result["usage"],
+            returned_model=result["model"],
+        )
+    return result

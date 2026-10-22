@@ -219,6 +219,8 @@ test('TypeSafe requirements fail explicitly without weakening an existing rubric
   assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_evidence'));
   assert.equal(draft.questions[0].requires_evidence, true);
   draft.questions[0].requires_evidence = false;
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_reservation'));
+  draft.budget.max_tokens = 65536 + draft.budget.max_output_tokens;
   assert.deepEqual(validateJudgeDraft(draft), []);
   draft.questions[0] = {...draft.questions[0], type: 'multi_choice', choices: ['a', 'b']};
   assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_multiple'));
@@ -228,6 +230,19 @@ test('TypeSafe requirements fail explicitly without weakening an existing rubric
     draft.questions[0] = {...draft.questions[0], minimum, maximum};
     assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_score'));
   }
+});
+
+test('pinned native Judge admission explains its full-context reservation without raising budgets', () => {
+  const draft = newJudgeDraft();
+  draft.tariff = {...draft.tariff, provider:'typesafe', model:'jev-1.14.0'};
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_reservation'));
+  assert.equal(draft.budget.max_tokens,10000);
+  draft.budget.max_tokens = 67584;
+  assert.ok(!validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_reservation'));
+  draft.budget.max_output_tokens = 4096;
+  assert.ok(validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_reservation'));
+  draft.tariff.model = 'jev-latest';
+  assert.ok(!validateJudgeDraft(draft).includes('dataops.error.judge_typesafe_reservation'),'unqualified aliases do not claim a fixed reservation');
 });
 
 test('run evidence selectors must identify bounded fields and retain source scope', () => {
@@ -287,7 +302,10 @@ test('native provider probabilities remain separate from empirically calibrated 
 
 test('typed provider failures explain contract, access and budget refusals without exposing provider text', () => {
   const base = {schema_version:2,evaluation_id:'jev-failed',status:'failed',quality_status:'unassessed',disposition:'review',confidence:null,coverage:{},answers:{}};
-  for (const [reason,message] of [['JUDGE_TYPESAFE_CONTRACT_UNSUPPORTED','typed_contract'],['USAGE_TRANSPORT_UNQUALIFIED','typed_budget'],['TYPESAFE_AUTHENTICATION_FAILED','provider_access'],['TYPESAFE_ACCESS_DENIED','provider_access'],['TYPESAFE_RATE_LIMITED','temporarily_unavailable'],['TYPESAFE_OVERLOADED','temporarily_unavailable'],['TYPESAFE_TIMEOUT','timeout'],['TYPESAFE_RESPONSE_INVALID','validation']]) {
+  for (const [reason,message] of [['JUDGE_TYPESAFE_CONTRACT_UNSUPPORTED','typed_contract'],['USAGE_TRANSPORT_UNQUALIFIED','typed_budget'],['USAGE_BOUND_REQUIRED','typed_budget'],['TYPESAFE_AUTHENTICATION_FAILED','provider_access'],['TYPESAFE_ACCESS_DENIED','provider_access'],['TYPESAFE_RATE_LIMITED','temporarily_unavailable'],['TYPESAFE_OVERLOADED','temporarily_unavailable'],['TYPESAFE_TIMEOUT','timeout'],['TYPESAFE_RESPONSE_INVALID','validation']]) {
     assert.equal(typedJudgeFailure(typedResult({...base,reason}))?.message,'dataops.judge.failure.'+message);
   }
+  const mismatch = typedJudgeFailure(typedResult({...base,reason:'TYPESAFE_RETURNED_MODEL_MISMATCH'}));
+  assert.equal(mismatch?.message,'dataops.judge.failure.returned_model');
+  assert.equal(mismatch?.action,'dataops.judge.recovery.provider_reconciliation');
 });

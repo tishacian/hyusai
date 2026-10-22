@@ -82,6 +82,24 @@ class PublishBody(BaseModel):
         return stripped
 
 
+class CandidateReviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    flow_definition: dict[str, Any]
+    expected_flow_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_draft_revision: int = Field(ge=1)
+    expected_draft_flow_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_published_version_id: str = Field(min_length=1, max_length=36)
+
+
+class CandidatePublishBody(CandidateReviewBody, PublishBody):
+    # Candidates always require a server-compiled review, including when the
+    # current draft already has a frozen mandate. No caller policy is accepted.
+    expected_published_version_id: str = Field(min_length=1, max_length=36)
+    expected_execution_contract_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_review_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 def _system_or_404(
     db: DBSession,
     *,
@@ -110,12 +128,46 @@ def _draft_payload(draft: Any, *, no_op: bool, db: DBSession, system: System) ->
         "system_id": draft.system_id,
         "revision": draft.revision,
         "flow_sha256": draft.flow_sha256,
-        "control_policy_snapshot_sha256": publication.resolved_control_policy_snapshot(db, system=system, draft=draft)["sha256"],
+        "control_policy_snapshot_sha256": publication.resolved_control_policy_snapshot(
+            db, system=system, draft=draft
+        )["sha256"],
         "flow_definition": copy.deepcopy(draft.flow_definition),
         "base_published_version_id": draft.base_published_version_id,
         "updated_by": draft.updated_by,
         "updated_at": draft.updated_at.isoformat() if draft.updated_at else None,
         "no_op": no_op,
+    }
+
+
+def _publication_payload(
+    db: DBSession,
+    *,
+    system: System,
+    version: Any,
+    draft: Any,
+    no_op: bool,
+    draft_preserved: bool = False,
+) -> dict[str, Any]:
+    return {
+        "no_op": no_op,
+        "system_id": system.id,
+        "status": system.status,
+        "published": {
+            "version_id": version.id,
+            "version_number": version.version_number,
+            "flow_sha256": version.flow_sha256
+            or publication.canonical_flow_sha256(version.flow_definition),
+            "release_kind": version.release_kind or "legacy_snapshot",
+            "published_by": system.published_by,
+            "published_at": system.published_at.isoformat() if system.published_at else None,
+            "execution_contract": copy.deepcopy(version.execution_contract),
+            "control_policy_snapshot_sha256": (version.execution_contract or {})
+            .get("control_policy_snapshot", {})
+            .get("sha256"),
+            "execution_contract_ready": True,
+        },
+        "draft": _draft_payload(draft, no_op=no_op or draft_preserved, db=db, system=system),
+        **({"draft_preserved": True} if draft_preserved else {}),
     }
 
 
@@ -277,25 +329,69 @@ async def publish_flow(
         db.refresh(version)
         db.refresh(draft)
         db.refresh(system)
-        return {
-            "no_op": no_op,
-            "system_id": system.id,
-            "status": system.status,
-            "published": {
-                "version_id": version.id,
-                "version_number": version.version_number,
-                "flow_sha256": version.flow_sha256
-                or publication.canonical_flow_sha256(version.flow_definition),
-                "release_kind": version.release_kind or "legacy_snapshot",
-                "published_by": system.published_by,
-                "published_at": (
-                    system.published_at.isoformat() if system.published_at else None
-                ),
-                "execution_contract": copy.deepcopy(version.execution_contract),
-                "control_policy_snapshot_sha256": (version.execution_contract or {}).get("control_policy_snapshot", {}).get("sha256"),
-                "execution_contract_ready": True,
-            },
-            "draft": _draft_payload(draft, no_op=no_op, db=db, system=system),
-        }
+        return _publication_payload(db, system=system, version=version, draft=draft, no_op=no_op)
+    except publication.FlowPublicationError as exc:
+        _raise_http(db, exc)
+
+
+@router.post("/{system_id}/flow/review-candidate")
+async def review_flow_candidate(
+    system_id: str,
+    body: CandidateReviewBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=system, mutation="flow_publish"
+    )
+    try:
+        result = publication.review_candidate(
+            db,
+            system_id=system.id,
+            workspace=workspace,
+            **body.model_dump(),
+        )
+        # Review has no writes. Release its consistency locks before returning,
+        # including for adapters which reuse the session after this request.
+        db.rollback()
+        return result
+    except publication.FlowPublicationError as exc:
+        _raise_http(db, exc)
+
+
+@router.post("/{system_id}/flow/publish-candidate")
+async def publish_flow_candidate(
+    system_id: str,
+    body: CandidatePublishBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_admin(
+        db, user=user, workspace=workspace, system=system, mutation="flow_publish"
+    )
+    try:
+        version, draft, no_op = publication.publish_candidate(
+            db,
+            system_id=system.id,
+            workspace=workspace,
+            actor=_actor_display_name(user),
+            **body.model_dump(),
+        )
+        # Build the response while rollback can still undo the publication.
+        # The unrelated draft's policy must not cause a post-commit rejection.
+        payload = _publication_payload(
+            db,
+            system=system,
+            version=version,
+            draft=draft,
+            no_op=no_op,
+            draft_preserved=True,
+        )
+        db.commit()
+        return payload
     except publication.FlowPublicationError as exc:
         _raise_http(db, exc)

@@ -7,7 +7,8 @@ import { typedDecisionObservation, typedJudgeFailure, typedResult, type TypedAns
 @Component({
   selector: 'app-typed-judge-result', standalone: true, imports: [NgTemplateOutlet, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
   template: `@if (result(); as evaluation) {
-    <section class="dp-section" data-testid="typed-judge-result"><h2>{{ i18n.t('dataops.judge.result') }}</h2>
+    <section class="dp-section" data-testid="typed-judge-result"><h2>{{ heading() || i18n.t('dataops.judge.result') }}</h2>
+      <ng-content select="[judgeReviewContext]" />
       <div class="dp-row judge-statuses"><span>{{ t('execution') }}: {{ evaluation.status === 'failed' ? t('technical') : i18n.t('dataops.status.' + evaluation.status) }}</span><span>{{ t('verdict') }}: {{ i18n.t(qualityLabel()) }}</span></div>
       @if (failure(); as failure) {
         <div class="judge-failure" role="status" data-testid="judge-failure">
@@ -78,6 +79,7 @@ export class TypedJudgeResultComponent {
   }
   readonly i18n = inject(I18nService); readonly value = input<unknown>(null); readonly result = computed(() => typedResult(this.value()));
   readonly runId = input<string|null>(null); readonly invocationId = input<string|null>(null);
+  readonly heading = input<string|null>(null);
   readonly evidenceSources = input<Array<{evidence_id:string;text?:string;sha256?:string;asset_ref?:{version?:number|string;digest?:string};invocation_id?:string|null}>>([]);
   t(key:QualityMessage):string{return qualityMessage(this.i18n,key);}
   sourceVersion(id:string):string{const source=this.evidenceSources().find(item=>item.evidence_id===id);return source?.asset_ref?.version!=null ? String(source.asset_ref.version) : source?.asset_ref?.digest || source?.sha256 || this.i18n.t('dataops.judge.source_version_unknown');}

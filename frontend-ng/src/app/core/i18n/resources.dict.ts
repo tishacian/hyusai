@@ -18,7 +18,7 @@ export const RESOURCES_FR = {
   "resources.models.state.typed_decisions": "Décisions typées · Typed Evaluation",
   "resources.providers.typed_decisions": "Moteur de décisions typées pour Typed Evaluation. Les conversations et les replis de génération utilisent leurs propres modèles.",
   "resources.providers.typesafe_key": "Créer une clé dans la console TypeSafe ↗",
-  "resources.providers.typesafe_budget": "Les plafonds budgétaires bloquants ne sont pas encore qualifiés pour ce fournisseur ; leur activation empêche ses appels.",
+  "resources.providers.typesafe_budget": "Les plafonds monétaires prennent en charge Jev 1.13.0 et 1.14.0 avec un tarif de sortie nul. Les alias et les plafonds de tokens restent bloqués ; les tarifs et l’attestation Usage doivent être valides.",
 
   "resources.compare.title": "Comparer une décision d’agent",
   "resources.compare.description": "Comparez deux modèles sur les mêmes consignes et observations retenues. Les outils proposés ne seront pas exécutés.",
@@ -1226,7 +1226,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   "resources.models.state.typed_decisions": "Typed decisions · Typed Evaluation",
   "resources.providers.typed_decisions": "Typed decision engine for Typed Evaluation. Conversations and text-generation fallbacks use their own models.",
   "resources.providers.typesafe_key": "Create a key in the TypeSafe console ↗",
-  "resources.providers.typesafe_budget": "Blocking budget limits are not yet qualified for this provider; active limits prevent its calls.",
+  "resources.providers.typesafe_budget": "Monetary limits support Jev 1.13.0 and 1.14.0 with an output tariff of zero. Aliases and token limits remain blocked; valid tariffs and Usage rollout attestation are required.",
 
   "resources.compare.title": "Compare an agent decision",
   "resources.compare.description": "Compare two models on the same retained instructions and observations. Proposed tools will not execute.",

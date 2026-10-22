@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from dataclasses import replace
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -241,6 +243,97 @@ async def test_missing_usage_stays_unknown_and_keeps_reservation(payload, contex
     assert result["cost"]["amount"] is None
     assert result["budget"]["includes_unsettled_reservations"] is True
     assert result["budget"]["unsettled_units"] == 1
+
+
+async def test_pinned_judge_reserves_full_input_context_and_labels_local_output_provision(
+    payload, context, monkeypatch, db_session
+):
+    from app.models.workspace_job import WorkspaceJob
+
+    payload["tariff"].update(model="jev-1.13.0", input_per_million=0.042, output_per_million=0)
+    context["_model_execution"] = replace(context["_model_execution"], model="jev-1.13.0")
+
+    async def evaluate(**kwargs):
+        body = response(kwargs["questions"])
+        body["model"] = "jev-1.13.0"
+        return typesafe.normalize_response(body, questions=kwargs["questions"])
+
+    monkeypatch.setattr(typesafe, "evaluate", evaluate)
+    result = await judge.typed_evaluate(payload, context)
+    assert result["status"] == "completed"
+    assert result["generation_contract"]["input_token_reservation"] == 65536
+    assert result["generation_contract"]["output_token_provision_scope"] == (
+        "local_judge_not_provider_cap"
+    )
+    db_session.expire_all()
+    job = db_session.query(WorkspaceJob).filter_by(workspace_id=context["workspace_id"]).one()
+    unit = next(iter(job.result["units"].values()))
+    assert unit["reserved_tokens"] == 65536 + 2048
+    assert Decimal(unit["reserved_cost_usd"]) == Decimal("0.002752512")
+    assert result["usage"]["total_tokens"] == 140
+    assert result["cost"]["amount"] == pytest.approx(0.00000504)
+    assert result["budget"]["charged_tokens"] == 140
+    assert result["disposition"] == "review"
+
+
+async def test_pinned_judge_refuses_local_budget_below_context_before_sending(
+    payload, context, monkeypatch
+):
+    payload["tariff"].update(model="jev-1.13.0", input_per_million=0.042, output_per_million=0)
+    payload["budget"]["max_tokens"] = 65535
+    context["_model_execution"] = replace(context["_model_execution"], model="jev-1.13.0")
+
+    async def forbidden(**kwargs):
+        pytest.fail("Insufficient local Judge reservation must refuse before send")
+
+    monkeypatch.setattr(typesafe, "evaluate", forbidden)
+    result = await judge.typed_evaluate(payload, context)
+    assert result["status"] == "failed"
+    assert result["reason"] == "JUDGE_BUDGET_EXHAUSTED"
+    assert result["budget"]["calls"] == 0
+    assert result["budget"]["charged_tokens"] == 0
+    assert result["budget"]["includes_unsettled_reservations"] is False
+
+
+@pytest.mark.parametrize("returned_model", ["jev-other", None, "jev-1.13.0"])
+async def test_pinned_judge_never_prices_a_mismatched_or_unverified_model(
+    payload, context, monkeypatch, db_session, returned_model
+):
+    from app.models.workspace_job import WorkspaceJob
+
+    payload["tariff"].update(model="jev-1.13.0", input_per_million=0.042, output_per_million=0)
+    context["_model_execution"] = replace(context["_model_execution"], model="jev-1.13.0")
+
+    async def invalid(**kwargs):
+        raise typesafe.TypeSafeError(
+            "TYPESAFE_RETURNED_MODEL_MISMATCH"
+            if returned_model and returned_model != "jev-1.13.0"
+            else "TYPESAFE_RESPONSE_INVALID",
+            usage={"input_tokens": 120, "output_tokens": 20},
+            returned_model=returned_model,
+        )
+
+    monkeypatch.setattr(typesafe, "evaluate", invalid)
+    result = await judge.typed_evaluate(payload, context)
+    assert result["status"] == "failed"
+    assert result["usage"]["total_tokens"] == 140
+    assert result["budget"]["charged_tokens"] == 140
+    assert "typed_decisions" not in result
+    db_session.expire_all()
+    job = db_session.query(WorkspaceJob).filter_by(workspace_id=context["workspace_id"]).one()
+    unit = next(iter(job.result["units"].values()))
+    if returned_model != "jev-1.13.0":
+        assert result["cost"]["amount"] is None
+        assert result["cost"]["measurement_coverage"] == "unavailable"
+        assert result["budget"]["charged_cost_usd"] == pytest.approx(0.002752512)
+        assert result["budget"]["includes_unsettled_reservations"] is True
+        assert unit["needs_reconciliation"] is True
+    else:
+        # Invalid decisions from the admitted model still incur their real
+        # measured usage, so a parse failure alone is not a pricing refusal.
+        assert result["cost"]["amount"] == pytest.approx(0.00000504)
+        assert result["budget"]["includes_unsettled_reservations"] is False
+        assert unit["needs_reconciliation"] is False
 
 
 @pytest.mark.parametrize("requires_citations", [False, True])

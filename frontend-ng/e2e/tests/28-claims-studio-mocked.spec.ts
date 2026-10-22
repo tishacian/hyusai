@@ -26,7 +26,7 @@ function judgeOutput(locale: string, truncated: boolean) {
  };
 }
 
-async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'|'truncated'; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean; agentChoices?: boolean } = {}) {
+async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'|'truncated'; multipleJudges?: boolean; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean; agentChoices?: boolean } = {}) {
  const posts: unknown[] = []; let run: Record<string, unknown> | null = null;
  const activeWorkspace = options.consumer ? { ...workspace, role: 'member', role_template: 'workspace_member' } : workspace;
  const queue = options.volume ? [...rows, ...Array.from({ length: 20 }, (_, index) => ({ ...rows[index % rows.length], claim_id: `RC-${5001 + index}`, order_id: `LM-${5001 + index}`, display_name: `Client synthétique ${index + 1}`, state: index % 2 ? 'waiting_information' : 'resolved' }))] : rows;
@@ -111,10 +111,15 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
          });
        }
      }
+     if (options.multipleJudges) (run['skill_invocations'] as unknown[]).push({
+       id: 'qa-jev', skill_slug: 'evaluate_v2', status: 'completed', output_ref: judgeOutput(locale, false),
+       trace: {node_id: 'review.second_opinion', node_label: 'Independent decision', model_execution: {provider: 'typesafe', model: 'jev-1.13.0'}},
+     });
      if (options.judge) (run['skill_invocations'] as unknown[]).push({
        id: 'qa-judge', skill_slug: 'evaluate_v2', status: options.judge === 'failed' ? 'failed' : 'completed',
        error: options.judge === 'failed' ? 'PRIVATE_PROVIDER_DIAGNOSTIC' : null,
        output_ref: options.judge === 'failed' ? {} : judgeOutput(locale, options.judge === 'truncated'),
+       ...(options.multipleJudges ? {trace: {node_id: 'review.evidence', model_execution: {provider: 'openai', model: 'gpt-5', returned_model: 'gpt-5-2025-08-07'}}} : {}),
      });
      return json(route, { id: 'qa-native-run', status: 'pending' }, 201);
    }
@@ -394,6 +399,27 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await expect(page.getByText('PRIVATE_PROVIDER_DIAGNOSTIC')).toHaveCount(0);
    await expect(page.getByRole('button', {name: 'Valider la proposition', exact: true})).toBeVisible();
  });
+ for (const [locale, width] of [['fr',1440],['en',390]] as const) {
+  test(`judge: two engines retain their recorded identity and invocation links (${locale})`, async ({page}, info) => {
+   const posts=await setup(page,locale==='fr'?'dark':'light',locale,false,null,{judge:'abstained',multipleJudges:true});
+   await page.setViewportSize({width,height:900});
+   await page.goto('/work/reclamations/studio?record=RC-1042');
+   await page.getByRole('button',{name:locale==='fr'?'Lancer l’enquête':'Start investigation',exact:true}).click();
+   const reviews=page.getByTestId('typed-judge-result');
+   await expect(reviews).toHaveCount(2);
+   await expect(reviews.nth(0).getByRole('heading',{name:'typesafe · jev-1.13.0',exact:true})).toBeVisible();
+   await expect(reviews.nth(1).getByRole('heading',{name:'openai · gpt-5-2025-08-07',exact:true})).toBeVisible();
+   await expect(reviews.nth(0)).toContainText('Independent decision');
+   await expect(reviews.nth(1)).toContainText('review.evidence');
+   const linkName=locale==='fr'?'Voir ce contrôle':'Open this review';
+   await expect(reviews.nth(0).getByRole('link',{name:linkName,exact:true})).toHaveAttribute('href',/\/runs\/qa-native-run\/invocations\/qa-jev(?:\?|$)/);
+   await expect(reviews.nth(1).getByRole('link',{name:linkName,exact:true})).toHaveAttribute('href',/\/runs\/qa-native-run\/invocations\/qa-judge(?:\?|$)/);
+   expect(posts).toHaveLength(1);
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   expect((await new AxeBuilder({page}).include('app-run-quality-review').analyze()).violations).toEqual([]);
+   await page.locator('app-run-quality-review').screenshot({path:info.outputPath('quality-engines-'+locale+'.png')});
+  });
+ }
  for (const locale of ['fr', 'en']) {
   test(`judge: interrupted evaluation keeps five questions without repeating failures in ${locale}`, async ({page}, info) => {
    const posts = await setup(page, locale === 'fr' ? 'dark' : 'light', locale, false, null, {judge: 'truncated'});

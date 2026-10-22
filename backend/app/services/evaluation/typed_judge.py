@@ -979,6 +979,7 @@ async def _evaluate(db, spec, ctx):
     }
     if decision_questions is not None:
         from app.services.evaluation.typesafe_judge import PROTOCOL
+        from app.services.model_usage_transport import native_typesafe_input_bound
 
         schema = decision_questions
         parameters = {"max_tokens": spec.budget.max_output_tokens, "timeout_s": timeout_s}
@@ -990,6 +991,11 @@ async def _evaluate(db, spec, ctx):
             "questions_sha256": _hash(decision_questions),
             "boolean_threshold": 0.5,
             "answer_citations_available": False,
+            "input_token_reservation": native_typesafe_input_bound(
+                execution.model,
+                {"model": execution.model, "state": prompt, "questions": decision_questions},
+            ),
+            "output_token_provision_scope": "local_judge_not_provider_cap",
         }
 
     def decorate(result):
@@ -1129,6 +1135,22 @@ async def _evaluate(db, spec, ctx):
             + 1024
             + (len(images) * route["max_image_tokens"] if route else 0)
         )
+        if candidate.provider == "typesafe":
+            from app.services.model_usage_transport import native_typesafe_input_bound
+
+            native_bound = native_typesafe_input_bound(
+                candidate.model,
+                {
+                    "model": candidate.model,
+                    "state": actual_prompt,
+                    "questions": options.get("typed_questions"),
+                },
+            )
+            if native_bound is not None:
+                # Reserve the entire accepted input context, not a tokenizer
+                # heuristic. Output remains a local provision: the native API
+                # has no output cap and workspace token ceilings reject it.
+                input_allowance = native_bound
         reservation_tokens = input_allowance + spec.budget.max_output_tokens
         reservation_cost = _price(spec.tariff, input_allowance, spec.budget.max_output_tokens)
         if (
@@ -1195,6 +1217,7 @@ async def _evaluate(db, spec, ctx):
         db.commit()
     reason = None
     response_diagnostic = None
+    native_cost_identity_reason = None
     cancelled = False
     try:
         output = await asyncio.wait_for(
@@ -1242,11 +1265,21 @@ async def _evaluate(db, spec, ctx):
         cancelled, reason, status = True, "JUDGE_CANCELLED", "failed"
         answers = _unanswered(spec, reason, invalid=True)
     except Exception as exc:
-        from app.services.model_plane.typesafe import TypeSafeError
+        from app.services.model_plane.typesafe import PINNED_MONETARY_MODELS, TypeSafeError
         from app.services.model_usage import UsageError
 
         if isinstance(exc, _ResponseValidationError):
             response_diagnostic = exc.diagnostic
+        if (
+            reserved
+            and execution.provider == "typesafe"
+            and execution.model in PINNED_MONETARY_MODELS
+            and isinstance(exc, TypeSafeError)
+            and exc.returned_model != execution.model
+        ):
+            native_cost_identity_reason = (
+                "returned_model_mismatch" if exc.returned_model else "returned_model_unverified"
+            )
         reason = (
             exc.code
             if isinstance(
@@ -1308,6 +1341,16 @@ async def _evaluate(db, spec, ctx):
             usage=usage,
             model=execution.public(),
             examined=0,
+        )
+    if native_cost_identity_reason:
+        # The shared Usage ledger retains this monetary reservation because
+        # the observed attempt does not establish the pinned tariff identity.
+        # Keep the local Judge/window reservation equally unresolved while
+        # retaining the actual token counters for audit and reconciliation.
+        result["cost"].update(
+            amount=None,
+            measurement_coverage="unavailable",
+            reason=native_cost_identity_reason,
         )
     if reserved:
         if result["cost"]["amount"] is not None:

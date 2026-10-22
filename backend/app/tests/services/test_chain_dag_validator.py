@@ -23,6 +23,82 @@ def test_empty_flow_returns_no_issues() -> None:
     assert validate_flow({"nodes": [], "edges": []}) == []
 
 
+@pytest.mark.parametrize("mode", ["inherit", "mapped"])
+def test_task_can_select_input_mode_in_overlay_flow(mode):
+    assert (
+        validate_flow(
+            {
+                "schema_version": 3,
+                "nodes": [
+                    {"id": "source", "kind": "source"},
+                    {
+                        "id": "task",
+                        "kind": "task",
+                        "config": {
+                            "skill_slug": "consumer_v1",
+                            "input_mode": mode,
+                            "inputs_map": {},
+                            "passthrough_inputs": [],
+                        },
+                    },
+                    {"id": "sink", "kind": "sink"},
+                ],
+                "edges": [{"from": "source", "to": "task"}, {"from": "task", "to": "sink"}],
+            }
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "mode"),
+    [("task", None), ("task", "invalid"), ("task", {}), ("source", "mapped"), ("sink", "inherit")],
+)
+def test_invalid_task_input_modes_are_rejected(kind, mode):
+    issues = validate_flow(
+        {
+            "nodes": [{"id": "node", "kind": kind, "config": {"input_mode": mode}}],
+            "edges": [],
+        }
+    )
+    assert "node_input_mode_invalid" in _codes(issues)
+    assert has_errors(issues)
+
+
+def test_legacy_flow_cannot_silently_ignore_mapped_task_inputs():
+    issues = validate_flow(
+        {
+            "schema_version": 1,
+            "nodes": [{"id": "task", "kind": "task", "config": {"input_mode": "mapped"}}],
+            "edges": [],
+        }
+    )
+    assert "node_input_mode_invalid" in _codes(issues)
+    assert has_errors(issues)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"inputs_map": []},
+        {"inputs_map": {"item": {"node_id": "absent", "path": ["item"]}}},
+        {"inputs_map": {"item": {"node_id": "run", "path": "bad"}}},
+        {"passthrough_inputs": "item"},
+        {"passthrough_inputs": [None]},
+    ],
+)
+def test_mapped_task_input_contract_is_validated_in_overlay_flow(config):
+    issues = validate_flow(
+        {
+            "schema_version": 3,
+            "nodes": [{"id": "task", "kind": "task", "config": {"input_mode": "mapped", **config}}],
+            "edges": [],
+        }
+    )
+    assert has_errors(issues)
+    assert _codes(issues) & {"variable_unresolved", "variable_contract_invalid"}
+
+
 def _queue_result_flow(sink_config: dict | None = None) -> dict:
     return {
         "schema_version": 3,

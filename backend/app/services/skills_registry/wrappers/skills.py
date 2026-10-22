@@ -7446,6 +7446,8 @@ async def _data_prep_v1(payload, ctx=None):
 
 async def _evaluate_v2(payload, ctx=None):
     import asyncio
+    import hashlib
+    import json
 
     from app.services.evaluation.typed_judge import typed_evaluate
 
@@ -7457,6 +7459,13 @@ async def _evaluate_v2(payload, ctx=None):
         or not ctx.get("run_id")
     ):
         raise ValueError("TYPED_EVALUATION_GRAPH_CONFIG_REQUIRED")
+    # The engine overwrites this identity for every invocation. Payload fields
+    # cannot select another Judge's budget or reset this node's window budget.
+    node_id = ctx.get("_skill_node_id")
+    if node_id is not None and (
+        not isinstance(node_id, str) or not node_id or node_id != block.get("node_id")
+    ):
+        raise ValueError("TYPED_EVALUATION_NODE_SCOPE_MISMATCH")
     config = dict(block.get("typed_evaluation") or {})
     data = {key: value for key, value in payload.items() if not key.startswith("_")}
     run_evidence = config.pop("run_evidence", None)
@@ -7472,12 +7481,18 @@ async def _evaluate_v2(payload, ctx=None):
 
     with SessionLocal() as db:
         window = window_for_run(db, ctx["run_id"], ctx["workspace_id"])
-        config["batch_key"] = str(window.id if window else ctx["run_id"])
-    config["request_key"] = (
-        __import__("hashlib")
-        .sha256((str(ctx["run_id"]) + ":" + str(block.get("node_id"))).encode())
-        .hexdigest()
-    )
+        scope = str(window.id if window else ctx["run_id"])
+        config["batch_key"] = (
+            "node:"
+            + hashlib.sha256(
+                json.dumps([scope, node_id], separators=(",", ":")).encode()
+            ).hexdigest()
+            if node_id is not None
+            else scope
+        )
+    config["request_key"] = hashlib.sha256(
+        (str(ctx["run_id"]) + ":" + str(block.get("node_id"))).encode()
+    ).hexdigest()
     from app.services.evaluation.typed_judge import prepare_typed_judge_context
 
     profile_ref = config.pop("profile_ref", None)

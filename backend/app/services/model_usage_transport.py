@@ -49,6 +49,7 @@ QUALIFIED_TRANSPORTS = frozenset(
         "rag.openai.embeddings",
         "giskard.ipc.openai",
         "typed_judge.atomic_admission",
+        "model_plane.typesafe.pinned_monetary_v1",
     }
 )
 
@@ -307,6 +308,38 @@ def _has_nontext(value: Any) -> bool:
     return isinstance(value, (list, tuple)) and any(_has_nontext(item) for item in value)
 
 
+def native_typesafe_input_bound(model: str, payload: dict) -> int | None:
+    """Bound native billable input, never invent a bound for free output tokens.
+
+    https://docs.typesafe.ai/models documents 64k total request context for
+    these pinned models, with state ingested once for all questions. Overlong
+    requests are rejected (api/errors). Reserve 65,536 to cover either meaning
+    of "64k". This qualification excludes aliases, images, custom headers and
+    the opt-in long-context protocol. The fixed transport sends only this body.
+    Output tokens are free at the documented tariff but have no known bound;
+    the ledger must still reject token ceilings and nonzero output tariffs.
+    """
+    from app.services.model_plane.typesafe import (
+        PINNED_MONETARY_MODELS,
+        TypeSafeError,
+        validate_request,
+    )
+
+    if (
+        model not in PINNED_MONETARY_MODELS
+        or not isinstance(payload, dict)
+        or set(payload) != {"model", "state", "questions"}
+        or payload.get("model") != model
+        or _has_nontext(payload)
+    ):
+        return None
+    try:
+        validate_request(model=model, state=payload["state"], questions=payload["questions"])
+    except TypeSafeError:
+        return None
+    return 65_536
+
+
 class ProviderCall:
     """One owner around exactly one SDK/network attempt; usable from Giskard IPC."""
 
@@ -351,16 +384,23 @@ class ProviderCall:
         textual = not _has_nontext(self.payload)
         # UTF-8 bytes are a conservative token bound for the qualified byte-
         # tokenizer routes. Include wire/framing overhead, never chars/4.
-        input_bound = (
-            len(raw) + 4096 if textual and self.provider in QUALIFIED_TEXT_PROVIDERS else None
-        )
-        output_bound = 0 if self.operation == "embedding" else self.output_bound
-        qualified = (
-            self.qualified
-            and input_bound is not None
-            and type(output_bound) is int
-            and output_bound >= 0
-        )
+        native = self.provider == "typesafe" and self.operation == "typed_decisions"
+        if native:
+            input_bound = native_typesafe_input_bound(self.model, self.payload)
+            # max_tokens is a local Judge provision, not a TypeSafe wire cap.
+            output_bound = None
+            qualified = self.qualified and input_bound is not None
+        else:
+            input_bound = (
+                len(raw) + 4096 if textual and self.provider in QUALIFIED_TEXT_PROVIDERS else None
+            )
+            output_bound = 0 if self.operation == "embedding" else self.output_bound
+            qualified = (
+                self.qualified
+                and input_bound is not None
+                and type(output_bound) is int
+                and output_bound >= 0
+            )
         with scope.counter["lock"]:
             scope.counter["value"] += 1
             ordinal = scope.counter["value"]
