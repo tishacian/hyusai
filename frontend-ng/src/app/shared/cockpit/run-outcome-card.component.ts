@@ -7,6 +7,7 @@ import { formatYieldPercent } from './yield-format';
 import { formatSkillCost } from '@app/features/skills/skill-cost';
 import { invocationCost } from './run-cost';
 import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.service';
+import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up';
 
 /**
  * Canonical Run Outcome card — the block that turns a raw Run into
@@ -127,7 +128,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
         </details>
       }
 
-      @if (run.error) {
+      @if (run.error && !atReviewBoundary()) {
         <div
           class="ck-mono"
           style="font-size:11px; color:var(--ck-status-neg-fg); background:var(--ck-status-neg-bg); padding:8px 10px; border-radius:4px;"
@@ -192,11 +193,12 @@ export class RunOutcomeCardComponent {
    * backend grows a status the dictionary hasn't caught up with.
    */
   protected statusLabel(): string {
-    const status = this.run?.status || 'pending';
-    const key = `runs.status.${status}`;
-    const label = this.i18n.t(key);
-    return label === key ? status : label;
+    const run = this.currentRun();
+    return runStatusLabel(run?.status ? run : { ...run, status: 'pending' }, this.i18n.t);
   }
+
+  /** A planned stop at a review boundary is shown as such, never as an error. */
+  protected readonly atReviewBoundary = computed(() => stoppedAtReviewBoundary(this.currentRun()));
 
   protected decisionTone = computed(() => {
     const d = (this.outcome?.decision || '').toLowerCase();
@@ -233,6 +235,7 @@ export class RunOutcomeCardComponent {
   });
 
   protected statusTone = computed(() => {
+    if (this.atReviewBoundary()) return 'cool' as const;
     switch (this.run?.status) {
       case 'completed': return 'pos' as const;
       case 'failed':    return 'neg' as const;
