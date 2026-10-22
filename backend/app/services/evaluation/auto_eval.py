@@ -21,12 +21,13 @@ hold a request-scoped session open while the LLM judge (5-15 s) is in
 flight. A failure of the eval loop **must never** fail the run — any
 exception is logged and swallowed.
 """
+
 from __future__ import annotations
 
-import asyncio
+import copy
 import random
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -37,6 +38,7 @@ from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
+from app.models.workspace_job import WorkspaceJob
 from app.services.evaluation.judge import get_judge_service
 from app.services.evaluation.rag_components import (
     heuristic_question_type,
@@ -56,7 +58,7 @@ _RESPONSE_KEYS = ("answer", "response", "output", "text", "completion", "summary
 _CONTEXT_KEYS = ("chunks", "context_chunks", "sources", "passages", "retrieved")
 
 
-def _first_string(d: Optional[Dict[str, Any]], keys: tuple[str, ...]) -> Optional[str]:
+def _first_string(d: dict[str, Any] | None, keys: tuple[str, ...]) -> str | None:
     if not isinstance(d, dict):
         return None
     for k in keys:
@@ -66,11 +68,19 @@ def _first_string(d: Optional[Dict[str, Any]], keys: tuple[str, ...]) -> Optiona
     return None
 
 
-def _context_evidence(run: Run, invocations: List[SkillInvocation]) -> List[dict]:
-    for payload, invocation_id in [(run.input_ref or {}, None), (run.output_ref or {}, None), *[(payload or {}, i.id) for i in invocations for payload in (i.input_ref, i.output_ref)]]:
+def _context_evidence(run: Run, invocations: list[SkillInvocation]) -> list[dict]:
+    for payload, invocation_id in [
+        (run.input_ref or {}, None),
+        (run.output_ref or {}, None),
+        *[(payload or {}, i.id) for i in invocations for payload in (i.input_ref, i.output_ref)],
+    ]:
         # Chat persists the actual synthesis context here, separately from its
         # shortened display sources. Use the recorded context, never re-retrieve.
-        if isinstance(payload.get("rag_context"), dict) and isinstance(payload["rag_context"].get("chunks"), list) and payload["rag_context"]["chunks"]:
+        if (
+            isinstance(payload.get("rag_context"), dict)
+            and isinstance(payload["rag_context"].get("chunks"), list)
+            and payload["rag_context"]["chunks"]
+        ):
             payload = payload["rag_context"]
         for key in _CONTEXT_KEYS:
             values = payload.get(key)
@@ -82,14 +92,56 @@ def _context_evidence(run: Run, invocations: List[SkillInvocation]) -> List[dict
             for index, chunk in enumerate(values):
                 if isinstance(chunk, str) and aligned and isinstance(metadata[index], dict):
                     chunk = {"text": chunk, "metadata": metadata[index]}
-                if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict) and chunk["metadata"].get("retrieval_role") == "advisory_context":
+                if (
+                    isinstance(chunk, dict)
+                    and isinstance(chunk.get("metadata"), dict)
+                    and chunk["metadata"].get("retrieval_role") == "advisory_context"
+                ):
                     continue  # A retrieval guide is not documentary evidence.
-                text = chunk if isinstance(chunk, str) else (chunk.get("text") or chunk.get("content") or chunk.get("snippet")) if isinstance(chunk, dict) else None
+                text = (
+                    chunk
+                    if isinstance(chunk, str)
+                    else (chunk.get("text") or chunk.get("content") or chunk.get("snippet"))
+                    if isinstance(chunk, dict)
+                    else None
+                )
                 if not isinstance(text, str) or not text.strip():
                     continue
-                ref = {k: chunk[k] for k in ("document_id", "document_ref", "source_id", "collection_id", "collection", "page", "chunk_id", "filename") if k in chunk} if isinstance(chunk, dict) else {}
+                ref = (
+                    {
+                        k: chunk[k]
+                        for k in (
+                            "document_id",
+                            "document_ref",
+                            "source_id",
+                            "collection_id",
+                            "collection",
+                            "page",
+                            "chunk_id",
+                            "filename",
+                        )
+                        if k in chunk
+                    }
+                    if isinstance(chunk, dict)
+                    else {}
+                )
                 if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict):
-                    ref = {**{k: v for k, v in chunk["metadata"].items() if k in ("document_id", "source_id", "collection_id", "collection", "page", "filename")}, **ref}
+                    ref = {
+                        **{
+                            k: v
+                            for k, v in chunk["metadata"].items()
+                            if k
+                            in (
+                                "document_id",
+                                "source_id",
+                                "collection_id",
+                                "collection",
+                                "page",
+                                "filename",
+                            )
+                        },
+                        **ref,
+                    }
                 if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict):
                     meta = chunk["metadata"]
                     if "filename" not in ref and meta.get("document_filename"):
@@ -102,23 +154,23 @@ def _context_evidence(run: Run, invocations: List[SkillInvocation]) -> List[dict
     return []
 
 
-def _extract_context(run: Run, invocations: List[SkillInvocation]) -> List[str]:
+def _extract_context(run: Run, invocations: list[SkillInvocation]) -> list[str]:
     return [r["text"] for r in _context_evidence(run, invocations)[:8]]
 
 
 def _check_thresholds(
-    scores: Dict[str, float],
+    scores: dict[str, float],
     composite_score: float,
     hallucination_rate: float,
-    config: Dict[str, Any],
-) -> Dict[str, Any]:
+    config: dict[str, Any],
+) -> dict[str, Any]:
     """Return ``{"breach": bool, "reasons": [...]}`` given a config.
 
     Reasons are machine-readable tuples (metric, observed, threshold,
     direction) so the Decision payload can render them verbatim and
     the UI can filter/sort on them.
     """
-    reasons: List[Dict[str, Any]] = []
+    reasons: list[dict[str, Any]] = []
     composite_min = float(config.get("composite_min", 0.0))
     if composite_score is not None and composite_score < composite_min:
         reasons.append(
@@ -162,10 +214,10 @@ def _check_thresholds(
 async def evaluate_run_async(
     run_id: str,
     *,
-    preset_override: Optional[Dict[str, Any]] = None,
-    invocation_id: Optional[str] = None,
-    job_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    preset_override: dict[str, Any] | None = None,
+    invocation_id: str | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any] | None:
     """Evaluate a completed run, persist the result, trigger review if needed.
 
     Runs on the durable WorkspaceJob worker. Judge failures are persisted
@@ -190,9 +242,7 @@ async def evaluate_run_async(
             return None
 
         system = (
-            db.query(System).filter(System.id == run.system_id).first()
-            if run.system_id
-            else None
+            db.query(System).filter(System.id == run.system_id).first() if run.system_id else None
         )
 
         if preset_override is not None:
@@ -206,10 +256,41 @@ async def evaluate_run_async(
                 system_id=run.system_id,
             )
 
+        def settled_job_result():
+            current_job = (
+                db.query(WorkspaceJob)
+                .filter(WorkspaceJob.id == job_id)
+                .populate_existing()
+                .with_for_update()
+                .first()
+                if job_id
+                else None
+            )
+            if current_job is not None and current_job.status in {
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                return copy.deepcopy(current_job.result or {})
+            return None
+
         def finish_state(status, reason):
-            run.evaluation_scores = {"job_id": job_id, "status": status, "reason": reason, "preset": config, "evaluated_at": datetime.utcnow().isoformat()}
+            settled = settled_job_result()
+            if settled is not None:
+                return settled
+            target = db.get(Run, run_id)
+            if target is None:
+                return None
+            state = {
+                "job_id": job_id,
+                "status": status,
+                "reason": reason,
+                "preset": config,
+                "evaluated_at": datetime.utcnow().isoformat(),
+            }
+            target.evaluation_scores = state
             db.commit()
-            return run.evaluation_scores
+            return state
 
         if not config.get("enabled"):
             logger.debug(
@@ -240,8 +321,17 @@ async def evaluate_run_async(
             if not invocations:
                 return finish_state("failed", "invocation_unavailable")
 
-        query = (_first_string(invocations[0].input_ref, _QUERY_KEYS) if invocation_id else None) or _first_string(run.input_ref, _QUERY_KEYS) or ""
-        response = _first_string(invocations[0].output_ref if invocation_id else run.output_ref, _RESPONSE_KEYS) or ""
+        query = (
+            (_first_string(invocations[0].input_ref, _QUERY_KEYS) if invocation_id else None)
+            or _first_string(run.input_ref, _QUERY_KEYS)
+            or ""
+        )
+        response = (
+            _first_string(
+                invocations[0].output_ref if invocation_id else run.output_ref, _RESPONSE_KEYS
+            )
+            or ""
+        )
         if not response and invocations:
             # Fall back on the terminal skill's output_ref text (common
             # shape: {"answer": "..."} or {"text": "..."}).
@@ -267,12 +357,28 @@ async def evaluate_run_async(
                 or ""
             )
 
-        run.evaluation_scores = {"status": "running", "job_id": job_id, "preset": config, "started_at": datetime.utcnow().isoformat()}
+        run.evaluation_scores = {
+            "status": "running",
+            "job_id": job_id,
+            "preset": config,
+            "started_at": datetime.utcnow().isoformat(),
+        }
         db.commit()
         from app.models.workspace import Workspace
+
         workspace = db.query(Workspace).filter(Workspace.id == run.workspace_id).first()
         from app.services.evaluation.lifecycle import evaluation_model_context
+
         model_context = evaluation_model_context(db, run, system, invocations)
+        evidence = _context_evidence(run, invocations)
+        agent_id = run.system_id
+        # The model resolver reads workspace configuration during the await.
+        # Detach its loaded snapshot before commit so it cannot lazy-load and
+        # reopen this transaction while another connection reserves model usage.
+        if workspace is not None:
+            db.expunge(workspace)
+        db.commit()
+        db.close()
         judge = get_judge_service()
         try:
             result = await judge.evaluate(
@@ -282,7 +388,7 @@ async def evaluate_run_async(
                 context_chunks=context_chunks,
                 turn_number=1,
                 session_id=run_id,
-                agent_id=run.system_id,
+                agent_id=agent_id,
                 workspace=workspace,
                 model_context=model_context,
             )
@@ -294,16 +400,24 @@ async def evaluate_run_async(
             )
             return finish_state("failed", "judge_unavailable")
 
+        settled = settled_job_result()
+        if settled is not None:
+            return settled
+        run = db.get(Run, run_id)
+        if run is None:
+            return None
         metadata = dict(result.get("metadata") or {})
-        evidence = _context_evidence(run, invocations)
         metadata["excerpts"] = [
             {**{k: v for k, v in evidence[index].items() if k != "text"}, **excerpt}
-            for index, excerpt in enumerate(metadata.get("excerpts") or []) if index < len(evidence)
+            for index, excerpt in enumerate(metadata.get("excerpts") or [])
+            if index < len(evidence)
         ]
         metadata["context_count_available"] = len(evidence)
-        metadata["context_truncated"] = len(evidence) > len(metadata["excerpts"]) or any(e.get("truncated") for e in metadata["excerpts"])
+        metadata["context_truncated"] = len(evidence) > len(metadata["excerpts"]) or any(
+            e.get("truncated") for e in metadata["excerpts"]
+        )
         result["metadata"] = metadata
-        scores: Dict[str, float] = result.get("scores") or {}
+        scores: dict[str, float] = result.get("scores") or {}
         composite_score = result.get("composite_score")
         hallucination_rate = result.get("hallucination_rate")
 
@@ -341,15 +455,29 @@ async def evaluate_run_async(
             failed_components=failed_components,
             topic=topic[:200] if topic else None,
             claim_audit=result.get("claim_audit") or {},
-            metadata_={**(result.get("metadata") or {}), "status": result.get("status", "completed"), "reason": result.get("reason"), "preset": config, "invocation_id": invocation_id, "threshold_outcome": threshold_outcome},
+            metadata_={
+                **(result.get("metadata") or {}),
+                "status": result.get("status", "completed"),
+                "reason": result.get("reason"),
+                "preset": config,
+                "invocation_id": invocation_id,
+                "threshold_outcome": threshold_outcome,
+            },
             created_at=datetime.utcnow(),
         )
         db.add(eval_row)
         db.flush()
         from sqlalchemy import update
-        db.execute(update(EvaluationScore).where(EvaluationScore.id == eval_row.id).values(
-            composite_score=composite_score, hallucination_rate=hallucination_rate,
-            drift_rate=result.get("drift_rate")))
+
+        db.execute(
+            update(EvaluationScore)
+            .where(EvaluationScore.id == eval_row.id)
+            .values(
+                composite_score=composite_score,
+                hallucination_rate=hallucination_rate,
+                drift_rate=result.get("drift_rate"),
+            )
+        )
 
         run.evaluation_scores = {
             "job_id": job_id,
@@ -368,7 +496,11 @@ async def evaluate_run_async(
             "evaluation_id": eval_row.id,
             "evaluated_at": eval_row.created_at.isoformat(),
         }
-        if threshold_outcome["breach"] and composite_score is not None and hallucination_rate is not None:
+        if (
+            threshold_outcome["breach"]
+            and composite_score is not None
+            and hallucination_rate is not None
+        ):
             # Corrections are requested from the inspected evidence and reviewed
             # against a draft. Do not generate legacy executable rerun/answer
             # suggestions as a side effect of scoring.
@@ -386,6 +518,7 @@ async def evaluate_run_async(
                 active_suggestion=active_suggestion,
             )
 
+        final_state = dict(run.evaluation_scores)
         db.commit()
         logger.info(
             "auto_eval: done",
@@ -395,7 +528,7 @@ async def evaluate_run_async(
             breach=threshold_outcome["breach"],
             reasons_count=len(threshold_outcome["reasons"]),
         )
-        return run.evaluation_scores
+        return final_state
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "auto_eval: unexpected error",
@@ -413,12 +546,12 @@ def _file_review_decision(
     run: Run,
     composite_score: float,
     hallucination_rate: float,
-    reasons: List[Dict[str, Any]],
+    reasons: list[dict[str, Any]],
     evaluation_id: str,
     question_type: str,
-    failed_components: List[str],
-    topic: Optional[str],
-    active_suggestion: Optional[Dict[str, Any]] = None,
+    failed_components: list[str],
+    topic: str | None,
+    active_suggestion: dict[str, Any] | None = None,
 ) -> Decision:
     """Persist a Decision(kind="review_required") pointing at the run.
 
@@ -466,7 +599,7 @@ def _file_review_decision(
 def _build_review_title(
     composite_score: float,
     hallucination_rate: float,
-    reasons: List[Dict[str, Any]],
+    reasons: list[dict[str, Any]],
 ) -> str:
     if not reasons:
         return "Run flagged for review"
@@ -482,7 +615,7 @@ def _build_review_title(
     return "Run flagged for review"
 
 
-def _suggest_action(reasons: List[Dict[str, Any]]) -> str:
+def _suggest_action(reasons: list[dict[str, Any]]) -> str:
     """One-line suggestion for the operator, based on the breach shape.
 
     Kept lexical (no LLM call) on purpose — we already paid for a judge
@@ -510,6 +643,7 @@ def _suggest_action(reasons: List[Dict[str, Any]]) -> str:
 def schedule_eval(run_id: str) -> None:
     """Persist auto evaluation before dispatching to the durable worker."""
     from app.services.evaluation.lifecycle import enqueue_run_evaluation
+
     db = SessionLocal()
     try:
         run = db.query(Run).filter(Run.id == run_id).first()

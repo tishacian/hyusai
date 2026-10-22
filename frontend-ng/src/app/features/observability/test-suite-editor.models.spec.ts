@@ -35,3 +35,40 @@ test('reviewed imported path constraints retain exact node, severity and tool id
 test('Giskard answer formatting cannot alter the selected object used by assertions',()=>{
  const row=editTestCase({id:'case-1',input_ref:{case_id:'RC-1'},output_selector:{skill_slug:'proposal',path:['decision.v2']},answer_path:['customer_message'],answer_format:'json',assertions:[{id:'decision',path:['action.type'],operator:'equals',value:'refund'}]},1);row.reviewed=true;const saved=serializeTestCases([row])[0];assert.deepEqual(saved['output_selector'],{skill_slug:'proposal',path:['decision.v2']});assert.deepEqual(saved['answer_path'],['customer_message']);assert.equal(saved['answer_format'],'json');assert.deepEqual((saved['assertions'] as Array<Record<string,unknown>>)[0]['path'],['action.type']);
 });
+
+
+import {CampaignRetryRequests,campaignPollingActive,campaignResponseCurrent,retryTarget,type Campaign} from './campaign-retry.models';
+
+test('retry request blocks a double click and retains the same exact source after an unknown response',()=>{
+ const ledger=new CampaignRetryRequests();const target=retryTarget('campaign-1','case-1:1','candidate');let keys=0;
+ const body={result_key:'case-1:1',side:'candidate' as const,source_run_id:'original-candidate'};
+ const first=ledger.begin(target,body,()=>`request-${++keys}`);assert.ok(first);
+ assert.equal(ledger.begin(target,body,()=>`request-${++keys}`),null);
+ ledger.settle(target,true);
+ const checked=ledger.begin(target,{...body,source_run_id:'newly-observed-attempt'},()=>`request-${++keys}`);
+ assert.deepEqual(checked,first);assert.equal(keys,1);
+ ledger.settle(target,false);
+ assert.equal(ledger.begin(target,{...body,source_run_id:'newly-observed-attempt'},()=>`request-${++keys}`)?.request_key,'request-2');
+});
+
+test('retry targets isolate campaign, repetition and side, and a new authorization scope clears pending identities',()=>{
+ const ledger=new CampaignRetryRequests();const body={result_key:'case-1:1',side:'candidate' as const,source_run_id:'run-1'};
+ assert.notEqual(retryTarget('campaign-1','case-1:0','candidate'),retryTarget('campaign-1','case-1:1','candidate'));
+ assert.notEqual(retryTarget('campaign-1','case-1:1','baseline'),retryTarget('campaign-1','case-1:1','candidate'));
+ assert.notEqual(retryTarget('campaign-1','case-1:1','candidate'),retryTarget('campaign-2','case-1:1','candidate'));
+ ledger.begin('target',body,()=> 'before');ledger.clear();assert.equal(ledger.begin('target',body,()=> 'after')?.request_key,'after');
+ assert.equal(campaignResponseCurrent('workspace-A:auth-1','workspace-A:auth-2','campaign-1','campaign-1'),false);
+ assert.equal(campaignResponseCurrent('scope','scope','campaign-1','campaign-2'),false);
+ assert.equal(campaignResponseCurrent('scope','scope','campaign-1','campaign-1','wrong-campaign'),false);
+ assert.equal(campaignResponseCurrent('scope','scope','campaign-1','campaign-1','campaign-1'),true);
+});
+
+test('a terminal initial campaign keeps polling pending retries without replacing its initial quality result',()=>{
+ const initial={run_id:'initial',status:'failed',verdict:'unevaluated',quality_status:'unassessed',output_ref:null,duration_ms:1,execution_cost:null,assertions:[]};
+ const campaign:Campaign={id:'campaign',status:'completed',method:'assertions_v2',snapshot:{comparability:'limited',limitations:[]},results:[{case_id:'case',change:'unchanged',baseline:{...initial},candidate:{...initial}}]};
+ const before=JSON.stringify(campaign);assert.equal(campaignPollingActive(campaign),false);assert.equal(JSON.stringify(campaign),before);
+ campaign.retry_pending=true;assert.equal(campaignPollingActive(campaign),true);campaign.retry_pending=false;
+ campaign.results[0].candidate.attempts=[{...initial,id:'attempt-1',attempt_index:1,initial_run_id:'initial',source_run_id:'initial',run_id:'retry-run',job_id:'job',created_at:'2026-10-22',actor_user_id:'reviewer',status:'pending'}];
+ assert.equal(campaignPollingActive(campaign),true);campaign.results[0].candidate.attempts[0].status='completed';assert.equal(campaignPollingActive(campaign),false);
+ assert.equal(campaign.results[0].candidate.status,'failed');assert.equal(campaign.results[0].candidate.quality_status,'unassessed');assert.equal(campaign.results[0].candidate.run_id,'initial');
+});

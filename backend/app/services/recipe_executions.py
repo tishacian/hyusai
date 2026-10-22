@@ -23,6 +23,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -58,6 +59,7 @@ RECIPE_ENV_BUILD_TASK = "agentium.recipe_env_build"
 RECIPE_ENV_SWEEP_TASK = "agentium.recipe_env_sweep"
 
 _HARNESS_PATH = Path(__file__).resolve().parent.parent / "resources" / "recipe_harness.py"
+_LIMITS_EXEC_PATH = Path(__file__).resolve().parent.parent / "resources" / "limited_exec.py"
 _CANCEL_POLL_INTERVAL_S = 0.5
 
 
@@ -269,22 +271,6 @@ def _subprocess_env(
     }
     env.update(extra or {})
     return env
-
-
-def _apply_rlimits(
-    memory_limit_mb: int, cpu_limit_s: int, fsize_limit_mb: int
-) -> None:  # pragma: no cover - child process
-    import resource
-
-    cpu_s = int(cpu_limit_s)
-    mem_bytes = int(memory_limit_mb) * 1024 * 1024
-    fsize = int(fsize_limit_mb) * 1024 * 1024
-    resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))
-    try:
-        resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-    except (ValueError, OSError):
-        pass
-    resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
 
 
 def _kill_process_group(process: subprocess.Popen) -> None:
@@ -541,16 +527,28 @@ def supervise_harness(
         open(stdout_path, "wb") as stdout_handle,
         open(stderr_path, "wb") as stderr_handle,
     ):
-        process = subprocess.Popen(  # noqa: S603 - venv python + harness path
-            argv,
+        # No Python may run between fork and exec: ML/Arrow workers already
+        # have threads, and even importing resource in preexec_fn can deadlock
+        # before Popen returns. A fresh stdlib-only interpreter applies limits
+        # and execs the requested harness before any author code is loaded.
+        process = subprocess.Popen(  # noqa: S603 - fixed bootstrap + trusted harness argv
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                str(_LIMITS_EXEC_PATH),
+                str(budget),
+                str(cpu_budget),
+                str(fsize_budget),
+                "--",
+                *argv,
+            ],
             cwd=scratch,
             stdout=stdout_handle,
             stderr=stderr_handle,
             stdin=subprocess.DEVNULL,
             env=_subprocess_env(venv_python, scratch, extra_env),
             start_new_session=True,
-            # noqa: PLW1509 - single-threaded fork point
-            preexec_fn=lambda: _apply_rlimits(budget, cpu_budget, fsize_budget),
         )
         last_cancel_check = 0.0
         while True:

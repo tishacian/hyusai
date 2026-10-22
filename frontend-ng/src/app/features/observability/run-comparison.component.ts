@@ -5,7 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { JsonPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { timer, switchMap, takeWhile } from 'rxjs';
+import { timer, switchMap, exhaustMap, takeWhile } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
@@ -14,10 +14,9 @@ import { NavLinkDirective } from '@app/shared/cockpit';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { qualityMessage, qualityState, type QualityMessage } from './quality-messages';
 import { editTestCase, newTestCase, serializeTestCases, readableOutput, type TestCaseDraft } from './test-suite-editor.models';
-import type { RunAssertionResult } from '@app/core/canonical-api.service';
+import { settleWrite } from '@app/shared/ui/load-state';
+import { campaignPollingActive, campaignResponseCurrent, CampaignRetryRequests, retryTarget, type Campaign, type CaseResult, type CampaignResult, type CampaignSide } from './campaign-retry.models';
 interface Suite {id:string;name:string;revision:number;cases:unknown[];}
-interface CaseResult {run_id:string;status:string;termination?:string;quality_status?:string;controls?:Array<{invocation_id:string;evaluation_id:string;execution_status:string;quality_status:string}>;verdict:string;output_ref:unknown;duration_ms:number|null;execution_cost:number|null;assertions:RunAssertionResult[];trajectory_assertions?:RunAssertionResult[];}
-interface Campaign {id:string;status:string;method:string;created_at?:string;snapshot:{comparability:string;limitations:unknown[]};results:Array<{case_id:string;change:string;result_key?:string;repetition_index?:number;baseline:CaseResult;candidate:CaseResult}>;}
 interface Generation {id:string;status:string;stage:string;progress:number;error?:string;result?:{cases?:Array<{id?:string;question?:string;reference_answer?:string;reference_context?:string}>;method?:string;version?:string;usage?:unknown;models?:unknown;coverage?:unknown;sides?:unknown};}
 interface Preflight {eligible:boolean;preflight_sha256:string;planned_runs:number;comparability:string;limitations:string[];issues:Array<{code:string;node_id?:string;message:string}>;}
 interface CollectionOption {id:string;name:string;status:string;}
@@ -29,7 +28,7 @@ interface CollectionOption {id:string;name:string;status:string;}
   <span>{{t('candidate')}} · {{t('draft')}} {{effectiveRevision() || '—'}}</span>
  </div>
  @if(!baselineRunId() && !baselineRuns().length){<p>{{t('no_baseline')}}</p>}
- <details><summary>{{t('campaigns')}} · {{campaigns().length}}</summary>@for(row of campaigns();track row.id){<button type="button" (click)="campaignId.set(row.id)">{{row.created_at || row.id}} · {{state(row.status)}}</button>}@empty{<p>{{t('no_campaign')}}</p>}</details>
+ <details><summary>{{t('campaigns')}} · {{campaigns().length}}</summary>@for(row of campaigns();track row.id){<button type="button" (click)="selectCampaign(row.id)">{{row.created_at || row.id}} · {{state(row.status)}}</button>}@empty{<p>{{t('no_campaign')}}</p>}</details>
  <p>{{i18n.t('runs.comparison.scope')}}</p>
  <div class="controls"><label>{{i18n.t('runs.comparison.suite')}}<select [(ngModel)]="suiteId">@for(suite of suites();track suite.id){<option [value]="suite.id">{{suite.name}} · {{suite.revision}}</option>}</select></label>
  </div>
@@ -84,12 +83,13 @@ interface CollectionOption {id:string;name:string;status:string;}
  </details>
  @if(campaign();as comparison){
   <h3>{{i18n.t('runs.comparison.status')}}: {{code('status',comparison.status)}}</h3>
+  @if(comparison.retry_pending){<p role="status" class="scope-note">{{i18n.t('observability.assurance.retry_pending')}}</p>}
   <p>{{code('method',comparison.method)}} · {{code('comparability',comparison.snapshot.comparability)}}</p>
   @for(limitation of comparison.snapshot.limitations;track $index){<p>{{code('limitation',limitation)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{limitation | json}}</pre></details>}
   @for(test of comparison.results;track test.result_key || test.case_id+'-'+$index){
    <article><h3>{{test.case_id}} · {{t('assertions')}}: {{code('change',test.change)}} @if(test.repetition_index!=null){ · {{t('repeat')}} {{test.repetition_index!+1}} }</h3>
     <div class="columns">
-     @for(side of [test.baseline,test.candidate];track $index){
+     @for(side of [test.baseline,test.candidate];track $index;let sideIndex=$index){
       <div><strong>{{i18n.t($index === 0 ? 'runs.comparison.baseline' : 'runs.comparison.candidate')}}</strong>
        <p>{{side.termination==='human_gate'?t('human_gate'):code('status',side.status)}} · {{t('assertions')}}: {{code('verdict',side.verdict)}}</p><p>{{t('verdict')}}: {{state(side.quality_status || 'unassessed')}}</p>@if(side.termination==='human_gate'){<p class="scope-note">{{i18n.t('observability.assurance.qa_human_boundary')}}</p>}<p class="answer">{{output(side.output_ref) || t('no_output')}}</p>
        @if(side.run_id){<a [navLink]="{type:'run',ref:side.run_id}">{{i18n.t('runs.comparison.proof')}}</a>}
@@ -102,6 +102,34 @@ interface CollectionOption {id:string;name:string;status:string;}
          }
         }
         <details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{side.assertions | json}}</pre></details><p>{{i18n.t('runs.comparison.cost')}}: {{cost(side.execution_cost)}} · {{i18n.t('observability.quality.milliseconds',{value:number(side.duration_ms)})}}</p></details>
+       @if(side.attempts?.length){
+        <section class="retry-history" [attr.aria-label]="i18n.t('observability.assurance.retry_history')">
+         <h4>{{i18n.t('observability.assurance.retry_history')}}</h4>
+         <p class="scope-note">{{i18n.t('observability.assurance.retry_initial_preserved')}}</p>
+         @for(attempt of side.attempts;track attempt.id){
+          <div class="retry-attempt" [attr.data-attempt-id]="attempt.id">
+           <strong>{{i18n.t('observability.assurance.retry_attempt',{number:attempt.attempt_index})}}</strong> <span class="scope-note"> · {{date(attempt.created_at)}}</span>
+           <p>{{i18n.t('runs.sections.execution')}}: {{attempt.termination==='human_gate'?t('human_gate'):code('status',attempt.status)}} · {{t('assertions')}}: {{code('verdict',attempt.verdict)}}<br />{{t('verdict')}}: {{state(attempt.quality_status || 'unassessed')}}</p>
+           @if(attempt.termination==='human_gate'){<p class="scope-note">{{i18n.t('observability.assurance.qa_human_boundary')}}</p>}
+           @if(output(attempt.output_ref)){<p class="answer">{{output(attempt.output_ref)}}</p>}
+           @if(attempt.run_id){<a [navLink]="{type:'run',ref:attempt.run_id}">{{i18n.t('runs.comparison.proof')}}</a>}
+           @for(control of attempt.controls || [];track control.invocation_id){<p>{{t('execution')}}: {{qualityStatus(control.execution_status,true)}} · {{t('verdict')}}: {{state(control.quality_status)}} <a [navLink]="{type:'run',ref:attempt.run_id,params:{facet:'quality',evaluationId:control.evaluation_id}}">{{t('open')}}</a></p>}
+           <details><summary>{{i18n.t('observability.assurance.retry_provenance')}}</summary>
+            <p>{{i18n.t('observability.assurance.retry_source')}}: <a [navLink]="{type:'run',ref:attempt.source_run_id}">{{attempt.source_run_id}}</a></p>
+            <p>{{i18n.t('observability.assurance.retry_initial')}}: <a [navLink]="{type:'run',ref:attempt.initial_run_id}">{{attempt.initial_run_id}}</a></p>
+            <p>{{i18n.t('observability.assurance.retry_actor')}}: {{attempt.actor_user_id}}</p>
+            @if(attempt.reason){<p>{{attempt.reason}}</p>}
+            @for(check of checks(attempt);track check.id){<p>{{check.id}} · {{code('verdict',check.passed===true?'passed':check.passed===false?'failed':'unevaluated')}}</p>}
+            <p>{{i18n.t('runs.comparison.cost')}}: {{cost(attempt.execution_cost)}} · {{i18n.t('observability.quality.milliseconds',{value:number(attempt.duration_ms)})}}</p>
+           </details>
+          </div>
+         }
+        </section>
+       }
+       @if(retryNotice(test,sideIndex);as notice){<p class="scope-note" [attr.role]="notice.kind==='failed'?'alert':'status'">{{retryMessage(notice)}}</p>}
+       @if(test.result_key && (side.can_retry===true || retryNotice(test,sideIndex)?.kind==='unknown')){
+        <div class="retry-actions"><button type="button" (click)="retry(test,sideIndex,side)" [disabled]="retryNotice(test,sideIndex)?.kind==='sent'">{{i18n.t(retryNotice(test,sideIndex)?.kind==='unknown'?'observability.assurance.retry_check':'observability.assurance.retry_action')}}</button><span class="scope-note">{{i18n.t('observability.assurance.retry_hint')}}</span></div>
+       }
       </div>
      }
     </div>
@@ -112,12 +140,13 @@ interface CollectionOption {id:string;name:string;status:string;}
   @if(raget();as report){<p aria-live="polite">{{code('status',report.status)}} · {{code('stage',report.stage)}}</p>@if(report.error){<p role="alert">{{code('reason',report.error)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{report.error}}</pre></details>}@if(report.result?.sides){<section><h4>{{t('report')}}</h4>@for(side of reportSides(report.result?.sides);track side.name){<article><h4>{{state(side.name)}}</h4>@for(row of side.rows;track $index){<p class="answer">{{row}}</p>}@empty{<p>{{t('report_empty')}}</p>}</article>}<details><summary>{{t('details')}}</summary><pre>{{report.result?.sides | json}}</pre></details></section>}}
  }
  </section>`,
- styles:[`fieldset{border:1px solid var(--ck-stroke-2);border-radius:4px;margin:16px 0;padding:16px;min-width:0}legend{padding:0 6px;font-size:13px}h4{font-size:13px;margin:12px 0}.check{display:flex;align-items:center;gap:8px}.check input{width:auto}.field-row{gap:10px}.field-row label{flex:1;min-width:130px}.field-row select{min-width:0}.field-row input{width:100%}.answer{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}.preflight{border-left:2px solid var(--ck-signal-cool);padding:8px 14px;background:var(--ck-bg-inset);font-size:12px}.scope-note{color:var(--ck-fg-3);font-size:12px}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.comparison{padding:18px;border-top:1px solid var(--ck-stroke-2);color:var(--ck-fg-1)}h2{font-size:18px;font-weight:600}h3{font-size:15px;margin:20px 0}p{margin:12px 0;line-height:1.6}.controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap}label{display:block;margin:12px 0}select,input,textarea,button{background:var(--ck-bg-panel);color:inherit;border:1px solid var(--ck-stroke-3);padding:7px 10px;border-radius:6px}textarea{display:block;width:100%;font-family:monospace}select{display:block;min-width:min(240px,100%);max-width:100%}input,textarea{max-width:100%}textarea{font-family:inherit}details>textarea{font-family:monospace}button:disabled{opacity:.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.columns>div{min-width:0;padding:20px;background:var(--ck-bg-panel-hi)}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere;color:var(--ck-signal-cool);text-decoration:underline}details{margin:16px 0}article{border-top:1px solid var(--ck-stroke-2);margin-top:24px}@media(max-width:800px){.columns{grid-template-columns:1fr}}`]
+ styles:[`.retry-history{border-top:1px solid var(--ck-stroke-2);margin-top:18px;padding-top:4px}.retry-attempt{border-left:2px solid var(--ck-stroke-3);padding:4px 0 4px 12px;margin:12px 0}.retry-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}.retry-actions button{font-size:12px;white-space:nowrap}.retry-attempt>p{margin:8px 0}fieldset{border:1px solid var(--ck-stroke-2);border-radius:4px;margin:16px 0;padding:16px;min-width:0}legend{padding:0 6px;font-size:13px}h4{font-size:13px;margin:12px 0}.check{display:flex;align-items:center;gap:8px}.check input{width:auto}.field-row{gap:10px}.field-row label{flex:1;min-width:130px}.field-row select{min-width:0}.field-row input{width:100%}.answer{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}.preflight{border-left:2px solid var(--ck-signal-cool);padding:8px 14px;background:var(--ck-bg-inset);font-size:12px}.scope-note{color:var(--ck-fg-3);font-size:12px}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.comparison{padding:18px;border-top:1px solid var(--ck-stroke-2);color:var(--ck-fg-1)}h2{font-size:18px;font-weight:600}h3{font-size:15px;margin:20px 0}p{margin:12px 0;line-height:1.6}.controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap}label{display:block;margin:12px 0}select,input,textarea,button{background:var(--ck-bg-panel);color:inherit;border:1px solid var(--ck-stroke-3);padding:7px 10px;border-radius:6px}textarea{display:block;width:100%;font-family:monospace}select{display:block;min-width:min(240px,100%);max-width:100%}input,textarea{max-width:100%}textarea{font-family:inherit}details>textarea{font-family:monospace}button:disabled{opacity:.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.columns>div{min-width:0;padding:20px;background:var(--ck-bg-panel-hi)}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere;color:var(--ck-signal-cool);text-decoration:underline}details{margin:16px 0}article{border-top:1px solid var(--ck-stroke-2);margin-top:24px}@media(max-width:800px){.columns{grid-template-columns:1fr}}`]
 })
 export class RunComparisonComponent {
  code(category:string,value:unknown):string{return observabilityText(this.i18n,category,value);}
  number(value:number|null|undefined,digits=0):string{return observabilityNumber(value,this.i18n.locale(),digits);}
  cost(value:number|null|undefined):string{return formatSkillCost(value,'USD',this.i18n.locale());}
+ date(value:string):string {const time=new Date(value);return Number.isNaN(time.valueOf())?'—':new Intl.DateTimeFormat(this.i18n.locale(),{dateStyle:'medium',timeStyle:'short'}).format(time);}
  readonly systemId=input.required<string>();readonly baselineRunId=input<string>('');readonly draftRevision=input<number|null>(null);
  readonly i18n=inject(I18nService);private readonly canonical=inject(CanonicalApiService);
  t(key:QualityMessage){return qualityMessage(this.i18n,key);}state(value:unknown){return qualityState(this.i18n,value);}qualityStatus(value:unknown,execution=false){return qualityState(this.i18n,value,execution);}readonly output=readableOutput;
@@ -125,6 +154,7 @@ export class RunComparisonComponent {
  effectiveBaseline(){return this.baselineRunId()||this.selectedBaseline;}effectiveRevision(){return this.draftRevision()||this.loadedRevision();}
 private readonly api=inject(ApiService);private readonly workspace=inject(WorkspaceService);private readonly auth=inject(AuthStore);private readonly router=inject(Router);private readonly route=inject(ActivatedRoute);
  private readonly query=toSignal(this.route.queryParamMap,{initialValue:this.route.snapshot.queryParamMap});private readonly referenceId=computed(()=>this.query().get('referenceRunId'));readonly referenceSeeded=signal(false);
+ readonly retryNotices=signal<Partial<Record<string,{kind:'sent'|'unknown'|'failed';code?:string|null;status?:number|null}>>>({});private readonly retryRequests=new CampaignRetryRequests();private readonly campaignRefresh=signal(0);
  readonly suites=signal<Suite[]>([]);readonly campaign=signal<Campaign|null>(null);readonly campaignId=signal('');readonly error=signal('');readonly busy=signal(false);
  readonly collections=signal<CollectionOption[]>([]);readonly generation=signal<Generation|null>(null);readonly generationId=signal('');readonly generationBusy=signal(false);readonly raget=signal<Generation|null>(null);readonly ragetId=signal('');readonly ragetBusy=signal(false);
  collectionId='';reviewCollectionId='';reviewGenerationId='';private ragetRequest:{campaignId:string;key:string}|null=null;
@@ -139,8 +169,8 @@ private readonly api=inject(ApiService);private readonly workspace=inject(Worksp
    const history=this.api.get<Campaign[]>('/evaluation/campaigns',{system_id:system}).subscribe({next:rows=>{if(context===this.scope())this.campaigns.set(rows);},error:()=>{if(context===this.scope())this.error.set(this.t('load_failed'));}});cleanup(()=>{runs.unsubscribe();flow.unsubscribe();history.unsubscribe();});
   });
   effect(onCleanup=>{const context=this.scope();const system=this.systemId();this.suites.set([]);this.campaign.set(null);this.campaignId.set(this.route.snapshot.queryParamMap.get('campaign') || '');const subscription=this.api.get<Suite[]>('/evaluation/suites',{system_id:system}).subscribe({next:rows=>{if(context===this.scope())this.suites.set(rows);},error:()=>{if(context===this.scope())this.error.set(this.i18n.t('runs.comparison.unavailable'));}});onCleanup(()=>subscription.unsubscribe());});
-  effect(onCleanup=>{const context=this.scope();const id=this.campaignId();if(!id)return;const subscription=timer(0,2500).pipe(switchMap(()=>this.api.get<Campaign>(`/evaluation/campaigns/${encodeURIComponent(id)}`)),takeWhile(value=>['queued','running'].includes(value.status),true)).subscribe({next:value=>{if(context===this.scope())this.campaign.set(value);},error:()=>{if(context===this.scope())this.error.set(this.i18n.t('runs.comparison.unavailable'));}});onCleanup(()=>subscription.unsubscribe());});
-  effect(onCleanup=>{const context=this.scope();this.comparisonRequest=null;this.generationRequest=null;this.ragetRequest=null;this.collections.set([]);this.generation.set(null);this.generationId.set('');this.raget.set(null);this.ragetId.set('');this.reviewGenerationId='';this.reviewCollectionId='';this.collectionId='';this.reviewed=false;this.suiteId='';this.suiteName='';this.casesText='[]';this.generationBusy.set(false);this.ragetBusy.set(false);this.busy.set(false);const sub=this.api.get<{items?:CollectionOption[]}>('/documents/collections').subscribe({next:value=>{if(context===this.scope())this.collections.set(value.items || []);},error:()=>{if(context===this.scope())this.error.set(this.i18n.t('runs.generation.unavailable'));}});onCleanup(()=>sub.unsubscribe());});
+  effect(onCleanup=>{const context=this.scope();const id=this.campaignId();this.campaignRefresh();if(!id)return;const subscription=timer(0,2500).pipe(exhaustMap(()=>this.api.get<Campaign>(`/evaluation/campaigns/${encodeURIComponent(id)}`)),takeWhile(campaignPollingActive,true)).subscribe({next:value=>{if(campaignResponseCurrent(context,this.scope(),id,this.campaignId(),value.id))this.campaign.set(value);},error:()=>{if(campaignResponseCurrent(context,this.scope(),id,this.campaignId()))this.error.set(this.i18n.t('runs.comparison.unavailable'));}});onCleanup(()=>subscription.unsubscribe());});
+  effect(onCleanup=>{const context=this.scope();this.retryRequests.clear();this.retryNotices.set({});this.comparisonRequest=null;this.generationRequest=null;this.ragetRequest=null;this.collections.set([]);this.generation.set(null);this.generationId.set('');this.raget.set(null);this.ragetId.set('');this.reviewGenerationId='';this.reviewCollectionId='';this.collectionId='';this.reviewed=false;this.suiteId='';this.suiteName='';this.casesText='[]';this.generationBusy.set(false);this.ragetBusy.set(false);this.busy.set(false);const sub=this.api.get<{items?:CollectionOption[]}>('/documents/collections').subscribe({next:value=>{if(context===this.scope())this.collections.set(value.items || []);},error:()=>{if(context===this.scope())this.error.set(this.i18n.t('runs.generation.unavailable'));}});onCleanup(()=>sub.unsubscribe());});
   effect(onCleanup=>{const context=this.scope();const id=this.generationId();if(!id)return;const sub=timer(0,2000).pipe(switchMap(()=>this.api.get<Generation>(`/evaluation/generations/${encodeURIComponent(id)}`)),takeWhile(job=>['created','queued','running'].includes(job.status),true)).subscribe({next:job=>{if(context!==this.scope())return;this.generation.set(job);this.generationBusy.set(['created','queued','running'].includes(job.status));},error:()=>{if(context!==this.scope())return;this.generationBusy.set(false);this.error.set(this.i18n.t('runs.generation.unavailable'));}});onCleanup(()=>sub.unsubscribe());});
   effect(onCleanup=>{const context=this.scope();const id=this.ragetId();if(!id)return;const sub=timer(0,2500).pipe(switchMap(()=>this.api.get<Generation>(`/evaluation/generations/${encodeURIComponent(id)}`)),takeWhile(job=>['created','queued','running'].includes(job.status),true)).subscribe({next:job=>{if(context!==this.scope())return;this.raget.set(job);this.ragetBusy.set(['created','queued','running'].includes(job.status));},error:()=>{if(context!==this.scope())return;this.ragetBusy.set(false);this.error.set(this.i18n.t('runs.generation.unavailable'));}});onCleanup(()=>sub.unsubscribe());});
  }
@@ -157,6 +187,34 @@ private readonly api=inject(ApiService);private readonly workspace=inject(Worksp
  compare():void{
   if(this.busy()||!this.preflightCurrent()||!this.preflight()?.eligible)return;const context=this.scope();const body={...this.comparisonBody(),preflight_sha256:this.preflight()?.preflight_sha256};const fingerprint=JSON.stringify(body);if(this.comparisonRequest?.body!==fingerprint)this.comparisonRequest={body:fingerprint,key:crypto.randomUUID()};this.busy.set(true);this.error.set('');
   this.api.post<Campaign>('/evaluation/campaigns',{...body,request_key:this.comparisonRequest.key}).subscribe({next:campaign=>{if(context!==this.scope())return;this.comparisonRequest=null;this.campaign.set(campaign);this.campaignId.set(campaign.id);this.campaigns.update(rows=>[campaign,...rows.filter(row=>row.id!==campaign.id)]);this.busy.set(false);void this.router.navigate([],{relativeTo:this.route,queryParams:{campaign:campaign.id},queryParamsHandling:'merge'});},error:()=>{if(context!==this.scope())return;this.busy.set(false);this.preflight.set(null);this.error.set(this.t('load_failed'));}});
+ }
+ selectCampaign(id:string):void {this.campaign.set(null);this.error.set('');this.campaignId.set(id);this.campaignRefresh.update(value=>value+1);}
+ private retryKey(test:CampaignResult,index:number):string {return retryTarget(this.campaignId(),test.result_key || '',index===0?'baseline':'candidate');}
+ retryNotice(test:CampaignResult,index:number){return this.retryNotices()[this.retryKey(test,index)];}
+ retryMessage(notice:{kind:'sent'|'unknown'|'failed';code?:string|null;status?:number|null}):string {
+  if(notice.kind!=='failed')return this.i18n.t(notice.kind==='sent'?'observability.assurance.retry_sent':'observability.assurance.retry_unknown');
+  if(notice.status===401||notice.status===403)return this.i18n.t('observability.assurance.retry_denied');
+  if(notice.status===409)return this.i18n.t('observability.assurance.retry_conflict');
+  return this.i18n.t('observability.assurance.retry_failed');
+ }
+ retry(test:CampaignResult,index:number,side:CaseResult):void {
+  const id=this.campaignId(),context=this.scope(),target=this.retryKey(test,index),notice=this.retryNotices()[target];
+  if(!test.result_key || this.campaign()?.id!==id || (side.can_retry!==true&&notice?.kind!=='unknown'))return;
+  const sideName:CampaignSide=index===0?'baseline':'candidate';
+  if(!side.retry_source_run_id&&notice?.kind!=='unknown')return;
+  const body=this.retryRequests.begin(target,{result_key:test.result_key,side:sideName,source_run_id:side.retry_source_run_id || side.run_id},()=>crypto.randomUUID());
+  if(!body)return;
+  this.retryNotices.update(rows=>({...rows,[target]:{kind:'sent'}}));
+  settleWrite(this.api.post<Campaign>(`/evaluation/campaigns/${encodeURIComponent(id)}/retries`,body)).subscribe(outcome=>{
+   if(context!==this.scope()||outcome.s==='sent')return;
+   const current=campaignResponseCurrent(context,this.scope(),id,this.campaignId());
+   if(outcome.s==='confirmed'||outcome.s==='accepted'){
+    if(outcome.value.id!==id){this.retryRequests.settle(target,true);this.retryNotices.update(rows=>({...rows,[target]:{kind:'unknown'}}));return;}
+    this.retryRequests.settle(target,false);this.retryNotices.update(rows=>{const next={...rows};delete next[target];return next;});if(current){this.campaign.set(outcome.value);this.campaignRefresh.update(value=>value+1);}
+   }else{
+    this.retryRequests.settle(target,outcome.s==='unknown');this.retryNotices.update(rows=>({...rows,[target]:{kind:outcome.s,code:outcome.code,status:outcome.status}}));if(current)this.campaignRefresh.update(value=>value+1);
+   }
+  });
  }
  checks(side:CaseResult){return [...(side.assertions || []),...(side.trajectory_assertions || [])];}
  reportSides(value:unknown):Array<{name:string;rows:string[]}>{if(!value||typeof value!=='object')return [];return Object.entries(value).map(([name,raw])=>{const side=raw as {cases?:unknown[]};return {name,rows:Array.isArray(side?.cases)?side.cases.map(readableOutput):[]};});}

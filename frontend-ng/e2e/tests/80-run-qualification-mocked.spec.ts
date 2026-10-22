@@ -64,6 +64,39 @@ test.describe('Run quality and qualification — isolated product UI',()=>{
   await panel.getByRole('combobox',{name:'Répétitions par version',exact:true}).selectOption({label:'2'});await expect(panel.getByRole('button',{name:'Lancer la comparaison',exact:true})).toBeDisabled();await panel.getByRole('button',{name:'Vérifier le parcours',exact:true}).click();await panel.getByRole('button',{name:'Lancer la comparaison',exact:true}).click();await expect.poll(()=>api.writes.filter(row=>row.path==='/evaluation/campaigns').length).toBe(1);expect(api.writes.find(row=>row.path==='/evaluation/campaigns')!.body.preflight_sha256).toBe('b'.repeat(64));await expect(panel).toContainText('Ask a reviewer to examine the proposal.');await expect(panel).toContainText('aucune action métier n’a été approuvée.');await expect(panel).toContainText('Non évalué');expect(api.writes.some(row=>row.path.endsWith('/raget'))).toBe(false);await expect(panel.locator('a[href*="qa-candidate-evaluation"]')).toHaveAttribute('href',/qa-candidate.*evaluationId=qa-candidate-evaluation/);
   await expect(panel.locator('a[href*="evaluationId=qa-evaluation"]')).toHaveCount(1); await expect(panel.locator('a[href*="evaluationId=qa-evaluation"]').first()).toHaveAttribute('href',/\/runs\/qa-reference\?.*facet=quality.*evaluationId=qa-evaluation/);
  });
+ for(const locale of ['fr','en'] as const)test(`${locale}: a targeted retry preserves the initial comparison and checks a lost response idempotently`,async({page},info)=>{
+  await setup(page,locale);await page.setViewportSize({width:locale==='fr'?1440:390,height:1000});
+  const initial={...structuredClone(campaign),retry_pending:false};
+  const original=initial.results[0].candidate;
+  Object.assign(original,{status:'failed',termination:'failed',verdict:'unevaluated',quality_status:'unassessed',output_ref:{answer:'Initial measurement remains unavailable.'},can_retry:true,retry_source_run_id:'qa-candidate',attempts:[]});
+  Object.assign(initial.results[0].baseline,{can_retry:false,retry_blocked_reason:'not_failed_terminal'});
+  let current:any=initial;let pendingReads=0;const requests:any[]=[];
+  await page.route('**/api/v1/evaluation/campaigns/campaign-1**',async route=>{
+   if(route.request().method()==='POST'){
+    requests.push(route.request().postDataJSON());
+    if(requests.length===1){
+     current={...current,retry_pending:true,results:[{...current.results[0],candidate:{...current.results[0].candidate,can_retry:false,retry_source_run_id:'retry-run',attempts:[{...campaignSide,id:'attempt-1',attempt_index:1,initial_run_id:'qa-candidate',source_run_id:'qa-candidate',run_id:'retry-run',job_id:'retry-job',created_at:'2026-10-22T15:00:00Z',actor_user_id:'reviewer-1',status:'pending',termination:null,verdict:'unevaluated',quality_status:'unassessed',output_ref:null,controls:[]}]}}]};
+     return route.fulfill({status:504,contentType:'application/json',body:'{}'});
+    }
+    expect(requests[1]).toEqual(requests[0]);
+   }else if(current.retry_pending){
+    pendingReads++;
+    if(pendingReads>=3){current=structuredClone(current);current.retry_pending=false;Object.assign(current.results[0].candidate.attempts[0],{status:'completed',verdict:'passed',quality_status:'passed',output_ref:{answer:'Retry evidence is now available.'},controls:[{invocation_id:'retry-judge',evaluation_id:'retry-evaluation',execution_status:'completed',quality_status:'passed'}]});}
+   }
+   return route.fulfill({contentType:'application/json',body:JSON.stringify(current)});
+  });
+  await page.goto('/observability?facet=quality&qualityView=tests&systemId=quality-system&campaign=campaign-1');const panel=page.locator('app-run-comparison');
+  const action=panel.getByRole('button',{name:locale==='fr'?'Relancer cet essai':'Retry this trial',exact:true});await expect(action).toHaveCount(1);await action.click();
+  await expect(panel).toContainText(locale==='fr'?'La réponse n’est pas arrivée':'The response did not arrive');await panel.getByRole('button',{name:locale==='fr'?'Vérifier ou renvoyer':'Check or resend',exact:true}).click();
+  await expect.poll(()=>requests.length).toBe(2);expect(requests[0]).toMatchObject({result_key:'case-1:0',side:'candidate',source_run_id:'qa-candidate'});expect(requests[0].request_key).toBeTruthy();expect(requests[1].request_key).toBe(requests[0].request_key);
+  const attempt=panel.locator('[data-attempt-id="attempt-1"]');await expect(attempt).toHaveCount(1);await expect(attempt).toContainText('Retry evidence is now available.',{timeout:15000});
+  await expect(panel).toContainText('Initial measurement remains unavailable.');await expect(panel).toContainText(locale==='fr'?'Les résultats et les totaux de la comparaison initiale restent inchangés.':'The initial comparison results and totals remain unchanged.');
+  await expect(panel.locator('.columns > div').last()).toContainText(locale==='fr'?'Non évalué':'Not assessed');
+  await expect(attempt.locator('a[href*="evaluationId=retry-evaluation"]')).toHaveAttribute('href',/retry-run.*facet=quality.*evaluationId=retry-evaluation/);
+  await expect(panel.locator('a[href*="evaluationId=qa-candidate-evaluation"]')).toHaveAttribute('href',/qa-candidate.*evaluationId=qa-candidate-evaluation/);
+  await expect(action).toHaveCount(0);expect(pendingReads).toBeGreaterThanOrEqual(3);expect(current.results[0].candidate.run_id).toBe('qa-candidate');expect(current.results[0].candidate.status).toBe('failed');
+  expect(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);expect((await new AxeBuilder({page}).include('app-run-comparison').analyze()).violations).toEqual([]);await panel.locator('.columns').last().screenshot({path:info.outputPath('campaign-retry-'+locale+'.png')});
+ });
  test('human annotation uses blind evidence and cannot be submitted twice',async({page})=>{
   const api=await setup(page);await page.goto('/observability?facet=quality&qualityView=review&systemId=quality-system&corpusId=corpus-1&unitKey=fresh-1');const panel=page.getByTestId('calibration-review');await expect(panel).toContainText(proof);await expect(panel).not.toContainText('The retained evidence supports the decision.');
   await panel.getByLabel(question.question,{exact:true}).selectOption({label:'Non'});await panel.getByLabel('Justification de votre appréciation',{exact:true}).fill('The source does not establish the requested policy exception.');await panel.getByRole('button',{name:'Enregistrer mon annotation',exact:true}).click();await expect(panel).toContainText('Votre annotation est enregistrée');await expect(panel.getByRole('button',{name:'Enregistrer mon annotation',exact:true})).toHaveCount(0);

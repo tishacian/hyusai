@@ -12,6 +12,7 @@ from app.api.v1.endpoints.runs import _visible_run_or_404
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
+from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
@@ -163,6 +164,15 @@ class CampaignBody(BaseModel):
     execution_mode: Literal["legacy_readonly", "qualified_prefix"] = "legacy_readonly"
     repeat_count: Literal[1, 2] = 1
     preflight_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class CampaignRetryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    result_key: str = Field(min_length=1, max_length=180)
+    side: Literal["baseline", "candidate"]
+    source_run_id: str = Field(min_length=1, max_length=36)
+    request_key: str = Field(min_length=1, max_length=160)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 def authorize_suite(db, suite, workspace, user):
@@ -528,7 +538,42 @@ def authorize_campaign(db, row, workspace, user):
     for case in row.results:
         for side in ("baseline", "candidate"):
             _visible_run_or_404(db, run_id=case[side]["run_id"], workspace=workspace, user=user)
+            for attempt in case[side].get("attempts", []):
+                _visible_run_or_404(db, run_id=attempt["run_id"], workspace=workspace, user=user)
     return row
+
+
+@router.post("/campaigns/{campaign_id}/retries", status_code=201)
+def retry_campaign_case(
+    campaign_id: str,
+    body: CampaignRetryBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.evaluation.campaign_retries import create_retry, lock_campaign
+
+    campaign = authorize_campaign(db, lock_campaign(db, campaign_id, workspace.id), workspace, user)
+    try:
+        job = create_retry(
+            db, campaign=campaign, workspace=workspace, user=user, body=body.model_dump()
+        )
+        db.commit()
+    except FlowWorkbenchError as exc:
+        _raise_workbench(db, exc)
+    if job.status == "queued" and not (job.input_ref or {}).get("celery_task_id"):
+        dispatch_job(db, workspace, job)
+    if job.status == "failed":
+        run = db.get(Run, job.input_ref["retry_run_id"])
+        if run and run.status == "pending":
+            from datetime import datetime
+
+            run.status, run.error, run.completed_at = "cancelled", job.error, datetime.utcnow()
+            db.commit()
+    service.refresh_campaign(db, campaign)
+    authorize_campaign(db, campaign, workspace, user)
+    db.commit()
+    return service.serialize_campaign(campaign)
 
 
 @router.get("/campaigns/{campaign_id}")
@@ -540,6 +585,7 @@ def get_campaign(
 ):
     campaign = authorize_campaign(db, db.get(EvaluationCampaign, campaign_id), workspace, user)
     service.refresh_campaign(db, campaign)
+    authorize_campaign(db, campaign, workspace, user)
     db.commit()
     return service.serialize_campaign(campaign)
 
@@ -566,6 +612,10 @@ def list_campaigns(
         except HTTPException:
             continue
         service.refresh_campaign(db, row)
+        try:
+            authorize_campaign(db, row, workspace, user)
+        except HTTPException:
+            continue
         visible.append(service.serialize_campaign(row))
     db.commit()
     return visible

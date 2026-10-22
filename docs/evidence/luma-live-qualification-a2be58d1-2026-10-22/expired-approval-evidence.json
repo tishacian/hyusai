@@ -1,0 +1,48 @@
+{
+  "observed_revision": "a2be58d1689a4c9e8071039ed9fc6c9580fe74c4",
+  "claim_id": "RC-1042",
+  "run": {
+    "id": "612a4abf-7a54-4965-ad7d-26606d77f3e6",
+    "status": "failed",
+    "started_at": "2026-10-19T13:58:46.699368",
+    "completed_at": "2026-10-22T14:00:32.711697",
+    "error": "CLAIM_HUMAN_APPROVAL_REQUIRED"
+  },
+  "decision": {
+    "id": "4e465cdb-9d6e-4798-a44e-2b91388d8a1a",
+    "kind": "hitl_approval",
+    "status": "rejected",
+    "approved_by": "system:gate_ttl",
+    "approved_at": "2026-10-22T14:00:31.721793",
+    "human_confirmed_by": null,
+    "human_confirmed_at": null
+  },
+  "checkpoints": [
+    {
+      "kind": "hitl_pause",
+      "t": "2026-10-19T13:59:53.504657",
+      "node_id": "hitl.review",
+      "decision_id": "4e465cdb-9d6e-4798-a44e-2b91388d8a1a",
+      "expires_at": "2026-10-22T13:59:53.443559",
+      "expiry_action": "reject"
+    },
+    {
+      "kind": "gate_ttl_expired",
+      "t": "2026-10-22T14:00:31.704032",
+      "decision_id": "4e465cdb-9d6e-4798-a44e-2b91388d8a1a",
+      "expiry_action": "reject"
+    },
+    {
+      "kind": "hitl_resume",
+      "node_id": "hitl.review",
+      "decision_status": "rejected",
+      "t": "2026-10-22T14:00:32.032065"
+    },
+    {
+      "kind": "run_end",
+      "status": "failed",
+      "t": "2026-10-22T14:00:32.759411"
+    }
+  ],
+  "interpretation": "The 72-hour approval expired and was automatically rejected. The continuation attempted the action; its human-approval guard refused it. This is not a Judge quality rejection."
+}

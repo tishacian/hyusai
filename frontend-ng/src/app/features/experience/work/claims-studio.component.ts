@@ -2,6 +2,7 @@ import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { decisionNoticeKey, noticeForRun, type DecisionNoticeMap, type DecisionNoticeTarget } from '@app/shared/ui/run-decision-notice';
+import { writeFailure } from '@app/shared/ui/load-state';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
@@ -27,8 +28,30 @@ import { WorkReleasePagesNavComponent } from './work-release-pages-nav.component
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
 import { ClaimsResolutionPolicyComponent } from './claims-resolution-policy.component';
 import { WorkApiService } from './work-api.service';
+import { runtimeFailureKind } from '../runtime/runtime-failure';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
+
+type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
+  | { key: string; state: 'confirmed'; runId: string };
+
+export function claimInvestigationFailureMessage(run: Run | null): string | null {
+  if (!run || !['failed', 'cancelled'].includes(run.status)) return null;
+  const checkpoints = run.checkpoints ?? [];
+  const resume = [...checkpoints].reverse().find(checkpoint => checkpoint['kind'] === 'hitl_resume');
+  if (resume?.['decision_status'] === 'rejected') {
+    const pause = checkpoints.slice(0, checkpoints.indexOf(resume)).reverse().find(checkpoint => checkpoint['kind'] === 'hitl_pause'
+      && typeof resume['passage_id'] === 'string' && typeof resume['node_id'] === 'string'
+      && checkpoint['passage_id'] === resume['passage_id'] && checkpoint['node_id'] === resume['node_id']);
+    const decisionId = resume['decision_id'] ?? pause?.['decision_id'];
+    const expired = typeof decisionId === 'string' && checkpoints.some(checkpoint => checkpoint['kind'] === 'gate_ttl_expired'
+      && checkpoint['decision_id'] === decisionId && checkpoint['expiry_action'] === 'reject');
+    return expired ? 'experience.claims.approval_expired' : 'experience.claims.approval_rejected';
+  }
+  if (run.status === 'cancelled') return 'experience.claims.run_cancelled';
+  const kind = runtimeFailureKind(run.error);
+  return ['failed', 'status_unknown'].includes(kind) ? 'experience.claims.run_failed' : `experience.runtime.failure.${kind}`;
+}
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -89,7 +112,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
               (selectedChange)="select($event)" />
             <p class="claims-quiet">{{ i18n.t('experience.claims.synthetic') }}</p>
           </aside>
-          @if (!detail() && !detailLoading() && actionError()) { <div class="claims-data-error" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
+          @if (!detail() && !detailLoading() && detailReadFailed()) { <div class="claims-data-error" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
           @if (detail(); as dossier) {
             <section class="claims-dossier" [attr.aria-label]="i18n.t('experience.claims.dossier')">
               <header class="claims-dossier-heading">
@@ -161,15 +184,41 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                   </div>
                   }
                 </div>
-              } @else if (run()?.status === 'running' || run()?.status === 'pending') { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
+              } @else if (!runReadFailed() && (run()?.status === 'running' || run()?.status === 'pending')) { <p role="status">{{ i18n.t('experience.claims.running') }}</p> }
               @else if (recordedActions().length) {
                 <details class="claims-reexamine">
                   <summary>{{ i18n.t('experience.claims.reexamine') }}</summary>
                   <p class="claims-quiet">{{ i18n.t('experience.claims.reexamine_hint') }}</p>
-                  <button class="xp-work-btn" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate(true)">{{ i18n.t('experience.claims.reinvestigate') }}</button>
+                  <button class="xp-work-btn" [disabled]="busy() || !machineAidsAllowed() || !!investigationUnconfirmed() || !!runReadFailed() || detailReadFailed()" (click)="investigate(true)">{{ i18n.t('experience.claims.reinvestigate') }}</button>
                 </details>
-              } @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
-              @if (actionError()) { <p class="claims-error" role="alert">{{ i18n.t('experience.claims.action_error') }}</p> }
+              } @else { <button class="xp-work-btn xp-work-btn-primary claims-primary" [disabled]="busy() || !machineAidsAllowed() || !!investigationUnconfirmed() || !!runReadFailed() || detailReadFailed()" (click)="investigate()">{{ i18n.t('experience.claims.investigate') }}</button> }
+              @if (machineAidsAllowed()) {
+                @if (investigationRequest()?.state === 'unknown') {
+                  <div class="claims-decision-notice" data-tone="warn" role="alert" data-testid="claims-start-unconfirmed">
+                    <p>{{ i18n.t('experience.claims.start_unconfirmed') }}</p>
+                    <button class="xp-work-btn claims-compact" [disabled]="busy()" (click)="investigate(true, true)">{{ i18n.t('experience.claims.resume_request') }}</button>
+                  </div>
+                } @else if (investigationRequest()?.state === 'rejected') {
+                  <p class="claims-error" role="alert">{{ i18n.t('experience.claims.start_rejected') }}</p>
+                } @else if (investigationRequest()?.state === 'confirmed' && !runReadFailed()) {
+                  <div class="claims-decision-notice" data-tone="neutral" role="status" data-testid="claims-start-confirmed">
+                    <p>{{ i18n.t('experience.claims.start_confirmed') }}</p>
+                    <button class="xp-work-btn claims-compact" [disabled]="busy() || runRefreshing()" (click)="refreshInvestigation()">{{ i18n.t('experience.claims.refresh') }}</button>
+                  </div>
+                }
+                @if (runReadFailed(); as runId) {
+                  <div class="claims-decision-notice" data-tone="warn" role="alert" data-testid="claims-run-read-error">
+                    <p>{{ i18n.t('experience.claims.run_read_error') }}</p>
+                    <button class="xp-work-btn claims-compact" [disabled]="busy() || runRefreshing()" (click)="refreshInvestigation()">{{ i18n.t('experience.claims.refresh') }}</button>
+                  </div>
+                } @else if (runFailureMessage(); as message) {
+                  <div class="claims-decision-notice" [attr.data-tone]="message === 'experience.claims.approval_expired' || message === 'experience.claims.approval_rejected' || message === 'experience.claims.run_cancelled' ? 'warn' : 'neg'" role="alert" data-testid="claims-run-failure">
+                    <p>{{ i18n.t(message) }}</p>
+                    <a class="claims-triage-flow" [navLink]="{ type: 'run', lens: 'operate', ref: run()!.id }">{{ i18n.t('experience.claims.trace') }} <app-icon name="arrow-right" [size]="12" /></a>
+                  </div>
+                }
+              }
+              @if (detailReadFailed()) { <div class="claims-data-error" role="alert" data-testid="claims-detail-read-error"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
               <p class="claims-quiet">{{ i18n.t('experience.claims.action_notice') }}</p>
               @if (actionGroups().previous.length) { <details class="claims-reexamine claims-history" data-testid="claims-previous-actions"><summary>{{ i18n.t('experience.claims.previous_actions') }} · {{ actionGroups().previous.length }}</summary>@for (receipt of actionGroups().previous; track receipt.receipt_id) { <app-work-action-receipt [receipt]="receiptView(receipt)" /> }</details> }
             </aside>
@@ -229,7 +278,16 @@ export class ClaimsStudioComponent {
   readonly advice = computed(() => selectedAdvice(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   readonly caseData = computed(() => caseDatasets(this.triage(), this.run(), this.selected(), !this.machineAidsAllowed(), this.clock()));
   protected readonly mayDecide = mayDecide;
-  readonly busy = signal(false); readonly actionError = signal(false);
+  readonly busy = signal(false);
+  readonly detailReadFailed = signal(false);
+  readonly runReadFailed = signal<string | null>(null);
+  readonly runRefreshing = signal(false);
+  /** Keep an uncertain submission and its idempotency key attached to its case.
+   * A latest-run lookup cannot prove whether this exact request was received. */
+  private readonly investigationRequests = signal<Record<string, InvestigationRequest>>({});
+  readonly investigationRequest = computed(() => this.investigationRequests()[this.investigationKey()] ?? null);
+  readonly investigationUnconfirmed = computed(() => ['sending', 'unknown', 'confirmed'].includes(this.investigationRequest()?.state ?? ''));
+  readonly runFailureMessage = computed(() => claimInvestigationFailureMessage(this.run()));
   /** Unresolved answers survive record/workspace changes, without leaking into
    * another record. The target pause is retained independently of live polling. */
   private readonly decisionNotices = signal<DecisionNoticeMap>({});
@@ -275,7 +333,8 @@ export class ClaimsStudioComponent {
     this.triageData.set(null); this.triageBusy.set(false); this.triageError.set(false); this.triageLoading.set(false);
     this.benchmarkReady.set(false);
     this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null);
-    this.error.set(false); this.dataError.set(null); this.canConfigureData.set(false); this.actionError.set(false);
+    this.error.set(false); this.dataError.set(null); this.canConfigureData.set(false);
+    this.detailReadFailed.set(false); this.runReadFailed.set(null); this.runRefreshing.set(false);
     this.loading.set(true); this.busy.set(false);
     try {
       const release = await firstValueFrom(this.work.resolve('reclamations'));
@@ -306,7 +365,7 @@ export class ClaimsStudioComponent {
   }
   retryData(): void {
     if (this.error()) void this.load();
-    else if (this.selected()) this.select(this.selected()!);
+    else if (this.selected()) this.refreshDetail(this.selected()!);
   }
   private async loadTriage(generation = this.generation): Promise<void> {
     this.triageLoading.set(true);
@@ -346,7 +405,7 @@ export class ClaimsStudioComponent {
   }
   select(id: string, updateUrl = true): void {
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
-    this.selected.set(id); this.sourceDocumentId.set(null); this.actionError.set(false); this.dataError.set(null); this.detailLoading.set(true);
+    this.selected.set(id); this.sourceDocumentId.set(null); this.detailReadFailed.set(false); this.runReadFailed.set(null); this.runRefreshing.set(false); this.dataError.set(null); this.detailLoading.set(true);
     if (updateUrl) void this.writeRecordUrl(id);
     this.refreshDetail(id);
   }
@@ -355,37 +414,70 @@ export class ClaimsStudioComponent {
   }
   private refreshDetail(id: string): void {
     const generation = this.generation;
+    this.detailRequest?.unsubscribe();
+    this.detailLoading.set(true);
     this.detailRequest = this.api.get<ClaimSnapshot>(`/ecommerce-claims/${encodeURIComponent(id)}`).pipe(takeUntilDestroyed(this.destroy)).subscribe({
-      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detail.set(detail); this.detailLoading.set(false); if (detail.latest_run_id && !this.run()) this.watchRun(detail.latest_run_id, id); } },
-      error: error => { if (generation === this.generation && this.selected() === id) { this.dataError.set(this.readFailure(error)); this.detailLoading.set(false); this.actionError.set(true); } },
+      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detailReadFailed.set(false); this.detail.set(detail); this.detailLoading.set(false); if (detail.latest_run_id && !this.run()) this.watchRun(detail.latest_run_id, id); } },
+      error: error => { if (generation === this.generation && this.selected() === id) { this.dataError.set(this.readFailure(error)); this.detailLoading.set(false); this.detailReadFailed.set(true); } },
     });
   }
-  async investigate(reexamine = false): Promise<void> {
+  private investigationKey(): string { return JSON.stringify([this.workspace.current()?.id ?? null, this.selected()]); }
+  async investigate(reexamine = false, resume = false): Promise<void> {
     const id = this.selected();
-    if (!id || this.busy() || !this.machineAidsAllowed() || this.recordedActions().length && !reexamine
-      || ['running', 'pending', 'hitl_pending'].includes(this.run()?.status ?? '')) return;
+    const requestKey = this.investigationKey();
+    const prior = this.investigationRequests()[requestKey];
+    if (!id || this.busy() || !this.machineAidsAllowed() || prior?.state === 'sending'
+      || resume && prior?.state !== 'unknown' || !resume && (this.investigationUnconfirmed() || this.runReadFailed() || this.detailReadFailed()
+        || this.recordedActions().length && !reexamine || ['running', 'pending', 'hitl_pending'].includes(this.run()?.status ?? ''))) return;
     const generation = this.generation;
-    this.busy.set(true); this.actionError.set(false);
+    const key = prior?.key ?? crypto.randomUUID();
+    this.investigationRequests.update(current => ({ ...current, [requestKey]: { key, state: 'sending' } }));
+    this.busy.set(true);
     try {
       const result = await firstValueFrom(this.api.post<{ id: string }>('/work/reclamations/bindings/showcase.claims.investigate/runs',
         { payload: { claim_id: id }, confirmed: true, page_id: 'dossier', component_id: 'investigation' },
-        { headers: { 'Idempotency-Key': crypto.randomUUID() } }));
-      if (generation !== this.generation || this.selected() !== id) return;
+        { headers: { 'Idempotency-Key': key } }));
+      if (!result?.id) throw new Error('Unconfirmed investigation');
+      if (generation !== this.generation || this.selected() !== id) {
+        // A late success still owns this case's request. Preserve its exact Run
+        // for read-only recovery; clearing the lock here could permit a duplicate.
+        this.investigationRequests.update(current => ({ ...current, [requestKey]: { key, state: 'confirmed', runId: result.id } }));
+        return;
+      }
       this.run.set({ id: result.id, system_id: '', status: 'pending' });
+      this.investigationRequests.update(current => { const next = { ...current }; delete next[requestKey]; return next; });
       this.watchRun(result.id, id);
-    } catch { if (generation === this.generation) this.actionError.set(true); }
+    } catch (error) {
+      const problem = writeFailure(error);
+      // Keep an earlier uncertain result uncertain, even if a later replay is
+      // refused: that refusal does not prove the original request was absent.
+      const state = prior?.state === 'unknown' || problem.s === 'unknown' ? 'unknown' : 'rejected';
+      this.investigationRequests.update(current => ({ ...current, [requestKey]: { key, state } }));
+    }
     finally { if (generation === this.generation) this.busy.set(false); }
+  }
+  refreshInvestigation(): void {
+    const id = this.selected(); const request = this.investigationRequest();
+    const runId = request?.state === 'confirmed' ? request.runId : this.runReadFailed();
+    if (id && runId && !this.runRefreshing()) this.watchRun(runId, id);
   }
   private watchRun(runId: string, claimId: string): void {
     this.poll?.unsubscribe(); const g = this.generation;
+    this.runRefreshing.set(true);
     this.poll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(runId)), takeUntilDestroyed(this.destroy)).subscribe({
       next: run => { if (g !== this.generation || this.selected() !== claimId) return;
-        if (!run) { this.actionError.set(true); this.poll?.unsubscribe(); return; }
+        this.runRefreshing.set(false);
+        if (!run || run.id !== runId) { this.runReadFailed.set(runId); this.poll?.unsubscribe(); return; }
+        this.runReadFailed.set(null);
         this.clock.set(Date.now());
         this.run.set(run);
+        const request = this.investigationRequest();
+        if (request?.state === 'confirmed' && request.runId === run.id) {
+          const key = this.investigationKey();
+          this.investigationRequests.update(current => { const next = { ...current }; delete next[key]; return next; });
+        }
         if (['completed', 'failed', 'cancelled'].includes(run.status)) { this.poll?.unsubscribe(); this.refreshDetail(claimId); }
-        if (run.status === 'failed') this.actionError.set(true);
-      }, error: () => { if (g === this.generation) this.actionError.set(true); },
+      }, error: () => { if (g === this.generation && this.selected() === claimId) { this.runRefreshing.set(false); this.runReadFailed.set(runId); } },
     });
   }
   async decide(action: 'accept' | 'reject'): Promise<void> {
@@ -393,7 +485,7 @@ export class ClaimsStudioComponent {
     const workspaceId = this.workspace.current()?.id;
     if (!workspaceId) return;
     const target: DecisionNoticeTarget = { workspaceId, runId: run.id, decisionId: run.hitl?.decision_id ?? null };
-    this.busy.set(true); this.actionError.set(false);
+    this.busy.set(true);
     const generation = this.generation;
     // If the workspace changes while the request is in flight, its original
     // pause remains locked until the response arrives or that pause is checked.

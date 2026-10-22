@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
+from contextlib import contextmanager
 
 from fastapi import HTTPException
 
@@ -104,13 +106,77 @@ def enqueue_run_evaluation(db, run, *, user, idempotency_key, invocation_id=None
     return job
 
 
-def run_evaluation_job(job_id):
-    from app.services.evaluation.auto_eval import evaluate_run_async
+@contextmanager
+def _evaluation_job_lock(bind, job_id):
+    """Serialize deliveries without holding row locks during provider I/O."""
+    from sqlalchemy import text
 
+    digest = hashlib.sha256(f"agentium:run-evaluation:{job_id}".encode()).digest()
+    if bind.dialect.name == "postgresql":
+        key = int.from_bytes(digest[:8], "big", signed=True)
+        with bind.connect() as connection:
+            acquired = False
+            try:
+                acquired = bool(
+                    connection.execute(
+                        text("SELECT pg_try_advisory_lock(:key)"), {"key": key}
+                    ).scalar()
+                )
+                connection.commit()
+                yield acquired
+            finally:
+                # Never return an advisory-locked or aborted connection to the pool.
+                try:
+                    connection.rollback()
+                    if acquired:
+                        connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+                        connection.commit()
+                except Exception:
+                    connection.invalidate()
+                    raise
+    elif bind.dialect.name == "sqlite":
+        import fcntl
+        import tempfile
+        from pathlib import Path
+
+        database = bind.url.database
+        directory = (
+            Path(database).resolve().parent
+            if database and database != ":memory:"
+            else Path(tempfile.gettempdir())
+        )
+        identity = hashlib.sha256((str(bind.url) + digest.hex()).encode()).hexdigest()[:24]
+        with (directory / f".run-evaluation-{identity}.lock").open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+    else:
+        raise RuntimeError("EVALUATION_JOB_LOCK_UNAVAILABLE")
+
+
+def run_evaluation_job(job_id):
     db = SessionLocal()
     try:
-        # Serialize deliveries for this job. A worker crash releases the lock;
-        # late acknowledgement lets the broker redeliver the persisted command.
+        with _evaluation_job_lock(db.get_bind(), job_id) as acquired:
+            if not acquired:
+                return {"status": "running", "job_id": job_id}
+            return _run_evaluation_job(db, job_id)
+    finally:
+        db.close()
+
+
+def _run_evaluation_job(db, job_id):
+    from app.services.evaluation.auto_eval import evaluate_run_async
+
+    try:
+        # Only the short claim/settlement transactions use row locks. The
+        # session/file lock above retains crash-safe delivery serialization.
         job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).with_for_update().one()
         if job.status in {"completed", "failed", "cancelled"}:
             return job.result or {}
@@ -168,14 +234,21 @@ def run_evaluation_job(job_id):
         }:
             result = existing
         else:
+            # Materialize every argument before commit expires ORM attributes.
+            # Reading job.run_id inside the coroutine would reopen a transaction.
+            run_id = job.run_id
+            preset = copy.deepcopy((job.input_ref or {}).get("preset"))
+            invocation_id = (job.input_ref or {}).get("invocation_id")
+            db.commit()
+            db.close()
 
             async def evaluate_bounded():
                 return await asyncio.wait_for(
                     evaluate_run_async(
-                        job.run_id,
-                        preset_override=(job.input_ref or {}).get("preset"),
-                        invocation_id=(job.input_ref or {}).get("invocation_id"),
-                        job_id=job.id,
+                        run_id,
+                        preset_override=preset,
+                        invocation_id=invocation_id,
+                        job_id=job_id,
                     ),
                     timeout=120,
                 )
@@ -185,8 +258,14 @@ def run_evaluation_job(job_id):
             except TimeoutError:
                 result = {"status": "failed", "reason": "evaluation_timeout"}
             result = result or {"status": "failed", "reason": "evaluation_failed"}
-        db.refresh(run)
-        run.evaluation_scores = {**result, "job_id": job.id}
+            # A new transaction observes settlement/cancellation by other workers.
+            job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).with_for_update().one()
+            if job.status in {"completed", "failed", "cancelled"}:
+                return copy.deepcopy(job.result or {})
+            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).one()
+            run = db.query(Run).filter(Run.id == run_id).one()
+        result = copy.deepcopy(result)
+        run.evaluation_scores = {**result, "job_id": job_id}
         transition_job(
             db,
             workspace,
@@ -197,6 +276,7 @@ def run_evaluation_job(job_id):
         db.commit()
         return result
     finally:
+        # Also release read transactions on terminal redelivery and early return.
         db.close()
 
 

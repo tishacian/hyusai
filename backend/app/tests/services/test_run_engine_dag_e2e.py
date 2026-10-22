@@ -21,10 +21,11 @@ walker's control-flow is exercised without hitting LLMs or Qdrant. Every
 assertion targets observable state (Run row, SkillInvocation ledger,
 checkpoints) — the same surfaces the cockpit consumes.
 """
+
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 import pytest
 
@@ -44,10 +45,10 @@ from app.services.systems import flow_ingress, flow_publication
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-SkillFn = Callable[[Dict[str, Any], Dict[str, Any]], "Any"]
+SkillFn = Callable[[dict[str, Any], dict[str, Any]], "Any"]
 
 
-def _install_fake_registry(monkeypatch: pytest.MonkeyPatch, skills: Dict[str, SkillFn]) -> None:
+def _install_fake_registry(monkeypatch: pytest.MonkeyPatch, skills: dict[str, SkillFn]) -> None:
     """Patch ``resolve_skill`` so the walker calls our deterministic stubs.
 
     The walker imports ``resolve_skill`` by name at the top of
@@ -86,8 +87,8 @@ def _mk_skill(db, slug: str, *, unit_price: float = 0.0) -> Skill:
 def _mk_system(
     db,
     *,
-    flow: Dict[str, Any],
-    skill_slugs: Optional[List[str]] = None,
+    flow: dict[str, Any],
+    skill_slugs: Optional[list[str]] = None,
 ) -> System:
     """Create a System row with the given v2 flow and optional skill ids."""
     if skill_slugs is None:
@@ -100,7 +101,7 @@ def _mk_system(
             if node.get("kind") in {"task", "retry", "loop"}
             and (node.get("config") or {}).get("skill_slug")
         ]
-    skill_ids: List[str] = []
+    skill_ids: list[str] = []
     if skill_slugs:
         rows = db.query(Skill).filter(Skill.slug.in_(skill_slugs)).all()
         skill_ids = [r.id for r in rows]
@@ -116,7 +117,7 @@ def _mk_system(
     return sys_row
 
 
-def _mk_run(db, system: System, *, input_ref: Optional[Dict[str, Any]] = None) -> Run:
+def _mk_run(db, system: System, *, input_ref: Optional[dict[str, Any]] = None) -> Run:
     run = Run(
         id=str(uuid.uuid4()),
         system_id=system.id,
@@ -128,7 +129,7 @@ def _mk_run(db, system: System, *, input_ref: Optional[Dict[str, Any]] = None) -
     return run
 
 
-def _checkpoint_kinds(run: Run) -> List[str]:
+def _checkpoint_kinds(run: Run) -> list[str]:
     return [cp.get("kind") for cp in (run.checkpoints or [])]
 
 
@@ -172,7 +173,9 @@ async def _run_five_source_join(db_session, monkeypatch, *, min_success: int):
             {
                 "id": f"source-{index}",
                 "kind": "task",
-                "config": {"skill_slug": f"source_{['one', 'two', 'three', 'four', 'five'][index - 1]}_v1"},
+                "config": {
+                    "skill_slug": f"source_{['one', 'two', 'three', 'four', 'five'][index - 1]}_v1"
+                },
             }
         )
         edges.extend(
@@ -183,7 +186,11 @@ async def _run_five_source_join(db_session, monkeypatch, *, min_success: int):
         )
     nodes.extend(
         [
-            {"id": "join", "kind": "join", "config": {"strategy": "all", "min_success": min_success}},
+            {
+                "id": "join",
+                "kind": "join",
+                "config": {"strategy": "all", "min_success": min_success},
+            },
             {"id": "sink", "kind": "sink"},
         ]
     )
@@ -262,7 +269,9 @@ async def test_grounding_gate_routes_an_unsourced_claim_to_review(db_session):
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
     invocation = (
         db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id, SkillInvocation.skill_slug == "grounding_check_v1")
+        .filter(
+            SkillInvocation.run_id == run.id, SkillInvocation.skill_slug == "grounding_check_v1"
+        )
         .one()
     )
     assert invocation.output_ref["accepted"] is False
@@ -441,11 +450,7 @@ async def test_falsy_scalar_output_survives_runtime_persistence_and_runner_proje
     assert summary["status"] == "completed"
     db_session.expire_all()
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
-    invocation = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .one()
-    )
+    invocation = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).one()
     assert type(invocation.output_ref) is type(value)
     assert invocation.output_ref == value
     assert type(persisted.output_ref) is type(value)
@@ -570,9 +575,7 @@ async def test_normalized_ingress_executes_only_its_frozen_source_branch(
         assert persisted.flow_version_id is None
         assert persisted.published_flow_version_id is None
     start = next(
-        checkpoint
-        for checkpoint in persisted.checkpoints
-        if checkpoint.get("kind") == "run_start"
+        checkpoint for checkpoint in persisted.checkpoints if checkpoint.get("kind") == "run_start"
     )
     assert start["ingress_source_node_id"] == selected_source
     assert start["inactive_ingress_source_node_ids"] == [
@@ -635,9 +638,7 @@ async def test_frozen_output_schema_is_enforced_or_observed_by_runtime(
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
     assert persisted.status == expected_status
     violation = next(
-        cp
-        for cp in persisted.checkpoints
-        if cp.get("kind") == "execution_contract_violation"
+        cp for cp in persisted.checkpoints if cp.get("kind") == "execution_contract_violation"
     )
     assert violation["code"] == "node_output_invalid"
     assert violation["node_id"] == "typed"
@@ -707,7 +708,7 @@ async def test_decision_activates_matching_branch_only(db_session, monkeypatch):
     """Decision picks the true branch; the false branch's task never
     runs and the inactive branch is recorded on the node_end checkpoint.
     """
-    calls: List[str] = []
+    calls: list[str] = []
 
     async def high(inp, ctx):
         calls.append("high")
@@ -806,9 +807,7 @@ async def test_decision_uses_explicit_default_and_records_resolution(db_session)
     assert summary["status"] == "completed"
     db_session.expire_all()
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
-    resolution = next(
-        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution"
-    )
+    resolution = next(cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution")
     assert resolution["resolution"] == "defaulted"
     assert resolution["chosen_branch"] == "no"
     assert resolution["matching_routes"] == 1
@@ -841,7 +840,7 @@ async def test_decision_fails_closed_without_a_routable_choice(
     expected_error,
     expected_resolution,
 ):
-    config: Dict[str, Any] = {"branches": branches}
+    config: dict[str, Any] = {"branches": branches}
     if default_branch is not None:
         config["default_branch"] = default_branch
     flow = {
@@ -872,9 +871,7 @@ async def test_decision_fails_closed_without_a_routable_choice(
     assert persisted.status == "failed"
     assert persisted.error == expected_error
     assert persisted.output_ref == {}
-    resolution = next(
-        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution"
-    )
+    resolution = next(cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution")
     assert resolution["resolution"] == expected_resolution
     assert resolution["error"] == expected_error
 
@@ -910,9 +907,7 @@ async def test_decision_validates_every_condition_before_first_match(db_session)
     assert summary["error"] == "decision_condition_error:dec"
     db_session.expire_all()
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
-    resolution = next(
-        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution"
-    )
+    resolution = next(cp for cp in persisted.checkpoints if cp.get("kind") == "decision_resolution")
     assert resolution["resolution"] == "error"
     assert resolution["condition_error"] == {
         "code": "condition_unsupported",
@@ -924,7 +919,7 @@ async def test_decision_validates_every_condition_before_first_match(db_session)
 
 
 async def test_dead_decision_lane_stays_dead_through_multiple_nodes(db_session, monkeypatch):
-    calls: List[str] = []
+    calls: list[str] = []
 
     async def active(inp, ctx):
         calls.append("active")
@@ -1510,12 +1505,14 @@ async def test_hitl_resume_executes_immutable_flow_snapshot(db_session, monkeypa
 # ---------------------------------------------------------------------------
 # 6b — HITL: pause then resume with a rejected Decision
 # ---------------------------------------------------------------------------
-async def test_hitl_reject_propagates_to_tail(db_session, monkeypatch):
-    """A rejected HITL decision still resumes the walker (no hard stop)
-    but the ``hitl_approved`` flag in ctx is False, so downstream tasks
-    can branch on it."""
+@pytest.mark.parametrize("expired", [False, True])
+async def test_hitl_reject_stops_before_ordinary_tail(db_session, monkeypatch, expired):
+    """A refused/expired approval must not invoke the approval-only tail."""
+
+    calls = []
 
     async def tail(inp, ctx):
+        calls.append(inp)
         return {"approved": bool(ctx.get("hitl_approved"))}
 
     _install_fake_registry(monkeypatch, {"tail_v1": tail})
@@ -1543,15 +1540,44 @@ async def test_hitl_reject_propagates_to_tail(db_session, monkeypatch):
     decision_id = summary["awaiting_decision"]
 
     dec = db_session.query(Decision).filter(Decision.id == decision_id).first()
-    dec.status = "rejected"
+    if expired:
+        from datetime import datetime, timedelta
+
+        from app.services.run_engine import gate_ttl
+
+        dec.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        dec.expiry_action = "reject"
+        dispatches = []
+        monkeypatch.setattr(gate_ttl, "_resume_paused_run", lambda *args: dispatches.append(args))
+    else:
+        dec.status = "rejected"
+        dec.approved_by = "reviewer@example.invalid"
     db_session.commit()
+    if expired:
+        assert gate_ttl.sweep_expired_gates()["swept"] == 1
+        assert dispatches == [(run.id, decision_id)]
+        db_session.refresh(dec)
+        assert dec.status == "rejected" and dec.approved_by == "system:gate_ttl"
 
     resumed = await resume_run_dag(run.id, decision_id=decision_id)
-    assert resumed["status"] == "completed"
+    reason = "approval_expired" if expired else "approval_rejected"
+    assert resumed["status"] == "cancelled"
+    assert resumed["error"] == f"hitl_{reason}"
+    assert calls == []
 
     db_session.expire_all()
     run = db_session.query(Run).filter(Run.id == run.id).first()
     assert run.output_ref.get("approved") is False
+    assert run.output_ref.get("rejected") is True
+    assert run.completed_at is not None
+    assert db_session.query(SkillInvocation).filter_by(run_id=run.id).count() == 0
+    stopped = next(cp for cp in run.checkpoints if cp["kind"] == "hitl_stopped")
+    assert stopped["reason"] == reason and stopped["decision_id"] == dec.id
+    assert stopped["routing"] == "no_explicit_rejection_route"
+    assert run.checkpoints[-1]["kind"] == "run_end"
+    assert run.checkpoints[-1]["status"] == "cancelled"
+    second = await resume_run_dag(run.id, decision_id=decision_id)
+    assert second["error"] == "run_not_paused" and calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -1873,7 +1899,7 @@ async def test_nested_subflow_hitl_resumes_entire_lineage_once(db_session, monke
     }
     system_c = _mk_system(db_session, flow=leaf_flow)
 
-    def _subflow_flow(node_id: str, target_id: str) -> Dict[str, Any]:
+    def _subflow_flow(node_id: str, target_id: str) -> dict[str, Any]:
         return {
             "schema_version": 2,
             "nodes": [
@@ -1911,11 +1937,7 @@ async def test_nested_subflow_hitl_resumes_entire_lineage_once(db_session, monke
 
     for lineage_run in (run_a, run_b, run_c):
         assert lineage_run.status == "hitl_pending"
-        pauses = [
-            cp
-            for cp in (lineage_run.checkpoints or [])
-            if cp.get("kind") == "hitl_pause"
-        ]
+        pauses = [cp for cp in (lineage_run.checkpoints or []) if cp.get("kind") == "hitl_pause"]
         assert len(pauses) == 1
         assert pauses[0].get("decision_id") == decision_id
 
@@ -2041,22 +2063,31 @@ async def test_a_decision_whose_names_are_all_bound_routes_untouched(db_session)
     assert summary["status"] == "completed"
     db_session.expire_all()
     persisted = db_session.query(Run).filter(Run.id == run.id).one()
-    assert not [
-        cp for cp in persisted.checkpoints if cp.get("kind") == "decision_input_unbound"
-    ]
+    assert not [cp for cp in persisted.checkpoints if cp.get("kind") == "decision_input_unbound"]
 
 
-@pytest.mark.parametrize("terminal,expected", [
-    ({"_status": "failed", "_error": "check failed"}, "failed"),
-    ({"recovered": True}, "completed"),
-])
+@pytest.mark.parametrize(
+    "terminal,expected",
+    [
+        ({"_status": "failed", "_error": "check failed"}, "failed"),
+        ({"recovered": True}, "completed"),
+    ],
+)
 def test_finalization_distinguishes_terminal_error_from_recovery(db_session, terminal, expected):
     system = _mk_system(db_session, flow={"nodes": [], "edges": []})
     run = _mk_run(db_session, system)
-    failed = SkillInvocation(run_id=run.id, skill_slug="required_check", status="failed", output_ref={})
+    failed = SkillInvocation(
+        run_id=run.id, skill_slug="required_check", status="failed", output_ref={}
+    )
     summary = engine_module._finalize_run(
-        db_session, run, system=system, capability=None, control=None,
-        invocations=[failed], duration_ms=1, last_output=terminal,
+        db_session,
+        run,
+        system=system,
+        capability=None,
+        control=None,
+        invocations=[failed],
+        duration_ms=1,
+        last_output=terminal,
     )
     assert summary["status"] == expected
     assert run.output_ref == terminal
