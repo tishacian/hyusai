@@ -184,6 +184,8 @@ export interface TaskNodeConfig {
    * rewrites legacy strings.
    */
   inputs_map?: Record<string, string | VariableRef>;
+  /** Mapped isolates this task's inputs even in overlay mode; absent inherits the Flow mode. */
+  input_mode?: 'inherit' | 'mapped';
   /** Strict-mode predecessor fields intentionally forwarded unchanged. */
   passthrough_inputs?: string[];
   /** Map output port name → context key to write. */
@@ -417,6 +419,7 @@ export interface FlowValidationIssue {
     | 'branch_label_invalid'
     | 'join_strategy_invalid'
     | 'on_error_invalid'
+    | 'node_input_mode_invalid'
     | 'on_error_route_missing'
     | 'join_min_success_invalid'
     | 'task_no_skill'
@@ -1457,15 +1460,48 @@ export class FlowSerializerService {
 
     // variable_unresolved: a config.inputs_map VariableRef points at a
     // node_id/port not present upstream. Overlay leaves legacy strings opaque;
-    // strict converts only deterministic paths and rejects everything else.
+    // Strict Flow or mapped task inputs convert deterministic paths and reject
+    // unresolved selectors, matching the backend execution contract.
     for (const n of flow.nodes) {
       const config = (n.config as Record<string, unknown> | undefined) ?? {};
+      const kind = n.kind || (n.type === 'source' ? 'source' : 'task');
+      const inputMode = config['input_mode'];
+      if (
+        'input_mode' in config &&
+        (kind !== 'task' || (inputMode !== 'inherit' && inputMode !== 'mapped'))
+      ) {
+        issues.push({
+          level: 'error',
+          node_id: n.id,
+          code: 'node_input_mode_invalid',
+          message: 'Only task nodes can declare input_mode, as inherit or mapped.',
+        });
+      } else if (inputMode === 'mapped' && (flow.schema_version ?? 0) < 2) {
+        issues.push({
+          level: 'error',
+          node_id: n.id,
+          code: 'node_input_mode_invalid',
+          message: 'Mapped task inputs require Flow schema_version >= 2.',
+        });
+      }
+      const strictInputs = strict || (kind === 'task' && inputMode === 'mapped');
       const inputsMap = config['inputs_map'];
+      if (
+        strictInputs && inputsMap != null &&
+        (typeof inputsMap !== 'object' || Array.isArray(inputsMap))
+      ) {
+        issues.push({
+          level: 'error',
+          node_id: n.id,
+          code: 'variable_contract_invalid',
+          message: 'inputs_map must be an object of input field selectors.',
+        });
+      }
       let ancestors: Set<string> | null = null;
       if (inputsMap && typeof inputsMap === 'object' && !Array.isArray(inputsMap)) {
         for (const [port, stored] of Object.entries(inputsMap as Record<string, unknown>)) {
           let raw = stored;
-          if (typeof raw === 'string' && strict) {
+          if (typeof raw === 'string' && strictInputs) {
             const converted = this.dotPathToVariableRef(raw, flow);
             if (!converted) {
               issues.push({
@@ -1486,7 +1522,7 @@ export class FlowSerializerService {
           const refError = refCandidate ? variableRefValidationError(raw) : null;
           if (refError) {
             issues.push({
-              level: strict ? 'error' : 'warn',
+              level: strictInputs ? 'error' : 'warn',
               node_id: n.id,
               code: 'variable_contract_invalid',
               message: `Input "${port}" has an invalid VariableRef (${refError}).`,
@@ -1494,7 +1530,7 @@ export class FlowSerializerService {
             continue;
           }
           if (!this.isVariableRef(raw)) {
-            if (strict) {
+            if (strictInputs) {
               issues.push({
                 level: 'error',
                 node_id: n.id,
@@ -1513,7 +1549,7 @@ export class FlowSerializerService {
           }
           if (!ids.has(ref.node_id)) {
             issues.push({
-              level: strict ? 'error' : 'warn',
+              level: strictInputs ? 'error' : 'warn',
               node_id: n.id,
               code: 'variable_unresolved',
               message: `Input "${port}" references unknown node "${ref.node_id}".`,
@@ -1523,7 +1559,7 @@ export class FlowSerializerService {
           if (ancestors === null) ancestors = this.ancestorsOf(n.id, rev);
           if (!ancestors.has(ref.node_id)) {
             issues.push({
-              level: strict ? 'error' : 'warn',
+              level: strictInputs ? 'error' : 'warn',
               node_id: n.id,
               code: 'variable_unresolved',
               message: `Input "${port}" reads from "${ref.node_id}", which is not upstream of "${n.id}".`,
@@ -1535,7 +1571,7 @@ export class FlowSerializerService {
           const head = ref.path[0];
           if (srcOutputs.length > 0 && head && !srcOutputs.some((p) => p.name === head)) {
             issues.push({
-              level: strict ? 'error' : 'warn',
+              level: strictInputs ? 'error' : 'warn',
               node_id: n.id,
               code: 'variable_unresolved',
               message: `Input "${port}" reads port "${head}" not declared on "${ref.node_id}".`,
@@ -1544,10 +1580,10 @@ export class FlowSerializerService {
         }
       }
 
-      if (strict) {
+      if (strictInputs) {
         const passthrough = config['passthrough_inputs'];
         if (
-          passthrough !== undefined &&
+          passthrough != null &&
           (!Array.isArray(passthrough) || passthrough.some((item) => typeof item !== 'string' || !item))
         ) {
           issues.push({
@@ -1557,6 +1593,8 @@ export class FlowSerializerService {
             message: 'passthrough_inputs must be a list of input field names.',
           });
         }
+      }
+      if (strict) {
         const outputsMap = config['outputs_map'];
         if (outputsMap && typeof outputsMap === 'object' && !Array.isArray(outputsMap)) {
           for (const [port, target] of Object.entries(outputsMap as Record<string, unknown>)) {

@@ -1039,6 +1039,26 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
         cfg = node.get("config") or {}
         if not isinstance(cfg, Mapping):
             cfg = {}
+        if "input_mode" in cfg and (
+            kind != "task" or cfg["input_mode"] not in ("inherit", "mapped")
+        ):
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="node_input_mode_invalid",
+                    message="Only task nodes can declare input_mode, as inherit or mapped.",
+                    node_id=nid,
+                )
+            )
+        elif cfg.get("input_mode") == "mapped" and schema_version < 2:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="node_input_mode_invalid",
+                    message="Mapped task inputs require Flow schema_version >= 2.",
+                    node_id=nid,
+                )
+            )
         if (
             kind == "sink"
             and not cfg.get("inputs_map")
@@ -1507,12 +1527,22 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
         cfg = node.get("config") or {}
         if not isinstance(cfg, Mapping):
             continue
+        strict_inputs = strict or (_node_kind(node) == "task" and cfg.get("input_mode") == "mapped")
         inputs_map = cfg.get("inputs_map")
         if not isinstance(inputs_map, Mapping):
+            if inputs_map is not None and strict_inputs:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="variable_contract_invalid",
+                        message="inputs_map must be an object of input field selectors.",
+                        node_id=nid,
+                    )
+                )
             inputs_map = {}
         ancestors: Optional[set[str]] = None
         for port, raw in inputs_map.items():
-            if isinstance(raw, str) and strict:
+            if isinstance(raw, str) and strict_inputs:
                 conversion = dot_path_to_variable_ref(
                     raw,
                     node_ids=[item for item in ids],
@@ -1539,7 +1569,7 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
             if ref_error is not None:
                 issues.append(
                     ValidationIssue(
-                        level="error" if strict else "warn",
+                        level="error" if strict_inputs else "warn",
                         code="variable_contract_invalid",
                         message=f"Input {port!r} has an invalid VariableRef ({ref_error}).",
                         node_id=nid,
@@ -1547,7 +1577,7 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
                 )
                 continue
             if not _is_variable_ref(raw):
-                if strict:
+                if strict_inputs:
                     issues.append(
                         ValidationIssue(
                             level="error",
@@ -1566,7 +1596,7 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
             if ref_node not in ids:
                 issues.append(
                     ValidationIssue(
-                        level="error" if strict else "warn",
+                        level="error" if strict_inputs else "warn",
                         code="variable_unresolved",
                         message=f"Input {port!r} references unknown node {ref_node!r}.",
                         node_id=nid,
@@ -1578,7 +1608,7 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
             if ref_node not in ancestors:
                 issues.append(
                     ValidationIssue(
-                        level="error" if strict else "warn",
+                        level="error" if strict_inputs else "warn",
                         code="variable_unresolved",
                         message=f"Input {port!r} reads from {ref_node!r}, which is not upstream of {nid!r}.",
                         node_id=nid,
@@ -1590,14 +1620,14 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
             if src_outputs and head and head not in src_outputs:
                 issues.append(
                     ValidationIssue(
-                        level="error" if strict else "warn",
+                        level="error" if strict_inputs else "warn",
                         code="variable_unresolved",
                         message=f"Input {port!r} reads port {head!r} not declared on {ref_node!r}.",
                         node_id=nid,
                     )
                 )
 
-        if strict:
+        if strict_inputs:
             passthrough = cfg.get("passthrough_inputs")
             if passthrough is not None and (
                 not isinstance(passthrough, list)
@@ -1612,6 +1642,7 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
                     )
                 )
 
+        if strict:
             outputs_map = cfg.get("outputs_map")
             if isinstance(outputs_map, Mapping):
                 for output_port, target in outputs_map.items():

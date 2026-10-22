@@ -1229,6 +1229,31 @@ export function publishedNodeExecutor(
                runtime_read_path via the store's dotted-path writers). -->
           <app-manifest-fields />
 
+          @if ((n.kind ?? 'task') === 'task') {
+            <details class="ck-flow-section ck-flow-fold" data-testid="flow-task-inputs">
+              <summary class="ck-flow-fold__summary">
+                {{ i18n.t('flow.inspector.inputs.title') }}
+              </summary>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.inputs.mode') }}</span>
+                <select
+                  class="ck-flow-input"
+                  data-testid="flow-input-mode"
+                  aria-describedby="flow-input-mode-hint"
+                  [value]="taskInputMode(n)"
+                  [disabled]="editingLocked()"
+                  (change)="onTaskInputMode($event)"
+                >
+                  <option value="inherit">{{ i18n.t('flow.inspector.inputs.inherit') }}</option>
+                  <option value="mapped">{{ i18n.t('flow.inspector.inputs.mapped') }}</option>
+                </select>
+              </label>
+              <p id="flow-input-mode-hint" class="ck-flow-hint">{{
+                i18n.t('flow.inspector.inputs.' + taskInputMode(n) + '.hint')
+              }}</p>
+            </details>
+          }
+
           <!-- Kept seam for any further inspector extensions. -->
           <ng-content select="[flowInspectorFields]" />
 
@@ -1395,6 +1420,22 @@ export class FlowInspectorComponent {
   /** Same gate the node card and the keyboard shortcut use. */
   readonly publishedReading = computed(() => this.persistence?.readOnly() ?? false);
   readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
+
+  taskInputMode(node: CanonicalFlowNode): 'inherit' | 'mapped' {
+    const config = (node.config ?? {}) as Record<string, unknown>;
+    return config['input_mode'] === 'mapped' ? 'mapped' : 'inherit';
+  }
+
+  onTaskInputMode(event: Event): void {
+    const node = this.node();
+    const mode = (event.target as HTMLSelectElement).value;
+    if (!node || (node.kind ?? 'task') !== 'task' || this.editingLocked()
+      || this.publishedReading() || (mode !== 'inherit' && mode !== 'mapped')
+      || this.taskInputMode(node) === mode) return;
+    // This is an execution policy, not a rewrite of the user's mappings or
+    // evidence contract. Inherit also keeps StrictFlow's explicit-input rules.
+    this.store.updateNodeConfig(node.id, 'input_mode', mode);
+  }
 
   /** Live collections catalogue for the asset picker (cached, shared). */
   readonly collectionsState = this.collectionsSvc.state;

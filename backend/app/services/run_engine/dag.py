@@ -2628,8 +2628,19 @@ async def _execute_node_body(
         },
     )
 
+    if "input_mode" in node.config and (
+        node.kind != "task" or node.config["input_mode"] not in ("inherit", "mapped")
+    ):
+        _append_checkpoint(
+            db,
+            run,
+            {"kind": "node_input_mode_invalid", "node_id": node.id},
+        )
+        return {"output": {}, "terminal_error": "node_input_mode_invalid"}
+
     # P1 — resolve ``config.inputs_map`` selectors against the typed pool.
-    # When the map is empty/absent ``node_input`` is the same object as
+    # Unless a task explicitly opts into mapped inputs, an empty/absent map
+    # leaves ``node_input`` as the same object as
     # ``merged_input`` and ``maps_present`` is False, so every handler stays
     # byte-identical to the pre-P1 flat-merge path. Phase 2 gate (inputs_map
     # path): ``_effective_inputs_map`` drops asset-sourced VariableRefs when the
@@ -2637,10 +2648,11 @@ async def _execute_node_body(
     # ``collection`` reverts to its Phase-1 map shape.
     effective_map = _effective_inputs_map(node, graph)
     maps_present = bool(effective_map)
-    strict = graph.strict_authoritative
+    strict = graph.strict_authoritative or node.config.get("input_mode") == "mapped"
     input_config = {
         "inputs_map": effective_map or {},
         "passthrough_inputs": node.config.get("passthrough_inputs") or [],
+        "input_mode": node.config.get("input_mode", "inherit"),
     }
     try:
         node_input = (
@@ -2671,6 +2683,7 @@ async def _execute_node_body(
     # and in strict mode an empty map resolves to an empty payload. Merge the
     # params as defaults so an inspector edit reaches the skill; explicit
     # ``inputs_map`` selectors keep precedence (setdefault never clobbers).
+    # This also applies to a task opting into mapped inputs in an overlay Flow.
     if node.kind == "task" and strict and node.skill_slug:
         config_params = node.config.get("params") if isinstance(node.config, dict) else None
         if isinstance(config_params, dict):

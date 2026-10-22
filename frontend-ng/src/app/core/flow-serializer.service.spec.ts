@@ -645,6 +645,106 @@ test('strict dot-path conversion refuses empty path segments', () => {
   assert.ok(svc().validateFlow(flow).some((issue) => issue.code === 'variable_unresolved'));
 });
 
+function taskInputFlow(config: Record<string, unknown>, ioMode: 'overlay' | 'strict' = 'overlay'): CanonicalFlow {
+  return {
+    schema_version: 3,
+    io_mode: ioMode,
+    nodes: [
+      { id: 'source', type: 'source', kind: 'source', outputs: [{ name: 'evidence', schema: 'object' }] },
+      { id: 'consumer', type: 'task', kind: 'task', config: { skill_slug: 'evaluate_v2', ...config } },
+      { id: 'sink', type: 'sink', kind: 'sink' },
+    ],
+    edges: [{ from: 'source', to: 'consumer' }, { from: 'consumer', to: 'sink' }],
+  };
+}
+
+test('mapped task inputs enforce selector contracts in an overlay Flow', () => {
+  const s = svc();
+  const inputs = {
+    unknown: { node_id: 'ghost', path: ['value'] },
+    malformed: { node_id: 'run', path: ['query'], required: 'false' },
+    undeclared: { node_id: 'source', path: ['missing_port'] },
+    non_upstream: { node_id: 'sink', path: ['value'] },
+    bad_path: 'run..query',
+  };
+  for (const inputMode of ['inherit', 'mapped']) {
+    const issues = s.validateFlow(taskInputFlow({ input_mode: inputMode, inputs_map: inputs }))
+      .filter((issue) => ['variable_unresolved', 'variable_contract_invalid'].includes(issue.code));
+    assert.equal(issues.length, inputMode === 'mapped' ? 5 : 4);
+    assert.ok(issues.every((issue) => issue.level === (inputMode === 'mapped' ? 'error' : 'warn')));
+  }
+});
+
+test('mapped input mode validates map shape and passthrough without enforcing output namespaces', () => {
+  for (const config of [
+    { inputs_map: [] },
+    { inputs_map: 'run.query' },
+    { passthrough_inputs: 'evidence' },
+    { passthrough_inputs: [''] },
+  ]) {
+    const issues = svc().validateFlow(taskInputFlow({ input_mode: 'mapped', ...config }));
+    assert.equal(issues.filter((issue) => issue.code === 'variable_contract_invalid').length, 1);
+    assert.ok(issues.some((issue) => issue.level === 'error'));
+  }
+  const flow = taskInputFlow({
+    input_mode: 'mapped', inputs_map: {}, passthrough_inputs: [],
+    outputs_map: { result: 'legacy_undeclared.result' },
+  });
+  assert.deepEqual(svc().validateFlow(flow), []);
+  flow.io_mode = 'strict';
+  assert.ok(svc().validateFlow(flow).some((issue) =>
+    issue.code === 'variable_contract_invalid' && issue.message.startsWith('Output'),
+  ));
+});
+
+test('mapped valid references and empty input contracts survive normalization', () => {
+  for (const inputsMap of [{}, {
+    evidence: { node_id: 'source', path: ['evidence'] },
+    question: 'run.query',
+    local: { node_id: 'node', path: ['id'] },
+  }]) {
+    const config = {
+      input_mode: 'mapped', inputs_map: inputsMap, passthrough_inputs: [],
+      params: { threshold: 0.9 },
+    };
+    const flow = taskInputFlow(config);
+    const normalized = svc().normalize(flow);
+    assert.deepEqual(normalized.nodes[1].config, { skill_slug: 'evaluate_v2', ...config });
+    assert.deepEqual(svc().validateFlow(normalized), []);
+  }
+});
+
+test('inherit input mode never weakens strict Flow validation', () => {
+  const issues = svc().validateFlow(taskInputFlow({
+    input_mode: 'inherit', inputs_map: { value: { node_id: 'ghost', path: [] } },
+  }, 'strict'));
+  assert.ok(issues.some((issue) => issue.code === 'variable_unresolved' && issue.level === 'error'));
+});
+
+test('input mode rejects malformed values, other node kinds and unsupported Flow versions', () => {
+  const flows = [
+    ...[null, 'unknown', {}].map((mode) => taskInputFlow({ input_mode: mode })),
+    { ...taskInputFlow({ input_mode: 'mapped' }), schema_version: 1 },
+  ];
+  const nonTask = taskInputFlow({});
+  nonTask.nodes[0].config = { input_mode: 'mapped' };
+  flows.push(nonTask);
+  for (const flow of flows) {
+    const issues = svc().validateFlow(flow);
+    assert.ok(issues.some((issue) => issue.code === 'node_input_mode_invalid' && issue.level === 'error'));
+  }
+});
+
+test('mapped input validation uses the canonical fallback for null and empty node kinds', () => {
+  for (const kind of [null, '', undefined]) {
+    const flow = taskInputFlow({ input_mode: 'mapped', inputs_map: {} });
+    flow.nodes[1] = { ...flow.nodes[1], kind } as unknown as CanonicalFlow['nodes'][number];
+    assert.deepEqual(svc().validateFlow(flow), []);
+    flow.nodes[1].type = 'source';
+    assert.ok(svc().validateFlow(flow).some((issue) => issue.code === 'node_input_mode_invalid'));
+  }
+});
+
 test('topoSort returns an order for a DAG and null for a cycle', () => {
   const s = svc();
   const dag: CanonicalFlow = {

@@ -134,6 +134,18 @@ class ReleaseCreateBody(BaseModel):
     expected_bindings_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
+class ReleaseRebindBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notes: str = Field(min_length=1)
+    expected_source_release_sha256: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    expected_content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    expected_experience_updated_at: datetime
+    expected_bindings_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
 class DeployBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -781,6 +793,54 @@ async def create_experience_release(
             expected_experience_updated_at=body.expected_experience_updated_at,
             expected_bindings_sha256=body.expected_bindings_sha256,
             actor=_actor(user),
+        )
+        db.commit()
+        db.refresh(row)
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+    return experience_service.serialize_release(row)
+
+
+@router.get("/{experience_id}/releases/{source_release_id}/rebind-ready-check")
+async def experience_release_rebind_ready_check(
+    experience_id: str,
+    source_release_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_studio_enabled(workspace)
+    _enforce_view(db, user=user, workspace=workspace)
+    try:
+        return experience_service.release_rebind_ready_check(
+            db,
+            workspace=workspace,
+            experience_id=experience_id,
+            source_release_id=source_release_id,
+        )
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+
+
+@router.post("/{experience_id}/releases/{source_release_id}/rebind", status_code=201)
+async def rebind_experience_release(
+    experience_id: str,
+    source_release_id: str,
+    body: ReleaseRebindBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_studio_enabled(workspace)
+    _enforce_release(db, user=user, workspace=workspace)
+    try:
+        row = experience_service.rebind_release(
+            db,
+            workspace=workspace,
+            experience_id=experience_id,
+            source_release_id=source_release_id,
+            actor=_actor(user),
+            **body.model_dump(),
         )
         db.commit()
         db.refresh(row)

@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from app.services.flow_node_kind import flow_node_kind
+
 RuntimeMode = Literal["dag_strict", "dag_overlay", "sequential_legacy"]
 
 RUNTIME_MODES: frozenset[str] = frozenset({"dag_strict", "dag_overlay", "sequential_legacy"})
@@ -167,6 +169,19 @@ def resolve_flow_execution(
         )
 
     if schema_version >= 2:
+        # The sequential walker cannot isolate one task's payload. This is an
+        # explicit node opt-in; ordinary task-only Flows keep legacy dispatch.
+        if any(
+            isinstance(node, Mapping)
+            and flow_node_kind(node) == "task"
+            and isinstance(node.get("config"), Mapping)
+            and node["config"].get("input_mode") == "mapped"
+            for node in nodes
+        ):
+            return FlowExecutionResolution(
+                runtime_mode="dag_overlay",
+                reason="mapped_task_inputs_require_dag",
+            )
         if any(isinstance(node, Mapping) and node.get("kind") in CONTROL_KINDS for node in nodes):
             return FlowExecutionResolution(
                 runtime_mode="dag_overlay",

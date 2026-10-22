@@ -5,6 +5,7 @@ normalisation across the three accepted shapes (dot-path string, typed
 ``VariableRef``, raw ``[head, *path]`` list), reads/writes, the inputs/outputs
 map round-trip, and the critical empty-map byte-identity contract.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -56,12 +57,7 @@ def test_selector_segments_rejects_malformed() -> None:
 
 def test_variable_ref_contract_has_stable_shape_reasons() -> None:
     assert variable_ref_validation_error({"node_id": "run", "path": []}) is None
-    assert (
-        variable_ref_validation_error(
-            {"node_id": "run", "path": [], "required": False}
-        )
-        is None
-    )
+    assert variable_ref_validation_error({"node_id": "run", "path": [], "required": False}) is None
     assert (
         variable_ref_validation_error({"node_id": " ", "path": []})
         == "node_id_must_be_non_empty_string"
@@ -70,14 +66,9 @@ def test_variable_ref_contract_has_stable_shape_reasons() -> None:
         variable_ref_validation_error({"node_id": "run", "path": ["q", 0]})
         == "path_must_be_string_array"
     )
+    assert variable_ref_validation_error({"node_id": "run"}) == "path_must_be_string_array"
     assert (
-        variable_ref_validation_error({"node_id": "run"})
-        == "path_must_be_string_array"
-    )
-    assert (
-        variable_ref_validation_error(
-            {"node_id": "run", "path": [], "required": 0}
-        )
+        variable_ref_validation_error({"node_id": "run", "path": [], "required": 0})
         == "required_must_be_boolean"
     )
 
@@ -218,27 +209,22 @@ def test_strict_selector_is_required_by_default_and_can_explicitly_opt_out() -> 
             {},
             io_mode="strict",
         )
-    assert apply_inputs_map(
-        {
-            "inputs_map": {
-                "q": {"node_id": "run", "path": ["missing"], "required": False}
-            }
-        },
-        pool,
-        {},
-        io_mode="strict",
-    ) == {}
+    assert (
+        apply_inputs_map(
+            {"inputs_map": {"q": {"node_id": "run", "path": ["missing"], "required": False}}},
+            pool,
+            {},
+            io_mode="strict",
+        )
+        == {}
+    )
 
 
 def test_strict_rejects_non_boolean_required_even_when_value_exists() -> None:
     pool = VariablePool({"run": {"query": "hello"}})
     with pytest.raises(VariableResolutionError) as caught:
         apply_inputs_map(
-            {
-                "inputs_map": {
-                    "q": {"node_id": "run", "path": ["query"], "required": "false"}
-                }
-            },
+            {"inputs_map": {"q": {"node_id": "run", "path": ["query"], "required": "false"}}},
             pool,
             {},
             io_mode="strict",
@@ -255,6 +241,18 @@ def test_strict_passthrough_preserves_only_declared_present_fields() -> None:
         io_mode="strict",
     )
     assert resolved == {"keep": None, "also": 7}
+
+
+def test_inherited_task_inputs_never_downgrade_strict_resolution() -> None:
+    assert (
+        apply_inputs_map(
+            {"input_mode": "inherit"},
+            VariablePool(),
+            {"unmapped": "must not leak"},
+            io_mode="strict",
+        )
+        == {}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,9 +289,7 @@ def test_outputs_then_inputs_map_round_trip() -> None:
     # Producer node writes its output via outputs_map.
     apply_outputs_map({"outputs_map": {"gaps": "capture.gaps"}}, {"gaps": ["g1"]}, pool)
     # Consumer node reads it back via inputs_map.
-    resolved = apply_inputs_map(
-        {"inputs_map": {"gaps": "capture.gaps"}}, pool, {}
-    )
+    resolved = apply_inputs_map({"inputs_map": {"gaps": "capture.gaps"}}, pool, {})
     assert resolved["gaps"] == ["g1"]
 
 

@@ -1,4 +1,9 @@
-# Jev dans Luma — second avis SAV en aperçu isolé
+# Jev dans Luma — second avis SAV
+
+Le [candidat pour le Flow principal](MAIN-FLOW.md) prépare désormais l'ajout de
+Jev avant la revue GPT-5 et la porte humaine, avec préservation du brouillon.
+Cette préparation n'est pas une activation. Les quatre aperçus isolés décrits
+ci-dessous restent utiles pour la qualification préalable du modèle.
 
 Ces quatre essais préparent un usage réel de **Typed Evaluation → TypeSafe Jev**
 sur des dossiers synthétiques existants. Ils sont rattachés au système Luma,

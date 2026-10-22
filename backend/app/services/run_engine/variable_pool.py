@@ -23,26 +23,27 @@ outside the node graph; any other head segment is treated as a node id or a
 free-form logical bucket (the seeded capture flow uses ``session`` / ``capture``
 / ``turn`` / ``context`` buckets, for instance).
 
-**Backward-compat contract (critical):** when ``inputs_map`` / ``outputs_map``
-are empty or absent, :func:`apply_inputs_map` returns the predecessor merge
+**Backward-compat contract (critical):** in inherited overlay mode, when
+``inputs_map`` / ``outputs_map`` are empty or absent, :func:`apply_inputs_map` returns the predecessor merge
 verbatim and :func:`apply_outputs_map` is a no-op — so the DAG walker is
 byte-identical to the pre-P1 flat-merge path.
 """
+
 from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Union
 
 # Reserved namespaces addressable from any node (mirrors the frontend
 # ``RESERVED_VARIABLE_NAMESPACES`` in flow-serializer.service.ts).
-RESERVED_NAMESPACES: Tuple[str, ...] = ("workspace", "system", "run", "node", "context")
+RESERVED_NAMESPACES: tuple[str, ...] = ("workspace", "system", "run", "node", "context")
 
 # Sentinel distinguishing "selector absent from the pool" from "selector
 # present but holds None" — only the former should fall back to the merge.
 _MISSING = object()
 
-Selector = Union[str, Sequence[str], Dict[str, Any]]
+Selector = Union[str, Sequence[str], dict[str, Any]]
 
 
 class VariableResolutionError(ValueError):
@@ -89,7 +90,7 @@ def variable_ref_validation_error(value: Any) -> Optional[str]:
     return None
 
 
-def selector_segments(selector: Selector) -> Optional[List[str]]:
+def selector_segments(selector: Selector) -> Optional[list[str]]:
     """Normalise any accepted selector shape to ``[head, *path]``.
 
     Returns ``None`` when the selector is unusable (empty string, malformed
@@ -116,8 +117,8 @@ def selector_segments(selector: Selector) -> Optional[List[str]]:
 class VariablePool:
     """Nested-dict typed store keyed by ``[head, *path]`` selectors."""
 
-    def __init__(self, store: Optional[Dict[str, Any]] = None) -> None:
-        self._store: Dict[str, Any] = dict(store) if isinstance(store, dict) else {}
+    def __init__(self, store: Optional[dict[str, Any]] = None) -> None:
+        self._store: dict[str, Any] = dict(store) if isinstance(store, dict) else {}
 
     # -- reads ---------------------------------------------------------------
     def get(self, selector: Selector, default: Any = None) -> Any:
@@ -148,7 +149,7 @@ class VariablePool:
         segs = selector_segments(selector)
         if not segs:
             return
-        cur: Dict[str, Any] = self._store
+        cur: dict[str, Any] = self._store
         for seg in segs[:-1]:
             nxt = cur.get(seg)
             if not isinstance(nxt, dict):
@@ -157,7 +158,7 @@ class VariablePool:
             cur = nxt
         cur[segs[-1]] = value
 
-    def set_namespace(self, name: str, mapping: Dict[str, Any]) -> None:
+    def set_namespace(self, name: str, mapping: dict[str, Any]) -> None:
         """Shallow-merge ``mapping`` into the ``name`` head bucket."""
         if not name or not isinstance(mapping, dict):
             return
@@ -168,11 +169,11 @@ class VariablePool:
             self._store[name] = dict(mapping)
 
     # -- (de)serialisation ---------------------------------------------------
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         # Deep copy so callers can't mutate the pool through the payload.
         return copy.deepcopy(self._store)
 
-    def with_namespace(self, name: str, mapping: Dict[str, Any]) -> "VariablePool":
+    def with_namespace(self, name: str, mapping: dict[str, Any]) -> "VariablePool":
         """Return an isolated copy with one namespace overlaid.
 
         ``node`` is execution-local.  Independent DAG nodes may execute in the
@@ -185,7 +186,7 @@ class VariablePool:
         return clone
 
     @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "VariablePool":
+    def from_dict(cls, data: Optional[dict[str, Any]]) -> "VariablePool":
         return cls(data if isinstance(data, dict) else {})
 
 
@@ -196,20 +197,18 @@ def _as_index(seg: str) -> Optional[int]:
         return None
 
 
-def resolve_selector(
-    selector: Selector, pool: VariablePool, default: Any = None
-) -> Any:
+def resolve_selector(selector: Selector, pool: VariablePool, default: Any = None) -> Any:
     """Read one selector out of ``pool`` (accepts string / ref / list)."""
     return pool.get(selector, default)
 
 
 def apply_inputs_map(
-    config: Optional[Dict[str, Any]],
+    config: Optional[dict[str, Any]],
     pool: VariablePool,
-    predecessor_merge: Optional[Dict[str, Any]] = None,
+    predecessor_merge: Optional[dict[str, Any]] = None,
     *,
     io_mode: str = "overlay",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve ``config.inputs_map`` into a skill input dict.
 
     The predecessor merge is the base (so unmapped upstream fields still flow
@@ -217,10 +216,15 @@ def apply_inputs_map(
     top — but only when the selector actually resolves to a non-``None`` value
     in the pool, so a typo'd selector never clobbers real upstream data.
 
-    When ``inputs_map`` is empty/absent the predecessor merge is returned
-    verbatim (byte-identical to the pre-P1 path).
+    A task with graph-owned ``input_mode="mapped"`` opts into strict input
+    resolution even in an overlay Flow: only mapped fields and explicitly
+    declared ``passthrough_inputs`` reach the skill. An empty map then resolves
+    to an empty payload. ``inherit`` never weakens a strict Flow.
+
+    Otherwise, when ``inputs_map`` is empty/absent the predecessor merge is
+    returned verbatim (byte-identical to the pre-P1 path).
     """
-    strict = io_mode == "strict"
+    strict = io_mode == "strict" or (config or {}).get("input_mode") == "mapped"
     predecessor = dict(predecessor_merge or {})
     if strict:
         passthrough = (config or {}).get("passthrough_inputs", [])
@@ -229,9 +233,7 @@ def apply_inputs_map(
         # Preserve only explicitly declared predecessor fields.  ``in`` rather
         # than ``get`` keeps an explicit null distinct from an absent key.
         base = {
-            str(port): predecessor[str(port)]
-            for port in passthrough
-            if str(port) in predecessor
+            str(port): predecessor[str(port)] for port in passthrough if str(port) in predecessor
         }
     else:
         base = predecessor
@@ -264,8 +266,8 @@ def apply_inputs_map(
 
 
 def apply_outputs_map(
-    config: Optional[Dict[str, Any]],
-    output: Optional[Dict[str, Any]],
+    config: Optional[dict[str, Any]],
+    output: Optional[dict[str, Any]],
     pool: VariablePool,
 ) -> None:
     """Write a node ``output`` into ``pool`` per ``config.outputs_map``.

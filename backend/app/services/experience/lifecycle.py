@@ -2708,20 +2708,41 @@ def ready_check(
     experience, draft, _deployments = get_experience(
         db, workspace_id=workspace.id, experience_id=experience_id
     )
+    return _ready_check_document(
+        db,
+        workspace=workspace,
+        pages=draft.pages if isinstance(draft.pages, dict) else {},
+        declared_keys=list(draft.binding_keys or []),
+        languages=list(experience.languages or []),
+        access_policy=experience.access_policy,
+        pattern=experience.pattern,
+    )
+
+
+def _ready_check_document(
+    db: DBSession,
+    *,
+    workspace: Any,
+    pages: dict[str, Any],
+    declared_keys: list[str],
+    languages: list[str],
+    access_policy: Any,
+    pattern: str,
+) -> dict[str, Any]:
+    """Validate either a mutable draft or an immutable release with current bindings."""
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
-    pages = draft.pages if isinstance(draft.pages, dict) else {}
     raw_pages = pages.get("pages") if isinstance(pages.get("pages"), list) else []
     if not raw_pages:
         blockers.append({"code": "NO_PAGES", "message": "The draft has no pages."})
-    if not experience.languages:
+    if not languages:
         blockers.append(
             {
                 "code": "LANGUAGES_REQUIRED",
                 "message": "Choose at least one language before creating a release.",
             }
         )
-    access_policy = experience.access_policy if isinstance(experience.access_policy, dict) else {}
+    access_policy = access_policy if isinstance(access_policy, dict) else {}
     has_explicit_open_access = "roles" in access_policy or "role_templates" in access_policy
     has_restricted_access = bool(
         access_policy.get("roles")
@@ -2736,7 +2757,6 @@ def ready_check(
             }
         )
     referenced_keys = referenced_binding_keys(pages)
-    declared_keys = list(draft.binding_keys or [])
     for key in referenced_keys:
         if key not in declared_keys:
             blockers.append(
@@ -2762,7 +2782,6 @@ def ready_check(
                     "binding_key": key,
                 }
             )
-    languages = list(experience.languages or [])
     blockers.extend(_i18n_issues(pages, languages))
     if len(languages) > 1:
         blockers.extend(_form_copy_issues(pages))
@@ -2777,7 +2796,7 @@ def ready_check(
     blockers.extend(_data_binding_issues(pages))
     blockers.extend(_implicit_action_issues(pages))
     blockers.extend(_binding_contract_issues(pages, resolved_by_key))
-    if experience.pattern in DATA_LED_PATTERNS and not _has_template_data_source(pages):
+    if pattern in DATA_LED_PATTERNS and not _has_template_data_source(pages):
         blockers.append(
             {
                 "code": "TEMPLATE_DATA_SOURCE_MISSING",
@@ -2788,7 +2807,7 @@ def ready_check(
     accent_blockers, accent_warnings = _accent_issues(pages)
     blockers.extend(accent_blockers)
     warnings.extend(accent_warnings)
-    if experience.pattern in EMPTY_STATE_PATTERNS and not _has_empty_state(pages):
+    if pattern in EMPTY_STATE_PATTERNS and not _has_empty_state(pages):
         blockers.append(
             {
                 "code": "MISSING_EMPTY_STATE",
@@ -3019,6 +3038,178 @@ def create_release(
             "release_id": row.id,
             "release_number": row.release_number,
             "content_sha256": row.content_sha256,
+        },
+        db=db,
+    )
+    return row
+
+
+def release_rebind_ready_check(
+    db: DBSession,
+    *,
+    workspace: Any,
+    experience_id: str,
+    source_release_id: str,
+) -> dict[str, Any]:
+    """Review existing released content against the current System bindings."""
+    experience = _owned(db, workspace_id=workspace.id, experience_id=experience_id)
+    source = _owned_release(db, experience=experience, release_id=source_release_id)
+    identity = release_identity(source)
+    check = _ready_check_document(
+        db,
+        workspace=workspace,
+        pages=source.pages if isinstance(source.pages, dict) else {},
+        declared_keys=referenced_binding_keys(source.pages or EMPTY_PAGES),
+        languages=list(source.languages or []),
+        access_policy=source.access_snapshot,
+        pattern=identity["pattern"],
+    )
+    return {
+        **check,
+        "source_release_id": source.id,
+        "source_content_sha256": source.content_sha256,
+        "source_release_sha256": _canonical_sha256(serialize_release(source)),
+        "experience_updated_at": experience.updated_at.isoformat(),
+    }
+
+
+def rebind_release(
+    db: DBSession,
+    *,
+    workspace: Any,
+    experience_id: str,
+    source_release_id: str,
+    notes: str,
+    expected_source_release_sha256: str,
+    expected_content_sha256: str,
+    expected_experience_updated_at: datetime,
+    expected_bindings_sha256: str,
+    actor: str | None,
+) -> ExperienceRelease:
+    """Create a new immutable release, refreshing bindings without reading the draft.
+
+    The source's pages, identity, audience, languages, theme and renderer stay
+    byte-for-byte unchanged. Deployment remains a separate compare-and-set.
+    """
+    cleaned_notes = (notes or "").strip()
+    if not cleaned_notes:
+        raise ExperienceError(
+            code="EXPERIENCE_RELEASE_NOTES_REQUIRED",
+            message="notes are required to create a release.",
+            status_code=422,
+        )
+    experience = _owned(db, workspace_id=workspace.id, experience_id=experience_id, lock=True)
+    source = _owned_release(db, experience=experience, release_id=source_release_id)
+    creation_request_sha256 = _canonical_sha256(
+        {
+            "operation": "rebind_release",
+            "experience_id": experience.id,
+            "source_release_id": source.id,
+            "notes": cleaned_notes,
+            "expected_source_release_sha256": expected_source_release_sha256,
+            "expected_content_sha256": expected_content_sha256,
+            "expected_experience_updated_at": expected_experience_updated_at.isoformat(),
+            "expected_bindings_sha256": expected_bindings_sha256,
+            "actor": actor,
+        }
+    )
+    existing = (
+        db.query(ExperienceRelease)
+        .filter(
+            ExperienceRelease.experience_id == experience.id,
+            ExperienceRelease.creation_request_sha256 == creation_request_sha256,
+        )
+        .one_or_none()
+    )
+    if existing is not None:
+        return existing
+    if experience.updated_at != expected_experience_updated_at:
+        raise ExperienceError(
+            code="EXPERIENCE_METADATA_CONFLICT",
+            message="Experience metadata changed; review it before releasing.",
+            status_code=409,
+        )
+    if (
+        source.content_sha256 != expected_content_sha256
+        or _canonical_sha256(serialize_release(source)) != expected_source_release_sha256
+    ):
+        raise ExperienceError(
+            code="EXPERIENCE_SOURCE_RELEASE_CONFLICT",
+            message="The source release does not match the reviewed content.",
+            status_code=409,
+        )
+    referenced_keys = referenced_binding_keys(source.pages or EMPTY_PAGES)
+    if referenced_keys:
+        (
+            db.query(SystemBinding)
+            .filter(
+                SystemBinding.workspace_id == workspace.id,
+                SystemBinding.binding_key.in_(sorted(referenced_keys)),
+            )
+            .order_by(SystemBinding.binding_key)
+            .with_for_update()
+            .all()
+        )
+    check = release_rebind_ready_check(
+        db,
+        workspace=workspace,
+        experience_id=experience.id,
+        source_release_id=source.id,
+    )
+    if check["blockers"]:
+        raise ExperienceError(
+            code="EXPERIENCE_NOT_READY",
+            message="The source release has ready-check blockers with current bindings.",
+            status_code=409,
+            details={"blockers": check["blockers"], "warnings": check["warnings"]},
+        )
+    if check["bindings_sha256"] != expected_bindings_sha256:
+        raise ExperienceError(
+            code="EXPERIENCE_BINDINGS_CONFLICT",
+            message="A referenced System binding changed; review it before releasing.",
+            status_code=409,
+        )
+    latest = (
+        db.query(ExperienceRelease)
+        .filter(ExperienceRelease.experience_id == experience.id)
+        .order_by(desc(ExperienceRelease.release_number))
+        .first()
+    )
+    row = ExperienceRelease(
+        id=str(uuid4()),
+        experience_id=experience.id,
+        workspace_id=experience.workspace_id,
+        release_number=(latest.release_number if latest else 0) + 1,
+        creation_request_sha256=creation_request_sha256,
+        content_sha256=source.content_sha256,
+        pages=copy.deepcopy(source.pages),
+        bindings_snapshot=copy.deepcopy(check["bindings"]),
+        access_snapshot=copy.deepcopy(source.access_snapshot),
+        identity_snapshot=copy.deepcopy(source.identity_snapshot),
+        languages=copy.deepcopy(source.languages),
+        theme=copy.deepcopy(source.theme),
+        renderer_version=source.renderer_version,
+        notes=cleaned_notes,
+        created_by=actor,
+        created_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.flush()
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="experience.released",
+        actor=actor or "unknown",
+        agent_id=experience.id,
+        details={
+            "experience_id": experience.id,
+            "release_id": row.id,
+            "release_number": row.release_number,
+            "content_sha256": row.content_sha256,
+            "source": "rebind_release",
+            "source_release_id": source.id,
+            "source_release_sha256": expected_source_release_sha256,
+            "bindings_sha256": check["bindings_sha256"],
+            "draft_preserved": True,
         },
         db=db,
     )

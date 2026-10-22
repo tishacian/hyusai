@@ -157,11 +157,33 @@ Vérifier l'identité du modèle, les distributions, les compteurs, le tarif et 
 traces. Les deux options existantes `flow_workbench_v1` et `flow_publication_v1`
 sont déjà ouvertes dans Showcase ; aucun nouveau drapeau n'est nécessaire.
 
-Cette livraison ne change aucun Flow, brouillon, publication, modèle ou budget de
-Luma. Son juge actuel exige des citations et continue d'utiliser GPT-5. Un nœud
-Jev peut compléter un futur brouillon pour du triage ou du scoring typé, avec ses
-propres questions. Remplacer le juge actuel nécessite une décision explicite sur
-le contrat de preuves ; le plafond Showcase de 2 000 EUR reste inchangé.
+Le raccordement au parcours principal est préparé dans
+[`jev/main-flow-plan.json`](../demo-runs/showcase-ecommerce/jev/main-flow-plan.json) :
+enquête → second avis Jev → Judge GPT-5 cité → validation humaine → action simulée.
+Ce fichier n'est pas une publication ni une preuve d'exécution. La vérification
+en service du 22 octobre trouve encore `ec2a15f4`, v10 publiée et le brouillon r38 ;
+le transport Jev qualifié sous plafond n'y est pas encore disponible.
+
+La composition utilise deux capacités génériques : les entrées explicites d'une
+étape empêchent l'enveloppe de résultat du premier Judge d'être interprétée comme
+les preuves du second ; les budgets locaux des Judges sont isolés par nœud dans
+le Run ou la fenêtre de service. Les deux contrôles relisent les preuves du Run
+via leurs sélecteurs publiés. Le plafond workspace de 2 000 EUR reste commun.
+Le contrat GPT-5, ses citations requises et la porte humaine sont conservés.
+
+La publication d'un candidat revu peut préserver intégralement le brouillon
+serveur, y compris son mandat en cours d'édition. Elle reprend le mandat publié
+et exige les empreintes de revue, de graphe et de contrat ainsi que les versions
+attendues du brouillon et de la publication. Après qualification, basculer les
+trois bindings et les deux applications Work avec leurs contrôles de concurrence.
+Ne pas publier les pages en cours d'édition de « Pilotage SAV — équipe » : son
+brouillon diffère de sa version servie. La procédure de raccordement conserve
+les pages déjà publiées et ne renouvelle que leurs liens d'exécution.
+
+Une mise à jour du code ne réalise aucune de ces mutations Luma. Livrer d'abord
+la révision complète, renouveler l'attestation Usage sur des faits vérifiés par
+l'opérateur, qualifier Jev, puis suivre la recette de publication et de bascule
+Work. Ne pas désactiver le budget pour contourner un transport non qualifié.
 
 Sources officielles : [API](https://docs.typesafe.ai/api/system-one),
 [démarrage](https://docs.typesafe.ai/introduction/quickstart),
