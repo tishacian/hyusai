@@ -935,7 +935,10 @@ def latest_work_action_run(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Resume this reader's fixed released action without invoking anything.
+    """Resume the team's last result of a fixed released action, read only.
+
+    Shared with the team that uses the app: the latest matching Run started by
+    any member is returned, as long as this reader may still read that Run.
 
     The immutable action supplies its input. Forms are deliberately excluded:
     their last submitted values cannot be inferred from an empty page. Matching
@@ -993,7 +996,8 @@ def latest_work_action_run(
     }
     query = db.query(Run).filter(
         Run.workspace_id == workspace.id,
-        Run.initiated_by_user_id == user.id,
+        # A team result: any member's Run, never an anonymous one.
+        Run.initiated_by_user_id.isnot(None),
         Run.system_id == snapshot["system_id"],
         Run.published_flow_version_id == snapshot["published_flow_version_id"],
         Run.flow_sha256 == snapshot["flow_sha256"],
@@ -1002,7 +1006,16 @@ def latest_work_action_run(
         *(adapter[field].as_string() == value for field, value in expected.items()),
     ).order_by(Run.started_at.desc(), Run.id.desc())
     runs = readable_run_page(db, query=query, limit=1, user=user, workspace=workspace)
-    return {"run": _work_run_response(runs[0], replayed=False) if runs else None}
+    if not runs:
+        return {"run": None}
+    return {
+        "run": {
+            **_work_run_response(runs[0], replayed=False),
+            "started_by_reader": runs[0].initiated_by_user_id == getattr(user, "id", None),
+            # Workspace member name, as shown in the members list.
+            "started_by": getattr(db.get(User, runs[0].initiated_by_user_id), "username", None),
+        }
+    }
 
 
 @router.get("/{slug}/records/{record_ref}/runs")
