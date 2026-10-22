@@ -5,6 +5,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { FlowObservationService } from './flow-observation.service';
 import { FlowObservationWindowsService } from './flow-observation-windows.service';
 import { observationRunIngress, observationRunVersion, type FlowObservationRun } from './flow-observation.vm';
+import { runStatusLabel } from '@app/core/run-follow-up';
 
 @Component({
   selector: 'app-flow-observation-bar',
@@ -51,7 +52,7 @@ export class FlowObservationBarComponent {
 
   runLabel(run: FlowObservationRun): string {
     const date = formatObservationDate(run.started_at, this.i18n.locale(), this.i18n.t('flow.observation.date_unknown'));
-    const status = this.i18n.t('runs.status.' + run.status);
+    const status = runStatusLabel(run, this.i18n.t);
     const ingress = observationRunIngress(run);
     const surfaceKey = run.execution_surface === 'published_manual' ? 'flow.runtime.surface.published'
       : run.execution_surface === 'draft_test' ? 'flow.runtime.surface.draft'

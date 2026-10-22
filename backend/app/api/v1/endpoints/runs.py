@@ -50,6 +50,7 @@ from app.services.iam.legacy_authority import (
     legacy_run_approval_allowed,
 )
 from app.services.llm_label_review import LabelReviewInput
+from app.services.run_follow_up import run_follow_up
 from app.services.object_perspective import (
     build_run_perspective,
     build_skill_invocation_perspective,
@@ -243,6 +244,9 @@ def _row(r: Run, *, db: DBSession, payload_visible: bool = True) -> dict[str, An
         "execution_surface": r.execution_surface,
         "capability_id": r.capability_id,
         "status": r.status,
+        # Derived follow-up state; every surface reads it instead of
+        # re-interpreting status and error (see services/run_follow_up.py).
+        "follow_up": run_follow_up(r, payload_visible=payload_visible),
         "trigger": r.trigger,
         "initiated_by_user_id": r.initiated_by_user_id,
         "execution_principal": public_run_principal(r),

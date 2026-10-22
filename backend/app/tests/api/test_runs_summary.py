@@ -118,3 +118,59 @@ def test_run_files_lists_only_current_run_prefix(db_session, tmp_path, monkeypat
             }
         ]
     }
+
+
+def test_run_projections_carry_the_follow_up_state(db_session):
+    workspace = Workspace(id="ws-run-follow-up", slug="run-follow-up", name="Run follow-up")
+    system = System(id="system-follow-up", workspace_id=workspace.id, name="System")
+    boundary = Run(
+        id="run-at-boundary",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="cancelled",
+        error="EVALUATION_STOPPED_AT_HUMAN_GATE",
+        started_at=datetime(2026, 10, 22, 13, 24, 58),
+        checkpoints=[
+            {
+                "kind": "evaluation_boundary",
+                "boundary": "human_gate",
+                "node_id": "review",
+                "decision_id": "dec-1",
+            }
+        ],
+    )
+    cancelled = Run(
+        id="run-cancelled",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="cancelled",
+        started_at=datetime(2026, 10, 22, 13, 20, 0),
+    )
+    db_session.add_all([workspace, system, boundary, cancelled])
+    db_session.commit()
+    client = _client(db_session, workspace)
+
+    detail = client.get(f"/runs/{boundary.id}")
+    listing = client.get("/runs", params={"system_id": system.id})
+
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "cancelled"
+    assert detail.json()["follow_up"] == {
+        "native_status": "cancelled",
+        "business_state": "stopped_at_review_boundary",
+        "cause": {
+            "code": "evaluation_stopped_at_review_boundary",
+            "boundary": "human_gate",
+            "node_id": "review",
+            "decision_id": "dec-1",
+        },
+        "attempt": None,
+    }
+    assert listing.status_code == 200
+    rows = listing.json()
+    rows = rows.get("runs", rows) if isinstance(rows, dict) else rows
+    states = {row["id"]: row["follow_up"]["business_state"] for row in rows}
+    assert states == {
+        "run-at-boundary": "stopped_at_review_boundary",
+        "run-cancelled": "cancelled",
+    }

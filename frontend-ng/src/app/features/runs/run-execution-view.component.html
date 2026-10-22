@@ -3,7 +3,7 @@
   @if (error()) { <p role="alert">{{ t(error()) }}</p><a [routerLink]="detailUrl()">{{ t('detail') }}</a> }
   @if (loading()) { <p role="status">{{ t('loading') }}</p> }
   @if (data(); as view) {
-    <div class="run-metadata"><label>{{ t('select_run') }}<select [ngModel]="runId()" (ngModelChange)="selectRun($event)"><option [value]="runId()">{{ runId() }}</option>@for (run of runs(); track run.id) {@if (run.id !== runId()) {<option [value]="run.id">{{ run.id }} · {{ date(run.started_at) }} · {{ run.flow_version_id || t('unknown') }} · {{ run.trigger }} · {{ run.status }}</option>}}</select></label><p>{{ t('fixed') }}</p>
+    <div class="run-metadata"><label>{{ t('select_run') }}<select [ngModel]="runId()" (ngModelChange)="selectRun($event)"><option [value]="runId()">{{ runId() }}</option>@for (run of runs(); track run.id) {@if (run.id !== runId()) {<option [value]="run.id">{{ run.id }} · {{ date(run.started_at) }} · {{ run.flow_version_id || t('unknown') }} · {{ run.trigger }} · {{ runState(run) }}</option>}}</select></label><p>{{ t('fixed') }}</p>
       <dl><dt>{{ t('version') }}</dt><dd class="mono">{{ view.run.flow_version_id || t('unknown') }} · {{ view.run.flow_sha256 || t('unknown') }}</dd><dt>{{ t('trigger') }}</dt><dd>{{ view.run.trigger || t('unknown') }}</dd><dt>{{ t('coverage') }}</dt><dd>{{ t('coverage.' + view.coverage.correlation) }}</dd></dl>
     </div>
     <p role="status">{{ i18n.t('observability.activities.stream.' + streamState()) }} · {{ date(freshness()) }} @if (streamState() !== 'live') { {{ t('stale') }} }</p>
