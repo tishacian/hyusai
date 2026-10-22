@@ -39,6 +39,7 @@ class BindingCreateBody(BaseModel):
     ingress_id: str = Field(min_length=1, max_length=160)
     confirmation_policy: str = "confirm"
     on_unavailable: str = "unavailable"
+    record_identity: Optional[dict[str, Any]] = None
 
 
 class BindingPatchBody(BaseModel):
@@ -48,6 +49,8 @@ class BindingPatchBody(BaseModel):
     on_unavailable: Optional[str] = None
     published_flow_version_id: Optional[str] = Field(default=None, min_length=1, max_length=36)
     ingress_id: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    # Present (even null) means "set or clear"; absent leaves it unchanged.
+    record_identity: Optional[dict[str, Any]] = None
 
 
 class BindingRunBody(BaseModel):
@@ -193,6 +196,7 @@ async def create_system_binding(
             ingress_id=body.ingress_id,
             confirmation_policy=body.confirmation_policy,
             on_unavailable=body.on_unavailable,
+            record_identity=body.record_identity,
         )
         db.commit()
         db.refresh(row)
@@ -221,6 +225,11 @@ async def patch_system_binding(
             published_flow_version_id=body.published_flow_version_id,
             ingress_id=body.ingress_id,
             actor=_actor(user),
+            **(
+                {"record_identity": body.record_identity}
+                if "record_identity" in body.model_fields_set
+                else {}
+            ),
         )
         db.commit()
         db.refresh(row)

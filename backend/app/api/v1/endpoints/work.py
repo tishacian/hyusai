@@ -26,7 +26,9 @@ from app.services import automation_portfolio
 from app.services.chat_execution_policy import migration_059_system_id
 from app.services.experience import bindings as binding_service
 from app.services.experience import lifecycle as experience_service
+from app.services.experience import work_records
 from app.services.experience.work_receipt import run_receipt
+from app.services.run_follow_up import run_follow_up
 from app.services.iam.config_service import load_iam_config
 from app.services.iam.decision_plane import (
     ModeResolutionCache,
@@ -998,6 +1000,81 @@ def latest_work_action_run(
     return {"run": _work_run_response(runs[0], replayed=False) if runs else None}
 
 
+@router.get("/{slug}/records/{record_ref}/runs")
+def list_work_record_runs(
+    slug: str,
+    record_ref: str,
+    namespace: str = Query(min_length=1, max_length=80),
+    limit: int = Query(20, ge=1, le=work_records.MAX_PAGE),
+    offset: int = Query(0, ge=0, le=10_000),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Attempts a Work record received from this reader, newest first.
+
+    Read only. Visibility is always per user (the attempts you started), and
+    each Run still passes the normal Run read rights. A new attempt is listed
+    next to the earlier ones; nothing is replaced.
+    """
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    try:
+        experience, _deployment, release = _resolve_for_user(
+            db, workspace=workspace, user=user, slug=slug
+        )
+    except experience_service.ExperienceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    declared = any(
+        isinstance(item, dict)
+        and isinstance(item.get("record_identity"), dict)
+        and item["record_identity"].get("namespace") == namespace
+        for item in release.bindings_snapshot or []
+    )
+    if not declared:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "WORK_RECORD_NAMESPACE_UNKNOWN",
+                "message": "No action of this application declares this kind of record.",
+            },
+        )
+    rows, has_more = work_records.record_attempts_page(
+        db,
+        workspace_id=workspace.id,
+        experience_id=experience.id,
+        namespace=namespace,
+        record_ref=record_ref.strip()[:200],
+        user_id=getattr(user, "id", None),
+        limit=limit,
+        offset=offset,
+    )
+    readable = {
+        run.id
+        for run in readable_runs(db, runs=[run for _row, run in rows], user=user, workspace=workspace)
+    }
+    attempts = [
+        {
+            "attempt_id": row.id,
+            "run_id": run.id,
+            "binding_key": row.binding_key,
+            "recorded_at": row.created_at.isoformat() + "Z" if row.created_at else None,
+            "started_at": run.started_at.isoformat() + "Z" if run.started_at else None,
+            "completed_at": run.completed_at.isoformat() + "Z" if run.completed_at else None,
+            "status": run.status,
+            "follow_up": run_follow_up(run, payload_visible=False),
+        }
+        for row, run in rows
+        if run.id in readable
+    ]
+    return {
+        "record": {"namespace": namespace, "ref": record_ref},
+        "attempts": attempts,
+        "has_more": has_more,
+        "next_offset": offset + len(rows) if has_more else None,
+    }
+
+
 @router.post("/{slug}/bindings/{key}/runs", status_code=201)
 async def invoke_work_binding(
     slug: str,
@@ -1086,6 +1163,16 @@ async def invoke_work_binding(
                     provenance=adapter_provenance,
                     trigger_dedup_key=dedup_key,
                     experience_idempotency_key=experience_idempotency_key,
+                )
+                # Same transaction: a Run never exists without its attempt row.
+                work_records.record_work_attempt(
+                    db,
+                    workspace_id=workspace.id,
+                    experience_id=experience.id,
+                    snapshot=snapshot,
+                    payload=body.payload,
+                    run=run,
+                    user_id=getattr(user, "id", None),
                 )
         except IntegrityError:
             run = _idempotent_run(
