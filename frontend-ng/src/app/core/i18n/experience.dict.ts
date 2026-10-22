@@ -752,6 +752,11 @@ export const EXPERIENCE_FR = {
   'experience.work.not_found.title': 'Application introuvable',
   'experience.work.not_found.description':
     'Cette adresse ne correspond à aucune application disponible.',
+  'experience.work.elsewhere.title': 'Cette application n’est pas publiée dans {workspace}',
+  'experience.work.elsewhere.searching': 'Recherche dans vos autres espaces de travail…',
+  'experience.work.elsewhere.nowhere': 'Elle n’est disponible dans aucun de vos autres espaces de travail. Vérifiez l’adresse ou demandez l’accès à son responsable.',
+  'experience.work.elsewhere.found': 'Elle est disponible dans un autre de vos espaces de travail.',
+  'experience.work.elsewhere.open': 'Ouvrir dans {workspace}',
   'experience.work.unavailable.title': 'Application indisponible',
   'experience.work.unavailable.body':
     'Cette application n’est pas utilisable pour le moment. Réessayez plus tard, ou demandez à la personne qui l’a publiée.',
@@ -2477,6 +2482,11 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.work.pattern.other': 'Application',
   'experience.work.not_found.title': 'Application not found',
   'experience.work.not_found.description': 'This address does not match any available application.',
+  'experience.work.elsewhere.title': 'This app is not published in {workspace}',
+  'experience.work.elsewhere.searching': 'Looking in your other workspaces…',
+  'experience.work.elsewhere.nowhere': 'It is not available in any of your other workspaces. Check the address or ask its owner for access.',
+  'experience.work.elsewhere.found': 'It is available in another of your workspaces.',
+  'experience.work.elsewhere.open': 'Open in {workspace}',
   'experience.work.unavailable.title': 'Application unavailable',
   'experience.work.unavailable.body':
     'This application cannot be used right now. Try again later, or ask the person who published it.',

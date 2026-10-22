@@ -1,3 +1,4 @@
+import { WorkAppElsewhereComponent } from './work-app-elsewhere.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
@@ -57,7 +58,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent, WorkAppElsewhereComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -233,7 +234,8 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
         }
       </main>
       <ng-template #dataUnavailable>
-        @if (dataError(); as failure) {
+        @if (appMissing()) { <app-work-app-elsewhere appSlug="reclamations" />
+        } @else if (dataError(); as failure) {
           <p class="claims-data-error-title">{{ i18n.t('experience.claims.data_unavailable') }}</p>
           <p>{{ i18n.t('connectors.pg.error.' + failure.code) }}</p>
           @if (!canConfigureData()) { <p class="claims-quiet">{{ i18n.t('connectors.pg.contact_admin') }}</p> }
@@ -257,6 +259,8 @@ export class ClaimsStudioComponent {
   private readonly router = inject(Router);
   private readonly destroy = inject(DestroyRef);
   readonly releasePages = signal<unknown>(null);
+  /** The app is not published in this workspace (404), not a data outage. */
+  readonly appMissing = signal(false);
   readonly rows = signal<ClaimRow[]>([]); readonly selected = signal<string | null>(null);
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
@@ -346,6 +350,7 @@ export class ClaimsStudioComponent {
     try {
       const release = await firstValueFrom(this.work.resolve('reclamations'));
       if (generation !== this.generation) return;
+      this.appMissing.set(release.kind === 'missing');
       if (release.kind !== 'ok') throw Error('Release unavailable');
       this.releasePages.set(release.body.release.pages ?? null);
       void this.loadDataAccess(generation);

@@ -1,3 +1,4 @@
+import { WorkAppElsewhereComponent } from './work-app-elsewhere.component';
 import { runIsSettled } from '../runtime/model';
 import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
@@ -82,6 +83,7 @@ const POLL_MS = 8000;
     WorkAppHeaderComponent,
     DecisionRightComponent,
     RunQualityReviewComponent,
+    WorkAppElsewhereComponent,
   ],
   styleUrl: './work.scss',
   template: `
@@ -163,6 +165,7 @@ const POLL_MS = 8000;
               [title]="i18n.t('experience.work.not_found.title')"
               [description]="i18n.t('experience.work.not_found.description')"
             />
+            @if (slug()) { <app-work-app-elsewhere [appSlug]="slug()" /> }
           }
           @case ('unavailable') {
             <app-empty-state
