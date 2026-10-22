@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { STRICT, settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
 import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { RetrainingRunApprovalComponent } from '@app/features/models/retraining-run-approval.component';
@@ -969,20 +970,10 @@ export class RunViewComponent implements OnInit, OnDestroy {
     return label === key ? source : label;
   }
 
+  /** Engine timestamps are UTC: shown in the reader's zone, zone named. */
   formatTime(ts: string | undefined): string {
     if (!ts) return '—';
-    try {
-      return new Date(ts).toLocaleString(this.i18n.locale(), {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-    } catch {
-      return ts;
-    }
+    return formatInstant(ts, this.i18n.locale(), { seconds: true }) ?? ts;
   }
 
   formatDuration(ms: number): string {

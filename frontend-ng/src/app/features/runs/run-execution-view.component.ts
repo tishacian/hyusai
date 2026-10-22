@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -31,7 +32,7 @@ export class RunExecutionViewComponent implements OnInit, OnDestroy {
   private liveAllowed = false; private generation = 0; private destroyed = false; private refreshTimer?: ReturnType<typeof setTimeout>; private lastValidated = 0;
   t(key: string, params?: Record<string, string | number>): string { return this.i18n.t('observability.flow.' + key, params); }
   status(status: string): string { const key = ['not_started','not_executed','skipped','unavailable'].includes(status) ? 'observability.flow.status.' + status : 'observability.activities.status.' + status; const label = this.i18n.t(key); return label === key ? status : label; }
-  date(value: string | null | undefined): string { return value ? new Date(value).toLocaleString(this.i18n.locale()) : this.t('unknown'); }
+  date(value: string | null | undefined): string { return formatInstant(value, this.i18n.locale(), { seconds: true }) ?? this.t('unknown'); }
   number(value: number | null | undefined, unit = ''): string { return value == null ? this.t('unknown') : new Intl.NumberFormat(this.i18n.locale(), { maximumFractionDigits: 5 }).format(value) + unit; }
   nodeSummary(nodeId: string) { return this.data()?.nodes.find(node => node.node_id === nodeId); }
   safeLink(link: ActivityLink) { const href = activityLink(link); return href ? this.router.parseUrl(href) : null; }

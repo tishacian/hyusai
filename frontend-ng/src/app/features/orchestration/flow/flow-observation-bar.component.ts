@@ -68,5 +68,5 @@ export function formatObservationDate(value: string | null | undefined, locale: 
   // Canonical Run timestamps are UTC; historical projections omitted the Z.
   const normalized = value && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value) ? value + 'Z' : value;
   if (!normalized || !Number.isFinite(Date.parse(normalized))) return unknown;
-  return new Intl.DateTimeFormat(locale, {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(normalized));
+  return new Intl.DateTimeFormat(locale, {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}).format(new Date(normalized));
 }

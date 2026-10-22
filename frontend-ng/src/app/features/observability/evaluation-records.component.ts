@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { JsonPipe } from '@angular/common';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -52,7 +53,7 @@ export class EvaluationRecordsComponent {
  readonly summary=signal<EvaluationSummary|null>(null);readonly records=computed(()=>orderedEvaluationRecords(this.summary()?.records ?? []));readonly loading=signal(false);readonly error=signal(false);readonly reload=signal(0);readonly increment=(n:number)=>n+1;
  readonly selectedId=signal<string|null>(this.route.snapshot.queryParamMap.get('evaluationId'));readonly selectedDetail=signal<EvaluationRecord|null>(null);readonly detailLoading=signal(false);readonly detailError=signal(false);
  private readonly queryParams=toSignal(this.route.queryParamMap,{initialValue:this.route.snapshot.queryParamMap});
- t(key:QualityMessage){return qualityMessage(this.i18n,key);}state(value:unknown,execution=false){return qualityState(this.i18n,value,execution);}date(value:string|null){const normalized=value && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)?value+'Z':value;const time=Date.parse(normalized || '');return Number.isFinite(time)?new Date(time).toLocaleString(this.i18n.locale()):this.t('unknown');}label(record:EvaluationRecord){return record.rubric?.id ? record.rubric.id+(record.rubric.version != null?' · '+record.rubric.version:'') : record.source;}
+ t(key:QualityMessage){return qualityMessage(this.i18n,key);}state(value:unknown,execution=false){return qualityState(this.i18n,value,execution);}date(value:string|null){return formatInstant(value,this.i18n.locale(),{seconds:true})??this.t('unknown');}label(record:EvaluationRecord){return record.rubric?.id ? record.rubric.id+(record.rubric.version != null?' · '+record.rubric.version:'') : record.source;}
  technical(record:EvaluationRecord){return {evaluation_id:record.evaluation_id,source:record.source,run_id:record.run_id,producer_invocation_id:record.producer_invocation_id,execution_status:record.execution_status,quality_status:record.quality_status,rubric:record.rubric,coverage:record.coverage,metrics:record.metrics,evidence_availability:record.evidence_availability};}
  private principal(){return JSON.stringify([this.workspace.current()?.id,this.auth.authEpoch()]);}
  constructor(){

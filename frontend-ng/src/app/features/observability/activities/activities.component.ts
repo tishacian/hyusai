@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -295,7 +296,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
   }
   statusFilterLabel(value: string): string { return value.split(',').map(status => this.label('status', status.trim())).join(' / '); }
   t(key: string, params?: Record<string, string | number>): string { return this.i18n.t(`observability.activities.${key}`, params); }
-  date(value: string | null): string { return value ? new Date(value).toLocaleString(this.i18n.locale()) : '—'; }
+  date(value: string | null): string { return formatInstant(value, this.i18n.locale(), { seconds: true }) ?? '—'; }
   number(value: unknown, suffix = ''): string { return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 }) + suffix : this.t('unknown'); }
   entries(value: Record<string, number>): [string, number][] { return Object.entries(value); }
   coverage(value: string | boolean | null | undefined): string { return value == null ? this.t('unknown') : this.label('coverage', String(value)); }
