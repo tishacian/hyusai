@@ -291,6 +291,7 @@ def db_session():
         "ml_model_api_keys",
         "ml_models",
         "tabular_datasets",
+        "work_record_runs",
         "runs",
         "system_bindings",
         "experience_wizard_states",

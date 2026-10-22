@@ -32,6 +32,7 @@ import { runtimeFailureKind } from '../runtime/runtime-failure';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
+import { WorkRecordAttemptsComponent } from '@app/shared/work-records/work-record-attempts.component';
 
 type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
   | { key: string; state: 'confirmed'; runId: string };
@@ -56,7 +57,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -151,6 +152,10 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
             <aside class="claims-decision" [attr.aria-label]="i18n.t('experience.claims.decision')">
               <h2>{{ i18n.t('experience.claims.decision') }}</h2>
               @if (run(); as current) { <app-run-situation [runId]="current.id" [refreshKey]="current.status" [compact]="true" [showRunLink]="true" /> }
+              @if (selected(); as recordId) {
+                <app-work-record-attempts slug="reclamations" bindingKey="showcase.claims.investigate" [recordRef]="recordId"
+                  [selectedRunId]="run()?.id ?? null" [refreshKey]="attemptsRefresh()" (selectRun)="openAttempt($event)" />
+              }
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
                 <span>{{ triage()?.prediction_contract?.label || i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
                 <p>{{ priorityLabel(advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>
@@ -405,21 +410,36 @@ export class ClaimsStudioComponent {
       });
     } catch { if (generation === this.generation) { this.triageBusy.set(false); this.triageError.set(true); } }
   }
+  /** Attempt chosen by the reader; a refresh never swaps it for the latest. */
+  readonly pinnedRun = signal<string | null>(null);
+  readonly attemptsRefresh = signal(0);
+  openAttempt(runId: string): void {
+    const id = this.selected();
+    if (!id || this.run()?.id === runId) return;
+    this.poll?.unsubscribe();
+    this.pinnedRun.set(runId);
+    this.run.set(null); this.runReadFailed.set(null);
+    void this.writeRecordUrl(id, true);
+    this.watchRun(runId, id);
+  }
   select(id: string, updateUrl = true): void {
+    // A record opened from the URL keeps the attempt the URL names.
+    const requested = updateUrl ? null : this.route?.snapshot?.queryParamMap?.get('attempt') ?? null;
+    this.pinnedRun.set(requested && requested.trim() ? requested : null);
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
     this.selected.set(id); this.sourceDocumentId.set(null); this.detailReadFailed.set(false); this.runReadFailed.set(null); this.runRefreshing.set(false); this.dataError.set(null); this.detailLoading.set(true);
     if (updateUrl) void this.writeRecordUrl(id);
     this.refreshDetail(id);
   }
   private writeRecordUrl(id: string, replaceUrl = false): Promise<boolean> {
-    return this.router.navigate([], { relativeTo: this.route, queryParams: { record: id }, queryParamsHandling: 'merge', replaceUrl });
+    return this.router.navigate([], { relativeTo: this.route, queryParams: { record: id, attempt: this.pinnedRun() }, queryParamsHandling: 'merge', replaceUrl });
   }
   private refreshDetail(id: string): void {
     const generation = this.generation;
     this.detailRequest?.unsubscribe();
     this.detailLoading.set(true);
     this.detailRequest = this.api.get<ClaimSnapshot>(`/ecommerce-claims/${encodeURIComponent(id)}`).pipe(takeUntilDestroyed(this.destroy)).subscribe({
-      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detailReadFailed.set(false); this.detail.set(detail); this.detailLoading.set(false); if (detail.latest_run_id && !this.run()) this.watchRun(detail.latest_run_id, id); } },
+      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detailReadFailed.set(false); this.detail.set(detail); this.detailLoading.set(false); const shown = this.pinnedRun() ?? detail.latest_run_id; if (shown && !this.run()) this.watchRun(shown, id); } },
       error: error => { if (generation === this.generation && this.selected() === id) { this.dataError.set(this.readFailure(error)); this.detailLoading.set(false); this.detailReadFailed.set(true); } },
     });
   }
@@ -446,6 +466,9 @@ export class ClaimsStudioComponent {
         this.investigationRequests.update(current => ({ ...current, [requestKey]: { key, state: 'confirmed', runId: result.id } }));
         return;
       }
+      // A new analysis becomes the shown attempt; earlier ones stay listed.
+      this.pinnedRun.set(null); this.attemptsRefresh.update(n => n + 1);
+      void this.writeRecordUrl(id, true);
       this.run.set({ id: result.id, system_id: '', status: 'pending' });
       this.investigationRequests.update(current => { const next = { ...current }; delete next[requestKey]; return next; });
       this.watchRun(result.id, id);
@@ -470,6 +493,10 @@ export class ClaimsStudioComponent {
       next: run => { if (g !== this.generation || this.selected() !== claimId) return;
         this.runRefreshing.set(false);
         if (!run || run.id !== runId) { this.runReadFailed.set(runId); this.poll?.unsubscribe(); return; }
+        if (this.pinnedRun() === run.id && run.input_ref?.['claim_id'] !== undefined && run.input_ref['claim_id'] !== claimId) {
+          // An attempt named in the URL must belong to this case.
+          this.pinnedRun.set(null); this.poll?.unsubscribe(); this.run.set(null); void this.writeRecordUrl(claimId, true); this.refreshDetail(claimId); return;
+        }
         this.runReadFailed.set(null);
         this.clock.set(Date.now());
         this.run.set(run);

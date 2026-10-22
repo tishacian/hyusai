@@ -87,6 +87,7 @@ from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_binding import SystemBinding
+from app.models.work_record_run import WorkRecordRun
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_memory import SystemMemory
 from app.models.system_version import SystemVersion
@@ -234,6 +235,7 @@ __all__ = [
     "AdaptivePolicy",
     "System",
     "SystemBinding",
+    "WorkRecordRun",
     "Experience",
     "ExperienceDraftRevision",
     "ExperienceWizardState",
