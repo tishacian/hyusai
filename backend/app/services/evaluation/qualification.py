@@ -189,7 +189,15 @@ def bound_profile(db, run):
             for item in (campaign.results or [])
             if item.get("case_id") == binding.get("case_id")
             and item.get("repetition_index", 0) == binding.get("repetition_index", 0)
-            and (item.get(side) or {}).get("run_id") == run.id
+            and (
+                (not binding.get("attempt_id") and (item.get(side) or {}).get("run_id") == run.id)
+                or any(
+                    attempt.get("id") == binding.get("attempt_id")
+                    and attempt.get("attempt_index") == binding.get("attempt_index")
+                    and attempt.get("run_id") == run.id
+                    for attempt in (item.get(side) or {}).get("attempts", [])
+                )
+            )
         ]
         if campaign and side in {"baseline", "candidate"}
         else []

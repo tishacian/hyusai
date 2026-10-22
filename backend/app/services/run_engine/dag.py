@@ -783,8 +783,9 @@ async def resume_run_dag(
     The frontend is expected to have called
     :func:`app.services.decisions.state_machine.accept` or ``reject`` before
     invoking this endpoint; we read the final Decision status and inject it
-    into the walker ctx (``hitl_decision``, ``hitl_approved``) so downstream
-    decision nodes can branch on it.
+    into the walker ctx (``hitl_decision``, ``hitl_approved``). Rejection stops
+    an ordinary approval continuation unless an explicit verdict-bound
+    Decision handles it, or a terminal collector only retains the verdict.
     """
     db: DBSession = SessionLocal()
     try:
@@ -1037,6 +1038,39 @@ async def resume_run_dag(
                     "status": "completed",
                 },
             )
+
+        if rejected and paused_node is not None and paused_node.kind == "hitl":
+            from .hitl_routing import has_explicit_rejection_route
+
+            if not has_explicit_rejection_route(graph, state, hitl_node_id):
+                expired = bool(
+                    dec
+                    and dec.approved_by == "system:gate_ttl"
+                    and any(
+                        cp.get("kind") == "gate_ttl_expired"
+                        and cp.get("decision_id") == target_decision_id
+                        and cp.get("expiry_action") == "reject"
+                        for cp in checkpoints
+                    )
+                )
+                reason = "approval_expired" if expired else "approval_rejected"
+                run.output_ref = dict(state.node_outputs.get(hitl_node_id) or {})
+                _append_checkpoint(
+                    db,
+                    run,
+                    {
+                        "kind": "hitl_stopped",
+                        "node_id": hitl_node_id,
+                        "passage_id": pause_cp.get("passage_id"),
+                        "decision_id": target_decision_id,
+                        "decision_status": "rejected",
+                        "decided_by": dec.approved_by if dec else None,
+                        "reason": reason,
+                        "routing": "no_explicit_rejection_route",
+                    },
+                )
+                _terminate_interrupted_run(db, run, status="cancelled", error=f"hitl_{reason}")
+                return {"id": run.id, "status": run.status, "error": run.error}
 
         return await _walk(
             db,

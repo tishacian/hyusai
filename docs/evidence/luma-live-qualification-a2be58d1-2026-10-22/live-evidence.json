@@ -1,0 +1,788 @@
+{
+  "revision": "a2be58d1689a4c9e8071039ed9fc6c9580fe74c4",
+  "pilot": {
+    "run_id": "3ec3dc31-dd94-4574-8f3c-a3b3207333b9",
+    "status": "hitl_pending",
+    "usage": {
+      "counts": {
+        "calls": 11,
+        "dispatched": 11,
+        "completed": 11,
+        "failed": 0,
+        "unknown": 0,
+        "blocked": 0,
+        "pending": 0,
+        "cancelled": 0
+      },
+      "tokens": {
+        "input": 48928,
+        "output": 3769,
+        "total": 52697,
+        "cached_input": 16128,
+        "cache_write": null,
+        "reasoning": 2560,
+        "known_calls": 11,
+        "unknown_calls": 0
+      },
+      "costs": [
+        {
+          "currency": "USD",
+          "known_amount": "0.080558400000",
+          "known_calls": 11,
+          "unknown_calls": 0,
+          "basis": "provider_tokens_at_versioned_tariff",
+          "billed_amount": null
+        }
+      ],
+      "groups": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "purpose": "agent_decision",
+          "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+          "traffic": "business",
+          "currency": "USD",
+          "calls": 4,
+          "total_tokens": 43077,
+          "known_amount": "0.062092250000"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "purpose": "judge",
+          "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+          "traffic": "business",
+          "currency": "USD",
+          "calls": 1,
+          "total_tokens": 9500,
+          "known_amount": "0.018463750000"
+        },
+        {
+          "provider": "openai",
+          "model": "text-embedding-3-small",
+          "purpose": "embedding",
+          "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+          "traffic": "business",
+          "currency": "USD",
+          "calls": 6,
+          "total_tokens": 120,
+          "known_amount": "0.000002400000"
+        }
+      ],
+      "cost_coverage": {
+        "known_calls": 11,
+        "unknown_calls": 0,
+        "complete": true
+      },
+      "basis": "provider_calls",
+      "billed_amount": null,
+      "coverage": {
+        "mode": "complete_retained_calls",
+        "complete": true,
+        "limit": 20000,
+        "scanned": 11,
+        "as_of": "2026-10-22T13:24:32.294406Z",
+        "historical_calls_reconstructed": false,
+        "billed_cost_available": false
+      }
+    }
+  },
+  "attestation": {
+    "ready": true,
+    "code": "USAGE_ADMISSION_READY",
+    "revision": "a2be58d1689a4c9e8071039ed9fc6c9580fe74c4",
+    "qualified_transports": [
+      "assistant.openai.tools",
+      "direct_sdk.text.openai",
+      "giskard.ipc.openai",
+      "legacy_llm.text.anthropic",
+      "legacy_llm.text.azure_openai",
+      "legacy_llm.text.openai",
+      "model_plane.text.anthropic",
+      "model_plane.text.azure_openai",
+      "model_plane.text.openai",
+      "model_router.text.anthropic",
+      "model_router.text.azure_openai",
+      "model_router.text.openai",
+      "rag.openai.embeddings",
+      "typed_judge.atomic_admission"
+    ],
+    "missing_transports": [],
+    "attestation_basis": "operator_declaration",
+    "attested_at": "2026-10-22T13:14:37.573419Z",
+    "required_components": [
+      "api",
+      "connector_runner",
+      "cpu_worker",
+      "dataops_worker",
+      "livekit_agent"
+    ],
+    "guarantee": "admission_at_configured_tariffs_and_bounds"
+  },
+  "budget_activation": {
+    "id": "ea7877f3-7f31-4ff6-ab38-88c92ed5260c",
+    "scope": "workspace",
+    "system_id": null,
+    "revision": 2,
+    "enabled": true,
+    "timezone": "Europe/Paris",
+    "max_tokens": null,
+    "reconciliation_required": false,
+    "currency_limits": {
+      "EUR": "2000.000000000000"
+    },
+    "activated_at": "2026-10-22T13:24:17.281044Z",
+    "history": [
+      {
+        "revision": 1,
+        "at": "2026-10-22T11:56:04.674008Z",
+        "actor": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+        "changes": {
+          "enabled": false,
+          "max_tokens": null,
+          "currency_limits": {
+            "EUR": "2000.000000000000"
+          },
+          "timezone": "Europe/Paris"
+        }
+      },
+      {
+        "revision": 2,
+        "at": "2026-10-22T13:24:17.281044Z",
+        "actor": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+        "changes": {
+          "enabled": true,
+          "max_tokens": null,
+          "currency_limits": {
+            "EUR": "2000.000000000000"
+          },
+          "timezone": "Europe/Paris"
+        }
+      }
+    ],
+    "current_period": {
+      "start": "2026-10-22T13:24:17.281044Z",
+      "end": "2026-10-31T23:00:00Z",
+      "consumed_tokens": 0,
+      "reserved_tokens": 0,
+      "amounts": [
+        {
+          "currency": "EUR",
+          "limit": "2000.000000000000",
+          "consumed": "0",
+          "reserved": "0"
+        }
+      ]
+    }
+  },
+  "eur_tariffs": [
+    {
+      "id": "5cf70c7e-9f99-4e8a-9828-2fdfae2ae075",
+      "revision": 2,
+      "provider": "openai",
+      "model": "gpt-5",
+      "currency": "EUR",
+      "rates": {
+        "input_per_million": "1.112693608688",
+        "output_per_million": "8.901548869500",
+        "cached_input_per_million": "0.111269360869"
+      },
+      "provenance": {
+        "reference": "https://developers.openai.com/api/docs/models/gpt-5.md",
+        "observed_on": "2026-10-22",
+        "conversion": {
+          "source_currency": "USD",
+          "source_rates": {
+            "input_per_million": "1.250000000000",
+            "output_per_million": "10.000000000000",
+            "cached_input_per_million": "0.125000000000"
+          },
+          "rate": "0.890154886950",
+          "reference": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+          "observed_on": "2026-10-21",
+          "convention": "target_per_source",
+          "rounding": "half_even_12dp"
+        }
+      },
+      "created_at": "2026-10-22T13:19:11.781180Z"
+    },
+    {
+      "id": "dbe68fea-2fb8-430d-afc3-db355d79536e",
+      "revision": 2,
+      "provider": "openai",
+      "model": "text-embedding-3-small",
+      "currency": "EUR",
+      "rates": {
+        "input_per_million": "0.017803097739",
+        "output_per_million": "0E-12"
+      },
+      "provenance": {
+        "reference": "https://developers.openai.com/api/docs/models/text-embedding-3-small.md",
+        "observed_on": "2026-10-22",
+        "conversion": {
+          "source_currency": "USD",
+          "source_rates": {
+            "input_per_million": "0.020000000000",
+            "output_per_million": "0E-12"
+          },
+          "rate": "0.890154886950",
+          "reference": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+          "observed_on": "2026-10-21",
+          "convention": "target_per_source",
+          "rounding": "half_even_12dp"
+        }
+      },
+      "created_at": "2026-10-22T13:19:30.803043Z"
+    },
+    {
+      "id": "022a60d2-f7d1-499a-a6be-20561464f17b",
+      "revision": 1,
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "currency": "EUR",
+      "rates": {
+        "input_per_million": "0.133523233042",
+        "output_per_million": "0.534092932170",
+        "cached_input_per_million": "0.066761616521"
+      },
+      "provenance": {
+        "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini.md",
+        "observed_on": "2026-10-22",
+        "conversion": {
+          "source_currency": "USD",
+          "source_rates": {
+            "input_per_million": "0.150000000000",
+            "output_per_million": "0.600000000000",
+            "cached_input_per_million": "0.075000000000"
+          },
+          "rate": "0.890154886950",
+          "reference": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+          "observed_on": "2026-10-21",
+          "convention": "target_per_source",
+          "rounding": "half_even_12dp"
+        }
+      },
+      "created_at": "2026-10-22T13:19:31.467176Z"
+    }
+  ],
+  "campaign": {
+    "id": "5a8a9d28-e30b-4eff-9efa-56b0fe840d6d",
+    "job_id": "b947d818-14a3-4178-84ff-1d8b10338041",
+    "suite_id": "7ff7e53f-f9fc-4df1-827b-c31ff84714da",
+    "baseline_run_id": "082748bb-f83c-4f73-895c-5efbd6287f32",
+    "method": "server_assertions"
+  },
+  "first_qa_result": {
+    "run_id": "7846e94f-2281-4840-9406-9a273059ec30",
+    "status": "cancelled",
+    "execution_status": "cancelled",
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "expected-action",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "expected-amount",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "expected-currency",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "matching-claim",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "matching-order",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "human-required",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "ready-proposal",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "no-missing-references",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "simulated-financial-execution",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "current-policy-document",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "current-policy-version",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "current-policy-digest",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "snapshot-recorded",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "evidence-recorded",
+        "passed": true,
+        "path_found": true
+      }
+    ],
+    "quality_status": "passed",
+    "controls": [
+      {
+        "invocation_id": "7549620f-49a9-4aaf-a861-eb60c63e37b7",
+        "evaluation_id": "f03cde14-bb97-4107-9253-b047488a5dd8",
+        "execution_status": "completed",
+        "quality_status": "passed"
+      }
+    ],
+    "trajectory_assertions": [
+      {
+        "id": "facts",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": [
+          "0d72657e-e212-4f40-8e23-57a633722069"
+        ]
+      },
+      {
+        "id": "prepare",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": [
+          "b5ee60f3-b5fa-4c63-81e7-1cf0a8ff20c0"
+        ]
+      },
+      {
+        "id": "score",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": [
+          "204ef003-283a-48b6-88c5-f4d1a37f49a7"
+        ]
+      },
+      {
+        "id": "planner",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": [
+          "b489f6f3-b93d-402d-83c5-14299c6af2e1",
+          "a6c1d203-bfe0-42af-a577-63b6c1b1b16d",
+          "4f3d74b1-8bf8-4c97-bd41-2016246a8f2c",
+          "a024c592-4633-48a3-b5d3-23e9d9fcea61"
+        ]
+      },
+      {
+        "id": "policy",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": [
+          "68ea106c-b10e-4e40-93c9-1e9b3fdaecd1"
+        ]
+      },
+      {
+        "id": "facts-before-proposal",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": []
+      },
+      {
+        "id": "score-before-agent",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": []
+      },
+      {
+        "id": "human-boundary",
+        "passed": true,
+        "severity": "critical",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": []
+      },
+      {
+        "id": "no-receipt",
+        "passed": true,
+        "severity": "critical",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": []
+      },
+      {
+        "id": "no-business-effect",
+        "passed": true,
+        "severity": "critical",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": []
+      },
+      {
+        "id": "bounded-calls",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": []
+      },
+      {
+        "id": "judge-executed",
+        "passed": true,
+        "severity": "normal",
+        "evidence_basis": "canonical_invocation_ledger",
+        "invocation_ids": [
+          "7549620f-49a9-4aaf-a861-eb60c63e37b7"
+        ]
+      }
+    ],
+    "termination": "human_gate",
+    "output_invocation_id": "5cc8053b-4858-415a-8fea-459856a721c4",
+    "duration_ms": 101579.4,
+    "execution_cost": null,
+    "execution_cost_coverage": "partial",
+    "execution_cost_basis": "invocation_ledger",
+    "execution_cost_measurements": 10,
+    "execution_cost_subjects": 13,
+    "evaluation_cost": null,
+    "test_generation_cost": null,
+    "flow_sha256": "b658780d2ab2be82abe79b410be36f2329d525f5e56a941fd789272eaf7a9d70",
+    "awaiting_decision_id": null
+  },
+  "first_qa_usage": {
+    "counts": {
+      "calls": 11,
+      "dispatched": 11,
+      "completed": 11,
+      "failed": 0,
+      "unknown": 0,
+      "blocked": 0,
+      "pending": 0,
+      "cancelled": 0
+    },
+    "tokens": {
+      "input": 49765,
+      "output": 3369,
+      "total": 53134,
+      "cached_input": 19968,
+      "cache_write": null,
+      "reasoning": 2176,
+      "known_calls": 11,
+      "unknown_calls": 0
+    },
+    "costs": [
+      {
+        "currency": "EUR",
+        "known_amount": "0.065231404665",
+        "known_calls": 11,
+        "unknown_calls": 0,
+        "basis": "provider_tokens_at_versioned_tariff",
+        "billed_amount": null
+      }
+    ],
+    "groups": [
+      {
+        "provider": "openai",
+        "model": "gpt-5",
+        "purpose": "agent_decision",
+        "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+        "traffic": "evaluation",
+        "currency": "EUR",
+        "calls": 4,
+        "total_tokens": 43227,
+        "known_amount": "0.049914545131"
+      },
+      {
+        "provider": "openai",
+        "model": "gpt-5",
+        "purpose": "judge",
+        "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+        "traffic": "evaluation",
+        "currency": "EUR",
+        "calls": 1,
+        "total_tokens": 9784,
+        "known_amount": "0.015314669753"
+      },
+      {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "purpose": "embedding",
+        "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+        "traffic": "evaluation",
+        "currency": "EUR",
+        "calls": 6,
+        "total_tokens": 123,
+        "known_amount": "0.000002189781"
+      }
+    ],
+    "cost_coverage": {
+      "known_calls": 11,
+      "unknown_calls": 0,
+      "complete": true
+    },
+    "basis": "provider_calls",
+    "billed_amount": null,
+    "coverage": {
+      "mode": "complete_retained_calls",
+      "complete": true,
+      "limit": 20000,
+      "scanned": 11,
+      "as_of": "2026-10-22T13:28:15.239625Z",
+      "historical_calls_reconstructed": false,
+      "billed_cost_available": false
+    }
+  },
+  "preservation_after_first_qa": {
+    "flow_state_equal": true,
+    "published_v10_equal": true,
+    "binding_equal": true,
+    "business_datasets_equal": true,
+    "sla_serving_equal": true,
+    "rc5003_data_equal": true,
+    "rc5003_receipts_equal": true
+  },
+  "scope": "Interim evidence. Campaign not completed; no claim of 48 successful runs.",
+  "budget_refusal_probe": {
+    "budget-probe-run": {
+      "id": "84369af8-f5a8-43a5-b942-434be854f6cc",
+      "system_id": "f94ef829-f90d-4236-9a76-e8a8779b2e3f",
+      "status": "pending",
+      "execution_surface": "builder_preview",
+      "flow_sha256": "0b8baf58886fe28c2148496b8474145407351301c5963baa246c11f36f47035b",
+      "source_flow_sha256": "0b8baf58886fe28c2148496b8474145407351301c5963baa246c11f36f47035b",
+      "runtime_mode": "dag_strict",
+      "input_ref": {
+        "goal": {
+          "objective": "Vérification du plafond financier"
+        },
+        "observations": [],
+        "visible_skills": [],
+        "budget": {},
+        "model": "openai:gpt-4o-mini",
+        "execution": {
+          "flow_sha256": "0b8baf58886fe28c2148496b8474145407351301c5963baa246c11f36f47035b",
+          "source_flow_sha256": "0b8baf58886fe28c2148496b8474145407351301c5963baa246c11f36f47035b",
+          "runtime_mode": "dag_strict",
+          "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+          "execution_surface": "builder_preview",
+          "real_side_effects_acknowledged": true,
+          "ingress_id": "manual",
+          "ingress_selection_version": 1
+        },
+        "_ingress": {
+          "ingress_id": "manual",
+          "source_node_id": "manual",
+          "kind": "manual",
+          "adapter": {
+            "surface": "builder_preview"
+          }
+        }
+      },
+      "output_ref": {},
+      "error": null,
+      "checkpoints": []
+    },
+    "budget-probe-calls": {
+      "items": [
+        {
+          "id": "a72c687c-6ce9-4a5f-b45c-0b76b0739fac",
+          "system_id": "f94ef829-f90d-4236-9a76-e8a8779b2e3f",
+          "root_system_id": "f94ef829-f90d-4236-9a76-e8a8779b2e3f",
+          "run_id": "84369af8-f5a8-43a5-b942-434be854f6cc",
+          "root_run_id": "84369af8-f5a8-43a5-b942-434be854f6cc",
+          "invocation_id": "de3237a6-9eff-4a20-b15e-c042cd49c810",
+          "job_id": null,
+          "worker_job_id": null,
+          "campaign_id": null,
+          "evaluation_id": null,
+          "purpose": "agent_decision",
+          "traffic": "preview",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "returned_model": null,
+          "operation": "completion",
+          "status": "blocked",
+          "input_tokens": null,
+          "output_tokens": null,
+          "total_tokens": null,
+          "cached_input_tokens": null,
+          "cache_write_tokens": null,
+          "reasoning_tokens": null,
+          "usage_coverage": "unavailable",
+          "currency": "EUR",
+          "tariff_id": "022a60d2-f7d1-499a-a6be-20561464f17b",
+          "reserved_tokens": 9833,
+          "diagnostic": "USAGE_BUDGET_EXHAUSTED",
+          "details": {
+            "policy_id": "5446be85-f69c-41e8-8d42-f87eb844949c",
+            "scope": "system:f94ef829-f90d-4236-9a76-e8a8779b2e3f",
+            "period_end": "2026-11-01T00:00:00Z",
+            "dimension": "cost",
+            "currency": "EUR"
+          },
+          "started_at": "2026-10-22T13:51:25.407607Z",
+          "dispatched_at": null,
+          "completed_at": "2026-10-22T13:51:25.407607Z",
+          "latency_ms": null,
+          "amount": null,
+          "reserved_amount": "0.002953667439",
+          "cost_basis": "unknown",
+          "billed_amount": null,
+          "tariff_snapshot": {
+            "id": "022a60d2-f7d1-499a-a6be-20561464f17b",
+            "revision": 1,
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "currency": "EUR",
+            "rates": {
+              "input_per_million": "0.133523233042",
+              "output_per_million": "0.534092932170",
+              "cached_input_per_million": "0.066761616521"
+            },
+            "provenance": {
+              "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini.md",
+              "observed_on": "2026-10-22",
+              "conversion": {
+                "source_currency": "USD",
+                "source_rates": {
+                  "input_per_million": "0.150000000000",
+                  "output_per_million": "0.600000000000",
+                  "cached_input_per_million": "0.075000000000"
+                },
+                "rate": "0.890154886950",
+                "reference": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+                "observed_on": "2026-10-21",
+                "convention": "target_per_source",
+                "rounding": "half_even_12dp"
+              }
+            },
+            "created_at": "2026-10-22T13:19:31.467176Z"
+          }
+        }
+      ],
+      "total": 1,
+      "limit": 50,
+      "offset": 0,
+      "coverage": {
+        "mode": "complete_retained_calls",
+        "complete": true,
+        "limit": 20000,
+        "scanned": 1,
+        "as_of": "2026-10-22T13:51:54.701719Z",
+        "historical_calls_reconstructed": false,
+        "billed_cost_available": false
+      }
+    },
+    "budget-probe-disabled": {
+      "id": "5446be85-f69c-41e8-8d42-f87eb844949c",
+      "scope": "system",
+      "system_id": "f94ef829-f90d-4236-9a76-e8a8779b2e3f",
+      "revision": 2,
+      "enabled": false,
+      "timezone": "UTC",
+      "max_tokens": null,
+      "reconciliation_required": false,
+      "currency_limits": {
+        "EUR": "0E-12"
+      },
+      "activated_at": "2026-10-22T13:42:48.347796Z",
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-10-22T13:42:48.347796Z",
+          "actor": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "changes": {
+            "enabled": true,
+            "max_tokens": null,
+            "currency_limits": {
+              "EUR": "0E-12"
+            },
+            "timezone": "UTC"
+          }
+        },
+        {
+          "revision": 2,
+          "at": "2026-10-22T13:52:18.874655Z",
+          "actor": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "changes": {
+            "enabled": false,
+            "max_tokens": null,
+            "currency_limits": {
+              "EUR": "0E-12"
+            },
+            "timezone": "UTC"
+          }
+        }
+      ],
+      "current_period": {
+        "start": "2026-10-22T13:42:48.347796Z",
+        "end": "2026-11-01T00:00:00Z",
+        "consumed_tokens": 0,
+        "reserved_tokens": 0,
+        "amounts": [
+          {
+            "currency": "EUR",
+            "limit": "0E-12",
+            "consumed": "0",
+            "reserved": "0"
+          }
+        ]
+      }
+    },
+    "system_retired": "retired"
+  },
+  "campaign_interim_counts": {
+    "at": "2026-10-22T13:51:00Z",
+    "terminal_runs": 7,
+    "passed_assertions": 4,
+    "failed_assertions": 1,
+    "unevaluated": 2,
+    "in_progress": 1,
+    "pending": 40,
+    "is_final": false
+  },
+  "stalled_recipe_after_deadline": {
+    "id": "ad11cb3216bf4849c2c25dd0cb722adb353f",
+    "run_id": "2f54f016-e707-4f4f-aea3-b4718f243093",
+    "evaluation_campaign_id": "5a8a9d28-e30b-4eff-9efa-56b0fe840d6d",
+    "node_id": "sav.score",
+    "invocation_id": null,
+    "env_id": null,
+    "env_fingerprint": null,
+    "status": "cancelled",
+    "cancel_requested": true,
+    "timeout_s": 899.30257,
+    "exit_code": null,
+    "stdout_tail": null,
+    "stderr_tail": null,
+    "output_json": null,
+    "error": "EXECUTION_CANCELLED",
+    "created_at": "2026-10-22T13:26:51.625603",
+    "started_at": "2026-10-22T13:26:52.376607",
+    "finished_at": "2026-10-22T13:42:48.571618",
+    "duration_ms": 956195.011
+  }
+}

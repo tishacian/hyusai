@@ -131,6 +131,75 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
 test.describe('Claims studio — isolated end-user QA', () => {
  test.skip(!enabled, 'Enable E2E_CHROME_V2_MOCKED for isolated QA');
  for (const [locale, width] of [['fr', 1440], ['en', 390]] as const) {
+  test(`investigation recovery: expired approval, uncertain start and read failures in ${locale} at ${width}px`, async ({ page }, testInfo) => {
+   await setup(page, locale === 'fr' ? 'dark' : 'light', locale);
+   const requests: Array<{ key: string; body: unknown }> = [];
+   let latest = 'qa-expired-run', runUnavailable = true, detailUnavailable = false;
+   const receipt = { receipt_id: 'qa-retained-receipt', status: 'simulated', claim_id: 'RC-1043', order_id: 'LM-1043', action: 'refund', reason: 'carrier_loss_confirmed', amount: '49.90', currency: 'EUR', evidence_kind: 'synthetic_demo', missing_references: [], requires_human: true, citations: [] };
+   await page.route('**/api/v1/ecommerce-claims/RC-1043', route => route.fulfill({ status: detailUnavailable ? 503 : 200, json: detailUnavailable
+    ? { detail: { code: 'PG_CONNECT_TIMEOUT', message: 'PRIVATE_DATABASE_DIAGNOSTIC' } }
+    : { ...detail('RC-1043'), latest_run_id: latest, receipts: [receipt] } }));
+   await page.route('**/api/v1/runs/qa-expired-run', route => route.fulfill({ json: {
+    id: 'qa-expired-run', system_id: 'qa-system', status: 'failed', error: 'CLAIM_HUMAN_APPROVAL_REQUIRED: PRIVATE_ERROR', skill_invocations: [],
+    checkpoints: [
+     { kind: 'hitl_pause', node_id: 'review', passage_id: 'passage-a', decision_id: 'decision-a' },
+     { kind: 'gate_ttl_expired', decision_id: 'decision-a', expiry_action: 'reject' },
+     { kind: 'hitl_resume', node_id: 'review', passage_id: 'passage-a', decision_status: 'rejected' },
+    ],
+   } }));
+   await page.route('**/api/v1/work/reclamations/bindings/showcase.claims.investigate/runs', route => {
+    requests.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
+    if (requests.length === 1) return route.fulfill({ status: 504, json: { detail: 'PRIVATE_ERROR' } });
+    latest = 'qa-recovered-run';
+    return route.fulfill({ status: 201, json: { id: latest, status: 'pending' } });
+   });
+   await page.route('**/api/v1/runs/qa-recovered-run', route => route.fulfill({ status: runUnavailable ? 503 : 200,
+    json: runUnavailable ? { detail: 'PRIVATE_ERROR' } : { id: latest, system_id: 'qa-system', status: 'completed', skill_invocations: [] } }));
+   await page.setViewportSize({ width, height: 900 });
+   await page.goto('/work/reclamations/studio?record=RC-1043');
+   const failure = page.getByTestId('claims-run-failure');
+   await expect(failure).toContainText(locale === 'fr' ? 'Le délai de validation a expiré.' : 'The approval deadline expired.');
+   await expect(failure.getByRole('link')).toHaveAttribute('href', /\/runs\/qa-expired-run(?:\?|$)/);
+   await expect(page.getByTestId('claims-previous-actions')).toContainText('49');
+   await page.locator('.claims-decision').screenshot({ path: testInfo.outputPath(`claims-expired-${locale}-${width}.png`) });
+   const reexamine = page.locator('.claims-decision > .claims-reexamine:not(.claims-history)');
+   await reexamine.locator(':scope > summary').click();
+   const start = reexamine.locator('button');
+   await start.click();
+   const unknown = page.getByTestId('claims-start-unconfirmed');
+   await expect(unknown).toContainText(locale === 'fr' ? 'Le lancement n’a pas pu être confirmé.' : 'The start could not be confirmed.');
+   await expect(start).toBeDisabled();
+   expect(requests).toHaveLength(1);
+   await unknown.getByRole('button', { name: locale === 'fr' ? 'Reprendre la demande' : 'Resume request' }).click();
+   const readError = page.getByTestId('claims-run-read-error');
+   await expect(readError).toBeVisible();
+   await expect(readError).toContainText(locale === 'fr' ? 'Cela ne confirme pas un arrêt' : 'This does not confirm it has stopped');
+   await expect(unknown).toHaveCount(0);
+   await expect(failure).toHaveCount(0);
+   await expect(start).toBeDisabled();
+   expect(requests).toHaveLength(2);
+   expect(requests[1]).toEqual(requests[0]);
+   expect(requests[0].key).toBeTruthy();
+   expect((await readError.getByRole('button').boundingBox())!.height).toBeLessThanOrEqual(36);
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+   expect((await new AxeBuilder({ page }).include('.claims-app').analyze()).violations).toEqual([]);
+   await page.locator('.claims-decision').screenshot({ path: testInfo.outputPath(`claims-read-recovery-${locale}-${width}.png`) });
+   runUnavailable = false; detailUnavailable = true;
+   await readError.getByRole('button', { name: locale === 'fr' ? 'Actualiser' : 'Refresh' }).click();
+   await expect(readError).toHaveCount(0);
+   const detailError = page.getByTestId('claims-detail-read-error');
+   await expect(detailError).toBeVisible();
+   await expect(failure).toHaveCount(0);
+   detailUnavailable = false;
+   await detailError.getByRole('button').click();
+   await expect(detailError).toHaveCount(0);
+   await expect(start).toBeEnabled();
+   await expect(page.getByTestId('claims-previous-actions')).toContainText('49');
+   await expect(page.locator('.claims-app')).not.toContainText('PRIVATE_');
+   expect(requests).toHaveLength(2, 'read recovery must never start another investigation');
+  });
+ }
+ for (const [locale, width] of [['fr', 1440], ['en', 390]] as const) {
   test(`resolution policy: compact admin settings and confirmed recovery in ${locale} at ${width}px`, async ({ page }, testInfo) => {
    const posts = await setup(page, locale === 'fr' ? 'dark' : 'light', locale);
    let reads = 0; const writes: Record<string, unknown>[] = [];

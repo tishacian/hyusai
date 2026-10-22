@@ -3,16 +3,24 @@
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
-from app.models.model_usage import ModelUsageCall, UsageBudgetBucket, UsageReservation
+from app.models.model_usage import (
+    ModelUsageCall,
+    UsageBudgetBucket,
+    UsageBudgetPolicy,
+    UsageReservation,
+)
 from app.models.system import System
+from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
 from app.services import model_usage as usage
 
@@ -115,7 +123,105 @@ def test_concurrent_admission_only_one_call_fits_all_shared_limits(pg_usage):
     assert sorted(results) == ["USAGE_BUDGET_EXHAUSTED", "prepared"]
     with s.factory() as db:
         assert db.query(UsageReservation).count() == 2
+        buckets = db.query(UsageBudgetBucket).all()
+        assert len(buckets) == 2
+        assert all(b.reserved_tokens == 200 and b.consumed_tokens == 0 for b in buckets)
+        assert all(Decimal(b.reserved_amounts["USD"]) == Decimal("0.3") for b in buckets)
+
+
+def _dataset():
+    return TabularDataset(
+        id=str(uuid4()),
+        workspace_id="usage-ws",
+        name="Scored",
+        slug=uuid4().hex,
+        source="score",
+        status="ingesting",
+    )
+
+
+@pytest.mark.parametrize("legacy_for_update", [False, True])
+def test_usage_lock_allows_concurrent_canonical_dataset_fk_insert(pg_usage, legacy_for_update):
+    """A budget transaction must not stall DataOps' workspace FK validation."""
+    with pg_usage.factory() as budget, pg_usage.factory() as dataops:
+        if legacy_for_update:
+            budget.query(Workspace).filter_by(id="usage-ws").with_for_update().one()
+        else:
+            usage._workspace_lock(budget, "usage-ws")
+        dataops.execute(text("SET LOCAL lock_timeout = '500ms'"))
+        dataset = _dataset()
+        dataops.add(dataset)
+        # Real INSERT checks the Workspace FK using PostgreSQL FOR KEY SHARE.
+        # FOR UPDATE in the budget transaction makes this fail on lock_timeout.
+        if legacy_for_update:
+            with pytest.raises(OperationalError) as error:
+                dataops.commit()
+            assert error.value.orig.pgcode == "55P03"  # lock_not_available
+            dataops.rollback()
+        else:
+            dataops.commit()
+            assert dataops.get(TabularDataset, dataset.id) is not None
+        budget.rollback()
+
+
+def test_uncommitted_dataset_fk_allows_budget_update_and_provider_admission(pg_usage):
+    """A pending native publication must not block usage admission or a policy edit."""
+    with pg_usage.factory() as dataops, pg_usage.factory() as budgets:
+        dataops.add(_dataset())
+        dataops.flush()  # Keep the actual FK KEY SHARE lock until rollback below.
+        budgets.execute(text("SET LOCAL lock_timeout = '1000ms'"))
+        workspace = budgets.get(Workspace, "usage-ws")
+        policy = usage.save_budget(
+            budgets,
+            workspace,
+            SimpleNamespace(id="test-operator"),
+            scope="workspace",
+            enabled=True,
+            max_tokens=200,
+            currency_limits={"USD": "0.3"},
+            expected_revision=1,
+        )
+        assert policy["revision"] == 2
+        assert _prepare(pg_usage, "during-native-publication")["status"] == "prepared"
+        with pytest.raises(usage.UsageError, match="USAGE_BUDGET_EXHAUSTED"):
+            _prepare(pg_usage, "second-during-native-publication")
+        dataops.rollback()
+    with pg_usage.factory() as db:
+        assert db.query(TabularDataset).count() == 0
+        assert db.query(UsageReservation).count() == 2
         assert all(b.reserved_tokens == 200 for b in db.query(UsageBudgetBucket).all())
+
+
+def test_concurrent_budget_edits_keep_one_revision_owner(pg_usage):
+    """NO KEY UPDATE remains exclusive between budget writers in one workspace."""
+    barrier = threading.Barrier(2)
+
+    def edit():
+        with pg_usage.factory() as db:
+            workspace = db.get(Workspace, "usage-ws")
+            barrier.wait(timeout=5)
+            try:
+                result = usage.save_budget(
+                    db,
+                    workspace,
+                    SimpleNamespace(id="test-operator"),
+                    scope="workspace",
+                    enabled=True,
+                    max_tokens=200,
+                    currency_limits={"USD": "0.3"},
+                    expected_revision=1,
+                )
+                return str(result["revision"])
+            except usage.UsageError as exc:
+                return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [future.result(timeout=10) for future in [pool.submit(edit), pool.submit(edit)]]
+    assert sorted(results) == ["2", "USAGE_BUDGET_REVISION_CONFLICT"]
+    with pg_usage.factory() as db:
+        policy = db.query(UsageBudgetPolicy).filter_by(scope_key="workspace").one()
+        assert policy.revision == 2
+        assert [entry["revision"] for entry in policy.history] == [1, 2]
 
 
 def test_concurrent_duplicate_reservation_and_dispatch_are_single_owner(pg_usage):

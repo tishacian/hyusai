@@ -844,7 +844,12 @@ def case_result(run, case, *, qualified=False):
     }
 
 
-def refresh_campaign(db, campaign: EvaluationCampaign) -> EvaluationCampaign:
+def refresh_campaign(db, campaign: EvaluationCampaign, *, locked=False) -> EvaluationCampaign:
+    from app.services.evaluation.campaign_retries import lock_campaign
+
+    if not locked:
+        # Keep a concurrent retry append when a worker or GET refreshes results.
+        campaign = lock_campaign(db, campaign.id, campaign.workspace_id)
     results = copy.deepcopy(campaign.results)
     cases = {case["id"]: case for case in campaign.snapshot["cases"]}
     finished = 0
@@ -860,10 +865,14 @@ def refresh_campaign(db, campaign: EvaluationCampaign) -> EvaluationCampaign:
                 cases[item["case_id"]],
                 qualified=campaign.snapshot.get("execution_mode") == "qualified_prefix",
             )
+            retries = item[side].get("attempts", [])
             item[side] = {
                 "run_id": run.id,
                 "status": run.status,
                 "execution_status": run.status,
+                "has_active_invocations": any(
+                    inv.status in {"pending", "running"} for inv in run.invocations
+                ),
                 **verdict,
                 "duration_ms": run.duration_ms,
                 **execution_cost_evidence(db, run),
@@ -880,7 +889,24 @@ def refresh_campaign(db, campaign: EvaluationCampaign) -> EvaluationCampaign:
                 )
                 if run.status == "hitl_pending"
                 else None,
+                **({"attempts": retries} if retries else {}),
             }
+            for attempt in retries:
+                retry = db.get(Run, attempt["run_id"])
+                if retry is None or retry.workspace_id != campaign.workspace_id:
+                    attempt.update(status="unavailable", verdict="unevaluated")
+                    continue
+                attempt.update(
+                    status=retry.status,
+                    execution_status=retry.status,
+                    has_active_invocations=any(
+                        inv.status in {"pending", "running"} for inv in retry.invocations
+                    ),
+                    **case_result(retry, cases[item["case_id"]], qualified=True),
+                    duration_ms=retry.duration_ms,
+                    flow_sha256=retry.flow_sha256,
+                    **execution_cost_evidence(db, retry),
+                )
             finished += run.status in {"completed", "failed", "cancelled"}
         before, after = item["baseline"]["verdict"], item["candidate"]["verdict"]
         item["change"] = (
@@ -950,6 +976,12 @@ def run_campaign_job(job_id: str):
     db = SessionLocal()
     try:
         job = db.get(WorkspaceJob, job_id)
+        if job and (job.input_ref or {}).get("retry_run_id"):
+            # No campaign lock/transaction survives into canonical execution.
+            db.close()
+            from app.services.evaluation.campaign_retries import run_retry_job
+
+            return run_retry_job(job_id)
         campaign = (
             db.get(EvaluationCampaign, (job.input_ref or {}).get("campaign_id")) if job else None
         )
@@ -1237,7 +1269,9 @@ def run_generation_job(job_id: str):
 
 
 def serialize_campaign(campaign):
-    return {
+    from app.services.evaluation.campaign_retries import ACTIVE, retry_state
+
+    payload = {
         name: getattr(campaign, name)
         for name in (
             "id",
@@ -1253,3 +1287,15 @@ def serialize_campaign(campaign):
             "completed_at",
         )
     }
+    payload["results"] = copy.deepcopy(campaign.results)
+    payload["retry_pending"] = False
+    for item in payload["results"]:
+        for side in ("baseline", "candidate"):
+            result = item[side]
+            result.setdefault("attempts", [])
+            result.update(retry_state(campaign, result))
+            for attempt in result["attempts"]:
+                payload["retry_pending"] |= attempt.get("status") in ACTIVE
+                attempt.pop("request_key_sha256", None)
+                attempt.pop("request_sha256", None)
+    return payload

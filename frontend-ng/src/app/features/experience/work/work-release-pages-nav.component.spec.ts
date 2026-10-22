@@ -48,7 +48,7 @@ function loadHarness() {
     releasePages: signal<unknown>({ pages: [{ id: 'previous', title: 'Previous' }] }),
     rows: signal([]), detail: signal(null), run: signal(null), selected: signal(null), sourceDocumentId: signal(null),
     loading: signal(false), error: signal(false), busy: signal(false), benchmarkReady: signal(false),
-    dataError: signal(null), canConfigureData: signal(false), actionError: signal(false),
+    dataError: signal(null), canConfigureData: signal(false), detailReadFailed: signal(false), runReadFailed: signal(null), runRefreshing: signal(false),
     triageData: signal(null), triageBusy: signal(false), triageError: signal(false), triageLoading: signal(false),
     work: { resolve: () => releases[next++] },
     api: { get: () => of({ data: { queue: [] } }) },

@@ -104,8 +104,16 @@ def _count(value):
 
 
 def _workspace_lock(db, workspace_id):
+    # Serialize usage/budget writers without blocking unrelated FK inserts
+    # (datasets, predictions, evaluations) that hold FOR KEY SHARE on Workspace.
+    # These operations never change its primary/unique keys. SQLAlchemy's
+    # key_share=True without read=True emits PostgreSQL FOR NO KEY UPDATE.
     workspace = (
-        db.query(Workspace).filter_by(id=workspace_id).populate_existing().with_for_update().first()
+        db.query(Workspace)
+        .filter_by(id=workspace_id)
+        .populate_existing()
+        .with_for_update(key_share=True)
+        .first()
     )
     if not workspace or not workspace.is_active or workspace.deleted_at:
         raise UsageError("USAGE_WORKSPACE_INVALID", 403)
