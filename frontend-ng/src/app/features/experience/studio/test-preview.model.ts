@@ -13,6 +13,7 @@ import {
 
 export interface BoundOutput {
   componentId: string;
+  label: string;
   type: string;
   bindingKey: string;
   selector: string;
@@ -34,8 +35,20 @@ export function boundOutputs(page: ExperiencePage | null | undefined): BoundOutp
   if (!page) return [];
   const byId = new Map(page.components.filter((node) => node.id).map((node) => [node.id!, node]));
   const out: BoundOutput[] = [];
+  const actions = page.components.filter(node => node.type === 'form' || node.type === 'action_button');
+  const implicitTypes = new Set(['result', 'runtime_status', 'evidence', 'history']);
   for (const node of page.components) {
-    const binding = runtimeDataBinding(node);
+    let binding = runtimeDataBinding(node);
+    if (!binding && implicitTypes.has(node.type)) {
+      // Older wizard documents use the runtime's sourceComponentId or preceding
+      // form convention. Read it without rewriting the user's draft. Multiple
+      // actions need an explicit source; a preview must not guess between them.
+      const explicit = typeof node.props?.['sourceComponentId'] === 'string' ? node.props['sourceComponentId'] : null;
+      const solePrevious = actions.length === 1 && page.components.indexOf(actions[0]) < page.components.indexOf(node)
+        ? actions[0].id : undefined;
+      const componentId = explicit || solePrevious;
+      if (componentId) binding = { source: 'run-output', componentId, selector: '', input: {} };
+    }
     if (!binding || !node.id) continue;
     const bindingKey = binding.source === 'system-binding'
       ? binding.bindingKey ?? ''
@@ -43,6 +56,7 @@ export function boundOutputs(page: ExperiencePage | null | undefined): BoundOutp
     if (!bindingKey) continue;
     out.push({
       componentId: node.id,
+      label: outputLabel(node),
       type: node.type,
       bindingKey,
       selector: binding.selector,
@@ -85,4 +99,23 @@ export function previewValue(value: unknown): string {
   if (value === null || value === undefined) return '';
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+}
+
+/** A component’s business heading takes precedence over its implementation id. */
+export function outputLabel(node: ExperienceNode): string {
+  for (const key of ['title', 'label', 'caption']) {
+    const value = node.props?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (value && typeof value === 'object' && typeof (value as Record<string, unknown>)['fallback'] === 'string') {
+      const fallback = String((value as Record<string, unknown>)['fallback']).trim();
+      if (fallback) return fallback;
+    }
+  }
+  return '';
+}
+
+/** Never flatten structured evidence into a truncated JSON sentence. */
+export function previewShape(value: unknown): 'scalar' | 'list' | 'record' {
+  if (Array.isArray(value)) return 'list';
+  return value !== null && typeof value === 'object' ? 'record' : 'scalar';
 }

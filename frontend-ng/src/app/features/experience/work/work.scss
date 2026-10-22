@@ -56,6 +56,20 @@
   overflow-wrap: anywhere;
 }
 
+.xp-work-app-header .xp-work-brand h1 {
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -.025em;
+  font-weight: 650;
+  margin-block: 4px;
+}
+
+.xp-work-app-header .xp-work-brand > p:last-child {
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 60ch;
+}
+
 .xp-work-app-header-actions {
   display: flex;
   flex-wrap: wrap;

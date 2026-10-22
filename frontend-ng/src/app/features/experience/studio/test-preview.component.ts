@@ -11,6 +11,7 @@ import {
   boundOutputs,
   checkOutput,
   previewValue,
+  previewShape,
   runStanding,
   runVersionMatches,
 } from './test-preview.model';
@@ -68,8 +69,10 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
           @case ('ready') {
             @if (run(); as r) {
               <dl class="origin" data-testid="test-preview-origin">
-                <dt>{{ i18n.t('experience.editor.test_preview.run') }}</dt>
-                <dd><code>{{ r.id }}</code> · {{ r.started_at | date: 'short' }}</dd>
+                <dt>{{ i18n.t('experience.editor.test_preview.automation') }}</dt>
+                <dd>{{ systemNames()[r.system_id] || i18n.t('experience.editor.test_preview.unnamed_system') }}</dd>
+                <dt>{{ i18n.t('experience.editor.test_preview.date') }}</dt>
+                <dd>{{ r.started_at | date: 'short' }}</dd>
                 <dt>{{ i18n.t('experience.editor.test_preview.surface') }}</dt>
                 <dd>{{ i18n.t(r.execution_surface === 'draft_test' ? 'experience.editor.test_preview.surface.draft' : 'experience.editor.test_preview.surface.published') }}</dd>
                 <dt>{{ i18n.t('experience.editor.test_preview.state') }}</dt>
@@ -81,22 +84,31 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
               @if (versionMatches() === false) {
                 <p class="notice is-warn" role="status" data-testid="test-preview-version">{{ i18n.t('experience.editor.test_preview.other_version') }}</p>
               }
+              <p class="muted" data-testid="test-preview-coverage">{{ i18n.t('experience.editor.test_preview.coverage', { present: presentCount(), total: checks().length }) }}</p>
               <ul class="checks">
                 @for (row of checks(); track row.output.componentId) {
                   <li [attr.data-state]="row.state" [attr.data-testid]="'test-preview-check-' + row.output.componentId">
-                    <strong>{{ row.output.componentId }}</strong>
-                    <code>{{ row.output.selector || i18n.t('experience.editor.data.whole_result') }}</code>
+                    <strong>{{ row.output.label || typeLabel(row.output.type) }}</strong>
                     @if (row.state === 'present') {
-                      <span class="value">{{ row.text }}</span>
+                      <span class="value">{{ row.shape === 'scalar' ? row.text : i18n.t('experience.editor.test_preview.' + row.shape, { count: row.count }) }}</span>
                     } @else {
                       <span class="miss">{{ i18n.t('experience.editor.test_preview.missing') }}</span>
                       <button type="button" class="ck-btn ck-btn-quiet ck-btn--sm" (click)="openSetting.emit(row.output.componentId)">
                         {{ i18n.t('experience.editor.test_preview.fix') }}
                       </button>
                     }
+                    <details class="output-details">
+                      <summary>{{ i18n.t('experience.editor.test_preview.details') }}</summary>
+                      <p><code>{{ row.output.componentId }}</code> · <code>{{ row.output.selector || i18n.t('experience.editor.data.whole_result') }}</code></p>
+                      @if (row.state === 'present' && row.shape !== 'scalar') { <pre>{{ row.structured }}</pre> }
+                    </details>
                   </li>
                 }
               </ul>
+              <details class="run-details" data-testid="test-preview-reference">
+                <summary>{{ i18n.t('experience.editor.test_preview.reference') }}</summary>
+                <p>{{ i18n.t('experience.editor.test_preview.run') }} · <code>{{ r.id }}</code></p>
+              </details>
             }
           }
         }
@@ -119,7 +131,13 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
     .is-neg { color: var(--ck-status-neg-fg); background: var(--ck-status-neg-bg); border: 1px solid var(--ck-status-neg-line); }
     .is-warn { color: var(--ck-status-warn-fg); background: var(--ck-status-warn-bg); border: 1px solid var(--ck-status-warn-line); }
     .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ck-space-2); }
-    .checks li { display: flex; flex-wrap: wrap; gap: var(--ck-space-2); align-items: center; font-size: 13px; color: var(--ck-fg-2); }
+    .checks li { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr) auto; gap: var(--ck-space-2); align-items: start; padding: var(--ck-space-2) 0; border-top: 1px solid var(--ck-stroke-2); font-size: 13px; color: var(--ck-fg-2); }
+    .output-details { grid-column: 1 / -1; }
+    summary { color: var(--ck-fg-3); font-size: 12px; cursor: pointer; min-height: 32px; padding-block: 6px; }
+    summary:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+    details p { margin: var(--ck-space-1) 0; overflow-wrap: anywhere; }
+    pre { max-height: 15rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+    @media (max-width: 600px) { .checks li { grid-template-columns: 1fr; } .origin { grid-template-columns: 1fr; } }
     .checks strong { color: var(--ck-fg-1); }
     .value { color: var(--ck-fg-1); overflow-wrap: anywhere; }
     .miss { color: var(--ck-status-warn-fg); font-weight: 600; }
@@ -168,9 +186,20 @@ export class StudioTestPreviewComponent {
       .filter((row) => keys.has(row.bindingKey))
       .map((row) => {
         const check = checkOutput(row, r);
-        return { output: row, state: check.state, text: previewValue(check.value) };
+        return { output: row, state: check.state, text: previewValue(check.value), shape: previewShape(check.value),
+          count: Array.isArray(check.value) ? check.value.length : 0,
+          structured: check.value == null ? '' : JSON.stringify(check.value, null, 2) };
+
       });
   });
+
+  readonly presentCount = computed(() => this.checks().filter(row => row.state === 'present').length);
+
+  typeLabel(type: string): string {
+    const key = 'experience.editor.type.' + type;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('experience.editor.test_preview.component') : label;
+  }
 
   private loadedFor = '';
 
@@ -194,9 +223,13 @@ export class StudioTestPreviewComponent {
   }
 
   runLabel(run: Run): string {
-    const system = this.systemNames()[run.system_id] ?? run.system_id;
+    const system = this.systemNames()[run.system_id] ?? this.i18n.t('experience.editor.test_preview.unnamed_system');
     const standing = this.i18n.t(`experience.editor.test_preview.standing.${runStanding(run)}`);
-    return `${system} · ${run.id.slice(0, 8)} · ${standing}`;
+    const date = run.started_at ? new Date(run.started_at) : null;
+    const when = date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'short', timeStyle: 'short' }).format(date)
+      : this.i18n.t('experience.editor.test_preview.date_unknown');
+    return `${system} · ${when} · ${standing}`;
   }
 
   loadRuns(): void {

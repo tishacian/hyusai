@@ -27,10 +27,11 @@ const PAGES = {
   pages: [{
     id: 'home', title: 'Accueil', components: [
       { type: 'form', id: 'ask', props: { title: 'Question', bindingKey: 'procedures.ask', schema: { type: 'object', properties: { question: { type: 'string', title: 'Question' } } } } },
-      { type: 'text', id: 'answer', props: { dataBinding: { source: 'run-output', componentId: 'ask', selector: 'answer' } } },
+      { type: 'text', id: 'answer', props: { title: { $i18n: 'answer.heading', fallback: 'Old heading' }, dataBinding: { source: 'run-output', componentId: 'ask', selector: 'answer' } } },
       { type: 'table', id: 'sources', props: { dataBinding: { source: 'run-output', componentId: 'ask', selector: 'old_sources' } } },
     ],
   }],
+  i18n: { fr: { 'answer.heading': 'Réponse proposée' }, en: { 'answer.heading': 'Proposed answer' } },
 };
 const EXPERIENCE = {
   id: 'exp-1', slug: 'procedures', name: 'Assistant procédures', pattern: 'form_result', languages: ['fr', 'en'],
@@ -127,6 +128,40 @@ test.describe('Lot 4 — Studio contract, test preview and receipt', () => {
     await expect(contract.getByTestId('action-contract-inputs')).toContainText('Question');
   });
 
+  test('an author previews a legacy generated result and renames its action without changing the shared automation', async ({ page }) => {
+    const writes = await install(page);
+    const legacy = { pages: [{ id: 'home', title: 'Équipe SAV', components: [
+      { id: 'ask', type: 'form', props: { bindingKey: BINDING.binding_key, submitLabel: 'Source queue', schema: { type: 'object', properties: {} } } },
+      { id: 'status', type: 'runtime_status', props: {} },
+      { id: 'result', type: 'result', props: {} },
+      { id: 'evidence', type: 'evidence', props: {} },
+    ] }] };
+    let saved: Record<string, any> | null = null;
+    await page.route('**/api/v1/experiences/exp-1', route => json(route, {
+      ...EXPERIENCE, draft: { pages: legacy, binding_keys: [BINDING.binding_key], revision: 4, content_sha256: 'a'.repeat(64) }, deployments: [],
+    }));
+    await page.route('**/api/v1/experiences/exp-1/draft', route => {
+      saved = route.request().postDataJSON();
+      return json(route, { pages: saved!['pages'], binding_keys: saved!['binding_keys'], revision: 5, content_sha256: 'd'.repeat(64) });
+    });
+    await page.goto('/create/apps/exp-1');
+    const panel = page.getByTestId('test-preview');
+    await expect(panel.getByTestId('test-preview-none')).toHaveCount(0);
+    await panel.getByTestId('test-preview-run').selectOption(RUN.id);
+    await expect(panel.getByTestId('test-preview-check-result')).toHaveAttribute('data-state', 'present');
+    await page.locator('.xp-tree button.is-child').first().click();
+    const label = page.getByTestId('form-submit-label');
+    await expect(label).toHaveValue('Source queue');
+    await label.fill('Actualiser les priorités');
+    await expect.poll(() => saved !== null).toBe(true);
+    const document = saved!['pages'];
+    const form = document.pages[0].components.find((node: any) => node.id === 'ask');
+    expect(document.i18n.fr[form.props.submitLabel.$i18n]).toBe('Actualiser les priorités');
+    expect(form.props.bindingKey).toBe(BINDING.binding_key);
+    expect(form.props.schema).toEqual({ type: 'object', properties: {} });
+    expect(writes.filter(path => /system-bindings|releases|deployments/.test(path))).toEqual([]);
+  });
+
   test('a saved output the bound version does not expose is flagged, not offered', async ({ page }) => {
     await install(page);
     await page.goto('/create/apps/exp-1');
@@ -142,7 +177,13 @@ test.describe('Lot 4 — Studio contract, test preview and receipt', () => {
     await page.goto('/create/apps/exp-1');
     const panel = page.getByTestId('test-preview');
     await panel.getByTestId('test-preview-run').selectOption(RUN.id);
-    await expect(panel.getByTestId('test-preview-origin')).toContainText(RUN.id);
+    await expect(panel.getByTestId('test-preview-origin')).toContainText('Procédures internes');
+    await expect(panel.getByTestId('test-preview-origin')).not.toContainText(RUN.id);
+    await expect(panel.getByTestId('test-preview-check-answer')).toContainText('Réponse proposée');
+    const reference = panel.getByTestId('test-preview-reference');
+    await expect(reference.locator('code')).not.toBeVisible();
+    await reference.locator('summary').click();
+    await expect(reference.locator('code')).toHaveText(RUN.id);
     await expect(panel.getByTestId('test-preview-standing')).toHaveAttribute('data-standing', 'review');
     await expect(panel.getByTestId('test-preview-review')).toBeVisible();
     await expect(panel.getByTestId('test-preview-check-answer')).toHaveAttribute('data-state', 'present');
@@ -209,6 +250,7 @@ test.describe('Lot 5 — compare before replacing', () => {
       test(`${locale}: a concurrent draft is shown before ${reapply ? 'reapplying' : 'keeping theirs'}`, async ({ page }) => {
         await install(page, {}, locale);
         const remote = structuredClone(PAGES);
+        remote.pages[0].title = 'Colleague title';
         remote.pages[0].components.push({ type: 'text', id: 'colleague', props: { title: 'Colleague notice' } } as any);
         let revision = 4;
         let pages: unknown = PAGES;
@@ -232,10 +274,19 @@ test.describe('Lot 5 — compare before replacing', () => {
         await title.fill(locale === 'fr' ? 'Mon titre' : 'My title');
         const comparison = page.locator('.xp-conflict');
         await expect(comparison).toBeVisible();
-        await expect(comparison.locator('details')).toHaveCount(3);
-        await expect(comparison.locator('details').nth(0)).toContainText('Accueil');
-        await expect(comparison.locator('details').nth(1)).toContainText(locale === 'fr' ? 'Mon titre' : 'My title');
-        await expect(comparison.locator('details').nth(2)).toContainText('Colleague notice');
+        const changes = comparison.getByTestId('studio-conflict-changes');
+        await expect(changes).toBeVisible();
+        await expect(changes).toContainText('Accueil');
+        await expect(changes).toContainText(locale === 'fr' ? 'Mon titre' : 'My title');
+        await expect(changes).toContainText('Colleague title');
+        await expect(comparison.locator('pre').first()).not.toBeVisible();
+        const technical = comparison.locator('.xp-conflict-source');
+        await technical.locator(':scope > summary').click();
+        const versions = technical.locator('.xp-conflict-versions details');
+        await expect(versions).toHaveCount(3);
+        await expect(versions.nth(0)).toContainText('Accueil');
+        await expect(versions.nth(1)).toContainText(locale === 'fr' ? 'Mon titre' : 'My title');
+        await expect(versions.nth(2)).toContainText('Colleague notice');
         expect(attempts).toHaveLength(1);
         await comparison.getByRole('button', { name: reapply
           ? locale === 'fr' ? 'Recharger et réappliquer mes changements' : 'Reload and reapply my changes'
@@ -247,7 +298,7 @@ test.describe('Lot 5 — compare before replacing', () => {
           expect(JSON.stringify(attempts[1].pages)).toContain(locale === 'fr' ? 'Mon titre' : 'My title');
         } else {
           expect(attempts).toHaveLength(1);
-          await expect(title).toHaveValue('Accueil');
+          await expect(title).toHaveValue('Colleague title');
         }
       });
     }

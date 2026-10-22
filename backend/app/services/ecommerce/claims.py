@@ -399,8 +399,13 @@ def _approved_human(db, workspace, run, proposal):
 def _simulate(db, workspace, run, config, claim_id, proposal, *, data_source=None):
     if proposal["action"] == "request_information":
         raise ValueError("CLAIM_RESOLUTION_NOT_READY")
-    # Serialize per-workspace writes. A DB unique constraint is the final guard.
-    db.query(Workspace).filter(Workspace.id == workspace.id).with_for_update().one()
+    # Serialize per-workspace writes without blocking foreign-key checks. The
+    # source read resolves a credential and records its audit in another session;
+    # FOR UPDATE would deadlock that insert against this workspace lock while
+    # this call waits for the audit. NO KEY UPDATE still excludes other action
+    # writers but permits the audit's KEY SHARE. The unique constraint remains
+    # the final guard against duplicate actions.
+    db.query(Workspace).filter(Workspace.id == workspace.id).with_for_update(key_share=True).one()
     existing = (
         db.query(ClaimAction)
         .filter(ClaimAction.workspace_id == workspace.id, ClaimAction.run_id == run.id)

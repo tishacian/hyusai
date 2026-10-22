@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { I18nService } from '@app/core/i18n.service';
 
 /** A recorded action is evidence, not a claim that its parent record is closed. */
@@ -12,7 +11,7 @@ export interface WorkActionReceipt {
 }
 
 @Component({
-  selector: 'app-work-action-receipt', standalone: true, imports: [DatePipe],
+  selector: 'app-work-action-receipt', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     :host { display: block; min-width: 0; }
@@ -31,7 +30,7 @@ export interface WorkActionReceipt {
       <h3>{{ i18n.t('experience.work_receipt.recorded') }}</h3>
       <p>{{ receipt().label }} @if (receipt().value) { · <strong>{{ receipt().value }}</strong> }</p>
       @if (receipt().notice) { <p class="notice">{{ receipt().notice }}</p> }
-      @if (receipt().recordedAt; as date) { <time [attr.datetime]="date">{{ date | date:'medium' }}</time> }
+      @if (receipt().recordedAt; as date) { <time [attr.datetime]="date">{{ recordedDate(date) }}</time> }
       <details>
         <summary>{{ i18n.t('experience.work_receipt.reference') }}</summary>
         <code>{{ receipt().reference }}</code>
@@ -42,4 +41,11 @@ export interface WorkActionReceipt {
 export class WorkActionReceiptComponent {
   readonly i18n = inject(I18nService);
   readonly receipt = input.required<WorkActionReceipt>();
+
+  recordedDate(value: string): string {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+      : this.i18n.t('state.availability.unknown');
+  }
 }

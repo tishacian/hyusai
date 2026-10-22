@@ -247,10 +247,14 @@ test.describe('Claims studio — isolated end-user QA', () => {
     const posts = await setup(page, theme, 'fr', false, 'ready');
     await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto('/work/reclamations/studio');
     await expect(page.getByRole('heading', { name: 'Parcours Luma', exact: true })).toBeVisible();
+    await expect(page.locator('.claims-triage-details')).not.toHaveAttribute('open');
+    await expect(page.getByRole('link', { name: 'Flow Luma', exact: true })).toBeVisible();
+    expect((await page.locator('.claims-dossier').boundingBox())!.y).toBeLessThan(500);
     await expect(page.locator('.claims-queue .work-record-item').first()).toContainText('LM-1043');
     await page.locator('.claims-queue .work-record-item').first().click();
     await expect(page.locator('.claims-risk')).toContainText('82');
     await expect(page.locator('.claims-risk')).toContainText('Priorité haute');
+    await page.locator('.claims-triage-details > summary').click();
     await expect(page.getByRole('link', { name: 'PostgreSQL', exact: true })).toHaveAttribute('href', /^\/connectors\/postgresql(?:\?|$)/);
     await expect(page.getByRole('link', { name: /Données SAV préparées/ })).toHaveAttribute('href', /^\/data\/qa-sav-prepared(?:\?|$)/);
     await expect(page.getByRole('link', { name: /Modèle SLA/ })).toHaveAttribute('href', /^\/models\/qa-sla-model(?:\?|$)/);
@@ -277,6 +281,8 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await expect(page.getByText('Scores expirés après 60 min.', { exact: false })).toBeVisible();
    await expect(page.locator('.claims-queue .work-record-item').first()).toContainText('LM-1042');
    await expect(page.locator('.claims-risk')).toHaveCount(0);
+   await expect(page.locator('.claims-triage-details')).not.toHaveAttribute('open');
+   await page.locator('.claims-triage-details > summary').click();
    await expect(page.getByRole('link', { name: /File scorée/ })).toBeVisible();
  });
  test('a manual benchmark hides the model and all predictive aid', async ({ page }, testInfo) => {
@@ -291,6 +297,7 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await setup(page, 'light', 'en', false, 'ready'); await page.setViewportSize({ width: 390, height: 844 });
    await page.goto('/work/reclamations/studio');
    await expect(page.getByRole('heading', { name: 'Luma journey', exact: true })).toBeVisible();
+   await page.locator('.claims-triage-details > summary').click();
    await expect(page.getByRole('link', { name: /SLA model/ })).toBeVisible();
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
    await page.screenshot({ path: testInfo.outputPath('work-priority-mobile.png'), fullPage: true });
@@ -314,7 +321,7 @@ test.describe('Claims studio — isolated end-user QA', () => {
     await page.goto('/work/reclamations/studio');
     await expect(page.getByRole('heading', { name: 'Réclamations', exact: true })).toBeVisible();
     await expect(page.getByText('Commande lue dans PostgreSQL', { exact: false })).toBeVisible();
-    await expect(page.getByText('Livraison contestée', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Dossier', exact: true }).getByText('Livraison contestée', { exact: true })).toBeVisible();
     await expect(page.getByText('delivery_disputed', { exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: /LM-1043/ }).click();
     await page.getByRole('button', { name: 'Lancer l’enquête', exact: true }).click();
@@ -361,7 +368,7 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await setup(page, 'light', 'en'); await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/work/reclamations/studio');
    await expect(page.getByRole('heading', { name: 'Claims', exact: true })).toBeVisible();
    await page.getByRole('button', { name: /LM-1042.*Change/ }).click();
-   await expect(page.getByText('Delivery disputed', { exact: true })).toBeVisible();
+   await expect(page.locator('.claims-dossier').getByText('Delivery disputed', { exact: true })).toBeVisible();
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
    await page.screenshot({ path: testInfo.outputPath('claims-mobile-en.png'), fullPage: true });
  });
@@ -449,7 +456,44 @@ test.describe('Claims studio — isolated end-user QA', () => {
    await page.locator('summary').filter({ hasText: 'Réexaminer le dossier' }).click();
    await page.getByRole('button', { name: 'Lancer une nouvelle enquête', exact: true }).click();
    await expect(page.getByRole('button', { name: 'Valider la proposition', exact: true })).toBeVisible();
+   await expect(page.getByText('Nouvelle enquête : les actions précédentes ne valident pas la proposition affichée.', { exact: true })).toBeVisible();
+   const history = page.getByTestId('claims-previous-actions');
+   await expect(history).not.toHaveAttribute('open');
+   await expect(page.getByRole('heading', { name: 'Action enregistrée', exact: true })).toHaveCount(0);
+   await history.locator('summary').first().click();
+   await expect(history).toContainText('Enquête transporteur ouverte');
+   await expect(page.getByRole('button', { name: 'Valider la proposition', exact: true })).toBeEnabled();
    expect(posts).toHaveLength(1);
+ });
+ test('a lost decision stays with its dossier and verifies the original pause after the Run advances', async ({ page }) => {
+   await setup(page, 'light', 'fr');
+   let decisionPosts = 0, receiptReads = 0;
+   let firstRun: Record<string, unknown> = { id: 'qa-first-run', system_id: 'qa-system', status: 'hitl_pending', hitl: { decision_id: 'qa-first-decision', can_decide: true } };
+   const secondRun = { id: 'qa-second-run', system_id: 'qa-system', status: 'hitl_pending', hitl: { decision_id: 'qa-second-decision', can_decide: true } };
+   for (const [id, runId] of [['RC-1042', 'qa-first-run'], ['RC-1043', 'qa-second-run']]) {
+     await page.route(`**/api/v1/ecommerce-claims/${id}`, route => route.fulfill({ json: { ...detail(id), latest_run_id: runId } }));
+   }
+   await page.route('**/api/v1/runs/qa-first-run', route => route.fulfill({ json: firstRun }));
+   await page.route('**/api/v1/runs/qa-second-run', route => route.fulfill({ json: secondRun }));
+   await page.route('**/api/v1/runs/qa-first-run/hitl', route => { decisionPosts++; return route.fulfill({ status: 504, json: { detail: 'Gateway timeout' } }); });
+   await page.route('**/api/v1/hypervisor/decisions/qa-first-decision', route => { receiptReads++; return route.fulfill({ json: { id: 'qa-first-decision', status: 'accepted' } }); });
+   await page.goto('/work/reclamations/studio?record=RC-1042');
+   const approve = page.getByRole('button', { name: 'Valider la proposition', exact: true });
+   await approve.click();
+   await expect(page.getByTestId('claims-decision-verify')).toBeVisible();
+   await expect(approve).toBeDisabled();
+   await page.locator('.work-record-item').filter({ hasText: 'LM-1043' }).click();
+   await expect(approve).toBeEnabled();
+   await expect(page.getByTestId('claims-decision-notice')).toHaveCount(0);
+   await page.locator('.work-record-item').filter({ hasText: 'LM-1042' }).click();
+   await expect(approve).toBeDisabled();
+   firstRun = { ...firstRun, status: 'completed', hitl: undefined };
+   await expect(approve).toHaveCount(0);
+   await page.getByTestId('claims-decision-verify').click();
+   await expect(page.locator('.claims-decision-notice')).toHaveAttribute('data-tone', 'ok');
+   await expect(page.getByTestId('claims-decision-verify')).toHaveCount(0);
+   expect(receiptReads).toBe(1);
+   expect(decisionPosts).toBe(1);
  });
  test('a failed benchmark mode check is actionable while automated aids stay unavailable', async ({ page }, testInfo) => {
    await setup(page, 'dark', 'fr', false, 'ready', { benchmarkUnavailable: true });

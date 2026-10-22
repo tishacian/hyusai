@@ -128,6 +128,35 @@ test.describe('Configured product Impact blocks — isolated end-user QA', () =>
       await page.screenshot({ path: info.outputPath('impact-product-scenario.png'), fullPage: true });
     });
   }
+  test('selecting a day opens its evidence immediately; an empty day and a partial preview remain distinct', async ({ page }) => {
+    await setup(page, 'dark', 'fr', true);
+    await page.goto('/hypervisor?facet=synthese');
+    const card = page.getByTestId('impact-activity');
+    const evidence = card.getByTestId('impact-evidence');
+    await expect(evidence).not.toHaveAttribute('open');
+    const chart = card.getByTestId('impact-activity-chart');
+    await chart.locator('[data-day="5"]').click();
+    await expect(evidence).toHaveAttribute('open', '');
+    await expect(evidence.getByTestId('impact-evidence-coverage')).toContainText('1 / 20');
+    await expect(evidence.getByTestId('impact-evidence-statuses')).toContainText('12');
+    await expect(evidence.getByTestId('impact-evidence-statuses')).toContainText('8');
+    await expect(evidence.getByTestId('impact-evidence-partial')).toBeVisible();
+    await expect(evidence.getByRole('link')).toHaveAttribute('href', /\/runs\/qa-execution/);
+    await expect(evidence.getByTestId('impact-evidence-empty')).toHaveCount(0);
+    await evidence.locator('summary').click();
+    await expect(evidence).not.toHaveAttribute('open');
+    await chart.locator('[data-day="5"]').press('ArrowLeft');
+    await page.keyboard.press('Enter');
+    await expect(evidence).toHaveAttribute('open', '');
+    await expect(evidence.getByTestId('impact-evidence-coverage')).toContainText('0 / 0');
+    await expect(evidence.getByTestId('impact-evidence-empty')).toBeVisible();
+    await expect(evidence.getByTestId('impact-evidence-partial')).toHaveCount(0);
+    await expect(evidence.getByRole('link')).toHaveCount(0);
+    await evidence.getByTestId('impact-evidence-all-days').click();
+    await expect(evidence).toHaveAttribute('open', '');
+    await expect(evidence.getByRole('link')).toHaveAttribute('href', /\/runs\/qa-execution/);
+    await expect(evidence.getByTestId('impact-evidence-all-days')).toHaveCount(0);
+  });
   test('mobile customization keeps labels, actions and fields within the chrome', async ({ page }, info) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await setup(page, 'light', 'fr', true);

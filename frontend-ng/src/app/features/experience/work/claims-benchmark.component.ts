@@ -14,7 +14,8 @@ interface Benchmark { state: string; hourly_eur: string; planned_pairs: number; 
 
 @Component({
   selector: 'app-claims-benchmark', standalone: true, imports: [FormsModule, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [`:host{display:block;margin:24px 32px}.benchmark{padding:20px;border:1px solid var(--ck-stroke-2);border-radius:8px;background:var(--ck-bg-panel);color:var(--ck-fg-1)}summary{cursor:pointer;font-weight:600}p,li,label{font-size:13px;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:20px 0}.metrics span{display:block;font-size:12px;color:var(--ck-fg-2)}.metrics strong{display:block;font-size:22px;margin-top:8px}.controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:16px 0}label{display:flex;flex-direction:column;gap:6px}input,select,textarea,button{font:inherit;color:inherit;border:1px solid var(--ck-stroke-2);border-radius:4px;padding:10px;background:var(--ck-bg-inset)}button{cursor:pointer;min-height:40px}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}button:disabled{opacity:.5}table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:start;padding:10px;border-bottom:1px solid var(--ck-stroke-2)}.table-wrap{overflow:auto}.proofs{display:flex;flex-wrap:wrap;gap:12px}.proofs label{flex-direction:row;align-items:center}.quiet{color:var(--ck-fg-2)}.error{color:var(--ck-signal-danger)}@media(max-width:760px){:host{margin:16px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}`],
+  host: { '[class.is-compact]': 'compact()' },
+  styles: [`:host{display:block;margin:24px 32px}.benchmark{padding:20px;border:1px solid var(--ck-stroke-2);border-radius:8px;background:var(--ck-bg-panel);color:var(--ck-fg-1)}summary{cursor:pointer;font-weight:600}p,li,label{font-size:13px;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:20px 0}.metrics span{display:block;font-size:12px;color:var(--ck-fg-2)}.metrics strong{display:block;font-size:22px;margin-top:8px}.controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:16px 0}label{display:flex;flex-direction:column;gap:6px}input,select,textarea,button{font:inherit;color:inherit;border:1px solid var(--ck-stroke-2);border-radius:4px;padding:10px;background:var(--ck-bg-inset)}button{cursor:pointer;min-height:40px}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}button:disabled{opacity:.5}table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:start;padding:10px;border-bottom:1px solid var(--ck-stroke-2)}.table-wrap{overflow:auto}.proofs{display:flex;flex-wrap:wrap;gap:12px}.proofs label{flex-direction:row;align-items:center}.quiet{color:var(--ck-fg-2)}.error{color:var(--ck-signal-danger)}:host(.is-compact){margin:12px 32px 0}:host(.is-compact) .benchmark:not([open]){padding:8px 12px;background:transparent;border-color:transparent}:host(.is-compact) summary{font-size:12px;min-height:24px;line-height:24px}summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}@media(max-width:760px){:host{margin:16px}:host(.is-compact){margin:8px 16px 0}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}`],
   template: `
     @if (loading()) { <p role="status">{{ i18n.t('experience.claims.mode_pending') }}</p> }
     @if (loadProblem()) {
@@ -24,7 +25,7 @@ interface Benchmark { state: string; hourly_eur: string; planned_pairs: number; 
       </div>
     }
     @if (data(); as benchmark) {
-      <details class="benchmark" [open]="readOnly()" data-testid="claims-benchmark">
+      <details class="benchmark" [open]="readOnly() || !!active()" data-testid="claims-benchmark">
         <summary>{{ i18n.t('experience.claims.benchmark.title') }} · {{ benchmark.completed_quality_pairs }}/{{ benchmark.planned_pairs }}</summary>
         <p>{{ i18n.t('experience.claims.benchmark.protocol') }}</p>
         <p class="quiet">{{ i18n.t('experience.claims.benchmark.convention') }}</p>
@@ -74,7 +75,7 @@ interface Benchmark { state: string; hourly_eur: string; planned_pairs: number; 
 })
 export class ClaimsBenchmarkComponent {
   readonly i18n = inject(I18nService); private readonly api = inject(ApiService); private readonly workspace = inject(WorkspaceService); private readonly auth = inject(AuthStore); private readonly destroy = inject(DestroyRef);
-  readonly readOnly = input(false); readonly sources = input<Array<{ reference: string; filename: string }>>([]);
+  readonly readOnly = input(false); readonly compact = input(false); readonly sources = input<Array<{ reference: string; filename: string }>>([]);
   readonly caseSelected = output<string>(); readonly manualActive = output<boolean>();
   readonly modeReady = output<boolean>();
   readonly data = signal<Benchmark | null>(null); readonly active = signal<Trial | null>(null); readonly busy = signal(false); readonly problem = signal(false);

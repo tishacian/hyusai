@@ -25,6 +25,7 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/shared/ui/run-decision-notice.spec.ts',
   'src/app/shared/ui/specialized-app-version.spec.ts',
   'src/app/features/deposit/deposit-receipt.spec.ts',
   'src/app/features/data/typed-judge-guidance.spec.ts',
@@ -238,6 +239,7 @@ const storeSpecs = [
   'src/app/features/models/model-runtime.component.spec.ts',
   'src/app/features/models/model-import.component.spec.ts',
   'src/app/features/models/forecast-actuals.component.spec.ts',
+  'src/app/features/models/forecast-playground.component.spec.ts',
   'src/app/features/models/scheduled-monitoring.component.spec.ts',
   'src/app/features/models/model-systems.component.spec.ts',
   'src/app/features/models/retraining-run-approval.component.spec.ts',
@@ -256,6 +258,7 @@ const storeSpecs = [
   'src/app/features/experience/runtime/runtime-status.spec.ts',
   'src/app/features/experience/runtime/navigation-blocks.spec.ts',
   'src/app/features/experience/work/work-shell.component.spec.ts',
+  'src/app/features/experience/work/claims-studio.component.spec.ts',
   'src/app/features/experience/work/work-release-pages-nav.component.spec.ts',
   'src/app/features/data/dataset-label-review.component.spec.ts',
   'src/app/features/systems/system-view.component.spec.ts',

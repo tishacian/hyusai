@@ -1,12 +1,35 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activityMetrics, activityRunsForDay, financialScenario, scopedSeries, summarySections } from './impact-product-blocks';
+import { activityEvidence, activityMetrics, activityRunsForDay, financialScenario, scopedSeries, summarySections, type ExecutionActivity } from './impact-product-blocks';
 
 test('selected activity day contains exactly its evidence rows, including an empty day', () => {
   const runs = [{id:'one', started_at:'2026-10-20T00:01:00Z'}, {id:'two', started_at:'2026-10-21T12:00:00Z'}] as Parameters<typeof activityRunsForDay>[0];
   assert.deepEqual(activityRunsForDay(runs,'2026-10-20').map(run => run.id), ['one']);
   assert.deepEqual(activityRunsForDay(runs,'2026-10-19'), []);
   assert.equal(activityRunsForDay(runs,null).length, 2);
+});
+test('recent evidence never turns an older active day into an empty day or replaces its totals', () => {
+  const counts = { attempts: 75, completed: 61, failed: 10, cancelled: 1, pending: 3, invocations: 100 };
+  const activity = {
+    counts,
+    buckets: [
+      { date: '2026-10-20', attempts: 60, completed: 55, failed: 4, cancelled: 0, pending: 1 },
+      { date: '2026-10-19', attempts: 15, completed: 6, failed: 6, cancelled: 1, pending: 2 },
+    ],
+    runs: [{ id: 'recent', started_at: '2026-10-20T10:00:00Z' }],
+  } as ExecutionActivity;
+  const oldDay = activityEvidence(activity, '2026-10-19');
+  assert.equal(oldDay.counts.attempts, 15);
+  assert.equal(oldDay.runs.length, 0);
+  assert.equal(oldDay.partial, true);
+  const recentDay = activityEvidence(activity, '2026-10-20');
+  assert.equal(recentDay.counts.completed, 55);
+  assert.deepEqual(recentDay.runs.map(run => run.id), ['recent']);
+  assert.equal(recentDay.partial, true);
+  const emptyDay = activityEvidence(activity, '2026-10-18');
+  assert.equal(emptyDay.counts.attempts, 0);
+  assert.equal(emptyDay.partial, false);
+  assert.equal(activityEvidence(activity, null).counts, counts);
 });
 import { cloneView, DEFAULT_HYPERVISOR_VIEWS, moveStratumBlock, parseViewsPayload, serializeViewsForWrite } from './hypervisor-v2-views';
 
@@ -24,6 +47,11 @@ test('negative projections and real zero rates survive; invalid or absent assump
   for (const invalid of [null, '', NaN, Infinity, -1, 1441]) assert.equal(financialScenario({ ...scenario, manual_minutes: invalid }), null);
   assert.equal(financialScenario({ ...scenario, currency: '' }), null);
   assert.equal(financialScenario({ ...scenario, monthly_volume: 1.5 }), null);
+});
+test('a configured service scenario keeps financial projection separate from execution volume', () => {
+  assert.deepEqual(financialScenario({ manual_minutes: 8, assisted_minutes: 2, hourly_cost: 40, unit_budget: 0.5, monthly_volume: 1000, currency: 'EUR' }), {
+    currency: 'EUR', savedMinutes: 6, capacity: 4, net: 3.5, roi: 7, breakEvenMinutes: 0.75, monthlyNet: 3500,
+  });
 });
 test('saved block order, System scope, metrics, assumptions and seven-day period round trip without a domain identity', () => {
   const view = cloneView(DEFAULT_HYPERVISOR_VIEWS[0]!);
