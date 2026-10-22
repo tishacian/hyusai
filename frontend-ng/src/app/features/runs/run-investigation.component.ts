@@ -8,6 +8,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { CorrectionReviewComponent } from './correction-review.component';
+import { EvaluationRecordsComponent } from '../observability/evaluation-records.component';
 import type { Run } from '@app/core/canonical-api.service';
 
 export interface ExaminedClaim { claim?: string; text?: string; verdict?: string; excerpt_ids?: string[]; response_span?: {start: number; end: number} | null; }
@@ -15,8 +16,10 @@ export interface ExaminedExcerpt { id: string; text: string | null; availability
 export interface RunEvaluation { evaluation_id?: string; status: string; reason?: string; composite_score?: number | null; claim_audit?: { claims?: ExaminedClaim[] }; metadata?: { response_examined?: string; response_truncated?: boolean; excerpts?: ExaminedExcerpt[]; context_examined?: string; method?: string; [key: string]: unknown }; }
 
 @Component({
- selector: 'app-run-investigation', standalone: true, imports: [JsonPipe, CorrectionReviewComponent, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush,
+ selector: 'app-run-investigation', standalone: true, imports: [JsonPipe, CorrectionReviewComponent, NavLinkDirective, EvaluationRecordsComponent], changeDetection: ChangeDetectionStrategy.OnPush,
  template: `
+ <app-evaluation-records [runId]="run().id" />
+ <details class="legacy-investigation"><summary>{{ i18n.t('observability.assurance.answer_audit') }}</summary>
  <section class="investigation" aria-labelledby="investigation-title">
   <header><h2 id="investigation-title">{{ i18n.t('runs.investigation.title') }}</h2>
    <button type="button" (click)="evaluate()" [disabled]="busy() || run().status !== 'completed'">{{ i18n.t('runs.investigation.evaluate') }}</button>
@@ -36,7 +39,7 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
    </details>
   }
   @if (error()) { <p role="alert">{{ error() }}</p> }
-  @if (evaluation()?.reason) { <p class="reserve">{{code('reason',evaluation()?.reason)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><code>{{evaluation()?.reason}}</code></details> }
+  @if (evaluation()?.reason) { <p class="reserve">{{evaluation()?.reason==='no_persisted_evaluation' ? i18n.t('observability.assurance.no_answer_audit') : code('reason',evaluation()?.reason)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><code>{{evaluation()?.reason}}</code></details> }
   <div class="evidence-columns">
    <div><h3>{{ i18n.t('runs.investigation.answer') }}</h3>
     <p class="answer">@if(responseParts();as parts){ {{parts.before}}<mark>{{parts.selected}}</mark>{{parts.after}} } @else { {{ response() || i18n.t('runs.investigation.no_answer') }} }</p>
@@ -62,7 +65,7 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
  @if (evaluation()?.evaluation_id; as evaluationId) {
   <app-correction-review [run]="run()" [evaluationId]="evaluationId" />
  }
- </section>`,
+ </section></details>`,
  styles: [`:host{display:block;margin:24px 0}.investigation{padding:24px;background:var(--ck-bg-panel);color:var(--ck-fg-1);border:1px solid var(--ck-stroke-2);border-radius:6px}header,.states{display:flex;gap:20px;align-items:center;flex-wrap:wrap}header{justify-content:space-between}h2{font-size:24px;font-weight:600}h3{font-size:16px;font-weight:600;margin:20px 0 12px}.states{font-size:13px;padding:16px 0;border-bottom:1px solid var(--ck-stroke-2)}.evidence-columns{display:grid;grid-template-columns:1fr 1fr;gap:32px}.answer,blockquote{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}.claim{display:flex;flex-direction:column;gap:10px;width:100%;text-align:left;margin:12px 0}.claim.selected{border-color:var(--ck-signal-cool);background:var(--ck-status-info-bg)}button{border:1px solid var(--ck-stroke-3);padding:12px 16px;border-radius:6px;color:inherit;background:transparent}button:disabled{opacity:.5}button:focus-visible,summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.excerpt{padding:20px;background:var(--ck-bg-panel-hi);border-left:3px solid var(--ck-signal-cool)}mark{background:var(--ck-status-warn-bg);color:inherit}a{overflow-wrap:anywhere;color:var(--ck-signal-cool)}.reserve{color:var(--ck-signal-warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}details{margin-top:24px}@media(max-width:800px){.evidence-columns{grid-template-columns:1fr}.investigation{padding:16px}}`]
 })
 export class RunInvestigationComponent {

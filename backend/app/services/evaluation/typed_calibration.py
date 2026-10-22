@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 from collections import defaultdict
+from copy import deepcopy
 
 from jsonschema import Draft202012Validator
 
@@ -17,6 +18,7 @@ from app.models.evaluation import EvaluationScore
 from app.models.service_contract import AssetVersion
 from app.models.workspace import Workspace
 from app.schemas.typed_evaluation import (
+    CalibrationCaseFromEvaluation,
     CalibrationCorpus,
     CalibrationPrediction,
     HumanAnnotation,
@@ -33,8 +35,10 @@ J2450 = {"WT", "SE", "OM", "SA", "SP", "PE", "ME"}
 
 
 def _access(db, workspace_id, user_id, *, admin=False):
+    from app.services.evaluation.read_model import historical_evidence_authorizer
+
     user = require_member(db, workspace_id, user_id, admin=admin)
-    return assets.native_authorizer(db, db.get(Workspace, workspace_id), user)
+    return historical_evidence_authorizer(db, db.get(Workspace, workspace_id), user)
 
 
 def _resolve(db, workspace_id, ref, user_id):
@@ -100,6 +104,191 @@ def corpus(db, workspace_id, corpus_id, user_id):
     for unit in row.manifest_json["spec"]["units"]:
         _resolve(db, workspace_id, unit["asset_ref"], user_id)
     return row
+
+
+def list_corpora(db, workspace_id, user_id, offset=0, limit=50):
+    """Only list corpora whose full retained evidence graph is readable now."""
+    _access(db, workspace_id, user_id)
+    rows = (
+        db.query(AssetVersion)
+        .filter_by(workspace_id=workspace_id, kind="reference")
+        .filter(AssetVersion.manifest_json["type"].as_string() == PREFIX + "corpus")
+        .order_by(AssetVersion.created_at.desc(), AssetVersion.id)
+        .all()
+    )
+    visible = []
+    for row in rows:
+        try:
+            checked = corpus(db, workspace_id, row.id, user_id)
+        except Error:
+            continue
+        spec = checked.manifest_json["spec"]
+        visible.append(
+            {
+                "id": checked.id,
+                "asset_ref": assets.asset_ref(checked),
+                "logical_key": spec["logical_key"],
+                "rubric_id": spec["rubric_id"],
+                "rubric_version": spec["rubric_version"],
+                "unit_count": len(spec["units"]),
+                "created_at": checked.created_at.isoformat(),
+            }
+        )
+    return {
+        "items": visible[offset : offset + limit],
+        "total": len(visible),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def create_case_from_evaluation(db, workspace_id, user_id, data):
+    """Export original evidence, never the Judge answer as human ground truth.
+
+    Already examined cases are development material. They cannot be laundered
+    into blind calibration/test data through a fresh asset identity.
+    """
+    from app.models.user import User
+    from app.services.evaluation.read_model import project_records
+
+    _access(db, workspace_id, user_id)
+    spec = CalibrationCaseFromEvaluation.model_validate(data)
+    row = (
+        db.query(EvaluationScore)
+        .filter_by(id=spec.evaluation_id, workspace_id=workspace_id)
+        .first()
+    )
+    workspace, user = db.get(Workspace, workspace_id), db.get(User, user_id)
+    records = project_records(db, [row] if row else [], workspace=workspace, user=user)
+    if not records:
+        raise Error("CALIBRATION_EVALUATION_NOT_FOUND", 404)
+    public = records[0]
+    result = public["typed_evaluation"]
+    if result is None or public["evidence_availability"] != "available":
+        raise Error("CALIBRATION_EVIDENCE_UNAVAILABLE", 409)
+    from app.models.run import Run
+
+    run = db.get(Run, row.run_id)
+    evidence, parents, native_refs = [], [], []
+    for item in result["evidence"]:
+        ref = item.get("asset_ref")
+        asset = _resolve(db, workspace_id, ref, user_id) if ref else None
+        entries = (
+            asset.manifest_json.get("evidence", [])
+            if asset
+            else (run.input_ref or {}).get("evidence", [])
+        )
+        saved = next((entry for entry in entries if entry.get("id") == item["id"]), None)
+        if saved is None or saved.get("sha256") != item["sha256"]:
+            raise Error("CALIBRATION_EVIDENCE_UNAVAILABLE", 409)
+        if item.get("kind", "text") != "text":
+            # Copying an image locator would create an undeclared object grant.
+            raise Error("CALIBRATION_CASE_TEXT_REQUIRED", 422)
+        text = assets._saved_evidence_text(asset, saved) if asset else saved["text"]
+        evidence.append({"id": item["id"], "kind": "text", "sha256": item["sha256"], "text": text})
+        if ref and ref not in parents:
+            parents.append(ref)
+        for native in asset.manifest_json.get("native_refs", []) if asset else []:
+            if native not in native_refs:
+                native_refs.append(native)
+    context = {key: getattr(spec, key) for key in ("source", "language", "task")}
+    manifest = {
+        "type": PREFIX + "case",
+        "creator_user_id": user_id,
+        "source_evaluation_id": row.id,
+        "document_family": spec.document_family,
+        **context,
+        "evidence": evidence,
+        "native_refs": native_refs,
+        "provenance": deepcopy(public["evidence_sources"]),
+        "calibration_eligible_partitions": ["dev"],
+    }
+    case = assets.register_asset(
+        db,
+        workspace_id,
+        "reference",
+        "calibration-case:" + spec.logical_key,
+        manifest,
+        parents,
+        run_id=run.id,
+    )
+    _seal(db, workspace_id, case, "case", user_id)
+    return {
+        "asset_ref": assets.asset_ref(case),
+        "unit_key": "case-" + case.digest[:32],
+        "context": context,
+        "document_family": spec.document_family,
+        "evaluation_id": row.id,
+        "eligible_partitions": ["dev"],
+        "rubric": deepcopy(public["rubric"]),
+        "questions": deepcopy(result.get("questions", [])),
+    }
+
+
+def review_units(db, workspace_id, user_id, corpus_id):
+    """Blind navigation index; never returns the corpus spec or answer policy."""
+    row = corpus(db, workspace_id, corpus_id, user_id)
+    items = [
+        {key: unit[key] for key in ("key", "document_family", "partition")}
+        for unit in row.manifest_json["spec"]["units"]
+    ]
+    return {"items": items, "total": len(items)}
+
+
+def review_unit(db, workspace_id, user_id, corpus_id, unit_key):
+    """Blind annotation material: no predictions, acceptance values or labels."""
+    row = corpus(db, workspace_id, corpus_id, user_id)
+    unit = _unit(row, unit_key)
+    asset = _resolve(db, workspace_id, unit["asset_ref"], user_id)
+    annotations = [
+        saved
+        for saved in _rows(db, workspace_id, "annotation", row.id)
+        if saved.manifest_json["unit_key"] == unit_key
+    ]
+    own = next(
+        (saved for saved in annotations if saved.manifest_json["reviewer_user_id"] == user_id), None
+    )
+    predicted = any(
+        saved.manifest_json["unit_key"] == unit_key
+        for saved in _rows(db, workspace_id, "prediction", row.id)
+    )
+    disagreement = len(annotations) == 2 and _annotation_truth(annotations[0]) != _annotation_truth(
+        annotations[1]
+    )
+    locked = unit["partition"] != "dev" and predicted
+    evidence = []
+    for item in asset.manifest_json.get("evidence", []):
+        text = (
+            assets._saved_evidence_text(asset, item) if item.get("kind", "text") == "text" else None
+        )
+        evidence.append(
+            {
+                "id": item["id"],
+                "kind": item.get("kind", "text"),
+                "sha256": item.get("sha256"),
+                "text": text,
+                "asset_ref": assets.asset_ref(asset),
+            }
+        )
+    questions = [
+        {
+            key: deepcopy(value)
+            for key, value in question.items()
+            if key not in {"acceptable_values", "accept_minimum", "accept_maximum"}
+        }
+        for question in row.manifest_json["spec"]["questions"]
+    ]
+    return {
+        "unit_key": unit_key,
+        "partition": unit["partition"],
+        "questions": questions,
+        "evidence": evidence,
+        "own_annotation": {"id": own.id} if own else None,
+        "annotation_count": len(annotations),
+        "can_annotate": not locked and own is None and len(annotations) < 2,
+        "adjudication_required": disagreement,
+        "can_adjudicate": not locked and own is None and disagreement,
+    }
 
 
 def _fingerprints(asset):
@@ -170,12 +359,28 @@ def create_corpus(db, workspace_id, user_id, data):
     for unit in spec.units:
         asset = _resolve(db, workspace_id, unit.asset_ref, user_id)
         manifest = asset.manifest_json
+        if (
+            manifest.get("calibration_eligible_partitions") is not None
+            and unit.partition not in manifest["calibration_eligible_partitions"]
+        ):
+            raise Error("CALIBRATION_CASE_ALREADY_EXPOSED", 409)
         if manifest.get("document_family") != unit.document_family or any(
             manifest.get(k) != v for k, v in spec.context.model_dump().items()
         ):
             raise Error("CALIBRATION_DOCUMENT_CONTEXT_MISMATCH", 422)
         units.append({**unit.model_dump(), "fingerprints": _fingerprints(asset)})
     _contamination(units)
+    # A copied/relabelled asset must not hide the already exposed bytes/family.
+    exposed = _rows(db, workspace_id, "case")
+    for unit in units:
+        if unit["partition"] == "dev":
+            continue
+        identities = {"family:" + unit["document_family"], *unit["fingerprints"]}
+        for previous in exposed:
+            if identities.intersection(
+                {"family:" + previous.manifest_json["document_family"], *_fingerprints(previous)}
+            ):
+                raise Error("CALIBRATION_CASE_ALREADY_EXPOSED", 409)
     # Reusing a previously exposed family/content as a new holdout is forbidden.
     for existing in _rows(db, workspace_id, "corpus"):
         if existing.manifest_json["spec"] == spec.model_dump():

@@ -6,6 +6,8 @@ export type HypervisorBlockWidth = '1/2' | '2/3' | 'full';
 export const COMPRENDRE_BLOCKS = [
   'activity',
   'financial_scenario',
+  'quality',
+  'ai_usage',
   'monument',
   'provenance',
   'cadran',

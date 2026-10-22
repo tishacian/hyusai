@@ -10,6 +10,17 @@ from app.services.model_plane import execution as runtime
 
 @pytest.fixture(autouse=True)
 def synthetic_connections(monkeypatch):
+    # These resolution tests use a synthetic workspace without a database.
+    # Durable transport admission is exercised in test_model_usage_transport.
+    from uuid import uuid4
+
+    from app.services import model_usage
+
+    monkeypatch.setattr(
+        model_usage, "prepare_call", lambda *a, **k: {"id": str(uuid4()), "status": "prepared"}
+    )
+    monkeypatch.setattr(model_usage, "mark_dispatched", lambda *a, **k: True)
+    monkeypatch.setattr(model_usage, "settle_call", lambda *a, **k: None)
     for key in (
         "OPENAI_API_KEY",
         "AZURE_OPENAI_API_KEY",
@@ -153,12 +164,14 @@ async def test_native_planner_reuses_checked_connection_and_rechecks_policy(
             }
 
     monkeypatch.setattr(
-        runtime, "build_model_client", lambda execution: clients.append(execution) or Client()
+        runtime,
+        "build_model_client",
+        lambda execution, **kwargs: clients.append(execution) or Client(),
     )
     ctx = {
         "_model_workspace": ws,
         "_model_execution": pinned,
-        "_model_policy_check": lambda execution: checks.append(execution),
+        "_model_policy_check": lambda execution, **kwargs: checks.append(execution),
     }
     output = await wrappers._decide_next_v1(
         {"model": "openai:gpt-frozen", "visible_skills": []}, ctx
@@ -299,7 +312,7 @@ async def test_explicit_provider_never_falls_back(monkeypatch):
             calls.append(kwargs)
             raise RuntimeError("untrusted provider error content")
 
-    monkeypatch.setattr(runtime, "build_model_client", lambda candidate: Client())
+    monkeypatch.setattr(runtime, "build_model_client", lambda candidate, **kwargs: Client())
     ctx = {}
     with pytest.raises(
         runtime.ModelExecutionError, match=r"openai: generation failed \(RuntimeError\)"
@@ -316,7 +329,7 @@ async def test_workspace_fallback_uses_own_model_policy_and_partial_usage(monkey
     checked, calls = [], []
 
     class Client:
-        def __init__(self, candidate):
+        def __init__(self, candidate, **kwargs):
             self.candidate = candidate
 
         async def generate(self, **kwargs):
@@ -327,7 +340,7 @@ async def test_workspace_fallback_uses_own_model_policy_and_partial_usage(monkey
 
     monkeypatch.setattr(runtime, "build_model_client", Client)
     ctx = {
-        "_model_policy_check": lambda candidate: checked.append(
+        "_model_policy_check": lambda candidate, **kwargs: checked.append(
             (candidate.provider, candidate.model)
         )
     }
@@ -358,7 +371,7 @@ async def test_denied_fallback_never_opens_connection(monkeypatch):
     monkeypatch.setattr(
         runtime,
         "build_model_client",
-        lambda candidate: calls.append(candidate.provider) or Client(),
+        lambda candidate, **kwargs: calls.append(candidate.provider) or Client(),
     )
 
     def check(candidate):
@@ -386,7 +399,7 @@ async def test_stream_keeps_provenance_and_never_reissues_after_first_token(monk
             yield {"delta": "first"}
             raise TimeoutError()
 
-    monkeypatch.setattr(runtime, "build_model_client", lambda candidate: Client())
+    monkeypatch.setattr(runtime, "build_model_client", lambda candidate, **kwargs: Client())
     ctx = {"token_sink": tokens.append}
     with pytest.raises(runtime.ModelExecutionError):
         await runtime.complete_model(
@@ -404,7 +417,7 @@ async def test_stream_and_generate_share_resolution_and_measured_usage(monkeypat
             yield {"delta": "hello", "model": "gpt-pinned-revision"}
             yield {"usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}}
 
-    monkeypatch.setattr(runtime, "build_model_client", lambda candidate: Client())
+    monkeypatch.setattr(runtime, "build_model_client", lambda candidate, **kwargs: Client())
     result = await runtime.complete_model(
         runtime.resolve_model_execution(workspace(), provider="openai", model="gpt-pinned"),
         "x",
@@ -440,7 +453,9 @@ async def test_router_returns_exact_workspace_connection_without_cross_provider_
     monkeypatch.setattr(ModelRouter, "_initialize_clients", lambda self: None)
     seen = []
     monkeypatch.setattr(
-        runtime, "build_model_client", lambda resolved: seen.append(resolved) or SimpleNamespace()
+        runtime,
+        "build_model_client",
+        lambda resolved, **kwargs: seen.append(resolved) or SimpleNamespace(),
     )
     client = await ModelRouter(workspace()).get_client(
         {"provider": "openai", "model": "gpt-pinned"}
@@ -461,10 +476,10 @@ async def test_generic_wrapper_uses_server_workspace_and_model_policy(monkeypatc
             assert kwargs["model"] == "gpt-workspace"
             return {"content": "ok", "usage": {"total_tokens": 2}}
 
-    monkeypatch.setattr(runtime, "build_model_client", lambda resolved: Client())
+    monkeypatch.setattr(runtime, "build_model_client", lambda resolved, **kwargs: Client())
     ctx = {
         "_model_workspace": workspace(),
-        "_model_policy_check": lambda resolved: checks.append(resolved.public()),
+        "_model_policy_check": lambda resolved, **kwargs: checks.append(resolved.public()),
     }
     assert await wrappers._route_llm_complete("x", None, ctx) == "ok"
     assert checks[0]["model_source"] == "workspace"
@@ -480,7 +495,7 @@ async def test_legacy_azure_stream_preserves_closed_output_with_counters_in_cont
             yield {"delta": "ok", "model": "gpt-returned"}
             yield {"usage": {"total_tokens": 2}}
 
-    monkeypatch.setattr(runtime, "build_model_client", lambda resolved: Client())
+    monkeypatch.setattr(runtime, "build_model_client", lambda resolved, **kwargs: Client())
     ctx = {"token_sink": lambda token: None}
     result = await wrappers._azure_llm_v1({"prompt": "x"}, ctx)
     assert result == {"completion": "ok", "model": "gpt-4o-mini", "streamed": True}

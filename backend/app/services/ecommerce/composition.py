@@ -531,6 +531,7 @@ def read_queue(db, workspace, triage):
             .join(Run, Run.id == TabularDataset.run_id)
             .filter(
                 TabularDataset.workspace_id == workspace.id,
+                TabularDataset.evaluation_campaign_id.is_(None),
                 TabularDataset.system_id == system.id,
                 TabularDataset.source == "score",
                 TabularDataset.node_id == SCORE_NODE,

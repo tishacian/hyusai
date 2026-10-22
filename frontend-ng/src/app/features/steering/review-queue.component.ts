@@ -28,6 +28,7 @@ import {
   TagComponent,
 } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
+import { qualityMessage, type QualityMessage } from '@app/features/observability/quality-messages';
 import { observabilitySystemId } from '@app/features/observability/observability-facets';
 
 type ReviewStatus = 'proposed' | 'accepted' | 'rejected' | 'all';
@@ -315,7 +316,7 @@ function statusFromFacet(facet: string | null): ReviewStatus {
                           [title]="i18n.t('steering.review.accept_hint')"
                           data-testid="review-accept"
                         >
-                          {{ i18n.t('hypervisor.decisions.accept') }}
+                          {{ qualityText('false_alarm') }}
                         </button>
                         <button
                           type="button"
@@ -327,7 +328,7 @@ function statusFromFacet(facet: string | null): ReviewStatus {
                           [title]="i18n.t('steering.review.reject_hint')"
                           data-testid="review-reject"
                         >
-                          {{ i18n.t('hypervisor.decisions.reject') }}
+                          {{ qualityText('confirm_issue') }}
                         </button>
                       }
                       @if (item.run) {
@@ -494,6 +495,7 @@ function statusFromFacet(facet: string | null): ReviewStatus {
   `,
 })
 export class SteeringReviewQueueComponent implements OnInit {
+  qualityText(key:QualityMessage){return qualityMessage(this.i18n,key);}
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);

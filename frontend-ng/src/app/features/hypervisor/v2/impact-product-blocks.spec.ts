@@ -73,3 +73,12 @@ test('scope affects all chart rows and never falls back to the portfolio when th
   assert.equal(raw.systems.length, 2);
   assert.equal(scopedSeries(typed, null), typed);
 });
+
+test('quality and usage are opt-in blocks preserving population and saved position', () => {
+  for (const view of DEFAULT_HYPERVISOR_VIEWS) assert.equal(summarySections(view).some(type => ['quality', 'ai_usage'].includes(type)), false);
+  const view = cloneView(DEFAULT_HYPERVISOR_VIEWS[0]!);
+  view.strata.comprendre = [{type:'quality',settings:{traffic:'business'}},{type:'ai_usage',settings:{traffic:'all'}}];
+  const saved = parseViewsPayload({views:serializeViewsForWrite([view])}).views[0]!;
+  assert.deepEqual(summarySections(saved), ['quality','ai_usage']);
+  assert.equal(saved.strata.comprendre[1]!.settings['traffic'], 'all');
+});

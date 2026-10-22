@@ -3,7 +3,7 @@
 No authority comes from Run input JSON. Admission resolves the live fenced
 attempt in the database. Late settlement may record an old attempt's real
 spend, but can never authorize another dispatch. Unknown usage retains the
-reservation. All mutating helpers own and commit their short transaction.
+reservation. Standalone helpers own their short transaction; admission can join its caller’s transaction.
 """
 
 from __future__ import annotations
@@ -214,84 +214,98 @@ def reserve(ctx, *, stage, key, cost, tokens, seconds, replayable=False):
         db.rollback()
         try:
             with _workspace_lock(db.get_bind(), "service-budget:" + window_id):
-                window, attempt, run = _scope(db, ctx, lock=True)
-                budget = _definition(db, window)
-                job = db.get(
-                    WorkspaceJob, _job_id(window.workspace_id, window.id), populate_existing=True
+                reservation = reserve_in_transaction(
+                    db,
+                    ctx,
+                    stage=stage,
+                    key=key,
+                    cost=cost,
+                    tokens=tokens,
+                    seconds=seconds,
+                    replayable=replayable,
                 )
-                if job is None:
-                    job = WorkspaceJob(
-                        id=_job_id(window.workspace_id, window.id),
-                        workspace_id=window.workspace_id,
-                        system_id=window.system_id,
-                        kind=KIND,
-                        title="Service window budget",
-                        status="running",
-                        input_ref={
-                            "window_id": window.id,
-                            "contract_id": window.contract_id,
-                            "budget": budget,
-                        },
-                        result={"entries": {}},
-                    )
-                    db.add(job)
-                if job.input_ref.get("budget") != budget:
-                    raise GovernanceError("SERVICE_BUDGET_CONTRACT_CHANGED")
-                state = copy.deepcopy(job.result)
-                if state.get("measurement_conflict"):
-                    raise GovernanceError("SERVICE_BUDGET_RECONCILIATION_REQUIRED")
-                entry_key = _hash([stage, key])
-                fingerprint = _hash([stage, key, cost, tokens, seconds])
-                entry = state["entries"].get(entry_key)
-                if entry:
-                    if entry["fingerprint"] != fingerprint:
-                        raise GovernanceError("SERVICE_BUDGET_RESERVATION_CHANGED")
-                    if not replayable:
-                        raise GovernanceError("SERVICE_BUDGET_RECONCILIATION_REQUIRED")
-                    return Reservation(
-                        window.workspace_id,
-                        window.id,
-                        entry_key,
-                        entry["token"],
-                        entry["run_id"],
-                        entry["fence"],
-                    )
-                if len(state["entries"]) >= MAX_ENTRIES:
-                    raise GovernanceError("SERVICE_BUDGET_ENTRY_LIMIT")
-                stages = budget.get("stages", {})
-                if stages and stage not in stages:
-                    raise GovernanceError("SERVICE_STAGE_NOT_ALLOCATED")
-                entry = {
-                    "stage": stage,
-                    "fingerprint": fingerprint,
-                    "token": secrets.token_hex(32),
-                    "attempt_id": attempt.id,
-                    "run_id": run.id,
-                    "fence": attempt.fence,
-                    "created_at": _now().isoformat(),
-                    "final": False,
-                    **{
-                        f"reserved_{u}": v
-                        for u, v in zip(UNITS, (cost, tokens, seconds), strict=True)
-                    },
-                    **{f"measured_{u}": None for u in UNITS},
-                    **{f"complete_{u}": False for u in UNITS},
-                }
-                state["entries"][entry_key] = entry
-                if _summary(list(state["entries"].values()), budget)["over_budget"]:
-                    raise GovernanceError("SERVICE_BUDGET_EXHAUSTED")
-                job.result, job.updated_at = state, _now()
                 db.commit()
-                return Reservation(
-                    window.workspace_id,
-                    window.id,
-                    entry_key,
-                    entry["token"],
-                    entry["run_id"],
-                    entry["fence"],
-                )
+                return reservation
         except LabelingError:
             raise GovernanceError("SERVICE_BUDGET_BUSY") from None
+
+
+def reserve_in_transaction(db, ctx, *, stage, key, cost, tokens, seconds, replayable=False):
+    """Reserve with the caller's global admission transaction, without a commit.
+
+    The caller first locks the workspace admission row. The native window lock
+    also serialises older service-only writers; no provider call belongs here.
+    """
+    _validate(cost, tokens, seconds)
+    if stage not in {"narration", "judge"} or not isinstance(key, str) or not 1 <= len(key) <= 300:
+        raise GovernanceError("SERVICE_BUDGET_KEY_INVALID", 422)
+    scope = _scope(db, ctx, lock=True)
+    if scope is None:
+        return None
+    window, attempt, run = scope
+    budget = _definition(db, window)
+    job = db.get(WorkspaceJob, _job_id(window.workspace_id, window.id), populate_existing=True)
+    if job is None:
+        job = WorkspaceJob(
+            id=_job_id(window.workspace_id, window.id),
+            workspace_id=window.workspace_id,
+            system_id=window.system_id,
+            kind=KIND,
+            title="Service window budget",
+            status="running",
+            input_ref={"window_id": window.id, "contract_id": window.contract_id, "budget": budget},
+            result={"entries": {}},
+        )
+        db.add(job)
+    if job.input_ref.get("budget") != budget:
+        raise GovernanceError("SERVICE_BUDGET_CONTRACT_CHANGED")
+    state = copy.deepcopy(job.result)
+    if state.get("measurement_conflict"):
+        raise GovernanceError("SERVICE_BUDGET_RECONCILIATION_REQUIRED")
+    entry_key = _hash([stage, key])
+    fingerprint = _hash([stage, key, cost, tokens, seconds])
+    entry = state["entries"].get(entry_key)
+    if entry:
+        if entry["fingerprint"] != fingerprint:
+            raise GovernanceError("SERVICE_BUDGET_RESERVATION_CHANGED")
+        if not replayable:
+            raise GovernanceError("SERVICE_BUDGET_RECONCILIATION_REQUIRED")
+        return Reservation(
+            window.workspace_id,
+            window.id,
+            entry_key,
+            entry["token"],
+            entry["run_id"],
+            entry["fence"],
+        )
+    if len(state["entries"]) >= MAX_ENTRIES:
+        raise GovernanceError("SERVICE_BUDGET_ENTRY_LIMIT")
+    stages = budget.get("stages", {})
+    if stages and stage not in stages:
+        raise GovernanceError("SERVICE_STAGE_NOT_ALLOCATED")
+    entry = {
+        "stage": stage,
+        "fingerprint": fingerprint,
+        "token": secrets.token_hex(32),
+        "attempt_id": attempt.id,
+        "run_id": run.id,
+        "fence": attempt.fence,
+        "created_at": _now().isoformat(),
+        "final": False,
+        **{
+            f"reserved_{unit}": value
+            for unit, value in zip(UNITS, (cost, tokens, seconds), strict=True)
+        },
+        **{f"measured_{unit}": None for unit in UNITS},
+        **{f"complete_{unit}": False for unit in UNITS},
+    }
+    state["entries"][entry_key] = entry
+    if _summary(list(state["entries"].values()), budget)["over_budget"]:
+        raise GovernanceError("SERVICE_BUDGET_EXHAUSTED")
+    job.result, job.updated_at = state, _now()
+    return Reservation(
+        window.workspace_id, window.id, entry_key, entry["token"], run.id, attempt.fence
+    )
 
 
 def settle(reservation, *, cost=None, tokens=None, seconds=None, final=True):

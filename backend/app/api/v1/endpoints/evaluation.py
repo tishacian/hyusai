@@ -18,10 +18,11 @@ Three concerns share this router:
 
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -52,6 +53,12 @@ from app.services.evaluation.rag_components import (
     RAG_COMPONENT_LABELS,
     component_health,
     targeted_components,
+)
+from app.services.evaluation.read_model import (
+    evaluation_totals,
+    project_records,
+    scalar_metric,
+    unrecorded_controls,
 )
 from app.services.evaluation_preset_service import (
     DEFAULT_EVAL_CONFIG,
@@ -218,9 +225,9 @@ async def evaluation_history(
                 "agent_id": r.agent_id,
                 "turn_number": r.turn_number,
                 "scores": r.scores,
-                "composite_score": r.composite_score,
-                "hallucination_rate": r.hallucination_rate,
-                "drift_rate": r.drift_rate,
+                "composite_score": scalar_metric(r, "composite_score"),
+                "hallucination_rate": scalar_metric(r, "hallucination_rate"),
+                "drift_rate": scalar_metric(r, "drift_rate"),
                 "question_type": r.question_type,
                 "failed_components": r.failed_components or [],
                 "topic": r.topic,
@@ -288,9 +295,9 @@ async def latest_evaluation(
                 "breach"
             ),
             "scores": row.scores,
-            "composite_score": row.composite_score,
-            "hallucination_rate": row.hallucination_rate,
-            "drift_rate": row.drift_rate,
+            "composite_score": scalar_metric(row, "composite_score"),
+            "hallucination_rate": scalar_metric(row, "hallucination_rate"),
+            "drift_rate": scalar_metric(row, "drift_rate"),
             "question_type": row.question_type,
             "failed_components": row.failed_components or [],
             "topic": row.topic,
@@ -401,6 +408,89 @@ async def upsert_workspace_preset(
 # ---------------------------------------------------------------------------
 # Vague E / E1 — per-run eval lookup (chat toast polling)
 # ---------------------------------------------------------------------------
+
+
+@router.get("/by-run/{run_id}/summary")
+async def evaluation_run_summary(
+    run_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """All retained controls for this Run, independent of auto-eval lifecycle."""
+    run = db.query(Run).filter_by(id=run_id, workspace_id=workspace.id).first()
+    require_readable_run(db, run, user, workspace)
+    rows = (
+        db.query(EvaluationScore)
+        .filter_by(workspace_id=workspace.id, run_id=run.id)
+        .order_by(EvaluationScore.created_at.desc(), EvaluationScore.id.desc())
+        .all()
+    )
+    records = project_records(db, rows, workspace=workspace, user=user)
+    return {
+        "schema_version": 1,
+        "run_id": run.id,
+        "records": records,
+        "totals": evaluation_totals(records),
+        "unrecorded_controls": unrecorded_controls(
+            db, run, workspace=workspace, user=user, records=records
+        ),
+    }
+
+
+@router.get("/records/{evaluation_id}")
+async def evaluation_record(
+    evaluation_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.query(EvaluationScore).filter_by(id=evaluation_id, workspace_id=workspace.id).first()
+    records = project_records(db, [row] if row else [], workspace=workspace, user=user)
+    if not records:
+        raise HTTPException(404, "Evaluation not found")
+    return records[0]
+
+
+@router.get("/summary")
+async def evaluation_summary(
+    system_id: Optional[str] = None,
+    since: str = "7d",
+    as_of: datetime | None = None,
+    traffic: Literal["business", "evaluation", "all"] = "business",
+    limit: int = Query(default=100, ge=1, le=200),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    anchor = observation_anchor(as_of)
+    query = _evaluation_scope_query(
+        db, workspace, system_id=system_id, since=since, as_of=anchor, traffic=traffic
+    )
+    rows = query.order_by(EvaluationScore.created_at.desc(), EvaluationScore.id.desc()).all()
+    records = project_records(db, rows, workspace=workspace, user=user)
+    # Full detail has its own authorized route. Counts cover the whole scope,
+    # while this preview explicitly reports its truncation.
+    preview = [
+        {
+            key: value
+            for key, value in record.items()
+            if key not in {"typed_evaluation", "legacy_evaluation", "evidence_sources"}
+        }
+        for record in records[:limit]
+    ]
+    return {
+        "schema_version": 1,
+        "scope": {
+            "system_id": system_id,
+            "since": since,
+            "as_of": anchor.isoformat(),
+            "traffic": traffic,
+        },
+        "records": preview,
+        "totals": evaluation_totals(records),
+        "has_more": len(records) > limit,
+    }
 
 
 @router.get("/by-run/{run_id}")
@@ -615,7 +705,7 @@ async def eval_trend(
         buckets.setdefault(bucket or "(unknown)", []).append(row)
 
     def mean(items, attr):
-        values = [getattr(row, attr) for row in items if getattr(row, attr) is not None]
+        values = [scalar_metric(row, attr) for row in items if scalar_metric(row, attr) is not None]
         return sum(values) / len(values) if values else None
 
     known = [
@@ -644,11 +734,15 @@ async def eval_trend(
                 "count": len(items),
                 "avg_composite": mean(items, "composite_score"),
                 "avg_hallucination": mean(items, "hallucination_rate"),
-                "observed_composite_count": sum(row.composite_score is not None for row in items),
-                "observed_hallucination_count": sum(
-                    row.hallucination_rate is not None for row in items
+                "observed_composite_count": sum(
+                    scalar_metric(row, "composite_score") is not None for row in items
                 ),
-                "observed_drift_count": sum(row.drift_rate is not None for row in items),
+                "observed_hallucination_count": sum(
+                    scalar_metric(row, "hallucination_rate") is not None for row in items
+                ),
+                "observed_drift_count": sum(
+                    scalar_metric(row, "drift_rate") is not None for row in items
+                ),
                 "avg_drift": mean(items, "drift_rate"),
                 "threshold_coverage": sum(
                     isinstance((row.metadata_ or {}).get("threshold_outcome"), dict)
@@ -698,8 +792,17 @@ async def eval_component_health(
     config = service.resolve(db, workspace_id=workspace.id)
     composite_min = float(config.get("composite_min", 0.0))
     hallucination_max = float(config.get("hallucination_max", 1.0))
-    excluded = sum(r.composite_score is None or r.hallucination_rate is None for r in rows)
-    rows = [r for r in rows if r.composite_score is not None and r.hallucination_rate is not None]
+    excluded = sum(
+        scalar_metric(r, "composite_score") is None
+        or scalar_metric(r, "hallucination_rate") is None
+        for r in rows
+    )
+    rows = [
+        r
+        for r in rows
+        if scalar_metric(r, "composite_score") is not None
+        and scalar_metric(r, "hallucination_rate") is not None
+    ]
     payload = component_health(
         rows,
         composite_min=composite_min,
@@ -833,7 +936,7 @@ def _scope_delta(since):
 
 
 def _evaluation_scope_query(
-    db, workspace, *, system_id=None, since=None, agent_id=None, as_of=None
+    db, workspace, *, system_id=None, since=None, agent_id=None, as_of=None, traffic="business"
 ):
     delta = _scope_delta(since)
     anchor = observation_anchor(as_of)
@@ -852,6 +955,20 @@ def _evaluation_scope_query(
         )
     if agent_id:
         query = query.filter(EvaluationScore.agent_id == agent_id)
+    campaign_column = getattr(Run, "evaluation_campaign_id", None)
+    if traffic != "all":
+        from app.services.run_engine.execution_contract import NON_PUBLISHED_EXECUTION_SURFACES
+
+        is_evaluation = or_(
+            campaign_column.is_not(None) if campaign_column is not None else False,
+            func.coalesce(Run.execution_surface, "").in_(NON_PUBLISHED_EXECUTION_SURFACES),
+            func.coalesce(Run.trigger, "").in_(NON_PUBLISHED_EXECUTION_SURFACES),
+        )
+        run_scope = db.query(Run.id).filter(
+            Run.workspace_id == workspace.id,
+            ~is_evaluation if traffic == "business" else is_evaluation,
+        )
+        query = query.filter(EvaluationScore.run_id.in_(run_scope))
     return query
 
 

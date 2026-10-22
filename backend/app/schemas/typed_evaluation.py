@@ -329,6 +329,22 @@ class CalibrationContext(StrictModel):
     task: Literal["j2450_translation", "typed_questions"]
 
 
+class CalibrationCaseFromEvaluation(StrictModel):
+    evaluation_id: str = Field(min_length=1, max_length=36)
+    logical_key: str = Field(min_length=1, max_length=120)
+    document_family: str = Field(min_length=1, max_length=160)
+    source: str = Field(min_length=1, max_length=120)
+    language: str = Field(min_length=2, max_length=40)
+    task: Literal["j2450_translation", "typed_questions"]
+
+    @field_validator("logical_key", "document_family", "source", "language")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("A declared value must not be blank.")
+        return value.strip()
+
+
 class CalibrationModel(StrictModel):
     provider: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)

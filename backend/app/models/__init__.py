@@ -66,6 +66,13 @@ from app.models.meeting_decision import MeetingDecision
 from app.models.mfa import MfaChallenge
 from app.models.ml_feedback import MLPredictionFeedback
 from app.models.ml_governance import MLAdmissionCounter, MLWorkspaceLock
+from app.models.model_usage import (
+    ModelTariff,
+    ModelUsageCall,
+    UsageBudgetBucket,
+    UsageBudgetPolicy,
+    UsageReservation,
+)
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.rag_preset import RagPreset
 from app.models.recipe import PythonEnv, RecipeExecution
@@ -236,6 +243,11 @@ __all__ = [
     "SystemFlowDraft",
     "SystemVersion",
     "Run",
+    "ModelTariff",
+    "ModelUsageCall",
+    "UsageBudgetBucket",
+    "UsageBudgetPolicy",
+    "UsageReservation",
     "SkillInvocation",
     "RunSchedule",
     "WebhookHook",

@@ -890,10 +890,15 @@ def reserve_frame(
     """
 
     label = (name or "result").strip()[:200] or "result"
-    slug = slugify(label)
+    from app.services.evaluation.isolation import dataset_slug
+
+    slug, evaluation_campaign_id = dataset_slug(
+        db, workspace_id=workspace_id, name=label, run_id=run_id, node_id=node_id
+    )
     dataset = TabularDataset(
         id=str(uuid4()),
         workspace_id=workspace_id,
+        evaluation_campaign_id=evaluation_campaign_id,
         name=label,
         slug=slug,
         version=next_version(db, workspace_id=workspace_id, slug=slug),
@@ -954,10 +959,15 @@ def register_frame(
     dataset = into
     if dataset is None:
         label = (name or "result").strip()[:200] or "result"
-        slug = slugify(label)
+        from app.services.evaluation.isolation import dataset_slug
+
+        slug, evaluation_campaign_id = dataset_slug(
+            db, workspace_id=workspace_id, name=label, run_id=run_id, node_id=node_id
+        )
         dataset = TabularDataset(
             id=str(uuid4()),
             workspace_id=workspace_id,
+            evaluation_campaign_id=evaluation_campaign_id,
             name=label,
             slug=slug,
             version=next_version(db, workspace_id=workspace_id, slug=slug),
@@ -978,6 +988,17 @@ def register_frame(
             raise TabularError(
                 code="DATASET_IMMUTABLE_VERSION",
                 message="Only a reserved dataset in this workspace can receive its first output.",
+                status_code=409,
+            )
+        from app.services.evaluation.isolation import campaign_for_run
+
+        expected_campaign = campaign_for_run(db, run_id or dataset.run_id, workspace_id)
+        if dataset.evaluation_campaign_id != expected_campaign or (
+            expected_campaign and run_id and dataset.run_id != run_id
+        ):
+            raise TabularError(
+                code="EVALUATION_ARTIFACT_SCOPE_INVALID",
+                message="The reserved artifact does not belong to this evaluation Run.",
                 status_code=409,
             )
         # A reserved row carried everything except what the frame decides.
@@ -1125,6 +1146,7 @@ def serialize_dataset(dataset: TabularDataset, *, include_preview: bool = False)
         "schema": list(dataset.schema_json or []),
         "original_filename": dataset.original_filename,
         "run_id": dataset.run_id,
+        "evaluation_campaign_id": dataset.evaluation_campaign_id,
         "node_id": dataset.node_id,
         "system_id": dataset.system_id,
         "parent_ids": list(dataset.parent_ids or []),

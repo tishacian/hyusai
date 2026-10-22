@@ -1182,6 +1182,7 @@ def journal_call(
     duration_ms: float,
     dataset_id: str | None = None,
     store: bool = True,
+    evaluation_campaign_id: str | None = None,
 ) -> str:
     """Persist one serving call and return the id the API quotes.
 
@@ -1203,6 +1204,7 @@ def journal_call(
         journal_answers = [_without_caller_values(answer) for answer in journal_answers]
     row = MLPrediction(
         workspace_id=served.workspace_id,
+        evaluation_campaign_id=evaluation_campaign_id,
         model_id=requested.id,
         served_id=served.id,
         served_version=int(served.version or 1),
@@ -1220,21 +1222,22 @@ def journal_call(
     db.flush()
     from app.services.ml_operations import record_inference
 
-    record_inference(
-        db,
-        requested=requested,
-        served=served,
-        caller=caller,
-        row_count=len(answers),
-        duration_ms=duration_ms,
-        event_id=row.id,
-    )
+    if evaluation_campaign_id is None:
+        record_inference(
+            db,
+            requested=requested,
+            served=served,
+            caller=caller,
+            row_count=len(answers),
+            duration_ms=duration_ms,
+            event_id=row.id,
+        )
     # The primary journal remains authoritative if shadow staging fails. No
     # broker call or challenger inference runs on the serving request path.
     try:
         from app.services.ml_shadow import stage
 
-        if persist_inputs:
+        if persist_inputs and evaluation_campaign_id is None:
             with db.begin_nested():
                 stage(db, row=row, served=served)
     except Exception:  # shadow availability must never fail a served answer
@@ -1295,9 +1298,15 @@ def score_dataset(
     tell a scored table apart from a transformed one in lineage.
     """
 
+    from contextlib import nullcontext
+
+    from app.services.evaluation.isolation import validate_inputs
     from app.services.ml_operations import inference_attempt
 
-    with inference_attempt(db, model=model, caller="score") as observation:
+    qa = validate_inputs(db, run_id=run_id, workspace_id=model.workspace_id, datasets=[dataset])
+    with (
+        nullcontext({}) if qa else inference_attempt(db, model=model, caller="score")
+    ) as observation:
         served = serving_version(db, model, version=version)
         observation["served_id"] = served.id
         fields = contract_fields(served)
@@ -1479,7 +1488,8 @@ def _score_into(
             "duration_ms": elapsed_ms,
         },
     )
-    record_usage(db, served, rows=len(predictions))
+    if output.evaluation_campaign_id is None:
+        record_usage(db, served, rows=len(predictions))
     answers = [
         {
             "prediction": predicted,
@@ -1498,6 +1508,7 @@ def _score_into(
         answers=answers,
         duration_ms=elapsed_ms,
         dataset_id=output.id,
+        evaluation_campaign_id=output.evaluation_campaign_id,
     )
     logger.info(
         "tabular_predict: dataset scored",

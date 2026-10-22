@@ -67,7 +67,7 @@ def _session_row(session: SessionModel) -> dict[str, Any]:
     }
 
 
-def _run_row(run: Run) -> dict[str, Any]:
+def _run_row(run: Run, *, payload_visible: bool = True) -> dict[str, Any]:
     contract = run.execution_contract if isinstance(run.execution_contract, dict) else {}
     return {
         "id": run.id,
@@ -77,14 +77,23 @@ def _run_row(run: Run) -> dict[str, Any]:
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "duration_ms": run.duration_ms,
-        "input_ref": run.input_ref or {},
-        "output_ref": run.output_ref if run.output_ref is not None else {},
-        "error": run.error,
+        "input_ref": (run.input_ref or {}) if payload_visible else {},
+        "output_ref": (run.output_ref if run.output_ref is not None else {})
+        if payload_visible
+        else {},
+        "error": run.error if payload_visible else None,
+        "payload_unavailable_reason": None if payload_visible else "evidence_unavailable",
         "execution_surface": run.execution_surface,
         "published_flow_version_id": run.published_flow_version_id,
         "flow_sha256": run.flow_sha256,
         "runtime_mode": contract.get("runtime_mode"),
     }
+
+
+def _judge_payload_visible(db, run, workspace, user):
+    from app.services.evaluation.read_model import runtime_judgment_payload_visible
+
+    return runtime_judgment_payload_visible(db, run, workspace=workspace, user=user)
 
 
 def _published_operator_summary(
@@ -232,7 +241,10 @@ async def get_runner_session(
                 workspace=workspace,
             ),
             "session": _session_row(session),
-            "runs": [_run_row(run) for run in runs],
+            "runs": [
+                _run_row(run, payload_visible=_judge_payload_visible(db, run, workspace, user))
+                for run in runs
+            ],
         }
     except flow_runner.FlowRunnerError as exc:
         _raise_runner(db, exc)
@@ -282,6 +294,7 @@ async def create_runner_run(
             expected_flow_sha256=body.expected_flow_sha256,
         )
         from app.services.execution.submission import stage_run
+
         durable = stage_run(db, run, system)
         db.commit()
         db.refresh(run)
@@ -289,4 +302,4 @@ async def create_runner_run(
         _raise_runner(db, exc)
     if not durable:
         background_tasks.add_task(schedule_run, run.id)
-    return _run_row(run)
+    return _run_row(run, payload_visible=_judge_payload_visible(db, run, workspace, user))

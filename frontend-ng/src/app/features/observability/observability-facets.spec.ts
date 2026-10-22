@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  OBSERVABILITY_FACETS, resolveObservabilityFacet, observabilityAnchor, periodCutoffMs,
+  OBSERVABILITY_FACETS, resolveObservabilityFacet, observabilityAnchor, formatObservabilityAnchor, periodCutoffMs,
   isObservabilityFacet,
   normalizeObservabilityFacet,
   observabilitySystemId,
@@ -9,11 +9,21 @@ import {
 } from './observability-facets';
 import { OBSERVABILITY_FR } from '../../core/i18n/observability.dict';
 
-test('observability exposes five facets including traces', () => {
+test('observation anchor is localized while retaining an explicit UTC time', () => {
+  for (const locale of ['fr', 'en']) {
+    const formatted = formatObservabilityAnchor('2026-10-22T12:00:00+02:00', locale);
+    assert.match(formatted, /22/); assert.match(formatted, /2026/); assert.match(formatted, /10:00/); assert.match(formatted, /UTC/);
+    assert.doesNotMatch(formatted, /T10:00:00/);
+  }
+  assert.equal(formatObservabilityAnchor('invalid', 'fr'), '—');
+});
+
+test('observability exposes usage and quality as distinct facets', () => {
   assert.deepEqual([...OBSERVABILITY_FACETS], [
     'operations',
     'activities',
     'quality',
+    'usage',
     'performance',
     'traces',
   ]);

@@ -1180,6 +1180,8 @@ async def _execute_task_node(
     skill_ctx: dict[str, Any] = dict(ctx) if ctx is not None else {}
     install_collector(skill_ctx, inference_cost)
     skill_ctx["_skill_node_id"] = node_id
+    skill_ctx["_skill_invocation_id"] = invocation.id
+    skill_ctx["_model_usage_call_ids"] = []
     skill_ctx.pop("_native_submission_only", None)
     if native_invocation_id is not None:
         skill_ctx["_native_submission_only"] = True
@@ -1322,6 +1324,10 @@ async def _execute_task_node(
                 "user_id": execution_user_id(db, run),
             }
         )
+        if getattr(run, "evaluation_campaign_id", None):
+            from app.services.evaluation.qualification import authorize_invocation
+
+            authorize_invocation(db, run, node_id=node_id, skill_slug=slug)
         # Server-owned context: caller input cannot forge a source binding.
         skill_ctx["_flow_data_sources"] = bound_data_sources(run.flow_snapshot, node_id)
         skill_ctx[SECRETS_CTX_KEY] = build_secret_grants(
@@ -1354,15 +1360,43 @@ async def _execute_task_node(
                 subject="AgentLoop tool input",
             )
         from app.services.execution.rollout import enabled_for
+        from app.services.model_usage import UsageContext
+        from app.services.model_usage_transport import usage_scope
 
-        if run.execution_policy is not None or enabled_for(
-            db, run.workspace_id, "execution_control_enabled"
-        ):
-            from app.services.execution.control import invoke_controlled
+        usage_context = (
+            UsageContext(
+                workspace_id=run.workspace_id,
+                system_id=run.system_id,
+                run_id=run.id,
+                invocation_id=invocation.id,
+                campaign_id=getattr(run, "evaluation_campaign_id", None),
+                actor_user_id=skill_ctx.get("user_id"),
+                purpose="judge"
+                if slug in {"evaluate_v1", "evaluate_v2"}
+                else "agent_decision"
+                if slug == "decide_next_v1"
+                else "generation",
+                traffic="evaluation"
+                if getattr(run, "evaluation_campaign_id", None)
+                else "preview"
+                if run.execution_surface in {"golden_preview", "builder_preview", "workbench"}
+                else "business",
+            )
+            if run.workspace_id
+            else None
+        )
+        skill_ctx["_model_usage_context"] = usage_context
+        with usage_scope(usage_context, call_ids=skill_ctx["_model_usage_call_ids"]):
+            if run.execution_policy is not None or enabled_for(
+                db, run.workspace_id, "execution_control_enabled"
+            ):
+                from app.services.execution.control import invoke_controlled
 
-            output = await invoke_controlled(run.id, lambda: fn(invocation.input_ref, skill_ctx))
-        else:
-            output = await fn(invocation.input_ref, skill_ctx)
+                output = await invoke_controlled(
+                    run.id, lambda: fn(invocation.input_ref, skill_ctx)
+                )
+            else:
+                output = await fn(invocation.input_ref, skill_ctx)
         if not native_publication_owned():
             return invocation
         from app.services.execution.runtimes.deferred import DeferredNativeExecution
@@ -1508,9 +1542,12 @@ def _model_runtime_trace(trace, ctx):
 
 def _model_runtime_metrics(metrics, ctx):
     """Keep provider counters outside frozen business output contracts."""
+    metrics = dict(metrics or {})
+    if ctx.get("_model_usage_call_ids"):
+        metrics["model_usage_call_ids"] = list(dict.fromkeys(ctx["_model_usage_call_ids"]))
     accumulator = ctx.get("_provider_usage_v1")
     if not isinstance(accumulator, dict) or not accumulator.get("calls"):
-        return dict(metrics or {})
+        return metrics
     from app.services.evaluation.judge import provider_usage_evidence
 
     metrics = dict(metrics or {})

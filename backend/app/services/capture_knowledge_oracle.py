@@ -1,4 +1,5 @@
 """Knowledge × session oracle for expert capture co-construction and live hints."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,10 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
+
+from app.services.model_usage import UsageError
+from app.services.model_usage_sdk import async_openai_chat
 
 _logger = logging.getLogger(__name__)
 
@@ -76,7 +80,7 @@ def _is_thinking_model(model: str) -> bool:
     return any(m == p or m.startswith(f"{p}-") for p in _THINKING_MODEL_PREFIXES)
 
 
-def _model_chat_kwargs(model: str, *, temperature: float) -> Dict[str, Any]:
+def _model_chat_kwargs(model: str, *, temperature: float) -> dict[str, Any]:
     """Per-model chat-completion kwargs.
 
     For thinking models: omit ``temperature`` (only the default is allowed) and
@@ -86,7 +90,7 @@ def _model_chat_kwargs(model: str, *, temperature: float) -> Dict[str, Any]:
     if _is_thinking_model(model):
         from app.core.config import settings as cfg
 
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         effort = getattr(cfg, "openai_reasoning_effort", None)
         if effort:
             kwargs["reasoning_effort"] = effort
@@ -107,8 +111,8 @@ def _parse_measure_value(raw: str) -> float:
     return float(str(raw).replace(",", "."))
 
 
-def _extract_measures(text: str) -> Dict[str, List[float]]:
-    measures: Dict[str, List[float]] = {}
+def _extract_measures(text: str) -> dict[str, list[float]]:
+    measures: dict[str, list[float]] = {}
     for match in _RPM_PATTERN.finditer(text or ""):
         unit = "rpm"
         measures.setdefault(unit, []).append(float(match.group(1)))
@@ -123,11 +127,8 @@ def _extract_measures(text: str) -> Dict[str, List[float]]:
     return measures
 
 
-def _contradiction_signature(candidate: Dict[str, Any]) -> str:
-    return "|".join(
-        str(candidate.get(key) or "")
-        for key in ("claim_expert", "claim_kb", "unit")
-    )
+def _contradiction_signature(candidate: dict[str, Any]) -> str:
+    return "|".join(str(candidate.get(key) or "") for key in ("claim_expert", "claim_kb", "unit"))
 
 
 @dataclass
@@ -149,7 +150,7 @@ class CaptureSessionContext:
     provided_seed: str | None = None
 
 
-def _words(text: str) -> List[str]:
+def _words(text: str) -> list[str]:
     return _WORD_PATTERN.findall(text or "")
 
 
@@ -168,14 +169,14 @@ def _numeric_literals(text: str) -> set[str]:
     return values
 
 
-def _phrase_hits(partial_text: str, chunk_text: str) -> List[str]:
+def _phrase_hits(partial_text: str, chunk_text: str) -> list[str]:
     terms = [
         token.lower()
         for token in _words(partial_text)
         if len(token) >= 4 and token.lower() not in _SPARSE_EXACT_STOPWORDS
     ]
     chunk_lower = chunk_text.lower()
-    hits: List[str] = []
+    hits: list[str] = []
     for width in (4, 3, 2):
         if len(terms) < width:
             continue
@@ -190,11 +191,11 @@ def _phrase_hits(partial_text: str, chunk_text: str) -> List[str]:
 
 def sparse_exact_match_evidence(
     partial_text: str,
-    retrieval_chunks: List[str],
-    retrieval_metadatas: Optional[List[Dict[str, Any]]] = None,
+    retrieval_chunks: list[str],
+    retrieval_metadatas: Optional[list[dict[str, Any]]] = None,
     *,
     limit: int = 4,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Deterministic lexical evidence used by the live oracle before any LLM call.
 
     The retrieval layer may already have obtained these chunks via Qdrant sparse
@@ -208,7 +209,7 @@ def sparse_exact_match_evidence(
         return []
 
     metadatas = retrieval_metadatas or []
-    matches: List[Dict[str, Any]] = []
+    matches: list[dict[str, Any]] = []
     for index, chunk in enumerate(retrieval_chunks or []):
         text = str(chunk or "").strip()
         if not text:
@@ -223,7 +224,11 @@ def sparse_exact_match_evidence(
         if not (shared_numbers or shared_units or phrases or len(shared_terms) >= 2):
             continue
 
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         score = (
             (2.0 * len(shared_numbers))
             + (2.0 * len(shared_units))
@@ -248,7 +253,9 @@ def sparse_exact_match_evidence(
             }
         )
 
-    matches.sort(key=lambda item: (-float(item.get("match_score") or 0.0), int(item.get("rank") or 0)))
+    matches.sort(
+        key=lambda item: (-float(item.get("match_score") or 0.0), int(item.get("rank") or 0))
+    )
     return matches[: max(1, int(limit or 1))]
 
 
@@ -264,13 +271,13 @@ def broad_presentation_prompt(title: Optional[str]) -> str:
     return f"Présentez globalement ce que vous savez de « {label} »."
 
 
-def _current_plan_for_llm(topics: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+def _current_plan_for_llm(topics: Optional[list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """Compact outline sent to the plan oracle for iteration mode."""
-    outline: List[Dict[str, Any]] = []
+    outline: list[dict[str, Any]] = []
     for topic in topics or []:
         if not isinstance(topic, dict):
             continue
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "id": topic.get("id"),
             "title": topic.get("title"),
             "subtopics": [],
@@ -296,10 +303,10 @@ def _current_plan_for_llm(topics: Optional[List[Dict[str, Any]]]) -> List[Dict[s
 def session_context_from_capture(
     *,
     session: Any,
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     active_subtopic_id: Optional[str] = None,
-    recent_transcript: Optional[List[Dict[str, Any]]] = None,
-    current_plan: Optional[List[Dict[str, Any]]] = None,
+    recent_transcript: Optional[list[dict[str, Any]]] = None,
+    current_plan: Optional[list[dict[str, Any]]] = None,
     latest_instruction: Optional[str] = None,
 ) -> CaptureSessionContext:
     metrics = session.metrics or {}
@@ -319,18 +326,20 @@ def session_context_from_capture(
         dialogue_turns=list(dialogue.get("turns") or []),
         active_subtopic_id=active_subtopic_id or metrics.get("active_subtopic_id"),
         recent_transcript=list(recent_transcript or []),
-        current_plan=current_plan if current_plan is not None else _current_plan_for_llm(plan.get("topics") or []),
+        current_plan=current_plan
+        if current_plan is not None
+        else _current_plan_for_llm(plan.get("topics") or []),
         latest_instruction=(latest_instruction or "").strip() or None,
         provided_seed=seed,
     )
 
 
 def score_gaps_with_rag(
-    gaps: List[Dict[str, Any]],
-    rag_chunks: List[str],
+    gaps: list[dict[str, Any]],
+    rag_chunks: list[str],
     *,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Boost gap priority when RAG chunks mention related concepts."""
     rag_metadatas = rag_metadatas or []
     corpus = " ".join(rag_chunks).lower()
@@ -339,14 +348,18 @@ def score_gaps_with_rag(
         for md in rag_metadatas
         if isinstance(md, dict)
     ]
-    scored: List[Dict[str, Any]] = []
+    scored: list[dict[str, Any]] = []
     for gap in gaps:
         item = dict(gap)
         priority = float(item.get("priority") or 0.5)
         slug = str(item.get("slug") or "")
-        if slug == "exception_handling" and any(token in corpus for token in ("exception", "cas", "terrain", "180")):
+        if slug == "exception_handling" and any(
+            token in corpus for token in ("exception", "cas", "terrain", "180")
+        ):
             priority += 0.08
-        if slug == "decision_rationale" and any(token in corpus for token in ("décision", "decision", "vitesse", "réglage")):
+        if slug == "decision_rationale" and any(
+            token in corpus for token in ("décision", "decision", "vitesse", "réglage")
+        ):
             priority += 0.06
         if slug == "source_provenance" and refs:
             priority += 0.04
@@ -359,13 +372,13 @@ def score_gaps_with_rag(
 
 def detect_numeric_unit_contradictions(
     expert_text: str,
-    kb_chunks: List[str],
-) -> List[Dict[str, Any]]:
+    kb_chunks: list[str],
+) -> list[dict[str, Any]]:
     """Compare numeric claims with units between expert speech and KB excerpts."""
     kb_text = " ".join(kb_chunks)
     expert_measures = _extract_measures(expert_text)
     kb_measures = _extract_measures(kb_text)
-    contradictions: List[Dict[str, Any]] = []
+    contradictions: list[dict[str, Any]] = []
     for unit, expert_values in expert_measures.items():
         kb_values = kb_measures.get(unit)
         if not kb_values or not expert_values:
@@ -389,7 +402,11 @@ def detect_numeric_unit_contradictions(
                         f"au lieu de {kb_nominal:g} {unit_label} ?"
                     ),
                     "kb_excerpt": next(
-                        (chunk[:240] for chunk in kb_chunks if str(int(kb_nominal)) in chunk or f"{kb_nominal:g}" in chunk),
+                        (
+                            chunk[:240]
+                            for chunk in kb_chunks
+                            if str(int(kb_nominal)) in chunk or f"{kb_nominal:g}" in chunk
+                        ),
                         kb_chunks[0][:240] if kb_chunks else "",
                     ),
                 }
@@ -399,11 +416,11 @@ def detect_numeric_unit_contradictions(
 
 def detect_claim_contradictions(
     expert_text: str,
-    kb_chunks: List[str],
-) -> List[Dict[str, Any]]:
+    kb_chunks: list[str],
+) -> list[dict[str, Any]]:
     """Detect transcript vs KB mismatches using numeric/unit rules."""
     seen: set[str] = set()
-    contradictions: List[Dict[str, Any]] = []
+    contradictions: list[dict[str, Any]] = []
     rpm = detect_rpm_contradiction(expert_text, kb_chunks)
     if rpm:
         signature = _contradiction_signature(rpm)
@@ -420,8 +437,8 @@ def detect_claim_contradictions(
 
 def detect_rpm_contradiction(
     expert_text: str,
-    kb_chunks: List[str],
-) -> Optional[Dict[str, Any]]:
+    kb_chunks: list[str],
+) -> Optional[dict[str, Any]]:
     """Deterministic rpm mismatch detector (120 KB vs 180 expert test case)."""
     kb_rpms: set[int] = set()
     expert_rpms: set[int] = set()
@@ -442,15 +459,18 @@ def detect_rpm_contradiction(
         "claim_kb": f"vitesse nominale {kb_nominal}/min",
         "severity": "medium",
         "suggested_hint": f"Dans quel cas précis doit-on monter à {expert_value}/min ?",
-        "kb_excerpt": next((c[:240] for c in kb_chunks if str(kb_nominal) in c), kb_chunks[0][:240] if kb_chunks else ""),
+        "kb_excerpt": next(
+            (c[:240] for c in kb_chunks if str(kb_nominal) in c),
+            kb_chunks[0][:240] if kb_chunks else "",
+        ),
     }
 
 
 def _contradictions_with_exact_match_evidence(
     expert_text: str,
-    rag_chunks: List[str],
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    rag_chunks: list[str],
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     exact_matches = sparse_exact_match_evidence(expert_text, rag_chunks, rag_metadatas)
     exact_chunks = [str(item.get("text") or "") for item in exact_matches if item.get("text")]
     contradictions = detect_claim_contradictions(expert_text, exact_chunks or rag_chunks)
@@ -471,17 +491,21 @@ def _dialogue_corpus(context: CaptureSessionContext) -> str:
 
 
 def _live_retrieval_passages(
-    chunks: Optional[List[str]],
-    metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    chunks: Optional[list[str]],
+    metadatas: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Shape live retrieved passages for the assist panel (text + source metadata)."""
     metadatas = metadatas or []
-    passages: List[Dict[str, Any]] = []
+    passages: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks or []):
         text = str(chunk or "").strip()
         if not text:
             continue
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         passages.append(
             {
                 "rank": index + 1,
@@ -498,14 +522,23 @@ def _live_retrieval_passages(
     return passages
 
 
-def _kb_refs_from_chunks(chunks: List[str], metadatas: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+def _kb_refs_from_chunks(
+    chunks: list[str], metadatas: Optional[list[dict[str, Any]]] = None
+) -> list[dict[str, Any]]:
     metadatas = metadatas or []
-    refs: List[Dict[str, Any]] = []
+    refs: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks[:4]):
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         refs.append(
             {
-                "ref": md.get("source") or md.get("document_id") or md.get("filename") or f"chunk-{index + 1}",
+                "ref": md.get("source")
+                or md.get("document_id")
+                or md.get("filename")
+                or f"chunk-{index + 1}",
                 "title": md.get("title") or md.get("filename") or md.get("source"),
                 "preview": str(chunk)[:200],
             }
@@ -528,7 +561,9 @@ _SUBJECT_LEAD_NOISE = re.compile(
     re.IGNORECASE,
 )
 _SUBJECT_LEAD_ELISION = re.compile(r"^(?:l'|d'|j'|qu'|n'|c'|s')", re.IGNORECASE)
-_SUBJECT_STOPWORDS = frozenset({"", "et", "ou", "puis", "ensuite", "enfin", "etc", "etc.", "cela", "ça", "ca"})
+_SUBJECT_STOPWORDS = frozenset(
+    {"", "et", "ou", "puis", "ensuite", "enfin", "etc", "etc.", "cela", "ça", "ca"}
+)
 
 
 def _expressed_text(context: CaptureSessionContext) -> str:
@@ -544,7 +579,7 @@ def _expressed_text(context: CaptureSessionContext) -> str:
     ).strip()
 
 
-def _subjects_from_expression(text: str) -> List[str]:
+def _subjects_from_expression(text: str) -> list[str]:
     """Extract the subjects the expert explicitly named, in stated order.
 
     Splits on conjunctions/punctuation and strips leading framing verbs/articles
@@ -554,10 +589,10 @@ def _subjects_from_expression(text: str) -> List[str]:
     clean = (text or "").strip()
     if not clean:
         return []
-    subjects: List[str] = []
+    subjects: list[str] = []
     seen: set[str] = set()
     for raw_clause in _SUBJECT_SPLIT.split(clean):
-        clause = (raw_clause or "").strip().strip(".!?…\"«»").strip()
+        clause = (raw_clause or "").strip().strip('.!?…"«»').strip()
         prev: Optional[str] = None
         while clause and clause != prev:
             prev = clause
@@ -578,10 +613,10 @@ def _subjects_from_expression(text: str) -> List[str]:
 
 
 def _topics_from_subjects(
-    subjects: List[str],
-    kb_refs: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    topics: List[Dict[str, Any]] = []
+    subjects: list[str],
+    kb_refs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    topics: list[dict[str, Any]] = []
     for index, subject in enumerate(subjects, start=1):
         topic_id = f"t-{index:02d}"
         subtopic_id = f"st-{index:02d}"
@@ -609,10 +644,10 @@ def _topics_from_subjects(
 
 def _fallback_topic_proposals(
     context: CaptureSessionContext,
-    gaps: List[Dict[str, Any]],
-    rag_chunks: List[str],
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    gaps: list[dict[str, Any]],
+    rag_chunks: list[str],
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Derive the outline strictly from the expert's stated content.
 
     No keyword templates, no seed topics, no gap-derived topics: if the expert did
@@ -624,7 +659,7 @@ def _fallback_topic_proposals(
     return _topics_from_subjects(subjects, kb_refs)
 
 
-def _fallback_dialogue_probe(context: CaptureSessionContext, topics: List[Dict[str, Any]]) -> str:
+def _fallback_dialogue_probe(context: CaptureSessionContext, topics: list[dict[str, Any]]) -> str:
     """Outline-building guidance: invite the expert to describe so the IA builds the
     topic tree. We only phrase a real question when something is flagrant (e.g. a
     machine is mentioned but not named)."""
@@ -635,9 +670,9 @@ def _fallback_dialogue_probe(context: CaptureSessionContext, topics: List[Dict[s
             "machine concernée — et les points qui vous semblent importants. "
             "Je construis l'arborescence de sujets à partir de votre description."
         )
-    if any(token in corpus for token in ("machine", "équipement", "equipement", "ligne")) and not any(
-        char.isdigit() for char in corpus
-    ):
+    if any(
+        token in corpus for token in ("machine", "équipement", "equipement", "ligne")
+    ) and not any(char.isdigit() for char in corpus):
         return "De quelle machine ou ligne précise parlez-vous (référence ou repère) ?"
     if not topics:
         return (
@@ -654,17 +689,19 @@ def _fallback_dialogue_probe(context: CaptureSessionContext, topics: List[Dict[s
 def analyze_plan_oracle(
     context: CaptureSessionContext,
     *,
-    rag_chunks: Optional[List[str]] = None,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-    base_gaps: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    rag_chunks: Optional[list[str]] = None,
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+    base_gaps: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     """Structured oracle output for plan_build (deterministic fallback, optional LLM)."""
     rag_chunks = list(rag_chunks or [])
     rag_metadatas = list(rag_metadatas or [])
     base_gaps = list(base_gaps or [])
     coverage_gaps = score_gaps_with_rag(base_gaps, rag_chunks, rag_metadatas=rag_metadatas)
     corpus = _dialogue_corpus(context)
-    contradictions, exact_matches = _contradictions_with_exact_match_evidence(corpus, rag_chunks, rag_metadatas)
+    contradictions, exact_matches = _contradictions_with_exact_match_evidence(
+        corpus, rag_chunks, rag_metadatas
+    )
     topic_proposals = _fallback_topic_proposals(context, coverage_gaps, rag_chunks, rag_metadatas)
     dialogue_probe = _fallback_dialogue_probe(context, topic_proposals)
     return {
@@ -740,9 +777,9 @@ def _resolve_oracle_domain_framing(workspace_id: Optional[str] = None) -> str:
 async def plan_structure_llm_async(
     context: CaptureSessionContext,
     *,
-    rag_chunks: Optional[List[str]] = None,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> Optional[Dict[str, Any]]:
+    rag_chunks: Optional[list[str]] = None,
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+) -> Optional[dict[str, Any]]:
     """One structured LLM call that organises the expert's statements into a plan.
 
     Returns the parsed JSON payload, or ``None`` when no LLM is configured /
@@ -796,7 +833,7 @@ async def plan_structure_llm_async(
                 "Les 'rag_chunks' servent uniquement à renseigner kb_refs (preuves), jamais à "
                 "élargir le périmètre. "
                 "Ne produis PAS de questions d'entretien : chaque champ 'prompt' (sur les sujets, "
-                "sous-sujets ET points) est une INVITATION À PRÉSENTER (ex: \"Présentez ce que "
+                'sous-sujets ET points) est une INVITATION À PRÉSENTER (ex: "Présentez ce que '
                 "vous savez de ...\"), jamais une question posée à l'expert. "
                 "Retourne un JSON avec: "
                 "topic_proposals (liste {id, title, prompt, rationale, confidence, kb_refs, "
@@ -821,7 +858,8 @@ async def plan_structure_llm_async(
                 "Preserve existing ids when rubrics are unchanged; do not move or delete existing "
                 "sections unless explicitly instructed."
             )
-        response = await client.chat.completions.create(
+        response = await async_openai_chat(
+            client,
             model=model,
             **_model_chat_kwargs(model, temperature=0.2),
             response_format={"type": "json_object"},
@@ -840,18 +878,20 @@ async def plan_structure_llm_async(
         if not isinstance(parsed, dict) or not parsed.get("topic_proposals"):
             return None
         return parsed
+    except UsageError:
+        raise
     except Exception:
         return None
 
 
 def compose_plan_oracle(
     context: CaptureSessionContext,
-    parsed: Optional[Dict[str, Any]],
+    parsed: Optional[dict[str, Any]],
     *,
-    rag_chunks: Optional[List[str]] = None,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-    base_gaps: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    rag_chunks: Optional[list[str]] = None,
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+    base_gaps: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     """Combine the (optional) LLM structuring with the deterministic oracle."""
     fallback = analyze_plan_oracle(
         context,
@@ -864,7 +904,9 @@ def compose_plan_oracle(
     deterministic_contradictions = fallback.get("contradiction_candidates") or []
     llm_contradictions = parsed.get("contradiction_candidates") or []
     merged_contradictions = list(deterministic_contradictions)
-    seen = {_contradiction_signature(item) for item in merged_contradictions if isinstance(item, dict)}
+    seen = {
+        _contradiction_signature(item) for item in merged_contradictions if isinstance(item, dict)
+    }
     for candidate in llm_contradictions:
         if not isinstance(candidate, dict):
             continue
@@ -883,10 +925,10 @@ def compose_plan_oracle(
 async def analyze_plan_oracle_async(
     context: CaptureSessionContext,
     *,
-    rag_chunks: Optional[List[str]] = None,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-    base_gaps: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    rag_chunks: Optional[list[str]] = None,
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+    base_gaps: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     """Try one structured LLM call; fall back to deterministic oracle."""
     parsed = await plan_structure_llm_async(
         context,
@@ -902,7 +944,9 @@ async def analyze_plan_oracle_async(
     )
 
 
-def plan_dialogue_probe(oracle_result: Dict[str, Any], *, ready_to_finalize: bool = False) -> Optional[str]:
+def plan_dialogue_probe(
+    oracle_result: dict[str, Any], *, ready_to_finalize: bool = False
+) -> Optional[str]:
     if ready_to_finalize:
         return None
     probe = str(oracle_result.get("dialogue_probe") or "").strip()
@@ -912,8 +956,8 @@ def plan_dialogue_probe(oracle_result: Dict[str, Any], *, ready_to_finalize: boo
 def normalize_outline_points(
     sub_id: str,
     raw_points: Any,
-    prior_points: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    prior_points: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Normalize the 3rd outline level (presentation points) under a subtopic.
 
     Each point carries an invitation-to-present ``prompt`` (never an interview
@@ -924,7 +968,7 @@ def normalize_outline_points(
         for point in (prior_points or [])
         if isinstance(point, dict) and point.get("id")
     }
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, raw_point in enumerate(raw_points or [], start=1):
         if isinstance(raw_point, str):
@@ -941,7 +985,9 @@ def normalize_outline_points(
             point_id = f"{sub_id}-pt-{index:02d}"
         seen.add(point_id)
         prior = prior_by_id.get(point_id, {})
-        prompt = str(raw_point.get("prompt") or prior.get("prompt") or presentation_prompt(title)).strip()
+        prompt = str(
+            raw_point.get("prompt") or prior.get("prompt") or presentation_prompt(title)
+        ).strip()
         normalized.append(
             {
                 **prior,
@@ -978,7 +1024,9 @@ def _titles_similar(a: Any, b: Any) -> bool:
     return containment >= _TITLE_SIMILARITY_MIN
 
 
-def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def merge_topic_proposals(
+    plan: dict[str, Any], proposals: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Merge oracle topic proposals into plan topics, preserving user edits.
 
     Iteration semantics are REPLACE, not append: the oracle regenerates the whole
@@ -988,11 +1036,13 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
     no merged topic already covers the same title — this is the dedupe safety
     net against the "duplicate sections when iterating" bug.
     """
-    existing_topics = [dict(topic) for topic in (plan.get("topics") or []) if isinstance(topic, dict)]
+    existing_topics = [
+        dict(topic) for topic in (plan.get("topics") or []) if isinstance(topic, dict)
+    ]
     existing_by_id = {str(topic.get("id")): topic for topic in existing_topics if topic.get("id")}
     consumed_existing: set[int] = set()
 
-    def _match_existing(topic_id: str, title: Any) -> Dict[str, Any]:
+    def _match_existing(topic_id: str, title: Any) -> dict[str, Any]:
         match = existing_by_id.get(topic_id)
         if match is not None:
             for index, topic in enumerate(existing_topics):
@@ -1007,7 +1057,7 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
                 return topic
         return {}
 
-    merged: List[Dict[str, Any]] = []
+    merged: list[dict[str, Any]] = []
     for proposal in proposals:
         if not isinstance(proposal, dict):
             continue
@@ -1018,7 +1068,9 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
         current = _match_existing(topic_id, proposal.get("title"))
         topic_id = str(current.get("id") or topic_id)
         subtopics = []
-        existing_sub = {st.get("id"): st for st in (current.get("subtopics") or []) if isinstance(st, dict)}
+        existing_sub = {
+            st.get("id"): st for st in (current.get("subtopics") or []) if isinstance(st, dict)
+        }
         existing_sub_list = [st for st in (current.get("subtopics") or []) if isinstance(st, dict)]
         for raw_sub in proposal.get("subtopics") or []:
             if not isinstance(raw_sub, dict):
@@ -1029,7 +1081,11 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
             prior = existing_sub.get(sub_id)
             if prior is None:
                 prior = next(
-                    (st for st in existing_sub_list if _titles_similar(st.get("title"), raw_sub.get("title"))),
+                    (
+                        st
+                        for st in existing_sub_list
+                        if _titles_similar(st.get("title"), raw_sub.get("title"))
+                    ),
                     {},
                 )
             if prior:
@@ -1047,7 +1103,9 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
                     "id": sub_id,
                     "title": sub_title,
                     "objective": prior.get("objective") or raw_sub.get("objective") or "",
-                    "prompt": prior.get("prompt") or raw_sub.get("prompt") or presentation_prompt(sub_title),
+                    "prompt": prior.get("prompt")
+                    or raw_sub.get("prompt")
+                    or presentation_prompt(sub_title),
                     "status": prior.get("status") or raw_sub.get("status") or "pending",
                     "questions": points,
                 }
@@ -1060,7 +1118,9 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
                 "title": topic_title,
                 "status": current.get("status") or proposal.get("status") or "draft",
                 "objective": current.get("objective") or proposal.get("rationale") or "",
-                "prompt": current.get("prompt") or proposal.get("prompt") or broad_presentation_prompt(topic_title),
+                "prompt": current.get("prompt")
+                or proposal.get("prompt")
+                or broad_presentation_prompt(topic_title),
                 "rationale": current.get("rationale") or proposal.get("rationale") or "",
                 "knowledge_refs": current.get("knowledge_refs") or proposal.get("kb_refs") or [],
                 "subtopics": subtopics or current.get("subtopics") or [],
@@ -1084,12 +1144,12 @@ LIVE_SECTION_DETECT_MIN_CONFIDENCE = 0.42
 
 
 def detect_active_section_from_text(
-    plan_topics: List[Dict[str, Any]],
+    plan_topics: list[dict[str, Any]],
     partial_text: str,
     *,
     fallback_subtopic_id: Optional[str] = None,
     window_words: int = 40,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Lightweight plan-section detector for live capture (no LLM, no retrieval).
 
     Scores subtopic/topic titles against the tail of the recent transcript using
@@ -1153,7 +1213,7 @@ def detect_active_section_from_text(
 
 
 def _topic_id_for_subtopic(
-    plan_topics: List[Dict[str, Any]],
+    plan_topics: list[dict[str, Any]],
     subtopic_id: Optional[str],
 ) -> Optional[str]:
     if not subtopic_id:
@@ -1166,7 +1226,7 @@ def _topic_id_for_subtopic(
 
 
 def infer_active_subtopic_id(
-    plan_topics: List[Dict[str, Any]],
+    plan_topics: list[dict[str, Any]],
     partial_text: str,
     *,
     fallback: Optional[str] = None,
@@ -1184,11 +1244,11 @@ def infer_active_subtopic_id(
 def evaluate_capture_partial(
     context: CaptureSessionContext,
     partial_text: str,
-    retrieval_chunks: List[str],
+    retrieval_chunks: list[str],
     *,
-    retrieval_metadatas: Optional[List[Dict[str, Any]]] = None,
-    plan_topics: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    retrieval_metadatas: Optional[list[dict[str, Any]]] = None,
+    plan_topics: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     """Live capture evaluation: contradictions, hint candidates, and the retrieved
     passages that back the live assist panels."""
     retrieval = _live_retrieval_passages(retrieval_chunks, retrieval_metadatas)
@@ -1200,7 +1260,9 @@ def evaluate_capture_partial(
             "contradiction_candidates": [],
             "active_subtopic_id": context.active_subtopic_id,
             "active_section_confidence": 0.0,
-            "active_topic_id": _topic_id_for_subtopic(plan_topics or [], context.active_subtopic_id),
+            "active_topic_id": _topic_id_for_subtopic(
+                plan_topics or [], context.active_subtopic_id
+            ),
             "retrieval": retrieval,
             "oracle_exact_matches": exact_matches,
         }
@@ -1209,7 +1271,7 @@ def evaluate_capture_partial(
         retrieval_chunks,
         retrieval_metadatas,
     )
-    hints: List[Dict[str, Any]] = []
+    hints: list[dict[str, Any]] = []
     for candidate in contradictions:
         hint_text = str(candidate.get("suggested_hint") or "").strip()
         if not hint_text:
@@ -1255,8 +1317,8 @@ def _template_question_bank_entry(
     *,
     subtopic_title: str,
     subtopic_objective: str,
-    rag_chunks: Optional[List[str]] = None,
-) -> Dict[str, str]:
+    rag_chunks: Optional[list[str]] = None,
+) -> dict[str, str]:
     full_question = f"Quels éléments clés sur « {subtopic_title} » doivent être capturés ?"
     hint = (subtopic_objective or f"Angle {subtopic_title}")[:80]
     title_lower = subtopic_title.lower()
@@ -1276,9 +1338,9 @@ async def generate_question_bank_entry_async(
     subtopic_title: str,
     subtopic_objective: str,
     session_objective: str,
-    rag_chunks: List[str],
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, str]:
+    rag_chunks: list[str],
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, str]:
     """Generate a presentation prompt + short UI hint (and an internal probe) for an
     outline item. Falls back to templates. The user-facing field is ``prompt`` — an
     invitation to present, never an interview question."""
@@ -1307,12 +1369,16 @@ async def generate_question_bank_entry_async(
                 "(sonde interne, non affichée). Retourne JSON: {prompt, hint, full_question}."
             ),
         }
-        response = await client.chat.completions.create(
+        response = await async_openai_chat(
+            client,
             model=model,
             **_model_chat_kwargs(model, temperature=0.2),
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": "Outline prompt JSON only. No interview questions in 'prompt'."},
+                {
+                    "role": "system",
+                    "content": "Outline prompt JSON only. No interview questions in 'prompt'.",
+                },
                 {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
             ],
         )
@@ -1332,6 +1398,8 @@ async def generate_question_bank_entry_async(
             "hint": hint,
             "prompt": presentation or fallback["prompt"],
         }
+    except UsageError:
+        raise
     except Exception:
         return fallback
 
@@ -1345,7 +1413,7 @@ async def generate_question_bank_entry_async(
 _DEDUPE_CONTAINMENT_MIN = 0.85
 
 
-def dedupe_statements(statements: List[str]) -> tuple[List[str], int]:
+def dedupe_statements(statements: list[str]) -> tuple[list[str], int]:
     """FINAL deterministic dedupe of repeated/rephrased expert statements.
 
     The expert often repeats or rephrases the same point across turns; the
@@ -1356,11 +1424,11 @@ def dedupe_statements(statements: List[str]) -> tuple[List[str], int]:
 
     Returns ``(deduped_statements, removed_count)``.
     """
-    kept: List[str] = []
+    kept: list[str] = []
     # Every variant's token set per kept cluster: a new statement matching ANY
     # variant of a cluster (not just the richest one, whose extra filler tokens
     # would dilute the containment) is folded into that cluster.
-    kept_variant_tokens: List[List[set[str]]] = []
+    kept_variant_tokens: list[list[set[str]]] = []
     removed = 0
     for raw in statements or []:
         text = str(raw or "").strip()
@@ -1376,7 +1444,9 @@ def dedupe_statements(statements: List[str]) -> tuple[List[str], int]:
                         break
                     continue
                 smaller, larger = (
-                    (tokens, other_tokens) if len(tokens) <= len(other_tokens) else (other_tokens, tokens)
+                    (tokens, other_tokens)
+                    if len(tokens) <= len(other_tokens)
+                    else (other_tokens, tokens)
                 )
                 containment = len(smaller & larger) / max(1, len(smaller))
                 if containment >= _DEDUPE_CONTAINMENT_MIN:
@@ -1396,7 +1466,7 @@ def dedupe_statements(statements: List[str]) -> tuple[List[str], int]:
     return kept, removed
 
 
-def fallback_thematic_blocks(statements: List[str], *, max_themes: int = 6) -> List[Dict[str, Any]]:
+def fallback_thematic_blocks(statements: list[str], *, max_themes: int = 6) -> list[dict[str, Any]]:
     """Deterministic thematic fallback when no LLM is configured.
 
     One block holding everything, titled from the first statement's leading
@@ -1419,9 +1489,9 @@ def fallback_thematic_blocks(statements: List[str], *, max_themes: int = 6) -> L
 async def derive_thematic_blocks_async(
     *,
     workspace_id: Optional[str],
-    statements: List[str],
+    statements: list[str],
     max_themes: int = 6,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """FINAL thematic structuring for free conversations (no capture plan).
 
     Groups the expert's statements into thematic blocks with short titles so the
@@ -1453,12 +1523,16 @@ async def derive_thematic_blocks_async(
                 "{themes: [{title, statement_indexes}]}."
             ),
         }
-        response = await client.chat.completions.create(
+        response = await async_openai_chat(
+            client,
             model=model,
             **_model_chat_kwargs(model, temperature=0.2),
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": "Thematic grouping JSON only. Every statement index assigned once."},
+                {
+                    "role": "system",
+                    "content": "Thematic grouping JSON only. Every statement index assigned once.",
+                },
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ],
         )
@@ -1469,7 +1543,7 @@ async def derive_thematic_blocks_async(
         raw_themes = parsed.get("themes") if isinstance(parsed, dict) else None
         if not isinstance(raw_themes, list):
             return fallback
-        themes: List[Dict[str, Any]] = []
+        themes: list[dict[str, Any]] = []
         assigned: set[int] = set()
         for index, raw in enumerate(raw_themes, start=1):
             if not isinstance(raw, dict):
@@ -1478,7 +1552,9 @@ async def derive_thematic_blocks_async(
             indexes = [
                 int(i)
                 for i in (raw.get("statement_indexes") or [])
-                if isinstance(i, (int, float)) and 0 <= int(i) < len(clean) and int(i) not in assigned
+                if isinstance(i, (int, float))
+                and 0 <= int(i) < len(clean)
+                and int(i) not in assigned
             ]
             if not title or not indexes:
                 continue
@@ -1494,13 +1570,17 @@ async def derive_thematic_blocks_async(
                 break
         leftovers = [i for i in range(len(clean)) if i not in assigned]
         if leftovers and themes:
-            themes[-1]["statement_indexes"] = sorted(set(themes[-1]["statement_indexes"]) | set(leftovers))
+            themes[-1]["statement_indexes"] = sorted(
+                set(themes[-1]["statement_indexes"]) | set(leftovers)
+            )
         return themes or fallback
+    except UsageError:
+        raise
     except Exception:
         return fallback
 
 
-def _section_label(plan_section: Optional[Dict[str, Any]]) -> str:
+def _section_label(plan_section: Optional[dict[str, Any]]) -> str:
     if not isinstance(plan_section, dict):
         return ""
     parts = [
@@ -1514,10 +1594,10 @@ async def reformulate_section_async(
     *,
     workspace_id: Optional[str],
     section_label: str,
-    statements: List[str],
-    kb_chunks: Optional[List[str]] = None,
+    statements: list[str],
+    kb_chunks: Optional[list[str]] = None,
     static_context: Optional[str] = None,
-    glossary_terms: Optional[List[str]] = None,
+    glossary_terms: Optional[list[str]] = None,
     domain_framing: Optional[str] = None,
 ) -> str:
     """FINAL exhaustive LLM reformulation of one captured section.
@@ -1571,7 +1651,8 @@ async def reformulate_section_async(
                 "Réponds en Markdown, sans titre de section ni méta-commentaire."
             ),
         }
-        response = await client.chat.completions.create(
+        response = await async_openai_chat(
+            client,
             model=model,
             **_model_chat_kwargs(model, temperature=0.2),
             messages=[
@@ -1589,6 +1670,8 @@ async def reformulate_section_async(
         content = response.choices[0].message.content if response.choices else None
         synthesis = (content or "").strip()
         return synthesis or fallback
+    except UsageError:
+        raise
     except Exception:
         return fallback
 
@@ -1618,10 +1701,9 @@ def question_is_grounded(
     overlap the context + plan section labels. Questions without content words
     are kept (nothing to judge)."""
     evidence_clean = _grounding_normalize(evidence or "")
-    if (
-        len(evidence_clean) >= _GROUNDED_EVIDENCE_MIN_CHARS
-        and evidence_clean in _grounding_normalize(context)
-    ):
+    if len(
+        evidence_clean
+    ) >= _GROUNDED_EVIDENCE_MIN_CHARS and evidence_clean in _grounding_normalize(context):
         return True
     question_tokens = _content_tokens(text)
     if not question_tokens:
@@ -1633,13 +1715,13 @@ def question_is_grounded(
 
 async def generate_grounded_open_questions_async(
     context: str,
-    chunks: Optional[List[str]] = None,
-    metadatas: Optional[List[Dict[str, Any]]] = None,
-    plan_section: Optional[Dict[str, Any]] = None,
+    chunks: Optional[list[str]] = None,
+    metadatas: Optional[list[dict[str, Any]]] = None,
+    plan_section: Optional[dict[str, Any]] = None,
     *,
     workspace_id: Optional[str] = None,
     max_questions: int = 5,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """LLM open questions grounded on what the expert stated + KB chunks.
 
     Returns specific, answerable gaps tied to the section (not the generic
@@ -1656,7 +1738,9 @@ async def generate_grounded_open_questions_async(
     if not api_key:
         return []
     topic_id = (plan_section or {}).get("topic_id") if isinstance(plan_section, dict) else None
-    subtopic_id = (plan_section or {}).get("subtopic_id") if isinstance(plan_section, dict) else None
+    subtopic_id = (
+        (plan_section or {}).get("subtopic_id") if isinstance(plan_section, dict) else None
+    )
     grounding_status = "kb_grounded" if chunks else "expert_statement_grounded"
     try:
         from openai import AsyncOpenAI
@@ -1683,7 +1767,8 @@ async def generate_grounded_open_questions_async(
                 "(1 = plus pressant)."
             ),
         }
-        response = await client.chat.completions.create(
+        response = await async_openai_chat(
+            client,
             model=model,
             **_model_chat_kwargs(model, temperature=0.2),
             response_format={"type": "json_object"},
@@ -1702,7 +1787,7 @@ async def generate_grounded_open_questions_async(
         raw_questions = parsed.get("questions") if isinstance(parsed, dict) else None
         if not isinstance(raw_questions, list):
             return []
-        items: List[Dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
         dropped_ungrounded = 0
         section_label = _section_label(plan_section)
         for index, raw in enumerate(raw_questions, start=1):
@@ -1716,7 +1801,9 @@ async def generate_grounded_open_questions_async(
             evidence = str(raw.get("evidence") or "").strip()
             # Anti-hallucination: drop questions not lexically anchored on the
             # transcript window (or whose evidence quote is not verbatim).
-            if not question_is_grounded(text, evidence, context=statements, section_label=section_label):
+            if not question_is_grounded(
+                text, evidence, context=statements, section_label=section_label
+            ):
                 dropped_ungrounded += 1
                 continue
             try:
@@ -1746,5 +1833,7 @@ async def generate_grounded_open_questions_async(
                 section_label or "-",
             )
         return items
+    except UsageError:
+        raise
     except Exception:
         return []

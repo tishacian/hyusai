@@ -272,6 +272,7 @@ def get_current_workspace(
                 },
             )
 
+        _bind_workspace_usage(workspace, user)
         return workspace
 
     # Fallback: first workspace where the user is a member
@@ -292,7 +293,21 @@ def get_current_workspace(
             detail="No workspace available. Please create one.",
         )
     workspace = db.query(Workspace).filter(Workspace.id == membership.workspace_id).first()
+    if workspace is not None:
+        _bind_workspace_usage(workspace, user)
     return workspace  # type: ignore[return-value]
+
+
+def _bind_workspace_usage(workspace: Workspace, user: User) -> None:
+    from app.services.model_usage import UsageContext
+    from app.services.model_usage_transport import bind_request_usage_context
+
+    bind_request_usage_context(
+        UsageContext(
+            workspace_id=str(workspace.id),
+            actor_user_id=str(user.id),
+        )
+    )
 
 
 def get_optional_workspace(

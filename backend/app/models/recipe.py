@@ -12,6 +12,7 @@ Celery worker plane. It carries the operator-facing lifecycle
 timed_out``) that the Flow Builder polls, plus the evidence trail
 (exit code, stdout/stderr tails, duration).
 """
+
 from datetime import datetime
 from uuid import uuid4
 
@@ -41,9 +42,7 @@ RECIPE_EXECUTION_STATUSES = (
     "cancelled",
     "timed_out",
 )
-RECIPE_EXECUTION_TERMINAL_STATUSES = frozenset(
-    {"succeeded", "failed", "cancelled", "timed_out"}
-)
+RECIPE_EXECUTION_TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "timed_out"})
 
 
 class PythonEnv(Base):
@@ -77,9 +76,7 @@ class PythonEnv(Base):
     last_used_at = Column(DateTime, nullable=True, index=True)
     use_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -92,6 +89,13 @@ class PythonEnv(Base):
 
 class RecipeExecution(Base):
     __tablename__ = "recipe_executions"
+
+    evaluation_campaign_id = Column(
+        String(36),
+        ForeignKey("evaluation_campaigns.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(

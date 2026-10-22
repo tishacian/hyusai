@@ -1,4 +1,5 @@
 """Worker for asynchronous deep RAG retrieval jobs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,8 +12,8 @@ from app.models.knowledge_collection import WorkerJob
 from app.models.user import Message
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
-from app.services.knowledge_collections import update_job
 from app.services.collection_access import bind_retrieval_identity
+from app.services.knowledge_collections import update_job
 from app.services.rag.context import retrieve_rag_context
 from app.services.rag.decision_trace import build_retrieval_decision_trace
 from app.services.workspace_jobs import transition_job
@@ -114,13 +115,24 @@ def _compact_deep_retrieval_sources(
     collection = context.get("collection") if context.get("collection") else None
     preview: list[dict[str, Any]] = []
     for index, raw_chunk in enumerate(chunks[: max(0, limit)]):
-        meta = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        meta = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         score = _safe_float(scores[index]) if index < len(scores) else None
         document_id = meta.get("document_id") or meta.get("id")
-        filename = meta.get("document_filename") or meta.get("filename") or meta.get("source") or meta.get("source_name")
+        filename = (
+            meta.get("document_filename")
+            or meta.get("filename")
+            or meta.get("source")
+            or meta.get("source_name")
+        )
         title = meta.get("document_title") or meta.get("title") or filename or document_id
         snippet = _compact_text(raw_chunk)
-        metadata = {key: meta.get(key) for key in _PREVIEW_METADATA_KEYS if meta.get(key) is not None}
+        metadata = {
+            key: meta.get(key) for key in _PREVIEW_METADATA_KEYS if meta.get(key) is not None
+        }
         preview.append(
             _clean_dict(
                 {
@@ -131,8 +143,12 @@ def _compact_deep_retrieval_sources(
                     "snippet": snippet,
                     "content": snippet,
                     "score": score,
-                    "collection": meta.get("collection") or meta.get("collection_slug") or collection,
-                    "collection_name": meta.get("collection_name") or meta.get("collection") or collection,
+                    "collection": meta.get("collection")
+                    or meta.get("collection_slug")
+                    or collection,
+                    "collection_name": meta.get("collection_name")
+                    or meta.get("collection")
+                    or collection,
                     "page": meta.get("page") or meta.get("page_number"),
                     "metadata": metadata,
                 }
@@ -179,11 +195,15 @@ def _summarize_deep_retrieval_context(context: dict[str, Any]) -> dict[str, Any]
         "scope_confidence": context.get("scope_confidence") or metrics.get("scope_confidence"),
         "fallback_reason": context.get("fallback_reason") or metrics.get("fallback_reason"),
         "duration_ms": metrics.get("duration_ms"),
-        "retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
+        "retrieval_decision_trace": retrieval_decision_trace
+        if isinstance(retrieval_decision_trace, dict)
+        else None,
     }
 
 
-def _timeout_retrieval_decision_trace(payload: dict[str, Any], retrieval_summary: dict[str, Any]) -> dict[str, Any]:
+def _timeout_retrieval_decision_trace(
+    payload: dict[str, Any], retrieval_summary: dict[str, Any]
+) -> dict[str, Any]:
     existing = retrieval_summary.get("retrieval_decision_trace")
     if isinstance(existing, dict):
         return existing
@@ -214,7 +234,9 @@ def _model_preferences(payload: dict[str, Any]) -> tuple[str, str]:
         workspace_id=str(payload.get("workspace_id") or "") or None,
         system_id=str(payload.get("agent_id") or payload.get("system_id") or "") or None,
     )
-    resolved_provider = str(resolved.get("defaultProvider") or settings.default_provider or "openai").strip()
+    resolved_provider = str(
+        resolved.get("defaultProvider") or settings.default_provider or "openai"
+    ).strip()
     resolved_model = str(resolved.get("defaultModel") or settings.default_model or "gpt-5").strip()
     requested_provider = str(model_preferences.get("provider") or "").strip()
     requested_model = str(model_preferences.get("model") or "").strip()
@@ -250,7 +272,12 @@ def _extractive_deep_answer(
         "",
     ]
     for index, source in enumerate(sources_preview[:5], start=1):
-        title = source.get("title") or source.get("filename") or source.get("document_id") or f"Source {index}"
+        title = (
+            source.get("title")
+            or source.get("filename")
+            or source.get("document_id")
+            or f"Source {index}"
+        )
         snippet = _compact_text(source.get("snippet") or source.get("content"), max_chars=420)
         if not snippet:
             continue
@@ -260,7 +287,9 @@ def _extractive_deep_answer(
     return "\n".join(lines).strip()
 
 
-def _previous_answer_from_payload(payload: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
+def _previous_answer_from_payload(
+    payload: dict[str, Any], metadata: dict[str, Any] | None = None
+) -> str:
     candidate = payload.get("previous_answer")
     if isinstance(candidate, str) and candidate.strip():
         return _compact_answer_text(candidate, max_chars=3500)
@@ -281,7 +310,12 @@ def _synthesis_prompt(
     excerpts: list[str] = []
     budget = 0
     for index, source in enumerate(sources_preview[:_MAX_SYNTHESIS_SOURCES], start=1):
-        title = str(source.get("title") or source.get("filename") or source.get("document_id") or f"Source {index}")
+        title = str(
+            source.get("title")
+            or source.get("filename")
+            or source.get("document_id")
+            or f"Source {index}"
+        )
         page = source.get("page")
         locator = f", page {page}" if page is not None else ""
         snippet = _compact_text(source.get("snippet") or source.get("content"), max_chars=1100)
@@ -314,7 +348,7 @@ def _synthesis_prompt(
         "Produis une vraie reponse assistant finale.\n\n"
         "Format obligatoire: Markdown lisible. Utilise des paragraphes courts et des listes a puces ou numerotees "
         "quand la reponse contient plusieurs points. Ne compacte jamais plusieurs items sous la forme "
-        "\"- item - item - item\" sur une seule ligne. Termine par une ligne Sources: avec les citations "
+        '"- item - item - item" sur une seule ligne. Termine par une ligne Sources: avec les citations '
         "numeriques principales quand des sources sont identifiables."
     )
 
@@ -333,7 +367,11 @@ async def _llm_deep_answer(payload: dict[str, Any], prompt: str) -> dict[str, An
         temperature=0.1,
         max_tokens=_MAX_SYNTHESIS_TOKENS,
     )
-    return {"answer": _compact_answer_text(answer, max_chars=6000), "provider": provider, "model": model}
+    return {
+        "answer": _compact_answer_text(answer, max_chars=6000),
+        "provider": provider,
+        "model": model,
+    }
 
 
 async def _synthesize_deep_answer(
@@ -353,7 +391,9 @@ async def _synthesize_deep_answer(
             "answer": _extractive_deep_answer(query, sources_preview),
             "answer_status": "no_evidence",
         }
-    prompt = _synthesis_prompt(query, sources_preview, previous_answer=_previous_answer_from_payload(payload))
+    prompt = _synthesis_prompt(
+        query, sources_preview, previous_answer=_previous_answer_from_payload(payload)
+    )
     timeout = max(8.0, min(25.0, float(settings.rag_deep_retrieval_deadline_seconds) * 0.25))
     try:
         llm_result = await asyncio.wait_for(_llm_deep_answer(payload, prompt), timeout=timeout)
@@ -386,7 +426,11 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             raise ValueError(f"Deep retrieval job {job_id!r} has no request payload")
         payload["latency_profile"] = "deep"
         payload["deep_retrieval"] = True
-        job_metadata = {key: value for key, value in initial_result.items() if key not in {"retrieval_context", "summary"}}
+        job_metadata = {
+            key: value
+            for key, value in initial_result.items()
+            if key not in {"retrieval_context", "summary"}
+        }
         previous_answer = _previous_answer_from_payload(payload, job_metadata)
         if previous_answer:
             payload["previous_answer"] = previous_answer
@@ -396,11 +440,18 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "stage": "deep_prepare",
             "status": "running",
         }
-        update_job(db, job_id, status="running", progress=10, result=prepare_result, stage="deep_prepare")
+        update_job(
+            db, job_id, status="running", progress=10, result=prepare_result, stage="deep_prepare"
+        )
         db.commit()
 
     try:
-        update_payload = {**job_metadata, "request": payload, "stage": "deep_retrieve", "status": "running"}
+        update_payload = {
+            **job_metadata,
+            "request": payload,
+            "stage": "deep_retrieve",
+            "status": "running",
+        }
         with SessionLocal() as db:
             update_job(db, job_id, progress=35, result=update_payload, stage="deep_retrieve")
             db.commit()
@@ -443,11 +494,17 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "status": "completed",
         }
         with SessionLocal() as db:
-            update_job(db, job_id, status="completed", progress=100, result=result, stage="deep_completed")
+            update_job(
+                db, job_id, status="completed", progress=100, result=result, stage="deep_completed"
+            )
             db.commit()
         return result
     except asyncio.TimeoutError:
-        partial_result = job_metadata.get("partial_result") if isinstance(job_metadata.get("partial_result"), dict) else {}
+        partial_result = (
+            job_metadata.get("partial_result")
+            if isinstance(job_metadata.get("partial_result"), dict)
+            else {}
+        )
         retrieval_summary = (
             partial_result.get("retrieval_summary")
             if isinstance(partial_result.get("retrieval_summary"), dict)
@@ -467,8 +524,10 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "pipeline": retrieval_summary.get("dense_policy") or job_metadata.get("dense_policy"),
             "mode_label": "deep_timeout",
             "collection": payload.get("collection") or payload.get("context_collection"),
-            "dense_policy": retrieval_summary.get("dense_policy") or job_metadata.get("dense_policy"),
-            "scope_confidence": retrieval_summary.get("scope_confidence") or job_metadata.get("scope_confidence"),
+            "dense_policy": retrieval_summary.get("dense_policy")
+            or job_metadata.get("dense_policy"),
+            "scope_confidence": retrieval_summary.get("scope_confidence")
+            or job_metadata.get("scope_confidence"),
             "fallback_reason": "deep_retrieval_deadline_exceeded",
             "duration_ms": int(float(settings.rag_deep_retrieval_deadline_seconds) * 1000),
             "partial": True,
@@ -519,13 +578,24 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "error": str(exc),
         }
         with SessionLocal() as db:
-            update_job(db, job_id, status="failed", progress=100, error=str(exc), result=result, stage="deep_failed")
+            update_job(
+                db,
+                job_id,
+                status="failed",
+                progress=100,
+                error=str(exc),
+                result=result,
+                stage="deep_failed",
+            )
             db.commit()
         return result
 
 
 def run_deep_retrieval(job_id: str) -> dict[str, Any]:
-    return asyncio.run(_run_deep_retrieval_async(job_id))
+    from app.services.model_usage_jobs import job_usage_scope
+
+    with job_usage_scope(job_id, kind="worker"):
+        return asyncio.run(_run_deep_retrieval_async(job_id))
 
 
 def _message_meta_with_deep_result(job: WorkspaceJob, result: dict[str, Any]) -> dict[str, Any]:
@@ -554,10 +624,16 @@ def _message_meta_with_deep_result(job: WorkspaceJob, result: dict[str, Any]) ->
             "pipeline": summary.get("pipeline"),
             "partial": bool(summary.get("partial")),
             "fallback_reason": summary.get("fallback_reason"),
-            "retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
+            "retrieval_decision_trace": retrieval_decision_trace
+            if isinstance(retrieval_decision_trace, dict)
+            else None,
         },
-        "retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
-        "deep_retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
+        "retrieval_decision_trace": retrieval_decision_trace
+        if isinstance(retrieval_decision_trace, dict)
+        else None,
+        "deep_retrieval_decision_trace": retrieval_decision_trace
+        if isinstance(retrieval_decision_trace, dict)
+        else None,
     }
     return {key: value for key, value in meta.items() if value is not None}
 
@@ -603,7 +679,9 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             workspace_id=workspace.id,
             user_id=job.created_by_user_id,
         )
-        job_metadata = {key: value for key, value in initial_input.items() if key not in {"request"}}
+        job_metadata = {
+            key: value for key, value in initial_input.items() if key not in {"request"}
+        }
         previous_answer = _previous_answer_from_payload(payload, job_metadata)
         if previous_answer:
             payload["previous_answer"] = previous_answer
@@ -622,7 +700,11 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
     try:
         with SessionLocal() as db:
             job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
-            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first() if job else None
+            workspace = (
+                db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+                if job
+                else None
+            )
             if job and workspace:
                 transition_job(
                     db,
@@ -643,7 +725,11 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
         summary = _summarize_deep_retrieval_context(context)
         with SessionLocal() as db:
             job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
-            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first() if job else None
+            workspace = (
+                db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+                if job
+                else None
+            )
             if job and workspace:
                 transition_job(
                     db,
@@ -665,7 +751,11 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
                 db.commit()
         with SessionLocal() as db:
             job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
-            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first() if job else None
+            workspace = (
+                db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+                if job
+                else None
+            )
             if job and workspace:
                 transition_job(
                     db,
@@ -700,7 +790,11 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
         }
         with SessionLocal() as db:
             job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
-            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first() if job else None
+            workspace = (
+                db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+                if job
+                else None
+            )
             if job and workspace:
                 transition_job(
                     db,
@@ -716,7 +810,11 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
         _update_workspace_deep_message(job_id, result)
         return result
     except asyncio.TimeoutError:
-        partial_result = job_metadata.get("partial_result") if isinstance(job_metadata.get("partial_result"), dict) else {}
+        partial_result = (
+            job_metadata.get("partial_result")
+            if isinstance(job_metadata.get("partial_result"), dict)
+            else {}
+        )
         retrieval_summary = (
             partial_result.get("retrieval_summary")
             if isinstance(partial_result.get("retrieval_summary"), dict)
@@ -736,8 +834,10 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "pipeline": retrieval_summary.get("dense_policy") or job_metadata.get("dense_policy"),
             "mode_label": "deep_timeout",
             "collection": payload.get("collection") or payload.get("context_collection"),
-            "dense_policy": retrieval_summary.get("dense_policy") or job_metadata.get("dense_policy"),
-            "scope_confidence": retrieval_summary.get("scope_confidence") or job_metadata.get("scope_confidence"),
+            "dense_policy": retrieval_summary.get("dense_policy")
+            or job_metadata.get("dense_policy"),
+            "scope_confidence": retrieval_summary.get("scope_confidence")
+            or job_metadata.get("scope_confidence"),
             "fallback_reason": "deep_retrieval_deadline_exceeded",
             "duration_ms": int(float(settings.rag_deep_retrieval_deadline_seconds) * 1000),
             "partial": True,
@@ -769,7 +869,11 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
         }
         with SessionLocal() as db:
             job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
-            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first() if job else None
+            workspace = (
+                db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+                if job
+                else None
+            )
             if job and workspace:
                 transition_job(
                     db,
@@ -792,12 +896,18 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "stage": "deep_failed",
             "status": "failed",
             "error": str(exc),
-            "answer": _extractive_deep_answer(str(payload.get("query") or ""), [], warning=str(exc)),
+            "answer": _extractive_deep_answer(
+                str(payload.get("query") or ""), [], warning=str(exc)
+            ),
             "answer_status": "extractive_fallback",
         }
         with SessionLocal() as db:
             job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
-            workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first() if job else None
+            workspace = (
+                db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+                if job
+                else None
+            )
             if job and workspace:
                 transition_job(
                     db,
@@ -816,4 +926,7 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
 
 
 def run_workspace_deep_retrieval(job_id: str) -> dict[str, Any]:
-    return asyncio.run(_run_workspace_deep_retrieval_async(job_id))
+    from app.services.model_usage_jobs import job_usage_scope
+
+    with job_usage_scope(job_id):
+        return asyncio.run(_run_workspace_deep_retrieval_async(job_id))

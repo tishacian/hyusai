@@ -205,13 +205,29 @@ def read_projected_rows(
     if not dataset.storage_key:
         _refuse("WORK_DATASET_NOT_READY", "The dataset has no materialized rows.", 409)
     from app.services.dataops.storage import is_delta, open_dataset_arrow
+
     if is_delta(dataset):
         arrow = open_dataset_arrow(dataset)
         if set(columns) - set(arrow.schema.names):
-            _refuse("WORK_DATASET_COLUMN_MISSING", "A configured chart column is missing from the produced dataset.", 409)
-        raw = arrow.scanner(columns=columns, batch_size=max(1, limit), use_threads=False,
-                            batch_readahead=0, fragment_readahead=0).head(max(0, limit)).to_pylist()
-        return [{name: _json_scalar(value) for name, value in row.items()} for row in raw], arrow.count_rows()
+            _refuse(
+                "WORK_DATASET_COLUMN_MISSING",
+                "A configured chart column is missing from the produced dataset.",
+                409,
+            )
+        raw = (
+            arrow.scanner(
+                columns=columns,
+                batch_size=max(1, limit),
+                use_threads=False,
+                batch_readahead=0,
+                fragment_readahead=0,
+            )
+            .head(max(0, limit))
+            .to_pylist()
+        )
+        return [
+            {name: _json_scalar(value) for name, value in row.items()} for row in raw
+        ], arrow.count_rows()
     store = get_object_store()
     with ExitStack() as stack:
         if store.backend == "local":
@@ -286,6 +302,7 @@ def work_dataset(
         .filter(
             TabularDataset.id == dataset_id,
             TabularDataset.workspace_id == workspace.id,
+            TabularDataset.evaluation_campaign_id.is_(None),
             TabularDataset.run_id == run.id,
             TabularDataset.status != "deleted",
         )

@@ -142,10 +142,14 @@ def test_hypervisor_actor_is_token_derived_and_decision_approve_rolls_out(
     db_session.refresh(shadow_decision)
     assert shadow_decision.approved_by == user.email
     assert shadow_decision.approved_by != "spoofed-admin@example.test"
-    diff = db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="iam.shadow.diff",
-    ).one()
+    diff = (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="iam.shadow.diff",
+        )
+        .one()
+    )
     assert diff.details["resource"]["kind"] == "decision"
     assert diff.details["action"] == "decision.approve"
     assert diff.details["legacy_allowed"] is True
@@ -232,15 +236,19 @@ def test_client360_mail_send_shadow_is_non_blocking_and_enforce_blocks(
 
     shadow_response = client.post(
         f"/client360/mail-drafts/{draft.id}/send",
-        json={"to_email": "recipient@example.test"},
+        json={"to_email": "recipient@example.test", "reviewed": True},
     )
 
     assert shadow_response.status_code == 200
     assert calls == [draft.id]
-    diff = db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="iam.shadow.diff",
-    ).one()
+    diff = (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="iam.shadow.diff",
+        )
+        .one()
+    )
     assert diff.details["resource"] == {
         "kind": "mail_draft",
         "system_id": system.id,
@@ -259,7 +267,7 @@ def test_client360_mail_send_shadow_is_non_blocking_and_enforce_blocks(
     db_session.commit()
     enforce_response = client.post(
         f"/client360/mail-drafts/{draft.id}/send",
-        json={"to_email": "recipient@example.test"},
+        json={"to_email": "recipient@example.test", "reviewed": True},
     )
 
     assert enforce_response.status_code == 403
@@ -283,9 +291,7 @@ def test_client360_authorization_fails_closed_before_business_handler_without_au
         lambda _workspace: calls.append("scope") or {},
     )
 
-    response = _client(db_session, workspace, user, client360, "/client360").get(
-        "/client360/scope"
-    )
+    response = _client(db_session, workspace, user, client360, "/client360").get("/client360/scope")
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "CLIENT360_AUTHORITY_UNAVAILABLE"
@@ -364,10 +370,14 @@ def test_action_manifest_required_permission_is_effective_at_api_boundary(
 
     assert shadow_response.status_code == 200
     assert calls == [payload["action_id"]]
-    diff = db_session.query(AuditLog).filter_by(
-        workspace_id=workspace.id,
-        event_type="iam.shadow.diff",
-    ).one()
+    diff = (
+        db_session.query(AuditLog)
+        .filter_by(
+            workspace_id=workspace.id,
+            event_type="iam.shadow.diff",
+        )
+        .one()
+    )
     assert diff.details["resource"] == {
         "kind": "action",
         "action_id": payload["action_id"],

@@ -327,7 +327,8 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.routeSub = this.route.queryParamMap.subscribe(params => {
-      this.window.set(observabilityPeriod(params.get('since'))); this.systemId.set(observabilitySystemId(params));
+      const period = observabilityPeriod(params.get('since'));
+      this.window.set(period === '90d' ? '30d' : period); this.systemId.set(observabilitySystemId(params));
       this.asOf.set(observabilityAnchor(params.get('as_of'), this.asOf())); this.refresh(true);
     });
     this.resetters.push(this.workspace.registerContextReset(() => { this.clear(); queueMicrotask(() => { if (!this.destroyed) { this.refresh(true); void this.discover(); } }); }));

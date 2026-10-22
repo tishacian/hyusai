@@ -1,4 +1,5 @@
 """Workspace observability endpoints."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -38,7 +39,9 @@ async def workspace_overview(
     since = _parse_window(window, anchor)
     systems = (
         db.query(System)
-        .filter(System.workspace_id == workspace.id, *([System.id == system_id] if system_id else []))
+        .filter(
+            System.workspace_id == workspace.id, *([System.id == system_id] if system_id else [])
+        )
         .order_by(System.status.desc(), System.updated_at.desc())
         .all()
     )
@@ -54,8 +57,10 @@ async def workspace_overview(
             db.query(Run)
             .filter(
                 Run.workspace_id == workspace.id,
-                or_(and_(Run.started_at >= since, Run.started_at < anchor),
-                    and_(Run.completed_at >= since, Run.completed_at < anchor)),
+                or_(
+                    and_(Run.started_at >= since, Run.started_at < anchor),
+                    and_(Run.completed_at >= since, Run.completed_at < anchor),
+                ),
                 *([Run.system_id == system_id] if system_id else []),
             )
             .order_by(Run.started_at.desc())
@@ -69,8 +74,10 @@ async def workspace_overview(
         db.query(WorkspaceJob)
         .filter(
             WorkspaceJob.workspace_id == workspace.id,
-            or_(and_(WorkspaceJob.updated_at >= since, WorkspaceJob.updated_at < anchor),
-                and_(WorkspaceJob.created_at >= since, WorkspaceJob.created_at < anchor)),
+            or_(
+                and_(WorkspaceJob.updated_at >= since, WorkspaceJob.updated_at < anchor),
+                and_(WorkspaceJob.created_at >= since, WorkspaceJob.created_at < anchor),
+            ),
             *([WorkspaceJob.system_id == system_id] if system_id else []),
         )
         .order_by(WorkspaceJob.updated_at.desc(), WorkspaceJob.created_at.desc())
@@ -79,8 +86,22 @@ async def workspace_overview(
     )
     evaluations = (
         db.query(EvaluationScore)
-        .filter(EvaluationScore.workspace_id == workspace.id, EvaluationScore.created_at >= since, EvaluationScore.created_at < anchor,
-            *([EvaluationScore.run_id.in_(db.query(Run.id).filter(Run.workspace_id == workspace.id, Run.system_id == system_id))] if system_id else []))
+        .filter(
+            EvaluationScore.workspace_id == workspace.id,
+            EvaluationScore.created_at >= since,
+            EvaluationScore.created_at < anchor,
+            *(
+                [
+                    EvaluationScore.run_id.in_(
+                        db.query(Run.id).filter(
+                            Run.workspace_id == workspace.id, Run.system_id == system_id
+                        )
+                    )
+                ]
+                if system_id
+                else []
+            ),
+        )
         .order_by(EvaluationScore.created_at.desc())
         .limit(100)
         .all()
@@ -88,10 +109,17 @@ async def workspace_overview(
 
     from app.services.evaluation.lifecycle import visible_evaluation_query
 
-    readable_evaluations = {row.id for row in visible_evaluation_query(
-        db, db.query(EvaluationScore).filter(EvaluationScore.id.in_([row.id for row in evaluations])),
-        user, workspace,
-    ).all()}
+    readable_evaluations = {
+        row.id
+        for row in visible_evaluation_query(
+            db,
+            db.query(EvaluationScore).filter(
+                EvaluationScore.id.in_([row.id for row in evaluations])
+            ),
+            user,
+            workspace,
+        ).all()
+    }
     visible_system_ids = {system.id for system in systems}
     visible_run_ids = {run.id for run in runs}
     from app.api.v1.endpoints.workspace_jobs import _can_access_job
@@ -141,7 +169,8 @@ async def workspace_overview(
             "runs_running": sum(
                 1
                 for r in runs
-                if r.status in {"pending", "running", "hitl_pending", "debug_pending", "waiting_subflows"}
+                if r.status
+                in {"pending", "running", "hitl_pending", "debug_pending", "waiting_subflows"}
             ),
             "avg_latency_ms": _avg([r.duration_ms for r in runs if r.duration_ms is not None]),
             "p95_latency_ms": _p95([r.duration_ms for r in runs if r.duration_ms is not None]),
@@ -229,16 +258,26 @@ def _job_row(job: WorkspaceJob) -> dict[str, Any]:
 
 
 def _evaluation_summary(rows: list[EvaluationScore]) -> dict[str, Any]:
+    from app.services.evaluation.read_model import scalar_metric
+
     thresholds = DEFAULT_EVAL_CONFIG
     breaches = [_evaluation_breached(row, thresholds) for row in rows]
     latest = rows[0] if rows else None
     return {
         "total": len(rows),
         "avg_composite": _avg(
-            [row.composite_score for row in rows if row.composite_score is not None]
+            [
+                scalar_metric(row, "composite_score")
+                for row in rows
+                if scalar_metric(row, "composite_score") is not None
+            ]
         ),
         "avg_hallucination_rate": _avg(
-            [row.hallucination_rate for row in rows if row.hallucination_rate is not None]
+            [
+                scalar_metric(row, "hallucination_rate")
+                for row in rows
+                if scalar_metric(row, "hallucination_rate") is not None
+            ]
         ),
         "breaches": sum(1 for item in breaches if item),
         "latest": _evaluation_row(latest) if latest else None,
@@ -498,24 +537,30 @@ def _timeline(
 
 
 def _evaluation_row(row: EvaluationScore) -> dict[str, Any]:
+    from app.services.evaluation.read_model import scalar_metric
+
     return {
         "id": row.id,
         "run_id": row.run_id,
         "agent_id": row.agent_id,
-        "composite_score": row.composite_score,
-        "hallucination_rate": row.hallucination_rate,
-        "drift_rate": row.drift_rate,
+        "composite_score": scalar_metric(row, "composite_score"),
+        "hallucination_rate": scalar_metric(row, "hallucination_rate"),
+        "drift_rate": scalar_metric(row, "drift_rate"),
         "question_type": row.question_type,
         "created_at": _time(row.created_at),
     }
 
 
 def _evaluation_breached(row: EvaluationScore, thresholds: dict[str, Any]) -> bool:
+    from app.services.evaluation.read_model import scalar_metric
+
+    composite = scalar_metric(row, "composite_score")
+    hallucination = scalar_metric(row, "hallucination_rate")
     composite_min = float(thresholds.get("composite_min") or 70.0)
     hallucination_max = float(thresholds.get("hallucination_max") or 0.3)
     return bool(
-        (row.composite_score or 0.0) < composite_min
-        or (row.hallucination_rate or 0.0) > hallucination_max
+        (composite is not None and composite < composite_min)
+        or (hallucination is not None and hallucination > hallucination_max)
     )
 
 
@@ -600,7 +645,12 @@ def _status_tone(status: Optional[str]) -> str:
     if status in {"failed", "cancelled"}:
         return "neg"
     if status in {
-        "running", "queued", "pending", "created", "hitl_pending", "debug_pending",
+        "running",
+        "queued",
+        "pending",
+        "created",
+        "hitl_pending",
+        "debug_pending",
         "waiting_subflows",
     }:
         return "warn"

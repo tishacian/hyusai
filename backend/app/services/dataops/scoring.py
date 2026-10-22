@@ -53,6 +53,11 @@ def submit_score(
     if served.family not in {"tabular", "clustering"}:
         raise ValueError("ML_SCORE_FAMILY_NOT_QUALIFIED")
     dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
+    from app.services.evaluation.isolation import validate_inputs
+
+    evaluation_campaign_id = validate_inputs(
+        db, run_id=run_id, workspace_id=workspace_id, datasets=[dataset]
+    )
     if dataset.status != "ready":
         raise ValueError("DATASET_NOT_READY")
     if int(dataset.row_count or 0) > settings.ml_score_streaming_max_rows:
@@ -86,6 +91,7 @@ def submit_score(
     execution = RecipeExecution(
         id=identity,
         workspace_id=workspace_id,
+        evaluation_campaign_id=evaluation_campaign_id,
         run_id=run_id,
         node_id=node_id,
         status="queued",
@@ -104,6 +110,7 @@ def submit_score(
     )
     db.add(execution)
     from app.services.dataops.compute_registry import register as register_compute
+
     register_compute(db, execution)
     db.commit()
     if settings.worker_eager_mode:
@@ -269,6 +276,8 @@ def run_score(execution_id):
         if row is None or row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
             return {"id": execution_id, "status": row.status if row else "missing"}
         from app.services.dataops.compute_registry import start as start_compute
+        from app.services.evaluation.isolation import campaign_for_run
+
         if not start_compute(db, row):
             return {"id": execution_id, "status": row.status}
         claimed = db.execute(
@@ -283,6 +292,8 @@ def run_score(execution_id):
         spec = dict(row.input_json)
         started = time.monotonic()
         try:
+            if campaign_for_run(db, row.run_id, row.workspace_id) != row.evaluation_campaign_id:
+                raise ValueError("EVALUATION_RECIPE_SCOPE_INVALID")
             served = (
                 db.query(MLModel)
                 .filter_by(id=spec["served_id"], workspace_id=row.workspace_id, status="ready")
@@ -301,7 +312,10 @@ def run_score(execution_id):
                 raise ValueError("ML_SCORE_INPUT_CHANGED")
             output = db.get(TabularDataset, spec["output_id"])
             from app.services.execution.io_lease import maintain
-            with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+
+            with maintain(
+                RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"
+            ):
                 entry = load_pipeline(served)
             fields = contract_fields(served)
             positive = _positive_label(served, entry.classes)
@@ -325,7 +339,9 @@ def run_score(execution_id):
                 max_rows=settings.ml_score_streaming_max_rows,
             )
             iterator = iter(batches)
-            with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+            with maintain(
+                RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"
+            ):
                 first = next(iterator, None)
             if first is None:
                 raise ValueError("ML_SCORE_EMPTY_DATASET")
@@ -333,7 +349,12 @@ def run_score(execution_id):
 
             with tempfile.TemporaryDirectory(prefix="stream-score-") as tmp:
                 root = Path(tmp)
-                with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+                with maintain(
+                    RecipeExecution,
+                    row.id,
+                    getattr(row, "_native_lease_token", None),
+                    status="running",
+                ):
                     paths = write_batches(
                         root,
                         itertools.chain([first], iterator),
@@ -381,6 +402,8 @@ def run_score(execution_id):
                         "excluded_rows": evidence["excluded_rows"],
                     },
                 }
+                if campaign_for_run(db, row.run_id, row.workspace_id) != row.evaluation_campaign_id:
+                    raise ValueError("EVALUATION_RECIPE_SCOPE_INVALID")
                 settle_files(
                     db,
                     output,
@@ -400,6 +423,7 @@ def run_score(execution_id):
 
             persist_inputs = inputs_allowed(db, row.workspace_id, True)
             journal = MLPrediction(
+                evaluation_campaign_id=row.evaluation_campaign_id,
                 workspace_id=row.workspace_id,
                 model_id=requested.id,
                 served_id=served.id,
@@ -416,12 +440,18 @@ def run_score(execution_id):
             )
             db.add(journal)
             db.flush()
-            record_inference(
-                db, requested=requested, served=served, caller="score",
-                row_count=evidence["scored_rows"], duration_ms=elapsed, event_id=journal.id,
-            )
-            served.predict_count = int(served.predict_count or 0) + evidence["scored_rows"]
-            served.last_predict_at = datetime.utcnow()
+            if row.evaluation_campaign_id is None:
+                record_inference(
+                    db,
+                    requested=requested,
+                    served=served,
+                    caller="score",
+                    row_count=evidence["scored_rows"],
+                    duration_ms=elapsed,
+                    event_id=journal.id,
+                )
+                served.predict_count = int(served.predict_count or 0) + evidence["scored_rows"]
+                served.last_predict_at = datetime.utcnow()
             row.output_json = {
                 **dataset_reference(output),
                 "model": _served_block(served),
@@ -442,7 +472,9 @@ def run_score(execution_id):
                 .populate_existing()
                 .one()
             )
-            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES or getattr(row, "_native_lease_token", None):
+            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES or getattr(
+                row, "_native_lease_token", None
+            ):
                 finalize_execution(
                     row,
                     status="cancelled" if row.cancel_requested else "failed",
@@ -454,15 +486,33 @@ def run_score(execution_id):
             if row.status in {"failed", "cancelled"}:
                 from app.services.ml_operations import record_inference
 
-                requested = db.query(MLModel).filter_by(
-                    id=spec.get("requested_id"), workspace_id=row.workspace_id,
-                ).first()
-                served = db.query(MLModel).filter_by(
-                    id=spec.get("served_id"), workspace_id=row.workspace_id,
-                ).first()
-                if requested is not None and served is not None:
+                requested = (
+                    db.query(MLModel)
+                    .filter_by(
+                        id=spec.get("requested_id"),
+                        workspace_id=row.workspace_id,
+                    )
+                    .first()
+                )
+                served = (
+                    db.query(MLModel)
+                    .filter_by(
+                        id=spec.get("served_id"),
+                        workspace_id=row.workspace_id,
+                    )
+                    .first()
+                )
+                if (
+                    requested is not None
+                    and served is not None
+                    and row.evaluation_campaign_id is None
+                ):
                     record_inference(
-                        db, requested=requested, served=served, caller="score", row_count=0,
+                        db,
+                        requested=requested,
+                        served=served,
+                        caller="score",
+                        row_count=0,
                         duration_ms=round((time.monotonic() - started) * 1000, 1),
                         error_code="ML_SCORE_CANCELLED" if row.status == "cancelled" else str(exc),
                         event_id=f"stream-score-failure:{row.id}",

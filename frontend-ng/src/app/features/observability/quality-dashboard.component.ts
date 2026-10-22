@@ -17,12 +17,18 @@ import { I18nService } from '@app/core/i18n.service';
 import { observabilityText, observabilityNumber } from './observability-labels';
 import { qualitySample } from './quality-sample';
 import { observabilitySystemId, observabilityPeriod, observabilityAnchor } from './observability-facets';
+import { EvaluationRecordsComponent } from './evaluation-records.component';
+import { RunComparisonComponent } from './run-comparison.component';
+import { SteeringReviewQueueComponent } from '../steering/review-queue.component';
+import { CalibrationReviewComponent } from './calibration-review.component';
+import { qualityMessage, type QualityMessage } from './quality-messages';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { PublicBenchPanelComponent } from './public-bench-panel.component';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { AuthStore } from '@app/store/auth.store';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import type { NavLinkInput } from '@app/core/navigation.catalog';
@@ -79,7 +85,7 @@ const PALETTE = {
     NavLinkDirective,
     FormsModule,
     BaseChartDirective,
-    QualityEvidenceChartsComponent,
+    QualityEvidenceChartsComponent, EvaluationRecordsComponent, RunComparisonComponent, SteeringReviewQueueComponent, CalibrationReviewComponent,
     PublicBenchPanelComponent,
     IconComponent,
     StatReadoutComponent,
@@ -88,6 +94,7 @@ const PALETTE = {
     GlyphComponent,
     TagComponent,
   ],
+  styles: [`.quality-views{display:flex;gap:6px;border-bottom:1px solid var(--ck-stroke-2);margin:18px 0;padding-bottom:8px}.quality-views button{font:inherit;font-size:12px;color:var(--ck-fg-2);background:transparent;border:1px solid transparent;border-radius:4px;padding:7px 12px;cursor:pointer}.quality-views button[aria-current=page]{border-color:var(--ck-stroke-2);background:var(--ck-bg-panel);color:var(--ck-signal-cool)}.quality-views button:focus-visible,.legacy-quality summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.legacy-quality{margin-top:20px}.legacy-quality>summary{font-size:12px;color:var(--ck-fg-3);padding:8px 0;cursor:pointer}`],
   template: `
     <ck-page-frame
       [eyebrow]="i18n.t('observability.charts.context')"
@@ -146,7 +153,15 @@ const PALETTE = {
      <label>{{i18n.t('observability.charts.system')}}<select class="ck-surface p-2 block" [ngModel]="systemFilter()" (ngModelChange)="setScope($event,period())"><option value="">{{i18n.t('observability.charts.all_systems')}}</option>@for(system of systems();track system.id){<option [value]="system.id">{{system.name}}</option>}</select></label>
      <label>{{i18n.t('observability.charts.period')}}<select class="ck-surface p-2 block" [ngModel]="period()" (ngModelChange)="setScope(systemFilter(),$event)"><option value="24h">{{i18n.t('observability.activities.period_day')}}</option><option value="7d">{{i18n.t('observability.charts.week')}}</option><option value="30d">{{i18n.t('observability.charts.month')}}</option></select></label>
     </div>
+    @if(qualityView()==='follow'){<label>{{t('traffic')}}<select class="ck-surface p-2" [ngModel]="qualityTraffic()" (ngModelChange)="setQualityTraffic($event)"><option value="business">{{t('business')}}</option><option value="evaluation">{{t('evaluation')}}</option><option value="all">{{t('all')}}</option></select></label>}
     @if(loadError()){<p role="alert">{{i18n.t('observability.charts.load_error')}}</p>}
+    <nav class="quality-views" [attr.aria-label]="t('title')"><button type="button" (click)="setQualityView('follow')" [attr.aria-current]="qualityView()==='follow'?'page':null">{{t('follow')}}</button><button type="button" (click)="setQualityView('tests')" [attr.aria-current]="qualityView()==='tests'?'page':null">{{t('tests')}}</button><button type="button" (click)="setQualityView('review')" [attr.aria-current]="qualityView()==='review'?'page':null">{{t('review')}}</button></nav>
+    @if(qualityView()==='tests'){
+      @if(systemFilter()){<app-run-comparison [systemId]="systemFilter()" />}@else{<p role="status">{{t('select_system')}}</p>}
+    }@else if(qualityView()==='review'){<p>{{t('human')}}</p><app-calibration-review /><app-steering-review-queue />}
+    @else{
+    <app-evaluation-records [systemId]="systemFilter()" [since]="period()" [asOf]="asOf()" [traffic]="qualityTraffic()" />
+    <details class="legacy-quality"><summary>{{i18n.t('observability.quality.composite')}} · {{i18n.t('observability.quality.technical')}}</summary>
     <app-quality-evidence-charts [rows]="history()" />
     <app-public-bench-panel />
 
@@ -495,10 +510,15 @@ const PALETTE = {
         </ul>
       }
     </section>
+    </details>}
     </ck-page-frame>
   `,
 })
 export class QualityDashboardComponent implements OnInit, OnDestroy {
+  t(key:QualityMessage){return qualityMessage(this.i18n,key);}
+  readonly qualityView=signal<'follow'|'tests'|'review'>('follow');readonly qualityTraffic=signal<'business'|'evaluation'|'all'>('business');
+  setQualityTraffic(value:'business'|'evaluation'|'all'){void this.router.navigate([],{relativeTo:this.route,queryParams:{traffic:value,evaluationId:null},queryParamsHandling:'merge'});}
+  setQualityView(value:'follow'|'tests'|'review'){this.qualityView.set(value);void this.router.navigate([],{relativeTo:this.route,queryParams:{qualityView:value,evaluationId:null},queryParamsHandling:'merge'});}
   readonly i18n = inject(I18nService);
   code(category: string, value: unknown): string { return observabilityText(this.i18n, category, value); }
   number(value: number | null | undefined, digits=0): string { return observabilityNumber(value, this.i18n.locale(), digits); }
@@ -516,7 +536,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   private readonly navigation = inject(ZoomContextService);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
-  private readonly workspace = inject(WorkspaceService);
+  private readonly workspace = inject(WorkspaceService);private readonly auth = inject(AuthStore);
   private readonly zone = inject(NgZone);
   private readonly toast = inject(ToastrService);
 
@@ -824,7 +844,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => {
-      this.workspace.current()?.id; this.systemFilter(); this.period(); this.asOf();
+      this.workspace.current()?.id;this.auth.authEpoch(); this.systemFilter(); this.period(); this.asOf();
       untracked(() => this.refresh());
     });
   }
@@ -835,7 +855,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   refreshAnchor(): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { as_of: new Date().toISOString() }, queryParamsHandling: 'merge' }); }
   ngOnDestroy():void { this.routeSubscription?.unsubscribe(); this.cancel.next();this.cancel.complete(); }
   ngOnInit(): void {
-    this.routeSubscription = this.route.queryParamMap.subscribe(params => { this.systemFilter.set(observabilitySystemId(params)); this.period.set(observabilityPeriod(params.get('since'))); this.asOf.set(observabilityAnchor(params.get('as_of'), this.asOf())); });
+    this.routeSubscription = this.route.queryParamMap.subscribe(params => { const traffic=params.get('traffic');this.qualityTraffic.set(traffic==='evaluation'||traffic==='all'?traffic:'business');const view=params.get('qualityView');this.qualityView.set(view==='tests'||view==='review'?view:'follow'); this.systemFilter.set(observabilitySystemId(params)); this.period.set(observabilityPeriod(params.get('since'))); this.asOf.set(observabilityAnchor(params.get('as_of'), this.asOf())); });
     this.zone.runOutsideAngular(() => {
       const schedule = (window as any).requestIdleCallback ?? window.setTimeout;
       schedule(() => {

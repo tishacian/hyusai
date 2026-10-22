@@ -50,6 +50,8 @@ import { traceStepSummary } from './run-trace.vm';
 import { invocationCost } from '@app/shared/cockpit/run-cost';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 import { observabilityNumber } from '../observability/observability-labels';
+import { RunUsageComponent } from '../observability/usage/run-usage.component';
+import { runSectionLabels } from './run-sections';
 
 @Component({
   selector: 'app-run-view',
@@ -74,13 +76,10 @@ import { observabilityNumber } from '../observability/observability-labels';
     RunMandateComponent,
     AgentDecisionTrailComponent,
     RunTraceComponent,
+    RunUsageComponent,
     RetrainingRunApprovalComponent,
   ],
   template: `
-    @if (run(); as auditRun) {
-      <a [routerLink]="auditUrl" [queryParams]="{ trace_id: auditRun.id }" class="inline-flex items-center px-3 py-2 text-sm underline">{{ i18n.t('governance.audit.run_audit') }}</a>
-    }
-
     @if (run(); as currentRun) {
       <ck-retraining-run-approval [run]="currentRun" (changed)="onRetrainingDecision()" (refresh)="refresh(true)" />
     }
@@ -92,8 +91,10 @@ import { observabilityNumber } from '../observability/observability-labels';
         [subtitle]="descriptionLabel()"
         [kpis]="perspectiveKpis()"
       >
-        <div actions class="inline-flex items-center gap-2">
+        <div actions class="inline-flex flex-wrap items-center gap-2">
           <ck-back-link />
+          @if (run(); as auditRun) { <a class="run-audit-link" [routerLink]="auditUrl" [queryParams]="{ trace_id: auditRun.id }" [title]="i18n.t('governance.audit.run_audit')"><app-icon name="file-text" [size]="12" /> {{ i18n.t('runs.detail.audit_short') }}</a> }
+
           @if (run()?.system_id) {
             <a
               [routerLink]="navigation.objectUrlTree('system', run()!.system_id, {
@@ -117,9 +118,14 @@ import { observabilityNumber } from '../observability/observability-labels';
       }
     @if (run(); as currentRun) {
       @if (showingTrace()) {
+        <app-agent-decision-trail [run]="currentRun" [compact]="true" [showLinks]="true" />
         <app-run-trace [run]="currentRun" />
+      } @else if (detailSection() === 'quality') {
+        <app-run-investigation [run]="currentRun" />
+      } @else if (detailSection() === 'usage') {
+        <app-run-usage [runId]="currentRun.id" />
       } @else {
-        <app-run-mandate [runId]="currentRun.id" />
+        <div class="run-result"><ck-run-outcome-card [run]="currentRun" /></div>
         <button
           type="button"
           class="time-spent"
@@ -129,9 +135,8 @@ import { observabilityNumber } from '../observability/observability-labels';
           <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
           <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
         </button>
-        <app-agent-decision-trail [run]="currentRun" [compact]="true" [showLinks]="true" />
-        <app-run-investigation [run]="currentRun" />
-
+        <details class="run-secondary"><summary>{{ sectionLabels().mandate }}</summary><app-run-mandate [runId]="currentRun.id" /></details>
+      <details class="run-secondary" [open]="activePerspectiveTab() !== 'overview'"><summary>{{ sectionLabels().technical }}</summary>
       <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
         <ck-tab id="overview" [label]="i18n.t('runs.detail.tab.overview')">
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
@@ -185,6 +190,7 @@ import { observabilityNumber } from '../observability/observability-labels';
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="checkpoints" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
         </ck-tab>
       </ck-tabs>
+      </details>
       }
     }
     } @else {
@@ -194,8 +200,10 @@ import { observabilityNumber } from '../observability/observability-labels';
       [description]="descriptionLabel()"
       [status]="statusLabel(run()?.status)"
     >
-      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.flexWrap]="'wrap'">
         <ck-back-link />
+          @if (run(); as auditRun) { <a class="run-audit-link" [routerLink]="auditUrl" [queryParams]="{ trace_id: auditRun.id }" [title]="i18n.t('governance.audit.run_audit')"><app-icon name="file-text" [size]="12" /> {{ i18n.t('runs.detail.audit_short') }}</a> }
+
         @if (run()?.system_id) {
           <a
             [routerLink]="navigation.objectUrlTree('system', run()!.system_id, {
@@ -255,7 +263,12 @@ import { observabilityNumber } from '../observability/observability-labels';
             (click)="onArrivalBack($event)"
           >{{ chip }}</a>
         }
+        <app-agent-decision-trail [run]="run()!" [compact]="true" [showLinks]="true" />
         <app-run-trace [run]="run()!" />
+      } @else if (detailSection() === 'quality') {
+        <app-run-investigation [run]="run()!" />
+      } @else if (detailSection() === 'usage') {
+        <app-run-usage [runId]="run()!.id" />
       } @else {
         @if (arrivalChipLabel(); as chip) {
           <a
@@ -265,24 +278,13 @@ import { observabilityNumber } from '../observability/observability-labels';
             (click)="onArrivalBack($event)"
           >{{ chip }}</a>
         }
-        <app-run-mandate [runId]="run()!.id" />
-        <button
-          type="button"
-          class="time-spent"
-          data-testid="run-time-spent"
-          (click)="openTrace()"
-        >
-          <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
-          <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
-        </button>
-        <app-agent-decision-trail [run]="run()!" [compact]="true" [showLinks]="true" />
-        <app-run-investigation [run]="run()!" />
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
         <div class="mb-6">
           <ck-run-outcome-card [run]="run()!" />
 
           <!-- Operator override strip — live next to the Outcome so operators
                can declare an estimate without certifying realized savings. -->
+          <details class="run-secondary"><summary>{{ sectionLabels().value }}</summary>
           <div class="mt-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
             <div class="flex items-center gap-3 flex-wrap">
               <div class="flex items-center gap-2">
@@ -365,6 +367,7 @@ import { observabilityNumber } from '../observability/observability-labels';
               </p>
             }
           </div>
+          </details>
         </div>
 
         <!-- Error banner -->
@@ -384,6 +387,12 @@ import { observabilityNumber } from '../observability/observability-labels';
           </div>
         }
 
+        <button type="button" class="time-spent" data-testid="run-time-spent" (click)="openTrace()">
+          <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
+          <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
+        </button>
+        <details class="run-secondary"><summary>{{ sectionLabels().mandate }}</summary><app-run-mandate [runId]="run()!.id" /></details>
+        <details class="run-secondary" [open]="activePerspectiveTab() !== 'overview'"><summary>{{ sectionLabels().technical }}</summary>
         @if (retrievalDecisionTrace(); as trace) {
           <section class="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.04] mb-6">
             <header class="px-4 py-2.5 border-b border-emerald-400/10 flex items-center gap-2">
@@ -563,11 +572,21 @@ import { observabilityNumber } from '../observability/observability-labels';
             </ul>
           </section>
         }
+        </details>
       }
     </ck-page-frame>
     }
   `,
   styles: [`
+    .run-result { margin: 18px clamp(12px,3vw,32px); }
+    .run-audit-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--ck-stroke-2); border-radius: 4px; color: var(--ck-fg-2); font-size: 12px; text-decoration: none; }
+    .run-audit-link:hover { background: var(--ck-bg-panel-hi); }
+    .run-audit-link:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 2px; }
+    .run-secondary { margin: 16px 0; border: 1px solid var(--ck-stroke-2); border-radius: 5px; min-width: 0; }
+    .run-secondary > summary { padding: 12px 16px; cursor: pointer; color: var(--ck-fg-2); font-size: 13px; }
+    .run-secondary > summary:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 2px; }
+    .run-secondary[open] > summary { border-bottom: 1px solid var(--ck-stroke-2); margin-bottom: 12px; }
+    @media(max-width:600px) { .time-spent { width:100%; margin-inline:0; flex-wrap:wrap; } }
     .arrival-chip {
       display: inline-flex;
       align-items: center;
@@ -660,6 +679,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly perspectivesError = signal(false);
   readonly activePerspectiveTab = signal<RunPerspectiveFacet>('overview');
   readonly showingTrace = signal(false);
+  readonly detailSection = signal<'result' | 'quality' | 'usage'>('result');
+  readonly sectionLabels = computed(() => runSectionLabels(this.i18n.locale()));
   readonly arrival = signal<ArrivalProvenance | null>(readArrivalProvenance());
   readonly arrivalChipLabel = computed(() => {
     const provenance = this.arrival();
@@ -881,6 +902,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
     if (!isRunPerspectiveFacet(value)) return;
     this.requestedFacet = value;
     this.showingTrace.set(false);
+    this.detailSection.set('result');
     this.activePerspectiveTab.set(value);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -918,6 +940,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   }
 
   private applyRequestedFacet(facet: string | null): void {
+    this.detailSection.set(facet === 'quality' || facet === 'usage' ? facet : 'result');
     if (facet === 'trace') {
       this.showingTrace.set(true);
       return;
@@ -949,7 +972,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   formatTime(ts: string | undefined): string {
     if (!ts) return '—';
     try {
-      return new Date(ts).toLocaleString(undefined, {
+      return new Date(ts).toLocaleString(this.i18n.locale(), {
         year: 'numeric',
         month: 'short',
         day: '2-digit',

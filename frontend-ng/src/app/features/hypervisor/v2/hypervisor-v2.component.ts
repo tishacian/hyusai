@@ -122,6 +122,7 @@ import {
 import { ImpactActivityComponent } from './blocks/impact-activity.component';
 import { ImpactFinancialScenarioComponent } from './blocks/impact-financial-scenario.component';
 import { ACTIVITY_METRICS, SCENARIO_FIELDS, activityMetrics, scopedSeries, summarySections, type ScenarioField } from './impact-product-blocks';
+import { ImpactAssuranceComponent } from './blocks/impact-assurance.component';
 import { ImpactBlockAlertesComponent } from './blocks/impact-block-alertes.component';
 import { ImpactBlockCarteComponent } from './blocks/impact-block-carte.component';
 import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier.component';
@@ -225,6 +226,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     ImpactBlockFluxComponent,
     ImpactBlockCarteComponent,
     ImpactBlockAlertesComponent,
+    ImpactAssuranceComponent,
     ImpactActivityComponent,
     ImpactFinancialScenarioComponent,
     ImpactBlockOrdreDuJourComponent,
@@ -456,6 +458,12 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     }
                     @case ('financial_scenario') {
                       @if (productBlock('financial_scenario'); as block) { <app-impact-financial-scenario [block]="block" [scopeLabel]="systemScopeLabel()" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('financial_scenario')" /> }
+                    }
+                    @case ('quality') {
+                      @if (productBlock('quality'); as block) { <app-impact-assurance [block]="block" [systemId]="activeView()?.system_id || null" [scopeLabel]="systemScopeLabel()" [period]="viewPeriod(activeView())" [asOf]="measurementAnchor()" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('quality')" /> }
+                    }
+                    @case ('ai_usage') {
+                      @if (productBlock('ai_usage'); as block) { <app-impact-assurance [block]="block" [systemId]="activeView()?.system_id || null" [scopeLabel]="systemScopeLabel()" [period]="viewPeriod(activeView())" [asOf]="measurementAnchor()" [canEdit]="canEdit() && !presentationTheme()" (configure)="openBlockSettings('ai_usage')" /> }
                     }
                     @case ('command') { @if (series()) { <ng-container [ngTemplateOutlet]="commandBandTpl"></ng-container> } }
                     @case ('cadran') { @if (series()) { <ng-container [ngTemplateOutlet]="cadranBandTpl"></ng-container> } }
@@ -1750,11 +1758,15 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block.type, 1)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.move_down')">↓</button>
                     <button type="button" class="hv2-text-btn" (click)="removeBlock(stratum.id, block.type)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.remove')">×</button>
                   </div>
-                  @if (block.type === 'activity' || block.type === 'financial_scenario') {
+                  @if (['activity', 'financial_scenario', 'quality', 'ai_usage'].includes(block.type)) {
                     <div class="hv2-product-editor hv2-block-settings" [attr.data-testid]="'impact-settings-' + block.type">
                       <label>{{ i18n.t('hypervisor.v2.product.block_title') }}<input [value]="block.title || ''" maxlength="200" [disabled]="!canEdit()" (input)="setBlockTitle(block.type, eventValue($event))" /></label>
                       @if (block.type === 'activity') {
                         @for (metric of activityMetricOptions; track metric) { <label class="hv2-inline"><input type="checkbox" [checked]="activityMetrics(block).includes(metric)" [disabled]="!canEdit()" (change)="toggleActivityMetric(metric)" />{{ i18n.t('hypervisor.v2.product.metric.' + metric) }}</label> }
+                      } @else if (block.type === 'quality' || block.type === 'ai_usage') {
+                        <label>{{ i18n.t('hypervisor.v2.assurance.traffic') }}<select [ngModel]="block.settings['traffic'] || 'business'" [disabled]="!canEdit()" (ngModelChange)="setBlockSetting(block.type, 'traffic', $event)">
+                          @for (traffic of ['business', 'evaluation', 'all']; track traffic) { <option [value]="traffic">{{ i18n.t('hypervisor.v2.assurance.' + traffic) }}</option> }
+                        </select></label>
                       } @else {
                         <p>{{ i18n.t('hypervisor.v2.scenario.edit_note') }}</p>
                         <label>{{ i18n.t('hypervisor.v2.scenario.currency') }}<input [value]="block.settings['currency'] || ''" maxlength="3" [disabled]="!canEdit()" (input)="setBlockSetting(block.type, 'currency', eventValue($event).toUpperCase())" /></label>
@@ -2281,8 +2293,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly scenarioFields = SCENARIO_FIELDS;
   readonly activityMetrics = activityMetrics;
   readonly summarySections = computed(() => summarySections(this.activeView()));
-  readonly hasProductBlocks = computed(() => this.summarySections().some(type => ['activity', 'financial_scenario'].includes(type)));
-  readonly hasResultBlocks = computed(() => this.summarySections().some(type => !['activity', 'financial_scenario'].includes(type)));
+  readonly measurementAnchor = signal(new Date().toISOString());
+  readonly hasProductBlocks = computed(() => this.summarySections().some(type => ['activity', 'financial_scenario', 'quality', 'ai_usage'].includes(type)));
+  readonly hasResultBlocks = computed(() => this.summarySections().some(type => !['activity', 'financial_scenario', 'quality', 'ai_usage'].includes(type)));
   private viewsLoaded = false;
   private destroyed = false;
   readonly activeViewId = signal('direction');
@@ -3723,6 +3736,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   refreshReadingView(): void {
+    this.measurementAnchor.set(new Date().toISOString());
     // Re-read evidence without replacing local view configuration.
     void this.mlInbox()?.reload();
     this.reload(false);

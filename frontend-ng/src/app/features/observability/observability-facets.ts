@@ -3,6 +3,7 @@ export const OBSERVABILITY_FACETS = [
   'operations',
   'activities',
   'quality',
+  'usage',
   'performance',
   'traces',
 ] as const;
@@ -27,7 +28,7 @@ export function observabilitySystemId(
 }
 
 export function periodCutoffMs(since: string, now = Date.now()): number {
-  const days = since === '24h' ? 1 : since === '30d' ? 30 : 7;
+  const days = since === '24h' ? 1 : since === '90d' ? 90 : since === '30d' ? 30 : 7;
   return now - days * 24 * 60 * 60 * 1000;
 }
 
@@ -44,14 +45,21 @@ export function runStartedWithinPeriod(
 /** Explicit quality/performance/traces win; historical activity links remain valid. */
 export function resolveObservabilityFacet(params: { get(name: string): string | null }): ObservabilityFacet {
   const facet = normalizeObservabilityFacet(params.get('facet'));
-  if (['quality', 'performance', 'traces'].includes(facet)) return facet;
+  if (['quality', 'usage', 'performance', 'traces'].includes(facet)) return facet;
   if (params.get('activityId') || (!params.get('facet') && params.get('scope'))) return 'activities';
   return facet;
 }
-export function observabilityPeriod(value: string | null): '24h' | '7d' | '30d' {
-  return value === '24h' || value === '30d' ? value : '7d';
+export function observabilityPeriod(value: string | null): '24h' | '7d' | '30d' | '90d' {
+  return value === '24h' || value === '30d' || value === '90d' ? value : '7d';
 }
 export function observabilityAnchor(value: string | null, fallback = new Date().toISOString()): string {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+}
+export function formatObservabilityAnchor(value: string, locale: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(locale, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23', timeZone: 'UTC', timeZoneName: 'short',
+  }).format(date) : '—';
 }

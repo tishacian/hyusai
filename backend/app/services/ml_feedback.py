@@ -76,6 +76,10 @@ def attach(db, *, model, prediction_id, label, labeled_by=None, sample_id=None):
     )
     if row is None:
         refuse("ML_PREDICTION_NOT_FOUND", "That prediction is not in this workspace.", 404)
+    if row.evaluation_campaign_id is not None:
+        refuse(
+            "ML_EVALUATION_FEEDBACK_SEPARATE", "Campaign samples are not production outcomes.", 409
+        )
     if row.slug != model.slug:
         refuse("ML_PREDICTION_WRONG_MODEL", "That prediction belongs to another model.", 409)
     if not getattr(row, "input_storage_allowed", True) or not row.payload_json:

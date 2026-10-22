@@ -1,4 +1,5 @@
 """Expert knowledge capture planning, session runtime and review output."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +15,7 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, Optional
 from urllib.parse import quote, urlencode
 
 from sqlalchemy.orm import Session as DBSession
@@ -50,6 +51,8 @@ from app.services.capture_knowledge_oracle import (
     session_context_from_capture,
     sparse_exact_match_evidence,
 )
+from app.services.model_usage import UsageError
+from app.services.model_usage_sdk import async_openai_chat
 from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
 from app.services.skill_invocation_snapshot import (
     capture_skill_execution_evidence,
@@ -59,7 +62,7 @@ from app.services.skill_invocation_snapshot import (
 # Async callback receiving FINAL-phase progress payloads
 # ({stage, label, current?, total?, section_label?}) so transports (WS gateway)
 # can stream honest progress to the loader while the heavy pass runs.
-FinalizeProgressCallback = Callable[[Dict[str, Any]], Any]
+FinalizeProgressCallback = Callable[[dict[str, Any]], Any]
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
 TOPIC_PLAN_SCHEMA_VERSION = "topic_plan_v1"
@@ -78,7 +81,9 @@ _MIN_PLAN_SUBJECT_CHARS = 12
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
 CAPTURE_RETRIEVAL_WARM_CACHE_TTL_SECONDS = 300
 CAPTURE_RETRIEVAL_WARM_CACHE_MAX_ENTRIES = 128
-ORACLE_QUESTION_STATUSES = frozenset({"open", "active", "answered", "dismissed", "deferred", "addressed"})
+ORACLE_QUESTION_STATUSES = frozenset(
+    {"open", "active", "answered", "dismissed", "deferred", "addressed"}
+)
 CAPTURE_INPUT_MODALITIES = frozenset({"voice", "text"})
 CAPTURE_DOCUMENT_SOURCE_KIND = "capture_document_ref"
 CAPTURE_DOCUMENT_COLLECTION_PREFIX = "capture-session"
@@ -103,7 +108,7 @@ _GENERIC_EVALUATION_OPEN_QUESTIONS = frozenset(
 )
 
 _logger = logging.getLogger(__name__)
-_CAPTURE_RETRIEVAL_WARM_CACHE: OrderedDict[str, tuple[float, Dict[str, Any]]] = OrderedDict()
+_CAPTURE_RETRIEVAL_WARM_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 POSITIVE_CONFIRMATION_TERMS = (
     "oui",
     "valide",
@@ -293,11 +298,11 @@ _TOPIC_GROUPS = [
 ]
 
 
-def _words(text: str) -> List[str]:
+def _words(text: str) -> list[str]:
     return re.findall(r"[\wÀ-ÿ'-]+", text or "")
 
 
-def _context_snapshot(ctx: Optional[Context]) -> Dict[str, Any]:
+def _context_snapshot(ctx: Optional[Context]) -> dict[str, Any]:
     if not ctx:
         return {}
     return {
@@ -316,11 +321,11 @@ def build_knowledge_gaps(
     *,
     objective: str,
     expert_profile: Optional[str] = None,
-    context_snapshot: Optional[Dict[str, Any]] = None,
-    knowledge_refs: Optional[List[str]] = None,
-    rag_chunks: Optional[List[str]] = None,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    context_snapshot: Optional[dict[str, Any]] = None,
+    knowledge_refs: Optional[list[str]] = None,
+    rag_chunks: Optional[list[str]] = None,
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Return prioritized gaps to resolve during an expert capture session.
 
     The Phase 0 implementation is deterministic so demos remain robust even
@@ -338,11 +343,12 @@ def build_knowledge_gaps(
         *knowledge_refs,
     ]
 
-    gaps: List[Dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
     for index, template in enumerate(_BASE_GAPS, start=1):
         priority = float(template["priority"])
         if template["slug"] in {"decision_rationale", "signals_and_symptoms"} and any(
-            token in objective_l for token in ("expert", "capture", "diagnostic", "troubleshoot", "maintenance")
+            token in objective_l
+            for token in ("expert", "capture", "diagnostic", "troubleshoot", "maintenance")
         ):
             priority += 0.05
         if template["slug"] == "source_provenance" and refs:
@@ -373,23 +379,27 @@ def build_interview_plan(
     objective: str,
     expert_profile: Optional[str],
     duration_minutes: int,
-    gaps: List[Dict[str, Any]],
-    context_snapshot: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    duration = _planning_duration_minutes(int(duration_minutes or 20), int(duration_minutes or 20) <= 0)
+    gaps: list[dict[str, Any]],
+    context_snapshot: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    duration = _planning_duration_minutes(
+        int(duration_minutes or 20), int(duration_minutes or 20) <= 0
+    )
     available_question_minutes = max(3, duration - 4)
     question_count = max(2, min(len(gaps), available_question_minutes // 3 or 2))
     selected = gaps[:question_count]
     per_question = max(2, available_question_minutes // max(1, len(selected)))
 
     selected_by_slug = {gap.get("slug"): gap for gap in selected}
-    topics: List[Dict[str, Any]] = []
+    topics: list[dict[str, Any]] = []
     question_index = 1
     for topic_index, group in enumerate(_TOPIC_GROUPS, start=1):
-        grouped_gaps = [selected_by_slug[slug] for slug in group["slugs"] if slug in selected_by_slug]
+        grouped_gaps = [
+            selected_by_slug[slug] for slug in group["slugs"] if slug in selected_by_slug
+        ]
         if not grouped_gaps:
             continue
-        subtopics: List[Dict[str, Any]] = []
+        subtopics: list[dict[str, Any]] = []
         for subtopic_index, gap in enumerate(grouped_gaps, start=1):
             topic_id = group["id"]
             subtopic_id = f"{topic_id}-sub-{subtopic_index:02d}"
@@ -444,7 +454,10 @@ def build_interview_plan(
         "voice_runtime": "cascade_openai",
         "agenda": [
             {"label": "Frame objective and scope", "estimated_minutes": 2},
-            {"label": "Resolve prioritized knowledge gaps", "estimated_minutes": available_question_minutes},
+            {
+                "label": "Resolve prioritized knowledge gaps",
+                "estimated_minutes": available_question_minutes,
+            },
             {"label": "Confirm open questions and validation owner", "estimated_minutes": 2},
         ],
         "topics": topics,
@@ -473,8 +486,8 @@ def _free_conversation_plan(
     objective: str,
     expert_profile: Optional[str],
     duration_minutes: int,
-    context_snapshot: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    context_snapshot: Optional[dict[str, Any]],
+) -> dict[str, Any]:
     """Create a capture plan that deliberately contains no interviewer agenda."""
     return {
         "schema_version": FREE_CONVERSATION_SCHEMA_VERSION,
@@ -502,7 +515,7 @@ def _free_conversation_plan(
     }
 
 
-def _normalize_duration_minutes(duration_minutes: Optional[int]) -> Tuple[int, bool]:
+def _normalize_duration_minutes(duration_minutes: Optional[int]) -> tuple[int, bool]:
     """Return stored minutes and whether the session has no time limit."""
     if duration_minutes is None:
         return 0, True
@@ -535,7 +548,9 @@ def _session_effective_duration_minutes(session: ExpertCaptureSession) -> int:
     return max(5, int(session.duration_minutes or 0) + extension)
 
 
-def _session_elapsed_seconds(session: ExpertCaptureSession, *, now: Optional[datetime] = None) -> int:
+def _session_elapsed_seconds(
+    session: ExpertCaptureSession, *, now: Optional[datetime] = None
+) -> int:
     if not session.started_at:
         return 0
     reference = now or datetime.utcnow()
@@ -550,7 +565,9 @@ def _session_elapsed_seconds(session: ExpertCaptureSession, *, now: Optional[dat
     return elapsed
 
 
-def _compute_timer_metrics(session: ExpertCaptureSession, *, now: Optional[datetime] = None) -> Dict[str, Any]:
+def _compute_timer_metrics(
+    session: ExpertCaptureSession, *, now: Optional[datetime] = None
+) -> dict[str, Any]:
     unlimited = _session_unlimited_duration(session)
     effective_minutes = _session_effective_duration_minutes(session)
     elapsed_seconds = _session_elapsed_seconds(session, now=now)
@@ -558,7 +575,9 @@ def _compute_timer_metrics(session: ExpertCaptureSession, *, now: Optional[datet
         return {
             "unlimited_duration": unlimited,
             "duration_limit_minutes": 0 if unlimited else effective_minutes,
-            "duration_extension_minutes": int((session.metrics or {}).get("duration_extension_minutes") or 0),
+            "duration_extension_minutes": int(
+                (session.metrics or {}).get("duration_extension_minutes") or 0
+            ),
             "elapsed_seconds": elapsed_seconds,
             "remaining_seconds": None,
             "timer_phase": "inactive",
@@ -569,7 +588,9 @@ def _compute_timer_metrics(session: ExpertCaptureSession, *, now: Optional[datet
         return {
             "unlimited_duration": True,
             "duration_limit_minutes": 0,
-            "duration_extension_minutes": int((session.metrics or {}).get("duration_extension_minutes") or 0),
+            "duration_extension_minutes": int(
+                (session.metrics or {}).get("duration_extension_minutes") or 0
+            ),
             "elapsed_seconds": elapsed_seconds,
             "remaining_seconds": None,
             "timer_phase": "running",
@@ -588,11 +609,14 @@ def _compute_timer_metrics(session: ExpertCaptureSession, *, now: Optional[datet
     return {
         "unlimited_duration": False,
         "duration_limit_minutes": effective_minutes,
-        "duration_extension_minutes": int((session.metrics or {}).get("duration_extension_minutes") or 0),
+        "duration_extension_minutes": int(
+            (session.metrics or {}).get("duration_extension_minutes") or 0
+        ),
         "elapsed_seconds": elapsed_seconds,
         "remaining_seconds": remaining_seconds,
         "timer_phase": timer_phase,
-        "session_end_pending": bool((session.metrics or {}).get("session_end_pending")) or timer_phase == "ended",
+        "session_end_pending": bool((session.metrics or {}).get("session_end_pending"))
+        or timer_phase == "ended",
         "last_minutes_alert": timer_phase == "last_5_minutes",
     }
 
@@ -603,7 +627,7 @@ def _resolve_capture_context(
     workspace_id: str,
     context_id: Optional[str],
     system_id: Optional[str] = None,
-) -> Tuple[Optional[str], Optional[Context]]:
+) -> tuple[Optional[str], Optional[Context]]:
     from app.services.context_bindings import validate_context_id, validate_system_id
 
     system = validate_system_id(db, workspace_id=workspace_id, system_id=system_id)
@@ -617,7 +641,7 @@ def _warm_cache_key(session_id: str) -> str:
     return str(session_id or "").strip()
 
 
-def _set_capture_warm_cache(session_id: str, payload: Dict[str, Any]) -> None:
+def _set_capture_warm_cache(session_id: str, payload: dict[str, Any]) -> None:
     key = _warm_cache_key(session_id)
     if not key:
         return
@@ -627,7 +651,7 @@ def _set_capture_warm_cache(session_id: str, payload: Dict[str, Any]) -> None:
         _CAPTURE_RETRIEVAL_WARM_CACHE.popitem(last=False)
 
 
-def _get_capture_warm_cache(session_id: str) -> Optional[Dict[str, Any]]:
+def _get_capture_warm_cache(session_id: str) -> Optional[dict[str, Any]]:
     key = _warm_cache_key(session_id)
     item = _CAPTURE_RETRIEVAL_WARM_CACHE.get(key)
     if not item:
@@ -640,17 +664,22 @@ def _get_capture_warm_cache(session_id: str) -> Optional[Dict[str, Any]]:
     return dict(payload)
 
 
-def _compact_retrieval_context(retrieval_context: Mapping[str, Any]) -> Dict[str, Any]:
+def _compact_retrieval_context(retrieval_context: Mapping[str, Any]) -> dict[str, Any]:
     chunks = list(retrieval_context.get("chunks") or [])[:4]
     scores = list(retrieval_context.get("scores") or [])[:4]
     metadatas = list(retrieval_context.get("metadatas") or [])[:4]
-    metrics = retrieval_context.get("metrics") if isinstance(retrieval_context.get("metrics"), Mapping) else {}
+    metrics = (
+        retrieval_context.get("metrics")
+        if isinstance(retrieval_context.get("metrics"), Mapping)
+        else {}
+    )
     return {
         "chunks": chunks,
         "scores": scores,
         "metadatas": metadatas,
         "pipeline": retrieval_context.get("pipeline"),
-        "retrieval_profile": retrieval_context.get("retrieval_profile") or metrics.get("retrieval_profile"),
+        "retrieval_profile": retrieval_context.get("retrieval_profile")
+        or metrics.get("retrieval_profile"),
         "dense_only": metrics.get("dense_only"),
         "sparse_status": metrics.get("sparse_status"),
         "sparse_backend": metrics.get("sparse_backend"),
@@ -665,7 +694,7 @@ async def warm_capture_context_cache(
     workspace_slug: Optional[str],
     session_id: str,
     timeout_seconds: float = RETRIEVAL_PREFETCH_TIMEOUT_SECONDS,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     ctx = _load_context(db, workspace_id, session.context_id)
     collection_name = _resolve_collection_name(ctx)
@@ -674,7 +703,10 @@ async def warm_capture_context_cache(
         query = "Expert Knowledge Capture context warmup"
     started = time.perf_counter()
     status = "completed"
-    detail: Dict[str, Any] = {"collection_name": collection_name, "retrieval_profile": "oracle_fast"}
+    detail: dict[str, Any] = {
+        "collection_name": collection_name,
+        "retrieval_profile": "oracle_fast",
+    }
     try:
         from app.services.rag.context import retrieve_rag_context
 
@@ -727,7 +759,9 @@ async def warm_capture_context_cache(
     _record_capture_event(
         db,
         session=session,
-        event_type="retrieval_warm_cache_completed" if status == "completed" else "retrieval_warm_cache_failed",
+        event_type="retrieval_warm_cache_completed"
+        if status == "completed"
+        else "retrieval_warm_cache_failed",
         source="capture_engine",
         status=status,
         meta_data=metrics["retrieval_warm_cache"],
@@ -740,7 +774,7 @@ def _content_tokens(text: str) -> set[str]:
     return {token.lower() for token in _words(text) if len(token) >= 4}
 
 
-def _outline_indent_level(indent_stack: List[int], indent: int) -> int:
+def _outline_indent_level(indent_stack: list[int], indent: int) -> int:
     """Resolve a 0-based depth for ``indent`` against a running indent stack.
 
     Deeper leading whitespace pushes a new level; equal whitespace stays on the
@@ -762,7 +796,7 @@ _PLAN_BULLET_RE = re.compile(r"^[-*•·▪◦]\s+(.+)$")
 _PLAN_ALPHA_RE = re.compile(r"^[a-zA-Z][.)]\s+(.+)$")
 
 
-def _outline_items_from_text(seed: str) -> List[Tuple[int, str]]:
+def _outline_items_from_text(seed: str) -> list[tuple[int, str]]:
     """Turn raw plan text into ``(level, title)`` rows (level 0 = top section).
 
     Honors, in order of precedence: markdown heading depth (#, ##, ### ...),
@@ -770,8 +804,8 @@ def _outline_items_from_text(seed: str) -> List[Tuple[int, str]]:
     bullets / plain lines. Bullets and plain lines nest one level under the most
     recent explicit marker so mixed documents (## heading + "- point") work.
     """
-    items: List[Tuple[int, str]] = []
-    indent_stack: List[int] = []
+    items: list[tuple[int, str]] = []
+    indent_stack: list[int] = []
     last_marker_level = -1
     for raw_line in seed.splitlines():
         if not raw_line.strip():
@@ -821,7 +855,7 @@ def _outline_items_from_text(seed: str) -> List[Tuple[int, str]]:
     return items
 
 
-def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
+def parse_provided_plan_text(text: str) -> list[dict[str, Any]]:
     """Parse pasted or uploaded plan text into a 3-level plan_build_v2 tree.
 
     Level 0 -> topic (section), level 1 -> subtopic (subsection), level >= 2 ->
@@ -834,12 +868,12 @@ def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
         return []
 
     items = _outline_items_from_text(seed)
-    topics: List[Dict[str, Any]] = []
-    current_topic: Optional[Dict[str, Any]] = None
-    current_sub: Optional[Dict[str, Any]] = None
+    topics: list[dict[str, Any]] = []
+    current_topic: Optional[dict[str, Any]] = None
+    current_sub: Optional[dict[str, Any]] = None
     topic_index = 0
 
-    def _new_topic(title: str) -> Dict[str, Any]:
+    def _new_topic(title: str) -> dict[str, Any]:
         nonlocal topic_index, current_topic, current_sub
         topic_index += 1
         current_topic = {
@@ -854,7 +888,7 @@ def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
         topics.append(current_topic)
         return current_topic
 
-    def _new_subtopic(title: str) -> Dict[str, Any]:
+    def _new_subtopic(title: str) -> dict[str, Any]:
         nonlocal current_sub
         assert current_topic is not None
         sub_index = len(current_topic["subtopics"]) + 1
@@ -922,7 +956,7 @@ def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
     return topics
 
 
-def _apply_provided_plan_seed(plan: Dict[str, Any], seed: Optional[str]) -> Dict[str, Any]:
+def _apply_provided_plan_seed(plan: dict[str, Any], seed: Optional[str]) -> dict[str, Any]:
     clean_seed = (seed or "").strip()
     if not clean_seed:
         return plan
@@ -934,11 +968,17 @@ def _apply_provided_plan_seed(plan: Dict[str, Any], seed: Optional[str]) -> Dict
     dialogue["ready_to_finalize"] = True
     dialogue["status"] = "seed_parsed"
     plan["dialogue"] = dialogue
-    plan["review"] = {**(plan.get("review") or {}), "status": "draft", "reason": "provided_plan_seed"}
+    plan["review"] = {
+        **(plan.get("review") or {}),
+        "status": "draft",
+        "reason": "provided_plan_seed",
+    }
     return plan
 
 
-def _normalize_plan_source_kind(kind: Optional[str], *, has_seed: bool, filename: Optional[str]) -> str:
+def _normalize_plan_source_kind(
+    kind: Optional[str], *, has_seed: bool, filename: Optional[str]
+) -> str:
     clean = (kind or "").strip().lower()
     if clean in {"manual", "pasted_text", "uploaded_file", "conversation"}:
         return clean
@@ -949,8 +989,8 @@ def _normalize_plan_source_kind(kind: Optional[str], *, has_seed: bool, filename
     return "manual"
 
 
-def _outline_from_plan_topics(topics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    outline: List[Dict[str, Any]] = []
+def _outline_from_plan_topics(topics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    outline: list[dict[str, Any]] = []
     for topic in topics[:80]:
         title = str(topic.get("title") or "").strip()
         if not title:
@@ -965,18 +1005,18 @@ def _outline_from_plan_topics(topics: List[Dict[str, Any]]) -> List[Dict[str, An
 
 
 def _attach_plan_source_metadata(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     *,
     kind: Optional[str],
     filename: Optional[str],
     seed: Optional[str],
     replaces_existing_plan: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     clean_seed = (seed or "").strip()
     if not clean_seed and not filename:
         return plan
     source_kind = _normalize_plan_source_kind(kind, has_seed=bool(clean_seed), filename=filename)
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "kind": source_kind,
         "filename": (filename or "").strip() or None,
         "extracted_outline": _outline_from_plan_topics(plan.get("topics") or []),
@@ -994,9 +1034,9 @@ def _plan_build_shell(
     expert_profile: Optional[str],
     duration_minutes: int,
     unlimited_duration: bool,
-    context_snapshot: Optional[Dict[str, Any]],
+    context_snapshot: Optional[dict[str, Any]],
     provided_seed: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     seed = (provided_seed or "").strip()
     return {
         "schema_version": PLAN_BUILD_V2_SCHEMA_VERSION,
@@ -1030,7 +1070,7 @@ def _plan_build_shell(
     }
 
 
-def _dialogue_subject_text(plan: Dict[str, Any]) -> str:
+def _dialogue_subject_text(plan: dict[str, Any]) -> str:
     dialogue = plan.get("dialogue") or {}
     parts = [str(dialogue.get("provided_seed") or "").strip()]
     for turn in dialogue.get("turns") or []:
@@ -1040,7 +1080,7 @@ def _dialogue_subject_text(plan: Dict[str, Any]) -> str:
     return " ".join(part for part in parts if part).strip()
 
 
-def _plan_dialogue_ready(plan: Dict[str, Any]) -> bool:
+def _plan_dialogue_ready(plan: dict[str, Any]) -> bool:
     dialogue = plan.get("dialogue") or {}
     if dialogue.get("ready_to_finalize"):
         return True
@@ -1053,10 +1093,12 @@ def _plan_dialogue_ready(plan: Dict[str, Any]) -> bool:
         return True
     turns = dialogue.get("turns") or []
     subject = _dialogue_subject_text(plan)
-    return len(turns) >= _MIN_PLAN_DIALOGUE_TURNS and len(_words(subject)) >= _MIN_PLAN_SUBJECT_CHARS
+    return (
+        len(turns) >= _MIN_PLAN_DIALOGUE_TURNS and len(_words(subject)) >= _MIN_PLAN_SUBJECT_CHARS
+    )
 
 
-def _next_plan_dialogue_prompt(plan: Dict[str, Any]) -> Optional[str]:
+def _next_plan_dialogue_prompt(plan: dict[str, Any]) -> Optional[str]:
     turns = (plan.get("dialogue") or {}).get("turns") or []
     if len(turns) >= len(_PLAN_DIALOGUE_STEPS):
         return None
@@ -1091,7 +1133,7 @@ def _oracle_question_status_key(
     return None
 
 
-def _proposal_open_question_keys(question: Dict[str, Any], index: Optional[int] = None) -> set[str]:
+def _proposal_open_question_keys(question: dict[str, Any], index: Optional[int] = None) -> set[str]:
     keys: set[str] = set()
     for field in ("id", "gap_id", "follow_up", "reason", "text"):
         value = _clean_optional_string(question.get(field))
@@ -1112,7 +1154,7 @@ def _normalize_proposal_open_question_status(value: Any) -> str:
 
 
 def _stored_oracle_question_status(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     *,
     question_id: Optional[str],
     question_text: Optional[str],
@@ -1121,8 +1163,12 @@ def _stored_oracle_question_status(
     if not isinstance(statuses, dict):
         return None
     keys = [
-        _oracle_question_status_key(question_id=_clean_optional_string(question_id), question_text=None),
-        _oracle_question_status_key(question_id=None, question_text=_clean_optional_string(question_text)),
+        _oracle_question_status_key(
+            question_id=_clean_optional_string(question_id), question_text=None
+        ),
+        _oracle_question_status_key(
+            question_id=None, question_text=_clean_optional_string(question_text)
+        ),
     ]
     for key in keys:
         if not key:
@@ -1137,13 +1183,13 @@ def _stored_oracle_question_status(
 
 def build_quality_backlog(
     session: ExpertCaptureSession,
-    events: Optional[List[ExpertCaptureEvent]] = None,
-) -> Dict[str, Any]:
+    events: Optional[list[ExpertCaptureEvent]] = None,
+) -> dict[str, Any]:
     """Map evaluations and capture events to pilot-facing quality lists."""
     defer_weak = bool((session.metrics or {}).get("defer_weak_contradictions"))
-    imprecisions: List[Dict[str, Any]] = []
-    contradictions: List[Dict[str, Any]] = []
-    open_questions: List[Dict[str, Any]] = []
+    imprecisions: list[dict[str, Any]] = []
+    contradictions: list[dict[str, Any]] = []
+    open_questions: list[dict[str, Any]] = []
     seen: set[str] = set()
     event_list = list(events or [])
     deferred_item_ids = {
@@ -1210,11 +1256,14 @@ def build_quality_backlog(
         question_id = question.get("gap_id") or question.get("id")
         if question_id and str(question_id) in deferred_item_ids:
             continue
-        status = _stored_oracle_question_status(
-            plan,
-            question_id=question_id,
-            question_text=label,
-        ) or "open"
+        status = (
+            _stored_oracle_question_status(
+                plan,
+                question_id=question_id,
+                question_text=label,
+            )
+            or "open"
+        )
         if status in {"answered", "dismissed", "addressed"}:
             continue
         open_questions.append(
@@ -1243,7 +1292,7 @@ def defer_quality_item(
     bucket: str,
     deferred_reason: str,
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     clean_bucket = (bucket or "open_questions").strip()
     if clean_bucket not in {"imprecisions", "contradictions", "open_questions"}:
@@ -1286,7 +1335,7 @@ def update_oracle_question_statuses(
     *,
     workspace_id: str,
     session_id: str,
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     actor_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
@@ -1410,14 +1459,14 @@ def delete_capture_session(
     db.commit()
 
 
-def _is_plan_build_schema(plan: Dict[str, Any]) -> bool:
+def _is_plan_build_schema(plan: dict[str, Any]) -> bool:
     return plan.get("schema_version") in PLAN_BUILD_SCHEMA_VERSIONS or plan.get("mode") in {
         "plan_build",
         "provided_plan",
     }
 
 
-def _capture_collection_identity(workspace_id: str, session: Any) -> Optional[Dict[str, Any]]:
+def _capture_collection_identity(workspace_id: str, session: Any) -> Optional[dict[str, Any]]:
     """A capture session retrieves with its expert's collection rights (L35)."""
     from app.services.collection_access import sign_retrieval_identity
 
@@ -1437,7 +1486,7 @@ def _build_retrieval_request(
     profile: str,
     latency_profile: str,
     top_k: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Single source of truth for the retrieval request dict.
 
     Shared by the in-process and worker retrieval paths so the two can't drift.
@@ -1469,7 +1518,7 @@ async def _retrieve_context_chunks_async(
     top_k: int = 4,
     retrieval_profile: str = "oracle_fast",
     collection_name: Optional[str] = None,
-) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
+) -> tuple[list[str], list[dict[str, Any]], list[float]]:
     """Retrieve context chunks for the capture session.
 
     ``retrieval_profile`` selects the RAG lane: ``oracle_fast`` (default) for the
@@ -1561,7 +1610,7 @@ def _retrieve_context_chunks(
     session: ExpertCaptureSession,
     query: str,
     top_k: int = 4,
-) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
+) -> tuple[list[str], list[dict[str, Any]], list[float]]:
     return asyncio.run(
         _retrieve_context_chunks_async(
             db,
@@ -1582,7 +1631,7 @@ def _sync_plan_rag_chunks(
     session: ExpertCaptureSession,
     query: str,
     top_k: int = 4,
-) -> Tuple[List[str], List[Dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]]]:
     chunks, metadatas, _scores = _retrieve_context_chunks(
         db,
         workspace_id=workspace_id,
@@ -1597,10 +1646,10 @@ def _sync_plan_rag_chunks(
 def _invoke_plan_oracle(
     context: CaptureSessionContext,
     *,
-    rag_chunks: Optional[List[str]] = None,
-    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-    base_gaps: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    rag_chunks: Optional[list[str]] = None,
+    rag_metadatas: Optional[list[dict[str, Any]]] = None,
+    base_gaps: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     return asyncio.run(
         analyze_plan_oracle_async(
             context,
@@ -1617,10 +1666,10 @@ async def _plan_dialogue_oracle_parallel_async(
     workspace_id: str,
     workspace_slug: Optional[str],
     session: ExpertCaptureSession,
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     query: str,
     latest_instruction: str = "",
-) -> Tuple[List[str], List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Dict[str, float]]:
+) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, float]]:
     """Plan dialogue turn: run RAG retrieval and the LLM structuring concurrently.
 
     The structuring prompt only ever uses RAG chunks as kb_ref evidence (never to
@@ -1680,7 +1729,7 @@ def process_plan_dialogue_turn(
     actor_user_id: Optional[str] = None,
     confirm_finalize: bool = False,
     workspace_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     if session.status != "planned":
         raise ValueError("Plan dialogue is only available before the session starts")
@@ -1839,7 +1888,11 @@ def finalize_plan_from_dialogue(
     plan["mode"] = "plan_build"
     plan["voice_runtime"] = session.voice_runtime
     plan["knowledge_refs"] = list(plan.get("knowledge_refs") or [])
-    plan["review"] = {**(plan.get("review") or {}), "status": "draft", "reason": "topics_pending_validation"}
+    plan["review"] = {
+        **(plan.get("review") or {}),
+        "status": "draft",
+        "reason": "topics_pending_validation",
+    }
     session.objective = enriched_objective
     session.plan = plan
     session.knowledge_gaps = gaps
@@ -1865,17 +1918,21 @@ def finalize_plan_from_dialogue(
 
 
 def _normalize_plan_build_topics(
-    incoming: Dict[str, Any],
+    incoming: dict[str, Any],
     *,
-    fallback: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    fallback: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
     fallback = fallback or {}
-    raw_topics = incoming.get("topics") if isinstance(incoming.get("topics"), list) else fallback.get("topics")
+    raw_topics = (
+        incoming.get("topics")
+        if isinstance(incoming.get("topics"), list)
+        else fallback.get("topics")
+    )
     if not isinstance(raw_topics, list) or not raw_topics:
         raise ValueError("Plan must contain at least one topic")
     topic_ids: set[str] = set()
     subtopic_ids: set[str] = set()
-    normalized_topics: List[Dict[str, Any]] = []
+    normalized_topics: list[dict[str, Any]] = []
     for topic_index, raw_topic in enumerate(raw_topics, start=1):
         if not isinstance(raw_topic, dict):
             raise ValueError("Each topic must be an object")
@@ -1887,11 +1944,13 @@ def _normalize_plan_build_topics(
         raw_subtopics = raw_topic.get("subtopics") or []
         if not isinstance(raw_subtopics, list):
             raw_subtopics = []
-        normalized_subtopics: List[Dict[str, Any]] = []
+        normalized_subtopics: list[dict[str, Any]] = []
         for subtopic_index, raw_subtopic in enumerate(raw_subtopics, start=1):
             if not isinstance(raw_subtopic, dict):
                 raise ValueError("Each subtopic must be an object")
-            subtopic_id = str(raw_subtopic.get("id") or f"{topic_id}-sub-{subtopic_index:02d}").strip()
+            subtopic_id = str(
+                raw_subtopic.get("id") or f"{topic_id}-sub-{subtopic_index:02d}"
+            ).strip()
             subtopic_title = str(raw_subtopic.get("title") or f"Subtopic {subtopic_index}").strip()
             if not subtopic_id or subtopic_id in subtopic_ids:
                 raise ValueError("Subtopic ids must be unique")
@@ -1929,7 +1988,7 @@ def get_plan_topics(
     *,
     workspace_id: str,
     session_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = session.plan or {}
     return {
@@ -1945,7 +2004,7 @@ def update_plan_topics(
     *,
     workspace_id: str,
     session_id: str,
-    topics: List[Dict[str, Any]],
+    topics: list[dict[str, Any]],
     actor_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
@@ -2015,7 +2074,7 @@ def generate_question_bank(
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = dict(session.plan or {})
     topics = plan.get("topics") or []
-    bank: List[Dict[str, Any]] = []
+    bank: list[dict[str, Any]] = []
     priority = 80
     for topic in topics:
         subtopics = [node for node in (topic.get("subtopics") or []) if isinstance(node, dict)]
@@ -2035,7 +2094,11 @@ def generate_question_bank(
             )
             kb_refs = []
             for index, chunk in enumerate(chunks[:2]):
-                md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+                md = (
+                    metadatas[index]
+                    if index < len(metadatas) and isinstance(metadatas[index], dict)
+                    else {}
+                )
                 kb_refs.append(
                     {
                         "ref": md.get("source") or md.get("document_id") or f"chunk-{index + 1}",
@@ -2098,23 +2161,25 @@ def generate_question_bank(
     return session
 
 
-def _hint_queue_for_plan(plan: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+def _hint_queue_for_plan(plan: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     raw = plan.get("hint_queue")
     if isinstance(raw, dict):
-        return {str(key): list(value or []) for key, value in raw.items() if isinstance(value, list)}
+        return {
+            str(key): list(value or []) for key, value in raw.items() if isinstance(value, list)
+        }
     return {}
 
 
-def _save_hint_queue(plan: Dict[str, Any], queue: Dict[str, List[Dict[str, Any]]]) -> None:
+def _save_hint_queue(plan: dict[str, Any], queue: dict[str, list[dict[str, Any]]]) -> None:
     plan["hint_queue"] = queue
 
 
 def prepend_hint_to_queue(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     *,
     subtopic_id: Optional[str],
-    hint_entry: Dict[str, Any],
-) -> Dict[str, Any]:
+    hint_entry: dict[str, Any],
+) -> dict[str, Any]:
     queue = _hint_queue_for_plan(plan)
     key = str(subtopic_id or "_global")
     entries = list(queue.get(key) or [])
@@ -2126,7 +2191,10 @@ def prepend_hint_to_queue(
         "visibility": hint_entry.get("visibility") or "hint",
     }
     entries = [normalized, *[item for item in entries if item.get("id") != hint_id]]
-    entries.sort(key=lambda item: (-int(item.get("priority") or 0), str(item.get("created_at") or "")), reverse=False)
+    entries.sort(
+        key=lambda item: (-int(item.get("priority") or 0), str(item.get("created_at") or "")),
+        reverse=False,
+    )
     entries.sort(key=lambda item: -int(item.get("priority") or 0))
     queue[key] = entries
     bank = list(plan.get("question_bank") or [])
@@ -2142,26 +2210,26 @@ def get_hint_queue(
     workspace_id: str,
     session_id: str,
     subtopic_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = session.plan or {}
     queue = _hint_queue_for_plan(plan)
     if subtopic_id:
         items = list(queue.get(subtopic_id) or [])
-        items = [
-            item
-            for item in items
-            if item.get("visibility") not in {"resolved", "deferred"}
-        ]
-        items.sort(key=lambda item: (-int(item.get("priority") or 0), str(item.get("created_at") or "")))
+        items = [item for item in items if item.get("visibility") not in {"resolved", "deferred"}]
+        items.sort(
+            key=lambda item: (-int(item.get("priority") or 0), str(item.get("created_at") or ""))
+        )
         return {"subtopic_id": subtopic_id, "hints": items}
-    aggregated: List[Dict[str, Any]] = []
+    aggregated: list[dict[str, Any]] = []
     for key, items in queue.items():
         for item in items:
             if item.get("visibility") in {"resolved", "deferred"}:
                 continue
             aggregated.append({**item, "subtopic_id": item.get("subtopic_id") or key})
-    aggregated.sort(key=lambda item: (-int(item.get("priority") or 0), str(item.get("created_at") or "")))
+    aggregated.sort(
+        key=lambda item: (-int(item.get("priority") or 0), str(item.get("created_at") or ""))
+    )
     return {"hints": aggregated}
 
 
@@ -2175,9 +2243,9 @@ def _coerce_priority(value: Any) -> float:
 def build_open_questions(
     session: ExpertCaptureSession,
     *,
-    plan: Optional[Dict[str, Any]] = None,
-    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    plan: Optional[dict[str, Any]] = None,
+    contradiction_candidates: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """The oracle's OWN open questions — the curiosities and gaps it tracks while
     listening, NOT questions imposed on the expert.
 
@@ -2208,7 +2276,7 @@ def build_open_questions(
     )
     expert_tokens = _content_tokens(expert_text)
 
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for gap in gaps:
         if not isinstance(gap, dict):
@@ -2334,18 +2402,23 @@ def process_capture_partial_hints(
     workspace_id: str,
     session_id: str,
     partial_text: str,
-    retrieval_chunks: List[str],
-    retrieval_metadatas: Optional[List[Dict[str, Any]]] = None,
+    retrieval_chunks: list[str],
+    retrieval_metadatas: Optional[list[dict[str, Any]]] = None,
     client_turn_id: Optional[str] = None,
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     # Per-partial hot path: skip the ledger rematerialization. The live oracle's
     # ``recent_transcript`` context is best-effort and must not pay an O(N) rebuild
     # on every partial; it reads the cached column (slightly behind during silent
     # capture, which is acceptable for contradiction-tracking heuristics).
     session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     if is_capture_text_noise(partial_text):
-        return {"hints": [], "active_subtopic_id": None, "session": session, "ignored_reason": "stt_noise"}
+        return {
+            "hints": [],
+            "active_subtopic_id": None,
+            "session": session,
+            "ignored_reason": "stt_noise",
+        }
     plan = dict(session.plan or {})
     metrics = dict(session.metrics or {})
     context = session_context_from_capture(
@@ -2361,7 +2434,7 @@ def process_capture_partial_hints(
         retrieval_metadatas=retrieval_metadatas,
         plan_topics=plan.get("topics") or [],
     )
-    pushed: List[Dict[str, Any]] = []
+    pushed: list[dict[str, Any]] = []
     active_subtopic_id = evaluation.get("active_subtopic_id")
     active_section_confidence = float(evaluation.get("active_section_confidence") or 0.0)
     from app.services.capture_knowledge_oracle import LIVE_SECTION_DETECT_MIN_CONFIDENCE
@@ -2441,21 +2514,25 @@ def _hint_overlap_score(hint_text: str, expert_text: str) -> float:
 
 
 def _update_hint_visibility(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     *,
     hint_id: str,
     visibility: str,
     subtopic_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     queue = _hint_queue_for_plan(plan)
-    updated: Optional[Dict[str, Any]] = None
+    updated: Optional[dict[str, Any]] = None
     for key, entries in queue.items():
         if subtopic_id and key != subtopic_id:
             continue
         for index, entry in enumerate(entries):
             if str(entry.get("id")) != hint_id:
                 continue
-            merged = {**entry, "visibility": visibility, "resolved_at": datetime.utcnow().isoformat()}
+            merged = {
+                **entry,
+                "visibility": visibility,
+                "resolved_at": datetime.utcnow().isoformat(),
+            }
             entries[index] = merged
             updated = merged
             break
@@ -2488,7 +2565,7 @@ def resolve_hints_from_expert_text(
     text: str,
     actor_user_id: Optional[str] = None,
     overlap_threshold: float = 0.34,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Mark queued hints resolved when expert speech overlaps hint topics."""
     clean = (text or "").strip()
     if len(_words(clean)) < 4:
@@ -2496,7 +2573,7 @@ def resolve_hints_from_expert_text(
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = dict(session.plan or {})
     queue = _hint_queue_for_plan(plan)
-    resolved: List[Dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
     for subtopic_id, entries in queue.items():
         for entry in entries:
             visibility = entry.get("visibility") or "hint"
@@ -2543,14 +2620,14 @@ def defer_active_hint(
     session_id: str,
     deferred_reason: str = "end_of_session",
     actor_user_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = dict(session.plan or {})
     metrics = dict(session.metrics or {})
     active_subtopic_id = metrics.get("active_subtopic_id")
     queue = _hint_queue_for_plan(plan)
     target_key: Optional[str] = None
-    target_entry: Optional[Dict[str, Any]] = None
+    target_entry: Optional[dict[str, Any]] = None
     for key, entries in queue.items():
         if active_subtopic_id and key != active_subtopic_id:
             continue
@@ -2602,7 +2679,7 @@ def defer_open_quality_from_voice(
     session_id: str,
     deferred_reason: str = "end_of_session",
     actor_user_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
     backlog = build_quality_backlog(session, events)
@@ -2612,7 +2689,7 @@ def defer_open_quality_from_voice(
         for item in bucket
         if item.get("status") == "deferred"
     }
-    candidate: Optional[Dict[str, Any]] = None
+    candidate: Optional[dict[str, Any]] = None
     for evaluation in reversed(session.evaluations or []):
         verdict = str(evaluation.get("verdict") or "")
         if verdict not in {"needs_precision", "partial", "contradiction_or_update"}:
@@ -2706,21 +2783,25 @@ def _build_resume_summary(session: ExpertCaptureSession) -> str:
     facts = len(session.captured_facts or [])
     turns = len(session.transcript or [])
     coverage = (session.metrics or {}).get("coverage")
-    coverage_label = "sans couverture" if coverage is None else f"{int(float(coverage) * 100)} % couverts"
+    coverage_label = (
+        "sans couverture" if coverage is None else f"{int(float(coverage) * 100)} % couverts"
+    )
     timer = _compute_timer_metrics(session)
     timer_hint = ""
     if not timer.get("unlimited_duration") and timer.get("timer_phase") == "last_5_minutes":
         timer_hint = " Il reste moins de cinq minutes planifiées."
     elif timer.get("session_end_pending"):
-        timer_hint = " La durée planifiée est écoulée — choisissez terminer, prolonger ou replanifier."
+        timer_hint = (
+            " La durée planifiée est écoulée — choisissez terminer, prolonger ou replanifier."
+        )
     return (
         f"Reprise de « {session.title} » : {turns} échanges, {facts} faits structurés, {coverage_label}.{timer_hint} "
         "Vous pouvez continuer la conversation ou demander la synthèse."
     )
 
 
-def _closure_topics_covered(session: ExpertCaptureSession) -> List[str]:
-    topics: List[str] = []
+def _closure_topics_covered(session: ExpertCaptureSession) -> list[str]:
+    topics: list[str] = []
     seen: set[str] = set()
     for fact in session.captured_facts or []:
         label = str(fact.get("topic_path") or fact.get("subtopic_id") or "").strip()
@@ -2741,8 +2822,8 @@ def _closure_topics_covered(session: ExpertCaptureSession) -> List[str]:
 
 def build_session_closure_sheet(
     session: ExpertCaptureSession,
-    events: Optional[List[ExpertCaptureEvent]] = None,
-) -> Dict[str, Any]:
+    events: Optional[list[ExpertCaptureEvent]] = None,
+) -> dict[str, Any]:
     """Structured end-of-session sheet for review or export."""
     backlog = build_quality_backlog(session, events)
     topics = _closure_topics_covered(session)
@@ -2753,7 +2834,7 @@ def build_session_closure_sheet(
             for turn in _read_transcript(session, events=events)
             if turn.get("speaker") == "expert" and str(turn.get("text") or "").strip()
         ]
-    unresolved: List[Dict[str, Any]] = []
+    unresolved: list[dict[str, Any]] = []
     for bucket in ("imprecisions", "contradictions", "open_questions"):
         for item in backlog.get(bucket) or []:
             if not isinstance(item, dict):
@@ -2768,12 +2849,14 @@ def build_session_closure_sheet(
                 }
             )
     fact_lines = "\n".join(
-        f"- {str(fact.get('text') or '').strip()}" for fact in facts if str(fact.get("text") or "").strip()
+        f"- {str(fact.get('text') or '').strip()}"
+        for fact in facts
+        if str(fact.get("text") or "").strip()
     )
-    topic_lines = "\n".join(f"- {topic}" for topic in topics) if topics else "- Aucun sujet identifié."
-    unresolved_lines = "\n".join(
-        f"- [{item['bucket']}] {item['label']}" for item in unresolved
+    topic_lines = (
+        "\n".join(f"- {topic}" for topic in topics) if topics else "- Aucun sujet identifié."
     )
+    unresolved_lines = "\n".join(f"- [{item['bucket']}] {item['label']}" for item in unresolved)
     markdown = (
         f"# Fiche fin de session — {session.title}\n\n"
         f"## Sujets abordés\n{topic_lines}\n\n"
@@ -2794,7 +2877,7 @@ def generate_session_closure_sheet(
     workspace_id: str,
     session_id: str,
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
     payload = build_session_closure_sheet(session, events)
@@ -2837,7 +2920,9 @@ def extend_capture_session(
         raise ValueError("Only active or paused sessions can be extended")
     minutes = max(5, min(int(extension_minutes or SESSION_EXTENSION_MINUTES), 60))
     metrics = dict(session.metrics or {})
-    metrics["duration_extension_minutes"] = int(metrics.get("duration_extension_minutes") or 0) + minutes
+    metrics["duration_extension_minutes"] = (
+        int(metrics.get("duration_extension_minutes") or 0) + minutes
+    )
     metrics["session_end_pending"] = False
     metrics.pop("closure_sheet", None)
     session.metrics = metrics
@@ -2853,7 +2938,10 @@ def extend_capture_session(
         source="operator_edit",
         status="accepted",
         created_by=actor_user_id,
-        meta_data={"extension_minutes": minutes, "effective_duration_minutes": _session_effective_duration_minutes(session)},
+        meta_data={
+            "extension_minutes": minutes,
+            "effective_duration_minutes": _session_effective_duration_minutes(session),
+        },
     )
     db.commit()
     db.refresh(session)
@@ -2868,7 +2956,7 @@ def apply_session_closure_action(
     action: str,
     actor_user_id: Optional[str] = None,
     extension_minutes: int = SESSION_EXTENSION_MINUTES,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     normalized = (action or "finish").strip().lower()
     if normalized == "extend":
         session = extend_capture_session(
@@ -2885,7 +2973,9 @@ def apply_session_closure_action(
             "proposal": None,
         }
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
-    closure = build_session_closure_sheet(session, list_capture_events(db, workspace_id=workspace_id, session_id=session_id))
+    closure = build_session_closure_sheet(
+        session, list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
+    )
     metrics = dict(session.metrics or {})
     metrics["closure_sheet"] = closure["markdown"]
     metrics["session_end_pending"] = False
@@ -2958,7 +3048,9 @@ def export_session_proposal_markdown(
     executive_summary: Optional[str] = None,
 ) -> str:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
-    proposal = _load_active_proposal(db, workspace_id=workspace_id, proposal_id=proposal_id, session_id=session_id)
+    proposal = _load_active_proposal(
+        db, workspace_id=workspace_id, proposal_id=proposal_id, session_id=session_id
+    )
     if not proposal:
         raise ValueError("No proposal available for export")
     payload = dict(proposal.proposal or {})
@@ -2978,7 +3070,7 @@ def export_session_proposal_markdown(
     return f"## Résumé exécutif\n\n{summary}\n\n{body}"
 
 
-def _publication_with_source_urls(publication: Dict[str, Any]) -> Dict[str, Any]:
+def _publication_with_source_urls(publication: dict[str, Any]) -> dict[str, Any]:
     publication = dict(publication)
     document_id = publication.get("document_id")
     collection = publication.get("collection_slug")
@@ -3006,7 +3098,7 @@ async def publish_proposal_to_knowledge(
     destination: Optional[str] = None,
     final_title: Optional[str] = None,
     include_unresolved_questions: Optional[bool] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     proposal = (
         db.query(KnowledgeUpdateProposal)
         .filter(
@@ -3023,7 +3115,9 @@ async def publish_proposal_to_knowledge(
     ctx = _load_context(db, workspace.id, session.context_id)
     collection_name = _resolve_collection_name(ctx)
     expert_user_id = session.created_by_user_id or proposal.created_by_user_id
-    expert_name = _resolve_user_label(db, expert_user_id) or (actor_label if not expert_user_id else None)
+    expert_name = _resolve_user_label(db, expert_user_id) or (
+        actor_label if not expert_user_id else None
+    )
     proposal_payload = dict(proposal.proposal or {})
     recommended = dict(proposal_payload.get("recommended_ingestion") or {})
     metadata = dict(recommended.get("metadata") or {})
@@ -3135,7 +3229,9 @@ async def publish_proposal_to_knowledge(
     promotable_documents = [
         ref
         for ref in related_documents
-        if not (isinstance(ref, dict) and _capture_document_ref_share_level(ref, share_levels) == "none")
+        if not (
+            isinstance(ref, dict) and _capture_document_ref_share_level(ref, share_levels) == "none"
+        )
     ]
     promoted_documents = _promote_capture_documents_for_publication(
         db,
@@ -3144,7 +3240,9 @@ async def publish_proposal_to_knowledge(
         related_documents=promotable_documents,
     )
     if promoted_documents:
-        proposal_payload = _rewrite_capture_document_sources_to_publication(proposal_payload, promoted_documents)
+        proposal_payload = _rewrite_capture_document_sources_to_publication(
+            proposal_payload, promoted_documents
+        )
         related_documents = _related_capture_documents_from_payload(proposal_payload)
         publication_meta = dict(proposal_payload.get("publication") or publication_meta)
         recommended = dict(proposal_payload.get("recommended_ingestion") or recommended)
@@ -3168,9 +3266,8 @@ async def publish_proposal_to_knowledge(
         plan=session.plan or {},
         metrics=session.metrics or {},
     )
-    filename = (
-        _clean_optional_string(publication_meta.get("filename"))
-        or _clean_optional_string(metadata.get("publication_filename"))
+    filename = _clean_optional_string(publication_meta.get("filename")) or _clean_optional_string(
+        metadata.get("publication_filename")
     )
     if not filename and publish_template:
         filename = publication_filename_from_header(
@@ -3292,7 +3389,7 @@ async def publish_proposal_to_knowledge(
         # committed a newer total while this one was counting the vectors.
         chunk_count=max(chunk_count, collection.chunk_count or 0),
     )
-    export_urls: Dict[str, str] = {}
+    export_urls: dict[str, str] = {}
     if document_id:
         from app.services.capture_report_export import export_urls_for_proposal
 
@@ -3369,12 +3466,12 @@ async def publish_proposal_to_knowledge(
 
 
 def _knowledge_refs_for_topic(
-    context_snapshot: Optional[Dict[str, Any]],
-    gaps: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    context_snapshot: Optional[dict[str, Any]],
+    gaps: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     context_snapshot = context_snapshot or {}
     environment_state = context_snapshot.get("environment_state") or {}
-    refs: List[Dict[str, Any]] = []
+    refs: list[dict[str, Any]] = []
     collection = environment_state.get("collection") or environment_state.get("collection_name")
     if collection:
         refs.append({"kind": "collection", "label": str(collection), "ref": str(collection)})
@@ -3385,7 +3482,7 @@ def _knowledge_refs_for_topic(
             refs.append({"kind": "evidence_ref", "label": str(ref), "ref": str(ref)})
 
     seen: set[str] = set()
-    unique: List[Dict[str, Any]] = []
+    unique: list[dict[str, Any]] = []
     for ref in refs:
         key = f"{ref.get('kind')}:{ref.get('ref')}"
         if key in seen:
@@ -3395,7 +3492,7 @@ def _knowledge_refs_for_topic(
     return unique[:5]
 
 
-def _knowledge_target_for_prompt(context_snapshot: Optional[Dict[str, Any]]) -> str:
+def _knowledge_target_for_prompt(context_snapshot: Optional[dict[str, Any]]) -> str:
     context_snapshot = context_snapshot or {}
     environment_state = context_snapshot.get("environment_state") or {}
     target = (
@@ -3409,9 +3506,9 @@ def _knowledge_target_for_prompt(context_snapshot: Optional[Dict[str, Any]]) -> 
 
 
 def _question_for_gap(
-    gap: Dict[str, Any],
+    gap: dict[str, Any],
     objective: str,
-    context_snapshot: Optional[Dict[str, Any]] = None,
+    context_snapshot: Optional[dict[str, Any]] = None,
 ) -> str:
     title = gap.get("title", "Knowledge gap")
     knowledge_target = _knowledge_target_for_prompt(context_snapshot)
@@ -3432,33 +3529,53 @@ def _question_for_gap(
     return f"Qu’est-ce qui manque encore pour rendre « {title} » exploitable par un autre expert ?"
 
 
-def _followups_for_gap(gap: Dict[str, Any]) -> List[str]:
+def _followups_for_gap(gap: dict[str, Any]) -> list[str]:
     common = [
         "Pouvez-vous donner un exemple concret ?",
         "Quel indice vous fait choisir cette option ?",
         "Comment un nouvel arrivant pourrait-il vérifier cela ?",
     ]
     if gap.get("slug") == "source_provenance":
-        return ["Dans quel document ou système chercher cette preuve ?", "La source est-elle à jour et validée ?"]
+        return [
+            "Dans quel document ou système chercher cette preuve ?",
+            "La source est-elle à jour et validée ?",
+        ]
     if gap.get("slug") == "exception_handling":
-        return ["Quelle exception arrive le plus souvent ?", "Quelle erreur faut-il absolument éviter ?"]
+        return [
+            "Quelle exception arrive le plus souvent ?",
+            "Quelle erreur faut-il absolument éviter ?",
+        ]
     return common
 
 
 def evaluate_expert_answer(
     *,
     answer: str,
-    question: Optional[Dict[str, Any]] = None,
-    gap: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    question: Optional[dict[str, Any]] = None,
+    gap: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     tokens = _words(answer)
     word_count = len(tokens)
     lower = (answer or "").lower()
-    has_reason = any(marker in lower for marker in ("parce que", "car ", "donc", "why", "because", "afin de"))
-    has_example = any(marker in lower for marker in ("exemple", "cas ", "lorsque", "quand", "sur ", "client", "machine"))
-    has_source = any(marker in lower for marker in ("document", "rapport", "crm", "sharepoint", "source", "ticket", "email"))
-    uncertainty = any(marker in lower for marker in ("je ne sais", "pas sûr", "incertain", "à vérifier", "i don't know"))
-    contradiction = any(marker in lower for marker in ("contrairement", "mais en réalité", "en fait", "contradiction"))
+    has_reason = any(
+        marker in lower for marker in ("parce que", "car ", "donc", "why", "because", "afin de")
+    )
+    has_example = any(
+        marker in lower
+        for marker in ("exemple", "cas ", "lorsque", "quand", "sur ", "client", "machine")
+    )
+    has_source = any(
+        marker in lower
+        for marker in ("document", "rapport", "crm", "sharepoint", "source", "ticket", "email")
+    )
+    uncertainty = any(
+        marker in lower
+        for marker in ("je ne sais", "pas sûr", "incertain", "à vérifier", "i don't know")
+    )
+    contradiction = any(
+        marker in lower
+        for marker in ("contrairement", "mais en réalité", "en fait", "contradiction")
+    )
 
     score = 0.25
     if word_count >= 25:
@@ -3507,7 +3624,7 @@ def classify_conversation_intent(
     *,
     text: str,
     last_proposal: Optional[KnowledgeUpdateProposal] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     clean = (text or "").strip()
     lower = clean.lower()
     words = _words(clean)
@@ -3518,14 +3635,20 @@ def classify_conversation_intent(
     has_correction = any(term in lower for term in CORRECTION_TERMS)
     has_more_detail = any(term in lower for term in MORE_DETAIL_TERMS)
     has_defer = any(term in lower for term in DEFER_VOCAL_TERMS)
-    active_proposal = last_proposal if last_proposal and last_proposal.status == "pending_review" else None
+    active_proposal = (
+        last_proposal if last_proposal and last_proposal.status == "pending_review" else None
+    )
     proposal_confirmed = _proposal_conversation_confirmed(active_proposal)
 
     if has_defer and not has_proposal:
         return {"intent": "defer_vocal", "confidence": 0.86, "signals": {"term": "defer"}}
 
     if any(term in lower for term in SESSION_END_TERMS):
-        return {"intent": "session_complete", "confidence": 0.91, "signals": {"term": "session_end"}}
+        return {
+            "intent": "session_complete",
+            "confidence": 0.91,
+            "signals": {"term": "session_end"},
+        }
 
     if active_proposal and has_positive:
         if proposal_confirmed:
@@ -3540,10 +3663,18 @@ def classify_conversation_intent(
                     "final_acceptance": has_final_acceptance,
                 },
             }
-        return {"intent": "proposal_confirmed", "confidence": 0.92, "signals": {"proposal_confirmed": proposal_confirmed}}
+        return {
+            "intent": "proposal_confirmed",
+            "confidence": 0.92,
+            "signals": {"proposal_confirmed": proposal_confirmed},
+        }
     if active_proposal and has_negative:
         intent = "accept_rejected" if proposal_confirmed else "proposal_rejected"
-        return {"intent": intent, "confidence": 0.90, "signals": {"proposal_confirmed": proposal_confirmed}}
+        return {
+            "intent": intent,
+            "confidence": 0.90,
+            "signals": {"proposal_confirmed": proposal_confirmed},
+        }
     if has_proposal:
         return {"intent": "proposal_requested", "confidence": 0.88, "signals": {"term": "proposal"}}
     if has_correction:
@@ -3562,7 +3693,7 @@ def _clean_conversation_fact_text(text: str, intent: str) -> str:
         return ""
 
     segments = re.split(r"(?<=[.!?])\s+", clean)
-    kept: List[str] = []
+    kept: list[str] = []
     for segment in segments:
         part = segment.strip(" ,;:")
         if not part:
@@ -3573,9 +3704,15 @@ def _clean_conversation_fact_text(text: str, intent: str) -> str:
         if intent in {"proposal_requested", "proposal_confirmed", "accept_confirmed"}:
             if any(term in lower for term in PROPOSAL_REQUEST_TERMS):
                 part = _strip_proposal_request_clause(part).strip(" ,;:")
-        if any(term in part.lower() for term in POSITIVE_CONFIRMATION_TERMS) and len(_words(part)) <= 5:
+        if (
+            any(term in part.lower() for term in POSITIVE_CONFIRMATION_TERMS)
+            and len(_words(part)) <= 5
+        ):
             continue
-        if any(term in part.lower() for term in NEGATIVE_CONFIRMATION_TERMS) and len(_words(part)) <= 5:
+        if (
+            any(term in part.lower() for term in NEGATIVE_CONFIRMATION_TERMS)
+            and len(_words(part)) <= 5
+        ):
             continue
         part = _strip_leading_discourse_markers(part)
         part = re.sub(r"\b(?:euh|heu|hum)\b", " ", part, flags=re.IGNORECASE)
@@ -3636,7 +3773,11 @@ def _looks_like_stt_hallucination(text: str) -> bool:
     if not letters:
         return False
     cyrillic = sum(1 for char in letters if "\u0400" <= char <= "\u04ff")
-    latin = sum(1 for char in letters if ("A" <= char <= "Z") or ("a" <= char <= "z") or ("\u00c0" <= char <= "\u024f"))
+    latin = sum(
+        1
+        for char in letters
+        if ("A" <= char <= "Z") or ("a" <= char <= "z") or ("\u00c0" <= char <= "\u024f")
+    )
     if cyrillic >= 8 and cyrillic / max(1, len(letters)) >= 0.18:
         return True
     return cyrillic >= 4 and latin == 0 and len(letters) >= 8
@@ -3654,13 +3795,22 @@ def _sanitize_capture_fact_text(text: str) -> str:
 
 def _is_voice_control_residue(text: str) -> bool:
     lower = re.sub(r"\s+", " ", (text or "").strip().lower().strip(" .,!?:;"))
-    if lower in {"conclure pas", "conclure par", "créer la proposition", "creer la proposition", "crée la proposition", "cree la proposition"}:
+    if lower in {
+        "conclure pas",
+        "conclure par",
+        "créer la proposition",
+        "creer la proposition",
+        "crée la proposition",
+        "cree la proposition",
+    }:
         return True
     words = _words(lower)
-    return len(words) <= 4 and any(term in lower for term in ("proposition", "conclure", "valider le plan"))
+    return len(words) <= 4 and any(
+        term in lower for term in ("proposition", "conclure", "valider le plan")
+    )
 
 
-def _sanitize_captured_fact(fact: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _sanitize_captured_fact(fact: dict[str, Any]) -> Optional[dict[str, Any]]:
     text = _sanitize_capture_fact_text(str(fact.get("text") or fact.get("statement") or ""))
     if not text:
         return None
@@ -3670,8 +3820,8 @@ def _sanitize_captured_fact(fact: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return cleaned
 
 
-def _sanitize_captured_facts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    cleaned: List[Dict[str, Any]] = []
+def _sanitize_captured_facts(facts: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    cleaned: list[dict[str, Any]] = []
     for fact in facts:
         item = _sanitize_captured_fact(fact)
         if item:
@@ -3692,9 +3842,9 @@ def process_conversation_step(
     last_proposal_id: Optional[str],
     actor_user_id: Optional[str] = None,
     actor_label: Optional[str] = None,
-    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
+    contradiction_candidates: Optional[list[dict[str, Any]]] = None,
     proposal_acceptance_validator: Optional[Callable[[KnowledgeUpdateProposal], None]] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     last_proposal = _load_active_proposal(
         db,
@@ -3712,14 +3862,20 @@ def process_conversation_step(
     proposal: Optional[KnowledgeUpdateProposal] = None
     requires_confirmation = False
     confirmation_target: Optional[str] = None
-    turn_payload: Optional[Dict[str, Any]] = None
+    turn_payload: Optional[dict[str, Any]] = None
 
     if stt_noise_ignored:
         action_taken = "stt_noise_ignored"
         confidence = min(confidence, 0.25)
-        next_prompt = "Je n’ai pas compris cette prise de parole. Pouvez-vous reformuler en français ?"
+        next_prompt = (
+            "Je n’ai pas compris cette prise de parole. Pouvez-vous reformuler en français ?"
+        )
     elif intent in {"answer_ready", "correction", "more_detail"}:
-        turn_kind = "correction" if intent == "correction" else ("complement" if intent == "more_detail" else "answer")
+        turn_kind = (
+            "correction"
+            if intent == "correction"
+            else ("complement" if intent == "more_detail" else "answer")
+        )
         turn_payload = append_turn(
             db,
             workspace_id=workspace_id,
@@ -3920,7 +4076,7 @@ def process_conversation_step(
 
 
 def _select_follow_up(
-    question: Optional[Dict[str, Any]],
+    question: Optional[dict[str, Any]],
     *,
     has_reason: bool,
     has_example: bool,
@@ -3933,29 +4089,38 @@ def _select_follow_up(
     if not has_source:
         return "Quelle source ou trace permettrait de valider cette réponse ?"
     follow_ups = (question or {}).get("follow_ups") or []
-    return follow_ups[0] if follow_ups else "Quelle précision manque encore pour rendre cette réponse réutilisable ?"
+    return (
+        follow_ups[0]
+        if follow_ups
+        else "Quelle précision manque encore pour rendre cette réponse réutilisable ?"
+    )
 
 
 def build_relance(
     *,
     answer: str,
-    evaluation: Dict[str, Any],
-    question: Optional[Dict[str, Any]] = None,
+    evaluation: dict[str, Any],
+    question: Optional[dict[str, Any]] = None,
     topic_label: Optional[str] = None,
-    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Optional[str]]:
+    contradiction_candidates: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Optional[str]]:
     """Build a non-blocking live suggestion from the latest expert answer."""
     del answer, topic_label
     for candidate in contradiction_candidates or []:
         if not isinstance(candidate, dict):
             continue
-        hint = str(candidate.get("suggested_hint") or candidate.get("hint") or candidate.get("text") or "").strip()
+        hint = str(
+            candidate.get("suggested_hint") or candidate.get("hint") or candidate.get("text") or ""
+        ).strip()
         if hint:
             return {"kind": "contradiction", "text": hint}
 
     verdict = str(evaluation.get("verdict") or "")
     if verdict == "contradiction_or_update":
-        return {"kind": "contradiction", "text": "Clarifier ce qui contredit ou met à jour la source existante."}
+        return {
+            "kind": "contradiction",
+            "text": "Clarifier ce qui contredit ou met à jour la source existante.",
+        }
     if verdict not in {"needs_precision", "partial"}:
         return {"kind": None, "text": None}
 
@@ -3969,7 +4134,7 @@ def build_relance(
     return {"kind": "relance", "text": follow_up}
 
 
-def relance_to_suggestions(relance: Optional[Dict[str, Optional[str]]]) -> List[Dict[str, str]]:
+def relance_to_suggestions(relance: Optional[dict[str, Optional[str]]]) -> list[dict[str, str]]:
     if not relance:
         return []
     text = str(relance.get("text") or "").strip()
@@ -3985,18 +4150,22 @@ def relance_to_suggestions(relance: Optional[Dict[str, Optional[str]]]) -> List[
 
 
 def format_retrieval_chunks(
-    chunks: Optional[List[str]],
-    metadatas: Optional[List[Dict[str, Any]]] = None,
-    scores: Optional[List[float]] = None,
-) -> List[Dict[str, Any]]:
+    chunks: Optional[list[str]],
+    metadatas: Optional[list[dict[str, Any]]] = None,
+    scores: Optional[list[float]] = None,
+) -> list[dict[str, Any]]:
     """Shape live retrieval chunks for the oracle payload, preserving the metadata
     that powers the existing document source-preview (document_id/source_id +
     collection)."""
     metadatas = metadatas or []
     scores = scores or []
-    formatted: List[Dict[str, Any]] = []
+    formatted: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks or []):
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         formatted.append(
             {
                 "rank": index + 1,
@@ -4016,10 +4185,10 @@ def format_retrieval_chunks(
 
 def structure_capture_payload(
     session: ExpertCaptureSession,
-    transcript_events: Optional[List[ExpertCaptureEvent]] = None,
+    transcript_events: Optional[list[ExpertCaptureEvent]] = None,
     *,
-    plan_snapshot: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    plan_snapshot: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     transcript = _read_transcript(session, events=transcript_events)
     evaluations = session.evaluations or []
     expert_turns = [turn for turn in transcript if turn.get("speaker") == "expert"]
@@ -4051,7 +4220,9 @@ def structure_capture_payload(
     if capture_template:
         # Missing required header fields become blocking open questions in review.
         existing_keys = {
-            str(item.get("required_field_key") or item.get("gap_id") or item.get("id") or "").strip()
+            str(
+                item.get("required_field_key") or item.get("gap_id") or item.get("id") or ""
+            ).strip()
             for item in open_questions
             if isinstance(item, dict)
         }
@@ -4066,9 +4237,7 @@ def structure_capture_payload(
             if key:
                 existing_keys.add(key)
         transcript_text = " ".join(
-            str(turn.get("text") or "")
-            for turn in transcript
-            if turn.get("speaker") == "expert"
+            str(turn.get("text") or "") for turn in transcript if turn.get("speaker") == "expert"
         )
         consistency = site_modification_consistency_question(header_fields, transcript_text)
         if consistency:
@@ -4094,7 +4263,9 @@ def structure_capture_payload(
     )
 
     template_id = resolve_knowledge_sheet_template(session)
-    stored_synthesis = plan.get("section_synthesis") if isinstance(plan.get("section_synthesis"), dict) else {}
+    stored_synthesis = (
+        plan.get("section_synthesis") if isinstance(plan.get("section_synthesis"), dict) else {}
+    )
     has_final_synthesis = any(
         isinstance(entry, dict) and str(entry.get("synthesis") or "").strip()
         for entry in stored_synthesis.values()
@@ -4116,7 +4287,9 @@ def structure_capture_payload(
     blocking_required = [
         item
         for item in open_questions
-        if isinstance(item, dict) and item.get("blocking") and item.get("source") == "capture_template_required_field"
+        if isinstance(item, dict)
+        and item.get("blocking")
+        and item.get("source") == "capture_template_required_field"
     ]
     transcript_segments = _build_transcript_segments(transcript, event_rows)
     return {
@@ -4180,12 +4353,12 @@ _TRANSCRIPT_SEGMENT_EVENT_TYPES = {
 
 
 def _build_transcript_segments(
-    transcript: List[Dict[str, Any]],
-    event_rows: List[ExpertCaptureEvent],
-) -> List[Dict[str, Any]]:
+    transcript: list[dict[str, Any]],
+    event_rows: list[ExpertCaptureEvent],
+) -> list[dict[str, Any]]:
     """Compact audit contract for raw/refined/amended transcript segments."""
 
-    segments: List[Dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
     seen_event_ids: set[str] = set()
     for index, turn in enumerate(transcript or [], start=1):
         raw = str(turn.get("text_raw") or turn.get("text") or "").strip()
@@ -4247,15 +4420,26 @@ def _build_transcript_segments(
     return segments
 
 
-_PUBLICATION_CATEGORIES = {"technical", "commercial", "innovation", "maintenance", "operation", "other"}
+_PUBLICATION_CATEGORIES = {
+    "technical",
+    "commercial",
+    "innovation",
+    "maintenance",
+    "operation",
+    "other",
+}
 
 
-def _suggest_publication_category(session: ExpertCaptureSession, payload: Dict[str, Any]) -> str:
+def _suggest_publication_category(session: ExpertCaptureSession, payload: dict[str, Any]) -> str:
     metrics = session.metrics or {}
     domain = str(metrics.get("capture_domain") or "").strip().lower()
     if domain in _PUBLICATION_CATEGORIES:
         return domain
-    recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
+    recommended = (
+        payload.get("recommended_ingestion")
+        if isinstance(payload.get("recommended_ingestion"), dict)
+        else {}
+    )
     text = " ".join(
         [
             str(session.title or ""),
@@ -4266,10 +4450,30 @@ def _suggest_publication_category(session: ExpertCaptureSession, payload: Dict[s
         ]
     ).lower()
     category_terms = [
-        ("commercial", ("commercial", "client", "marché", "market", "sales", "account", "offre", "devis")),
-        ("innovation", ("innovation", "prototype", "r&d", "recherche", "roadmap", "essai", "pilote")),
-        ("maintenance", ("maintenance", "entretien", "dépannage", "troubleshoot", "repair", "inspection")),
-        ("operation", ("operation", "opération", "process", "procédé", "production", "runbook", "exploitation")),
+        (
+            "commercial",
+            ("commercial", "client", "marché", "market", "sales", "account", "offre", "devis"),
+        ),
+        (
+            "innovation",
+            ("innovation", "prototype", "r&d", "recherche", "roadmap", "essai", "pilote"),
+        ),
+        (
+            "maintenance",
+            ("maintenance", "entretien", "dépannage", "troubleshoot", "repair", "inspection"),
+        ),
+        (
+            "operation",
+            (
+                "operation",
+                "opération",
+                "process",
+                "procédé",
+                "production",
+                "runbook",
+                "exploitation",
+            ),
+        ),
     ]
     for category, terms in category_terms:
         if any(term in text for term in terms):
@@ -4278,13 +4482,13 @@ def _suggest_publication_category(session: ExpertCaptureSession, payload: Dict[s
 
 
 def _apply_publication_defaults(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     session: ExpertCaptureSession,
     ctx: Optional[Context],
-    previous_publication: Optional[Dict[str, Any]] = None,
+    previous_publication: Optional[dict[str, Any]] = None,
     default_destination: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     from app.services.capture_templates import (
         header_fields_from_plan,
         publication_defaults_from_template,
@@ -4308,7 +4512,9 @@ def _apply_publication_defaults(
     intervention_type = None
     if isinstance(snapshot, dict):
         intervention_type = snapshot.get("intervention_type")
-    category = _clean_optional_string(publication.get("category")) or _suggest_publication_category(session, payload)
+    category = _clean_optional_string(publication.get("category")) or _suggest_publication_category(
+        session, payload
+    )
     destination = (
         _clean_optional_string(publication.get("destination"))
         or _clean_optional_string(publication.get("destination_scope"))
@@ -4316,11 +4522,13 @@ def _apply_publication_defaults(
         or _clean_optional_string(default_destination)
         or _resolve_collection_name(ctx)
     )
-    recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
+    recommended = (
+        payload.get("recommended_ingestion")
+        if isinstance(payload.get("recommended_ingestion"), dict)
+        else {}
+    )
     fse_title = (
-        publication_title_from_header(header_fields, fallback="")
-        if capture_template
-        else ""
+        publication_title_from_header(header_fields, fallback="") if capture_template else ""
     )
     final_title = (
         _clean_optional_string(publication.get("final_title"))
@@ -4329,9 +4537,8 @@ def _apply_publication_defaults(
         or _clean_optional_string(payload.get("title"))
         or session.title
     )
-    source_type = (
-        _clean_optional_string(publication.get("source_type"))
-        or _clean_optional_string(template_publication.get("source_type"))
+    source_type = _clean_optional_string(publication.get("source_type")) or _clean_optional_string(
+        template_publication.get("source_type")
     )
     publication.update(
         {
@@ -4391,7 +4598,9 @@ def _positive_int(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
-def _capture_timecode_ms(session: ExpertCaptureSession, at: Optional[datetime] = None) -> Optional[int]:
+def _capture_timecode_ms(
+    session: ExpertCaptureSession, at: Optional[datetime] = None
+) -> Optional[int]:
     start = session.started_at or session.created_at
     if not start:
         return None
@@ -4402,7 +4611,9 @@ def _capture_timecode_ms(session: ExpertCaptureSession, at: Optional[datetime] =
         return None
 
 
-def _normalize_capture_document_ref(value: Any, *, default_timecode_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def _normalize_capture_document_ref(
+    value: Any, *, default_timecode_ms: Optional[int] = None
+) -> Optional[dict[str, Any]]:
     if not isinstance(value, Mapping):
         return None
     document_id = str(value.get("document_id") or value.get("doc_id") or "").strip()
@@ -4414,7 +4625,7 @@ def _normalize_capture_document_ref(value: Any, *, default_timecode_ms: Optional
     page = _positive_int(value.get("page") or value.get("page_number"))
     slide = _positive_int(value.get("slide") or value.get("slide_number"))
     image_index = _positive_int(value.get("image_index"))
-    ref: Dict[str, Any] = {
+    ref: dict[str, Any] = {
         "kind": CAPTURE_DOCUMENT_SOURCE_KIND,
         "document_id": document_id or None,
         "collection": collection or None,
@@ -4427,7 +4638,8 @@ def _normalize_capture_document_ref(value: Any, *, default_timecode_ms: Optional
         "image_index": image_index,
         "anchor_id": value.get("anchor_id") or value.get("anchor"),
         "preview": str(value.get("preview") or value.get("excerpt") or "").strip() or None,
-        "association_mode": str(value.get("association_mode") or "active_view").strip() or "active_view",
+        "association_mode": str(value.get("association_mode") or "active_view").strip()
+        or "active_view",
         "timecode_ms": _positive_int(value.get("timecode_ms")) or default_timecode_ms,
     }
     for key in ("event_id", "turn_id", "source_event_id"):
@@ -4441,10 +4653,10 @@ def _normalize_capture_document_refs(
     visual_context: Optional[Mapping[str, Any]] = None,
     *,
     default_timecode_ms: Optional[int] = None,
-) -> List[Dict[str, Any]]:
-    normalized: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
-    candidates: List[Any] = list(refs or [])
+    candidates: list[Any] = list(refs or [])
     if visual_context:
         candidates.append(dict(visual_context))
     for item in candidates:
@@ -4453,7 +4665,15 @@ def _normalize_capture_document_refs(
             continue
         key = "|".join(
             str(ref.get(part) or "")
-            for part in ("collection", "document_id", "filename", "page", "slide", "image_index", "anchor_id")
+            for part in (
+                "collection",
+                "document_id",
+                "filename",
+                "page",
+                "slide",
+                "image_index",
+                "anchor_id",
+            )
         )
         if key in seen:
             continue
@@ -4466,7 +4686,7 @@ def _normalize_capture_document_refs(
 # fires when a turn ALSO carries at least one document view, so the cost in
 # session is a single regex match. The list can be overridden via
 # ``settings.capture_deictic_phrases`` (env / workspace tuning) without code change.
-_CAPTURE_DEICTIC_PHRASES_FR: Tuple[str, ...] = (
+_CAPTURE_DEICTIC_PHRASES_FR: tuple[str, ...] = (
     "cette page",
     "cette slide",
     "cette diapo",
@@ -4552,8 +4772,8 @@ CAPTURE_INDEX_STATUSES = ("not_indexed", "referenced", "queued", "indexed", "fai
 _CAPTURE_INDEX_RANK = {"not_indexed": 0, "referenced": 1, "queued": 2, "indexed": 3}
 
 
-def _capture_document_keys(item: Mapping[str, Any]) -> List[str]:
-    keys: List[str] = []
+def _capture_document_keys(item: Mapping[str, Any]) -> list[str]:
+    keys: list[str] = []
     for value in (item.get("document_id"), item.get("filename")):
         text = str(value or "").strip().lower()
         if text and text not in keys:
@@ -4563,10 +4783,7 @@ def _capture_document_keys(item: Mapping[str, Any]) -> List[str]:
 
 def _capture_view_key(ref: Mapping[str, Any]) -> str:
     doc = str(ref.get("document_id") or ref.get("filename") or "").strip().lower()
-    return "|".join(
-        [doc]
-        + [str(ref.get(part) or "") for part in ("page", "slide", "image_index")]
-    )
+    return "|".join([doc] + [str(ref.get(part) or "") for part in ("page", "slide", "image_index")])
 
 
 def _capture_view_kind(ref: Mapping[str, Any]) -> str:
@@ -4606,11 +4823,11 @@ def _doc_share_level(doc: Mapping[str, Any]) -> str:
     return "full"
 
 
-def _capture_document_share_levels(session: ExpertCaptureSession) -> Dict[str, str]:
+def _capture_document_share_levels(session: ExpertCaptureSession) -> dict[str, str]:
     """Map capture-document keys (document_id / filename, lowercased) to triage
     ``share_level`` from the session's capture-documents state."""
-    state = (dict(session.metrics or {}).get("capture_documents") or {})
-    levels: Dict[str, str] = {}
+    state = dict(session.metrics or {}).get("capture_documents") or {}
+    levels: dict[str, str] = {}
     for doc in state.get("documents") or []:
         if not isinstance(doc, dict):
             continue
@@ -4622,7 +4839,9 @@ def _capture_document_share_levels(session: ExpertCaptureSession) -> Dict[str, s
     return levels
 
 
-def _capture_document_ref_share_level(ref: Mapping[str, Any], levels: Mapping[str, str]) -> Optional[str]:
+def _capture_document_ref_share_level(
+    ref: Mapping[str, Any], levels: Mapping[str, str]
+) -> Optional[str]:
     for raw in (ref.get("document_id"), ref.get("filename")):
         text = str(raw or "").strip()
         if not text:
@@ -4710,17 +4929,19 @@ def _mark_capture_document_index_status(
     return changed
 
 
-def _source_key(source: Dict[str, Any]) -> str:
+def _source_key(source: dict[str, Any]) -> str:
     return "|".join(
         str(source.get(part) or "").strip().lower()
         for part in ("kind", "collection", "document_id", "filename", "page", "slide", "source")
     )
 
 
-def _report_source_from_document_ref(ref: Dict[str, Any], rank: int) -> Dict[str, Any]:
+def _report_source_from_document_ref(ref: dict[str, Any], rank: int) -> dict[str, Any]:
     page = _positive_int(ref.get("page") or ref.get("page_number"))
     slide = _positive_int(ref.get("slide") or ref.get("slide_number"))
-    label_parts = [str(ref.get("title") or ref.get("filename") or ref.get("document_id") or "Document").strip()]
+    label_parts = [
+        str(ref.get("title") or ref.get("filename") or ref.get("document_id") or "Document").strip()
+    ]
     if slide:
         label_parts.append(f"slide {slide}")
     elif page:
@@ -4746,8 +4967,8 @@ def _report_source_from_document_ref(ref: Dict[str, Any], rank: int) -> Dict[str
     }
 
 
-def _document_sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    sources: List[Dict[str, Any]] = []
+def _document_sources_from_facts(facts: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
     seen: set[str] = set()
     for fact in facts or []:
         if not isinstance(fact, dict):
@@ -4764,8 +4985,8 @@ def _document_sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[Dict[s
     return sources
 
 
-def _merge_report_sources(*groups: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    merged: List[Dict[str, Any]] = []
+def _merge_report_sources(*groups: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     for group in groups:
         for source in group or []:
@@ -4781,7 +5002,7 @@ def _merge_report_sources(*groups: Iterable[Dict[str, Any]]) -> List[Dict[str, A
     return merged
 
 
-def _iter_plan_structure_sources(plan_structure: Any) -> Iterable[Dict[str, Any]]:
+def _iter_plan_structure_sources(plan_structure: Any) -> Iterable[dict[str, Any]]:
     if not isinstance(plan_structure, Mapping):
         return
     for source in plan_structure.get("sources") or []:
@@ -4796,15 +5017,15 @@ def _iter_plan_structure_sources(plan_structure: Any) -> Iterable[Dict[str, Any]
                 yield from _iter_plan_structure_sources(subtopic)
 
 
-def _related_capture_documents_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
-    candidates: List[Dict[str, Any]] = []
+def _related_capture_documents_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
     for source in _iter_plan_structure_sources(payload.get("plan_structure") or {}):
         if source.get("kind") == CAPTURE_DOCUMENT_SOURCE_KIND:
             candidates.append(source)
     for fact in payload.get("captured_facts") or []:
         if isinstance(fact, dict):
             candidates.extend(_document_sources_from_facts([fact]))
-    related: List[Dict[str, Any]] = []
+    related: list[dict[str, Any]] = []
     seen: set[str] = set()
     for source in candidates:
         if not isinstance(source, dict):
@@ -4845,16 +5066,18 @@ def _capture_document_promotion_key(ref: Mapping[str, Any]) -> str:
     return f"{collection}|{filename or document_id}"
 
 
-def _rewrite_capture_document_sources_to_publication(value: Any, promotions: List[Dict[str, Any]]) -> Any:
+def _rewrite_capture_document_sources_to_publication(
+    value: Any, promotions: list[dict[str, Any]]
+) -> Any:
     if not promotions:
         return value
     by_key = {
-        str(item.get("source_key") or ""): item
-        for item in promotions
-        if item.get("source_key")
+        str(item.get("source_key") or ""): item for item in promotions if item.get("source_key")
     }
     if isinstance(value, list):
-        return [_rewrite_capture_document_sources_to_publication(item, promotions) for item in value]
+        return [
+            _rewrite_capture_document_sources_to_publication(item, promotions) for item in value
+        ]
     if not isinstance(value, dict):
         return value
     rewritten = {
@@ -4864,7 +5087,9 @@ def _rewrite_capture_document_sources_to_publication(value: Any, promotions: Lis
     if rewritten.get("kind") == CAPTURE_DOCUMENT_SOURCE_KIND:
         promotion = by_key.get(_capture_document_promotion_key(rewritten))
         if promotion:
-            rewritten["published_from_collection"] = rewritten.get("collection") or rewritten.get("collection_name")
+            rewritten["published_from_collection"] = rewritten.get("collection") or rewritten.get(
+                "collection_name"
+            )
             rewritten["published_from_filename"] = rewritten.get("filename")
             rewritten["collection"] = promotion.get("collection")
             rewritten["collection_name"] = promotion.get("collection_name")
@@ -4880,8 +5105,8 @@ def _promote_capture_documents_for_publication(
     *,
     workspace: Any,
     destination_collection: Any,
-    related_documents: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    related_documents: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     if not related_documents:
         return []
 
@@ -4897,14 +5122,16 @@ def _promote_capture_documents_for_publication(
 
     store = get_object_store()
     existing_names = list(destination_collection.document_names or [])
-    promoted_names: List[str] = []
-    promotions: List[Dict[str, Any]] = []
+    promoted_names: list[str] = []
+    promotions: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     for ref in related_documents:
         if not isinstance(ref, dict):
             continue
-        source_collection_ref = str(ref.get("collection") or ref.get("collection_name") or "").strip()
+        source_collection_ref = str(
+            ref.get("collection") or ref.get("collection_name") or ""
+        ).strip()
         source_filename = Path(str(ref.get("filename") or "")).name
         source_key = _capture_document_promotion_key(ref)
         if not source_collection_ref or not source_filename or source_key in seen:
@@ -4941,7 +5168,10 @@ def _promote_capture_documents_for_publication(
             continue
 
         destination_name = source_filename
-        if destination_name in existing_names and source_collection.slug != destination_collection.slug:
+        if (
+            destination_name in existing_names
+            and source_collection.slug != destination_collection.slug
+        ):
             prefix = re.sub(r"[^a-zA-Z0-9_.-]+", "-", source_collection.slug)[:48].strip("-")
             destination_name = f"{prefix}-{source_filename}" if prefix else source_filename
         content = store.read_bytes(original_source_key)
@@ -5019,7 +5249,7 @@ def capture_document_collection_slug(session_id: str) -> str:
     return f"{CAPTURE_DOCUMENT_COLLECTION_PREFIX}-{clean}"[:120]
 
 
-def _capture_documents_state(session: ExpertCaptureSession) -> Dict[str, Any]:
+def _capture_documents_state(session: ExpertCaptureSession) -> dict[str, Any]:
     metrics = dict(session.metrics or {})
     state = dict(metrics.get("capture_documents") or {})
     state.setdefault("collection", capture_document_collection_slug(session.id))
@@ -5031,17 +5261,13 @@ def _upsert_capture_document_state(
     session: ExpertCaptureSession,
     *,
     collection: str,
-    documents: Iterable[Dict[str, Any]],
-    active_view: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    documents: Iterable[dict[str, Any]],
+    active_view: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     metrics = dict(session.metrics or {})
     state = _capture_documents_state(session)
     state["collection"] = collection
-    existing = [
-        dict(item)
-        for item in (state.get("documents") or [])
-        if isinstance(item, dict)
-    ]
+    existing = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
     by_key = {
         str(item.get("document_id") or item.get("filename") or "").lower(): item
         for item in existing
@@ -5074,12 +5300,12 @@ def register_capture_documents(
     workspace_id: str,
     session_id: str,
     collection: str,
-    documents: Iterable[Dict[str, Any]],
+    documents: Iterable[dict[str, Any]],
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     now = datetime.utcnow().isoformat()
-    normalized_docs: List[Dict[str, Any]] = []
+    normalized_docs: list[dict[str, Any]] = []
     for item in documents or []:
         if not isinstance(item, dict):
             continue
@@ -5087,7 +5313,11 @@ def register_capture_documents(
         document_id = str(item.get("document_id") or "").strip()
         if not (filename or document_id):
             continue
-        share_level = _doc_share_level(item) if (item.get("share_level") or item.get("full_share")) else "full"
+        share_level = (
+            _doc_share_level(item)
+            if (item.get("share_level") or item.get("full_share"))
+            else "full"
+        )
         doc = {
             "document_id": document_id or None,
             "filename": filename or None,
@@ -5111,7 +5341,9 @@ def register_capture_documents(
                 if value is not None or key in ("full_share", "share_level")
             }
         )
-    state = _upsert_capture_document_state(session, collection=collection, documents=normalized_docs)
+    state = _upsert_capture_document_state(
+        session, collection=collection, documents=normalized_docs
+    )
     for doc in normalized_docs:
         _record_capture_event(
             db,
@@ -5124,7 +5356,11 @@ def register_capture_documents(
         )
     db.commit()
     db.refresh(session)
-    return {"session": serialize_session(session), "collection": collection, "documents": state.get("documents") or []}
+    return {
+        "session": serialize_session(session),
+        "collection": collection,
+        "documents": state.get("documents") or [],
+    }
 
 
 def record_capture_document_view(
@@ -5132,9 +5368,9 @@ def record_capture_document_view(
     *,
     workspace_id: str,
     session_id: str,
-    view: Dict[str, Any],
+    view: dict[str, Any],
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     ref = _normalize_capture_document_ref(
         view,
@@ -5142,7 +5378,11 @@ def record_capture_document_view(
     )
     if not ref:
         raise ValueError("Document view must include at least a document id, filename or title")
-    collection = str(ref.get("collection") or ref.get("collection_name") or capture_document_collection_slug(session.id))
+    collection = str(
+        ref.get("collection")
+        or ref.get("collection_name")
+        or capture_document_collection_slug(session.id)
+    )
     _upsert_capture_document_state(session, collection=collection, documents=[], active_view=ref)
     event = _record_capture_event(
         db,
@@ -5200,7 +5440,7 @@ def record_capture_document_view(
     }
 
 
-def _journaled_view_counts(db: DBSession, *, session_id: str) -> Dict[str, int]:
+def _journaled_view_counts(db: DBSession, *, session_id: str) -> dict[str, int]:
     """Count distinct journaled views (dedup by doc+page/slide/image) per doc.
 
     Keyed by both ``document_id`` and ``filename`` (lowercased) so a doc whose
@@ -5214,7 +5454,7 @@ def _journaled_view_counts(db: DBSession, *, session_id: str) -> Dict[str, int]:
         )
         .all()
     )
-    views_by_doc: Dict[str, set[str]] = {}
+    views_by_doc: dict[str, set[str]] = {}
     for row in rows:
         meta = row.meta_data or {}
         # Discarded anchors are excluded from the finalize batch, so they must not
@@ -5232,7 +5472,7 @@ def build_capture_documents_collection(
     *,
     workspace_id: str,
     session: ExpertCaptureSession,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the capture session documents collection (GET shape).
 
     Merges the persisted ``capture_documents`` state with the live collection
@@ -5242,7 +5482,7 @@ def build_capture_documents_collection(
     """
     state = _capture_documents_state(session)
     collection = state.get("collection") or capture_document_collection_slug(session.id)
-    documents: List[Dict[str, Any]] = [
+    documents: list[dict[str, Any]] = [
         dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)
     ]
     from fastapi import HTTPException
@@ -5253,17 +5493,23 @@ def build_capture_documents_collection(
             get_collection_or_404,
         )
 
-        collection_row = get_collection_or_404(db, workspace_id=workspace_id, collection_ref=str(collection))
+        collection_row = get_collection_or_404(
+            db, workspace_id=workspace_id, collection_ref=str(collection)
+        )
         state_by_name = {
             str(item.get("filename") or item.get("document_id") or "").lower(): dict(item)
             for item in documents
             if isinstance(item, dict) and (item.get("filename") or item.get("document_id"))
         }
-        ledger_documents: List[Dict[str, Any]] = []
+        ledger_documents: list[dict[str, Any]] = []
         for row in collection_source_rows(db, collection=collection_row):
             metadata = dict(row.source_metadata or {})
-            document_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
-            previous = state_by_name.get(str(row.filename or row.normalized_name or "").lower()) or {}
+            document_id = (
+                metadata.get("document_id") or row.normalized_name or row.filename or row.id
+            )
+            previous = (
+                state_by_name.get(str(row.filename or row.normalized_name or "").lower()) or {}
+            )
             ledger_documents.append(
                 {
                     **previous,
@@ -5298,7 +5544,10 @@ def build_capture_documents_collection(
             index_status = "not_indexed"
         # A doc with journaled views is at least ``referenced`` even if the state
         # entry predates this field (older sessions / direct ledger rows).
-        if referenced > 0 and _CAPTURE_INDEX_RANK.get(index_status, 0) < _CAPTURE_INDEX_RANK["referenced"]:
+        if (
+            referenced > 0
+            and _CAPTURE_INDEX_RANK.get(index_status, 0) < _CAPTURE_INDEX_RANK["referenced"]
+        ):
             index_status = "referenced"
         doc["index_status"] = index_status
 
@@ -5317,7 +5566,7 @@ def set_capture_documents_share_level(
     session_id: str,
     items: Iterable[Mapping[str, Any]],
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Set per-document ``share_level`` (end-of-capture triage).
 
     ``items`` is a list of ``{document_id, share_level}``: each listed doc is
@@ -5326,7 +5575,7 @@ def set_capture_documents_share_level(
     Returns the updated documents collection (same shape as the GET endpoint).
     """
     session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
-    levels_by_key: Dict[str, str] = {}
+    levels_by_key: dict[str, str] = {}
     for item in items or []:
         if not isinstance(item, Mapping):
             continue
@@ -5347,7 +5596,7 @@ def set_capture_documents_full_share(
     session_id: str,
     document_ids: Iterable[str],
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """v0 alias over ``share_level`` (``True``->``full`` / ``False``->``excerpt``).
 
     The request body is the complete selection: listed docs become ``full``, the
@@ -5358,7 +5607,7 @@ def set_capture_documents_full_share(
     wanted = {str(value).strip().lower() for value in (document_ids or []) if str(value).strip()}
     state = _capture_documents_state(session)
     documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
-    levels_by_key: Dict[str, str] = {}
+    levels_by_key: dict[str, str] = {}
     for entry in documents:
         for key in _capture_document_keys(entry):
             levels_by_key[key] = "full" if key in wanted else "excerpt"
@@ -5383,7 +5632,7 @@ def update_capture_view_anchor(
     slide: Optional[int] = None,
     image_index: Optional[int] = None,
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Correct a journaled anchor (``capture_view_referenced``).
 
     ``confirm`` => status=confirmed/confidence=1.0; ``discard`` => status=discarded
@@ -5442,10 +5691,22 @@ def update_capture_view_anchor(
 
 
 _CAPTURE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
-_CAPTURE_OFFICE_EXTENSIONS = {".pptx", ".ppt", ".doc", ".docx", ".odp", ".odt", ".ods", ".xlsx", ".xls"}
+_CAPTURE_OFFICE_EXTENSIONS = {
+    ".pptx",
+    ".ppt",
+    ".doc",
+    ".docx",
+    ".odp",
+    ".odt",
+    ".ods",
+    ".xlsx",
+    ".xls",
+}
 
 
-def _set_capture_finalize_state(session: ExpertCaptureSession, finalize_state: Dict[str, Any]) -> None:
+def _set_capture_finalize_state(
+    session: ExpertCaptureSession, finalize_state: dict[str, Any]
+) -> None:
     metrics = dict(session.metrics or {})
     state = _capture_documents_state(session)
     state["finalize_index"] = finalize_state
@@ -5537,7 +5798,7 @@ async def _run_capture_finalize_index_async(
     *,
     workspace_id: str,
     session_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Background batch: index the journaled views + the full-share docs.
 
     Decoupled from the report return (the report cites sources from the journaled
@@ -5558,7 +5819,9 @@ async def _run_capture_finalize_index_async(
     tmp_dir = Path(tempfile.mkdtemp(prefix="agentium-capture-view-"))
     try:
         try:
-            session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+            session = get_session(
+                db, workspace_id=workspace_id, session_id=session_id, materialize=False
+            )
         except ValueError:
             return {"status": "skipped", "reason": "session_not_found"}
 
@@ -5576,7 +5839,7 @@ async def _run_capture_finalize_index_async(
             .order_by(ExpertCaptureEvent.sequence.asc())
             .all()
         )
-        views_by_key: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        views_by_key: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
         for row in view_rows:
             meta = dict(row.meta_data or {})
             # Discarded anchors (operator correction) never reach the index.
@@ -5584,17 +5847,23 @@ async def _run_capture_finalize_index_async(
                 continue
             views_by_key.setdefault(_capture_view_key(meta), meta)
 
-        documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
+        documents = [
+            dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)
+        ]
         full_docs = [doc for doc in documents if _doc_share_level(doc) == "full"]
         if not views_by_key and not full_docs:
-            finalize_state.update({"status": "done", "finished_at": datetime.utcnow().isoformat(), "indexed": 0})
+            finalize_state.update(
+                {"status": "done", "finished_at": datetime.utcnow().isoformat(), "indexed": 0}
+            )
             _set_capture_finalize_state(session, finalize_state)
             db.commit()
             return {"status": "noop"}
 
         collection_slug = state.get("collection") or capture_document_collection_slug(session_id)
         try:
-            collection_row = get_collection_or_404(db, workspace_id=workspace_id, collection_ref=str(collection_slug))
+            collection_row = get_collection_or_404(
+                db, workspace_id=workspace_id, collection_ref=str(collection_slug)
+            )
         except Exception:  # noqa: BLE001 - nothing was ever stored.
             return {"status": "skipped", "reason": "collection_missing"}
 
@@ -5653,10 +5922,14 @@ async def _run_capture_finalize_index_async(
             if not doc_views and not is_full:
                 continue
 
-            _mark_capture_document_index_status(session, document_keys=doc_keys, status="queued", only_upgrade=False)
+            _mark_capture_document_index_status(
+                session, document_keys=doc_keys, status="queued", only_upgrade=False
+            )
             db.commit()
 
-            filename = doc.get("filename") or next((meta.get("filename") for meta in doc_views if meta.get("filename")), None)
+            filename = doc.get("filename") or next(
+                (meta.get("filename") for meta in doc_views if meta.get("filename")), None
+            )
             original = _read_original(str(filename or ""))
             doc_failed = False
 
@@ -5764,9 +6037,17 @@ async def _run_capture_finalize_index_async(
         _logger.exception("capture_finalize_index_failed: %s", exc)
         try:
             db.rollback()
-            session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+            session = get_session(
+                db, workspace_id=workspace_id, session_id=session_id, materialize=False
+            )
             finalize_state = dict(_capture_documents_state(session).get("finalize_index") or {})
-            finalize_state.update({"status": "failed", "error": str(exc), "finished_at": datetime.utcnow().isoformat()})
+            finalize_state.update(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "finished_at": datetime.utcnow().isoformat(),
+                }
+            )
             _set_capture_finalize_state(session, finalize_state)
             db.commit()
         except Exception:  # noqa: BLE001
@@ -5777,14 +6058,16 @@ async def _run_capture_finalize_index_async(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def run_capture_finalize_index(db_factory, *, workspace_id: str, session_id: str) -> Dict[str, Any]:
+def run_capture_finalize_index(db_factory, *, workspace_id: str, session_id: str) -> dict[str, Any]:
     """Synchronous entrypoint (BackgroundTasks / worker thread) for the batch."""
     return asyncio.run(
-        _run_capture_finalize_index_async(db_factory, workspace_id=workspace_id, session_id=session_id)
+        _run_capture_finalize_index_async(
+            db_factory, workspace_id=workspace_id, session_id=session_id
+        )
     )
 
 
-def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+def _fact_from_turn(turn: dict[str, Any], evaluations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     related = next((ev for ev in evaluations if ev.get("turn_id") == turn.get("id")), None)
     turn_kind = turn.get("turn_kind") or "answer"
     text = turn.get("text", "")
@@ -5821,9 +6104,9 @@ def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]])
 
 
 def _facts_from_events(
-    event_rows: List[ExpertCaptureEvent],
-    evaluations: Iterable[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    event_rows: list[ExpertCaptureEvent],
+    evaluations: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Recover proposal facts from the event ledger when no finalized turn exists.
 
     This keeps demos robust when an operator amends a live transcript and
@@ -5834,7 +6117,7 @@ def _facts_from_events(
         return []
 
     by_id = {event.id: event for event in event_rows}
-    latest_by_key: Dict[str, ExpertCaptureEvent] = {}
+    latest_by_key: dict[str, ExpertCaptureEvent] = {}
     transcript_types = {
         "expert_turn_finalized",
         "stt_final",
@@ -5846,9 +6129,14 @@ def _facts_from_events(
         text = _effective_event_text(event)
         if not text:
             continue
-        if event.event_type.startswith("retrieval_") or event.event_type == "system_prompt_prepared":
+        if (
+            event.event_type.startswith("retrieval_")
+            or event.event_type == "system_prompt_prepared"
+        ):
             continue
-        if event.event_type not in transcript_types and not (event.event_type in fallback_types and event.text_amended):
+        if event.event_type not in transcript_types and not (
+            event.event_type in fallback_types and event.text_amended
+        ):
             continue
         if event.speaker and event.speaker != "expert":
             continue
@@ -5858,26 +6146,32 @@ def _facts_from_events(
             latest_by_key[key] = event
 
     retrieval_by_client = _latest_retrieval_by_client_turn(event_rows)
-    facts: List[Dict[str, Any]] = []
+    facts: list[dict[str, Any]] = []
     for event in sorted(latest_by_key.values(), key=lambda item: item.sequence):
         text = _effective_event_text(event)
         if not text:
             continue
-        related = next((ev for ev in evaluations if ev.get("question_id") == event.question_id), None)
+        related = next(
+            (ev for ev in evaluations if ev.get("question_id") == event.question_id), None
+        )
         client_turn_id = _event_client_turn_id(event, by_id)
         retrieval_event = retrieval_by_client.get(client_turn_id or "")
         turn_kind = (event.meta_data or {}).get("turn_kind") or "answer"
         facts.append(
             {
                 "id": f"fact-event-{event.id}",
-                "type": _proposal_fact_type(turn_kind, bool(event.text_amended or event.event_type == "transcript_amended")),
+                "type": _proposal_fact_type(
+                    turn_kind, bool(event.text_amended or event.event_type == "transcript_amended")
+                ),
                 "status": "pending",
                 "text": text,
                 "statement": text,
                 "source": "expert_event_ledger",
                 "source_event_id": event.id,
                 "retrieval_event_id": retrieval_event.id if retrieval_event else None,
-                "retrieval_refs": _retrieval_refs_from_event(retrieval_event) if retrieval_event else [],
+                "retrieval_refs": _retrieval_refs_from_event(retrieval_event)
+                if retrieval_event
+                else [],
                 "interruption_of_event_id": event.parent_event_id,
                 "turn_kind": turn_kind,
                 "raw_text": event.text_raw or text,
@@ -5899,10 +6193,10 @@ def _proposal_fact_type(turn_kind: str, amended: bool) -> str:
 
 
 def _merge_event_facts(
-    transcript_facts: List[Dict[str, Any]],
-    event_facts: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    merged: List[Dict[str, Any]] = []
+    transcript_facts: list[dict[str, Any]],
+    event_facts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     for fact in [*transcript_facts, *event_facts]:
         text = (fact.get("text") or "").strip()
@@ -5930,7 +6224,7 @@ def _event_fact_priority(event: ExpertCaptureEvent) -> int:
 
 def _event_client_turn_id(
     event: ExpertCaptureEvent,
-    by_id: Dict[str, ExpertCaptureEvent],
+    by_id: dict[str, ExpertCaptureEvent],
 ) -> Optional[str]:
     meta = event.meta_data or {}
     client_turn_id = meta.get("client_turn_id")
@@ -5944,7 +6238,7 @@ def _event_client_turn_id(
 
 def _event_text_key(
     event: ExpertCaptureEvent,
-    by_id: Dict[str, ExpertCaptureEvent],
+    by_id: dict[str, ExpertCaptureEvent],
 ) -> str:
     client_turn_id = _event_client_turn_id(event, by_id)
     if client_turn_id:
@@ -5957,9 +6251,9 @@ def _event_text_key(
 
 
 def _latest_retrieval_by_client_turn(
-    event_rows: List[ExpertCaptureEvent],
-) -> Dict[str, ExpertCaptureEvent]:
-    out: Dict[str, ExpertCaptureEvent] = {}
+    event_rows: list[ExpertCaptureEvent],
+) -> dict[str, ExpertCaptureEvent]:
+    out: dict[str, ExpertCaptureEvent] = {}
     for event in event_rows:
         if event.event_type != "retrieval_prefetch_completed":
             continue
@@ -5972,16 +6266,20 @@ def _latest_retrieval_by_client_turn(
     return out
 
 
-def _retrieval_refs_from_event(event: Optional[ExpertCaptureEvent]) -> List[Dict[str, Any]]:
+def _retrieval_refs_from_event(event: Optional[ExpertCaptureEvent]) -> list[dict[str, Any]]:
     if not event:
         return []
     meta = event.meta_data or {}
     chunks = meta.get("chunks") or []
     scores = meta.get("scores") or []
     metadatas = meta.get("metadatas") or []
-    refs: List[Dict[str, Any]] = []
+    refs: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks[:4]):
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         refs.append(
             {
                 "event_id": event.id,
@@ -6001,7 +6299,7 @@ def _section_key(topic_id: Optional[str], subtopic_id: Optional[str]) -> str:
     return str(subtopic_id or topic_id or "session")
 
 
-def _resolve_default_plan_section(plan: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+def _resolve_default_plan_section(plan: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
     """First plan section (topic, subtopic) used when capture turns lack tags."""
     topics = [topic for topic in (plan.get("topics") or []) if isinstance(topic, dict)]
     if not topics:
@@ -6014,7 +6312,9 @@ def _resolve_default_plan_section(plan: Dict[str, Any]) -> Tuple[Optional[str], 
     return topic_id, None
 
 
-def _resolve_session_active_section(session: ExpertCaptureSession) -> Tuple[Optional[str], Optional[str]]:
+def _resolve_session_active_section(
+    session: ExpertCaptureSession,
+) -> tuple[Optional[str], Optional[str]]:
     """Active plan section from session metrics, or the default first section."""
     metrics = session.metrics or {}
     topic_id = metrics.get("active_topic_id")
@@ -6024,13 +6324,13 @@ def _resolve_session_active_section(session: ExpertCaptureSession) -> Tuple[Opti
     return _resolve_default_plan_section(session.plan or {})
 
 
-def _open_question_text(question: Dict[str, Any]) -> str:
+def _open_question_text(question: dict[str, Any]) -> str:
     return str(
         question.get("follow_up") or question.get("text") or question.get("reason") or ""
     ).strip()
 
 
-def _open_question_dedupe_key(question: Dict[str, Any]) -> str:
+def _open_question_dedupe_key(question: dict[str, Any]) -> str:
     text = _open_question_text(question).lower()
     if text:
         return text
@@ -6041,19 +6341,21 @@ def _open_question_dedupe_key(question: Dict[str, Any]) -> str:
     return ""
 
 
-def _is_generic_evaluation_open_question(question: Dict[str, Any]) -> bool:
+def _is_generic_evaluation_open_question(question: dict[str, Any]) -> bool:
     text = _open_question_text(question).lower()
     if text in _GENERIC_EVALUATION_OPEN_QUESTIONS:
         return True
     reason = str(question.get("reason") or question.get("verdict") or "").strip().lower()
-    return reason == "contradiction_or_update" and (not text or text in _GENERIC_EVALUATION_OPEN_QUESTIONS)
+    return reason == "contradiction_or_update" and (
+        not text or text in _GENERIC_EVALUATION_OPEN_QUESTIONS
+    )
 
 
 def _proposal_open_question_from_raw(
-    raw: Dict[str, Any],
+    raw: dict[str, Any],
     *,
     default_source: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     text = _open_question_text(raw)
     question = {
         "gap_id": raw.get("id") or raw.get("gap_id"),
@@ -6076,7 +6378,7 @@ def _proposal_open_question_from_raw(
     return question
 
 
-def _open_question_sort_key(question: Dict[str, Any]) -> Tuple[int, float]:
+def _open_question_sort_key(question: dict[str, Any]) -> tuple[int, float]:
     """Blocking questions first, then priority descending (raw scale kept —
     coverage gaps use ~0-3, grounded questions 0..1). Stable for ties."""
     try:
@@ -6088,16 +6390,16 @@ def _open_question_sort_key(question: Dict[str, Any]) -> Tuple[int, float]:
 
 def _build_proposal_open_questions(
     session: ExpertCaptureSession,
-    plan: Dict[str, Any],
-    evaluations: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    plan: dict[str, Any],
+    evaluations: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Unified proposal open questions: live oracle (capture) + FINAL grounded
     (section synthesis), deduped. Generic evaluation placeholders are dropped
     whenever grounded/live questions exist."""
-    merged: List[Dict[str, Any]] = []
+    merged: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    def _append(raw: Dict[str, Any], *, default_source: str) -> None:
+    def _append(raw: dict[str, Any], *, default_source: str) -> None:
         if not isinstance(raw, dict):
             return
         key = _open_question_dedupe_key(raw)
@@ -6142,7 +6444,7 @@ def merge_live_open_questions_into_plan(
     *,
     workspace_id: str,
     session_id: str,
-    questions: List[Dict[str, Any]],
+    questions: list[dict[str, Any]],
 ) -> None:
     """Persist LIVE grounded questions on the plan so capture.finish reuses them."""
     if not questions:
@@ -6154,7 +6456,11 @@ def merge_live_open_questions_into_plan(
         for question in (plan.get("live_open_questions") or [])
         if isinstance(question, dict)
     ]
-    seen = {_open_question_dedupe_key(question) for question in existing if _open_question_dedupe_key(question)}
+    seen = {
+        _open_question_dedupe_key(question)
+        for question in existing
+        if _open_question_dedupe_key(question)
+    }
     for raw in questions:
         if not isinstance(raw, dict):
             continue
@@ -6169,7 +6475,7 @@ def merge_live_open_questions_into_plan(
     db.commit()
 
 
-def _header_match_key(header_fields: Mapping[str, Any]) -> Tuple[str, str, str]:
+def _header_match_key(header_fields: Mapping[str, Any]) -> tuple[str, str, str]:
     reference = str(header_fields.get("reference") or "").strip().lower()
     customer = str(header_fields.get("customer") or "").strip().lower()
     site = str(header_fields.get("site_or_machine") or "").strip().lower()
@@ -6205,33 +6511,35 @@ def _find_previous_fse_proposal(
     for proposal in rows:
         session = proposal.session
         plan = (session.plan if session else None) or {}
-        prior_header = plan.get("header_fields") if isinstance(plan.get("header_fields"), dict) else {}
-        pub = (proposal.proposal or {}).get("publication") if isinstance(proposal.proposal, dict) else {}
-        tracking = pub.get("tracking") if isinstance(pub, dict) and isinstance(pub.get("tracking"), dict) else {}
-        prior_ref = str(
-            prior_header.get("reference")
-            or tracking.get("fse_reference")
-            or ""
-        ).strip().lower()
-        prior_customer = str(
-            prior_header.get("customer")
-            or tracking.get("fse_customer")
-            or ""
-        ).strip().lower()
-        prior_site = str(
-            prior_header.get("site_or_machine")
-            or tracking.get("fse_machine")
-            or ""
-        ).strip().lower()
+        prior_header = (
+            plan.get("header_fields") if isinstance(plan.get("header_fields"), dict) else {}
+        )
+        pub = (
+            (proposal.proposal or {}).get("publication")
+            if isinstance(proposal.proposal, dict)
+            else {}
+        )
+        tracking = (
+            pub.get("tracking")
+            if isinstance(pub, dict) and isinstance(pub.get("tracking"), dict)
+            else {}
+        )
+        prior_ref = (
+            str(prior_header.get("reference") or tracking.get("fse_reference") or "")
+            .strip()
+            .lower()
+        )
+        prior_customer = (
+            str(prior_header.get("customer") or tracking.get("fse_customer") or "").strip().lower()
+        )
+        prior_site = (
+            str(prior_header.get("site_or_machine") or tracking.get("fse_machine") or "")
+            .strip()
+            .lower()
+        )
         if reference and prior_ref and prior_ref == reference:
             return proposal
-        if (
-            not fallback
-            and customer
-            and site
-            and prior_customer == customer
-            and prior_site == site
-        ):
+        if not fallback and customer and site and prior_customer == customer and prior_site == site:
             fallback = proposal
     return fallback
 
@@ -6241,9 +6549,9 @@ def _inject_previous_report_open_items(
     *,
     workspace_id: str,
     system_id: Optional[str],
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     header_fields: Mapping[str, Any],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Inject unresolved N-1 open questions into plan.live_open_questions."""
     from app.services.capture_templates import (
         previous_report_open_question_payload,
@@ -6273,8 +6581,12 @@ def _inject_previous_report_open_items(
         for question in (plan.get("live_open_questions") or [])
         if isinstance(question, dict)
     ]
-    seen = {_open_question_dedupe_key(question) for question in existing if _open_question_dedupe_key(question)}
-    injected: List[Dict[str, Any]] = []
+    seen = {
+        _open_question_dedupe_key(question)
+        for question in existing
+        if _open_question_dedupe_key(question)
+    }
+    injected: list[dict[str, Any]] = []
     for index, question in enumerate(unresolved, start=1):
         item = previous_report_open_question_payload(
             question,
@@ -6331,7 +6643,9 @@ def _backfill_turn_plan_tags(
             continue
         updated = dict(turn)
         updated["topic_id"] = carry_topic_id or default_topic_id
-        updated["subtopic_id"] = carry_subtopic_id if carry_subtopic_id is not None else default_subtopic_id
+        updated["subtopic_id"] = (
+            carry_subtopic_id if carry_subtopic_id is not None else default_subtopic_id
+        )
         transcript[index] = updated
         changed = True
         carry_topic_id = updated.get("topic_id") or carry_topic_id
@@ -6363,7 +6677,9 @@ def _backfill_turn_plan_tags(
     return session
 
 
-def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
+def _attach_section_synthesis(
+    plan_structure: dict[str, Any], plan: dict[str, Any]
+) -> dict[str, Any]:
     """Attach the stored per-section FINAL synthesis (text + KB sources + grounded
     open questions) onto the structured plan so the report UI can render section
     cards with chat-style sources."""
@@ -6371,20 +6687,25 @@ def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, An
     if not isinstance(stored, dict) or not stored:
         return plan_structure
 
-    def _apply(node: Dict[str, Any], entry: Any) -> None:
+    def _apply(node: dict[str, Any], entry: Any) -> None:
         if not isinstance(entry, dict):
             return
         if entry.get("synthesis"):
             node["synthesis"] = entry.get("synthesis")
         if entry.get("sources"):
-            node["sources"] = _merge_report_sources(node.get("sources") or [], entry.get("sources") or [])
+            node["sources"] = _merge_report_sources(
+                node.get("sources") or [], entry.get("sources") or []
+            )
         if entry.get("open_questions"):
             node["open_questions"] = entry.get("open_questions")
 
     for topic in plan_structure.get("topics") or []:
         _apply(topic, stored.get(_section_key(topic.get("topic_id"), None)))
         for subtopic in topic.get("subtopics") or []:
-            _apply(subtopic, stored.get(_section_key(topic.get("topic_id"), subtopic.get("subtopic_id"))))
+            _apply(
+                subtopic,
+                stored.get(_section_key(topic.get("topic_id"), subtopic.get("subtopic_id"))),
+            )
 
     # No-plan resilience: when the FINAL pass ran without any plan topics (e.g.
     # the thematic structuring yielded nothing), the synthesis is stored under
@@ -6398,7 +6719,8 @@ def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, An
             plan_structure["topics"] = [
                 {
                     "topic_id": "session",
-                    "title": str(session_entry.get("section_label") or "").strip() or "Synthèse de la capture",
+                    "title": str(session_entry.get("section_label") or "").strip()
+                    or "Synthèse de la capture",
                     "prompt": None,
                     "facts": list(unassigned),
                     "subtopics": [],
@@ -6413,10 +6735,10 @@ def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, An
 
 def _ensure_free_conversation_report_topic(
     session: ExpertCaptureSession,
-    plan_structure: Dict[str, Any],
-    captured_facts: List[Dict[str, Any]],
-    open_questions: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    plan_structure: dict[str, Any],
+    captured_facts: list[dict[str, Any]],
+    open_questions: list[dict[str, Any]],
+) -> dict[str, Any]:
     if not _is_free_conversation_session(session):
         return plan_structure
     if plan_structure.get("topics"):
@@ -6424,15 +6746,20 @@ def _ensure_free_conversation_report_topic(
     facts = list(plan_structure.get("unassigned") or captured_facts or [])
     if not facts:
         return plan_structure
-    sources: List[Dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
     seen_sources: set[str] = set()
     for fact in facts:
         if not isinstance(fact, dict):
             continue
-        for ref in [*(fact.get("retrieval_refs") or []), *(_document_sources_from_facts([fact]) or [])]:
+        for ref in [
+            *(fact.get("retrieval_refs") or []),
+            *(_document_sources_from_facts([fact]) or []),
+        ]:
             if not isinstance(ref, dict):
                 continue
-            key = _source_key(ref) or str(ref.get("document_id") or ref.get("source") or ref.get("title") or ref)
+            key = _source_key(ref) or str(
+                ref.get("document_id") or ref.get("source") or ref.get("title") or ref
+            )
             if key in seen_sources:
                 continue
             seen_sources.add(key)
@@ -6453,21 +6780,21 @@ def _ensure_free_conversation_report_topic(
 
 
 def _structure_facts_by_plan(
-    plan: Dict[str, Any],
-    captured_facts: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    plan: dict[str, Any],
+    captured_facts: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Group captured facts under the plan's topics/subtopics so the plan can act as
     the final structuring frame. Facts that do not map to any plan node are returned
     under ``unassigned``."""
     topics = (plan or {}).get("topics") or []
     facts = list(captured_facts or [])
     assigned: set[int] = set()
-    structured_topics: List[Dict[str, Any]] = []
+    structured_topics: list[dict[str, Any]] = []
     for topic in topics:
         if not isinstance(topic, dict):
             continue
         topic_id = topic.get("id")
-        subtopic_nodes: List[Dict[str, Any]] = []
+        subtopic_nodes: list[dict[str, Any]] = []
         for subtopic in topic.get("subtopics") or []:
             if not isinstance(subtopic, dict):
                 continue
@@ -6511,12 +6838,59 @@ def _structure_facts_by_plan(
 _UNASSIGNED_REDUNDANCY_MIN = 0.8
 _REDUNDANCY_STOPWORDS = frozenset(
     {
-        "les", "des", "une", "aux", "est", "sont", "pour", "avec", "dans", "sur",
-        "par", "pas", "que", "qui", "quand", "comme", "mais", "aussi", "plus",
-        "tres", "cette", "ces", "son", "ses", "leur", "leurs", "ete", "etre",
-        "fait", "faire", "tout", "tous", "toute", "toutes", "nous", "vous",
-        "ils", "elles", "elle", "donc", "alors", "puis", "sans", "sous", "chez",
-        "the", "and", "with", "from", "that", "this", "have", "has",
+        "les",
+        "des",
+        "une",
+        "aux",
+        "est",
+        "sont",
+        "pour",
+        "avec",
+        "dans",
+        "sur",
+        "par",
+        "pas",
+        "que",
+        "qui",
+        "quand",
+        "comme",
+        "mais",
+        "aussi",
+        "plus",
+        "tres",
+        "cette",
+        "ces",
+        "son",
+        "ses",
+        "leur",
+        "leurs",
+        "ete",
+        "etre",
+        "fait",
+        "faire",
+        "tout",
+        "tous",
+        "toute",
+        "toutes",
+        "nous",
+        "vous",
+        "ils",
+        "elles",
+        "elle",
+        "donc",
+        "alors",
+        "puis",
+        "sans",
+        "sous",
+        "chez",
+        "the",
+        "and",
+        "with",
+        "from",
+        "that",
+        "this",
+        "have",
+        "has",
     }
 )
 
@@ -6532,7 +6906,7 @@ def _redundancy_tokens(text: str) -> set[str]:
     }
 
 
-def _filter_redundant_unassigned_facts(plan_structure: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_redundant_unassigned_facts(plan_structure: dict[str, Any]) -> dict[str, Any]:
     """Drop "hors plan" facts already covered by assigned facts or section syntheses.
 
     Conservative lexical containment only (no LLM): an unassigned fact is dropped
@@ -6544,9 +6918,9 @@ def _filter_redundant_unassigned_facts(plan_structure: Dict[str, Any]) -> Dict[s
     if not unassigned:
         return plan_structure
 
-    reference_token_sets: List[set[str]] = []
+    reference_token_sets: list[set[str]] = []
 
-    def _collect(node: Dict[str, Any]) -> None:
+    def _collect(node: dict[str, Any]) -> None:
         for fact in node.get("facts") or []:
             if isinstance(fact, dict):
                 tokens = _redundancy_tokens(fact.get("text") or fact.get("statement") or "")
@@ -6567,7 +6941,7 @@ def _filter_redundant_unassigned_facts(plan_structure: Dict[str, Any]) -> Dict[s
     if not reference_token_sets:
         return plan_structure
 
-    kept: List[Dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
     dropped = 0
     for fact in unassigned:
         tokens = (
@@ -6597,10 +6971,10 @@ def _filter_redundant_unassigned_facts(plan_structure: Dict[str, Any]) -> Dict[s
 
 def _plan_framed_markdown(
     session: ExpertCaptureSession,
-    plan_structure: Dict[str, Any],
-    open_questions: List[Dict[str, Any]],
+    plan_structure: dict[str, Any],
+    open_questions: list[dict[str, Any]],
 ) -> str:
-    lines: List[str] = [f"# {session.title}", "", f"Objectif : {session.objective}", ""]
+    lines: list[str] = [f"# {session.title}", "", f"Objectif : {session.objective}", ""]
     for topic in plan_structure.get("topics") or []:
         lines.append(f"## {topic.get('title') or 'Sujet'}")
         for fact in topic.get("facts") or []:
@@ -6636,12 +7010,15 @@ def _plan_framed_markdown(
 
 def _proposal_markdown(
     session: ExpertCaptureSession,
-    captured: List[Dict[str, Any]],
-    open_questions: List[Dict[str, Any]],
+    captured: list[dict[str, Any]],
+    open_questions: list[dict[str, Any]],
 ) -> str:
-    fact_lines = "\n".join(f"- {fact.get('text', '').strip()}" for fact in captured if fact.get("text"))
+    fact_lines = "\n".join(
+        f"- {fact.get('text', '').strip()}" for fact in captured if fact.get("text")
+    )
     open_lines = "\n".join(
-        f"- {item.get('gap_id')}: {item.get('follow_up') or item.get('reason')}" for item in open_questions
+        f"- {item.get('gap_id')}: {item.get('follow_up') or item.get('reason')}"
+        for item in open_questions
     )
     retrieval_lines = "\n".join(
         f"- {ref.get('title') or ref.get('source') or 'Retrieved context'}"
@@ -6670,7 +7047,7 @@ def create_capture_plan(
     duration_minutes: Optional[int],
     context_id: Optional[str],
     system_id: Optional[str],
-    knowledge_refs: Optional[List[str]],
+    knowledge_refs: Optional[list[str]],
     voice_runtime: str = "cascade_openai",
     plan_mode: str = "ai_plan",
     allow_ai_plan: bool = False,
@@ -6680,7 +7057,7 @@ def create_capture_plan(
     plan_source_filename: Optional[str] = None,
     plan_source_replaces_existing_plan: bool = False,
     created_by_user_id: Optional[str] = None,
-    header_fields: Optional[Dict[str, Any]] = None,
+    header_fields: Optional[dict[str, Any]] = None,
 ) -> ExpertCaptureSession:
     from app.services.capture_templates import (
         apply_intervention_type_to_template,
@@ -6742,7 +7119,7 @@ def create_capture_plan(
         normalized_plan_mode = "plan_build"
     if normalized_plan_mode == "ai_plan" and not allow_ai_plan:
         normalized_plan_mode = "plan_build"
-    gaps: List[Dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
     if normalized_plan_mode == "free_conversation":
         plan = _free_conversation_plan(
             objective=clean_objective,
@@ -6835,21 +7212,21 @@ def create_capture_plan(
             .first()
         )
         resolved_system_id = default_system.id if default_system else None
-    session_metrics: Dict[str, Any] = {
+    session_metrics: dict[str, Any] = {
         "estimated_minutes": stored_duration,
         "unlimited_duration": unlimited_duration,
-        "coverage": None
-        if normalized_plan_mode in {"free_conversation", "plan_build"}
-        else 0.0,
+        "coverage": None if normalized_plan_mode in {"free_conversation", "plan_build"} else 0.0,
         "plan_mode": normalized_plan_mode,
     }
     if capture_domain:
         session_metrics["capture_domain"] = capture_domain.strip().lower()
     if capture_template:
         session_metrics["capture_template_id"] = capture_template.get("id")
-    session_title = title or (
-        str(capture_template.get("label") or "").strip() if capture_template else ""
-    ) or "Expert Knowledge Capture"
+    session_title = (
+        title
+        or (str(capture_template.get("label") or "").strip() if capture_template else "")
+        or "Expert Knowledge Capture"
+    )
     session = ExpertCaptureSession(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
@@ -6909,7 +7286,7 @@ def amend_capture_plan(
     *,
     workspace_id: str,
     session_id: str,
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     actor_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
@@ -6922,7 +7299,9 @@ def amend_capture_plan(
         actor_user_id=actor_user_id,
     )
     session.plan = normalized
-    session.duration_minutes = int(normalized.get("duration_minutes") or session.duration_minutes or 20)
+    session.duration_minutes = int(
+        normalized.get("duration_minutes") or session.duration_minutes or 20
+    )
     session.metrics = {
         **(session.metrics or {}),
         "estimated_minutes": session.duration_minutes,
@@ -6986,7 +7365,7 @@ def approve_capture_plan(
     return session
 
 
-def _plan_build_ready_to_start(plan: Dict[str, Any]) -> bool:
+def _plan_build_ready_to_start(plan: dict[str, Any]) -> bool:
     if not _is_plan_build_schema(plan):
         return True
     # Outline-driven capture does not depend on a pre-generated question bank: a
@@ -7052,19 +7431,19 @@ def append_turn(
     interruption_of_event_id: Optional[str] = None,
     turn_kind: str = "answer",
     actor_user_id: Optional[str] = None,
-    text_partials: Optional[List[str]] = None,
-    latency_ms: Optional[Dict[str, Any]] = None,
-    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
+    text_partials: Optional[list[str]] = None,
+    latency_ms: Optional[dict[str, Any]] = None,
+    contradiction_candidates: Optional[list[dict[str, Any]]] = None,
     topic_id: Optional[str] = None,
     subtopic_id: Optional[str] = None,
     topic_path: Optional[str] = None,
     compute_evaluation: bool = True,
     persist_transcript: bool = True,
-    voice_stream_metrics: Optional[Dict[str, Any]] = None,
+    voice_stream_metrics: Optional[dict[str, Any]] = None,
     input_modality: Optional[str] = None,
-    document_refs: Optional[List[Dict[str, Any]]] = None,
-    visual_context: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    document_refs: Optional[list[dict[str, Any]]] = None,
+    visual_context: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     turn_started_at = time.perf_counter()
     # The turn is recorded on the append-only event ledger regardless; ``materialize``
     # is skipped here so the hot per-turn path never pays the ledger rebuild.
@@ -7212,7 +7591,7 @@ def append_turn(
     # write. No conversion, no embedding, no worker dispatch (deferred to the
     # background finalize batch). Referenced docs move to ``index_status`` =
     # ``referenced`` so the chips reflect it live.
-    view_references: List[Dict[str, Any]] = []
+    view_references: list[dict[str, Any]] = []
     if speaker == "expert" and normalized_document_refs:
         trigger_phrase = _detect_capture_deictic_phrase(text)
         if trigger_phrase:
@@ -7269,7 +7648,11 @@ def append_turn(
                 )
                 # Surface the ledger position (sequence) inside the payload so the
                 # realtime push and the report citations share one shape.
-                enriched = {**payload, "event_id": view_event.id, "event_sequence": view_event.sequence}
+                enriched = {
+                    **payload,
+                    "event_id": view_event.id,
+                    "event_sequence": view_event.sequence,
+                }
                 view_event.meta_data = enriched
                 flag_modified(view_event, "meta_data")
                 _mark_capture_document_index_status(
@@ -7296,12 +7679,12 @@ def append_turn(
         # turn. The event ledger is the source of truth; readers rematerialize it.
         _set_transcript_dirty(session, True)
 
-    evaluation: Optional[Dict[str, Any]] = None
-    relance: Dict[str, Optional[str]] = {"kind": None, "text": None}
-    suggestions: List[Dict[str, str]] = []
-    open_questions: List[Dict[str, Any]] = []
+    evaluation: Optional[dict[str, Any]] = None
+    relance: dict[str, Optional[str]] = {"kind": None, "text": None}
+    suggestions: list[dict[str, str]] = []
+    open_questions: list[dict[str, Any]] = []
     next_prompt: Optional[str] = None
-    next_question: Optional[Dict[str, Any]] = None
+    next_question: Optional[dict[str, Any]] = None
     system_prompt_event_id: Optional[str] = None
     if speaker == "expert":
         # Silent capture path (compute_evaluation=False) skips the per-turn LLM
@@ -7397,7 +7780,9 @@ def append_turn(
         voice_metrics["last_latency_ms"] = recorded_latency
         voice_metrics["turns"] = int(voice_metrics.get("turns") or 0) + 1
         voice_metrics["runtime_provider"] = recorded_latency.get("runtime_provider")
-        voice_metrics["runtime_requested_provider"] = recorded_latency.get("runtime_requested_provider")
+        voice_metrics["runtime_requested_provider"] = recorded_latency.get(
+            "runtime_requested_provider"
+        )
         voice_metrics["fallback_used"] = recorded_latency.get("fallback_used")
         metrics["voice_stream"] = voice_metrics
         session.metrics = metrics
@@ -7430,7 +7815,7 @@ def create_update_proposal(
     session_id: str,
     complete_session: bool = True,
     created_by_user_id: Optional[str] = None,
-    plan_snapshot: Optional[Dict[str, Any]] = None,
+    plan_snapshot: Optional[dict[str, Any]] = None,
 ) -> KnowledgeUpdateProposal:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     db.refresh(session)
@@ -7443,7 +7828,9 @@ def create_update_proposal(
         events,
         plan_snapshot=plan_snapshot or dict(session.plan or {}),
     )
-    proposal = _latest_pending_proposal_for_session(db, workspace_id=workspace_id, session_id=session_id)
+    proposal = _latest_pending_proposal_for_session(
+        db, workspace_id=workspace_id, session_id=session_id
+    )
     previous_publication = (
         dict((proposal.proposal or {}).get("publication") or {})
         if proposal and isinstance((proposal.proposal or {}).get("publication"), dict)
@@ -7458,7 +7845,9 @@ def create_update_proposal(
         session=session,
         ctx=ctx,
         previous_publication=previous_publication,
-        default_destination=_default_publication_collection(db, proposal_workspace, ctx) if proposal_workspace else None,
+        default_destination=_default_publication_collection(db, proposal_workspace, ctx)
+        if proposal_workspace
+        else None,
     )
     operation = "updated" if proposal else "created"
     if proposal:
@@ -7605,9 +7994,9 @@ def _is_nested_expert_fiche_source(item: Mapping[str, Any]) -> bool:
     return False
 
 
-def _normalize_chat_correction_sources(sources: Optional[List[Any]]) -> List[Dict[str, Any]]:
+def _normalize_chat_correction_sources(sources: Optional[list[Any]]) -> list[dict[str, Any]]:
     """Keep the document provenance of a correction; drop nested fiches."""
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     seen: set[tuple[str, ...]] = set()
     for item in sources or []:
         if isinstance(item, Mapping):
@@ -7621,12 +8010,15 @@ def _normalize_chat_correction_sources(sources: Optional[List[Any]]) -> List[Dic
                         item.get("filename") or item.get("document_filename")
                     ),
                     "url": _clean_optional_string(item.get("url") or item.get("uri")),
-                    "document_id": _clean_optional_string(item.get("document_id") or item.get("id")),
+                    "document_id": _clean_optional_string(
+                        item.get("document_id") or item.get("id")
+                    ),
                     "collection": _clean_optional_string(
                         item.get("collection") or item.get("collection_slug")
                     ),
                     "page": item.get("page")
-                    if isinstance(item.get("page"), (int, float, str)) and str(item.get("page") or "")
+                    if isinstance(item.get("page"), (int, float, str))
+                    and str(item.get("page") or "")
                     else None,
                     "snippet": _clean_optional_string(item.get("snippet") or item.get("excerpt")),
                 }.items()
@@ -7655,7 +8047,7 @@ def _chat_correction_markdown(
     *,
     query: Optional[str],
     correction_text: str,
-    sources: List[Dict[str, Any]],
+    sources: list[dict[str, Any]],
     expert_name: Optional[str],
     title: str,
 ) -> str:
@@ -7683,9 +8075,7 @@ def _chat_correction_markdown(
             label = f"{label} (p. {page})"
         url = source.get("url")
         source_lines.append(f"- [{label}]({url})" if url else f"- {label}")
-    sources_block = (
-        "\n".join(source_lines) or "- Aucune source documentaire — fait d'expert."
-    )
+    sources_block = "\n".join(source_lines) or "- Aucune source documentaire — fait d'expert."
     expert_block = f"\n_Expert : {expert_name}_\n" if expert_name else ""
     return (
         f"# {title}\n"
@@ -7797,7 +8187,8 @@ async def summarize_chat_correction_theme(
                     '{"theme": "..."}.'
                 ),
             }
-            response = await client.chat.completions.create(
+            response = await async_openai_chat(
+                client,
                 model=model,
                 **_model_chat_kwargs(model, temperature=0.2),
                 response_format={"type": "json_object"},
@@ -7814,6 +8205,8 @@ async def summarize_chat_correction_theme(
             return theme or None
 
         theme = await asyncio.wait_for(_call(), timeout=timeout_seconds)
+    except UsageError:
+        raise
     except Exception:
         return fallback
     if not theme:
@@ -7847,12 +8240,12 @@ def create_chat_correction_proposal(
     query: str,
     assistant_answer: Optional[str],
     correction_text: str,
-    sources: Optional[List[Any]] = None,
+    sources: Optional[list[Any]] = None,
     transcript_raw: Optional[str] = None,
     audio_ref: Optional[str] = None,
     input_modality: str = "text",
-    source_policy: Optional[Dict[str, Any]] = None,
-) -> Tuple[KnowledgeUpdateProposal, ExpertCaptureSession]:
+    source_policy: Optional[dict[str, Any]] = None,
+) -> tuple[KnowledgeUpdateProposal, ExpertCaptureSession]:
     """Turn an inline chat correction into a ``pending_review`` proposal.
 
     A lightweight :class:`ExpertCaptureSession` (status ``chat_correction``)
@@ -7919,7 +8312,7 @@ def create_chat_correction_proposal(
         title=title,
     )
 
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "source_type": "expert_fiche",
         "origin": "chat_correction",
         "input_modality": normalized_modality,
@@ -7935,7 +8328,7 @@ def create_chat_correction_proposal(
     if audio_ref:
         metadata["audio_ref"] = audio_ref
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "session_id": session.id,
         "title": title,
         "objective": objective,
@@ -7998,7 +8391,10 @@ def review_proposal(
 ) -> KnowledgeUpdateProposal:
     proposal = (
         db.query(KnowledgeUpdateProposal)
-        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .filter(
+            KnowledgeUpdateProposal.id == proposal_id,
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+        )
         .first()
     )
     if not proposal:
@@ -8056,13 +8452,16 @@ def update_proposal_open_question_statuses(
     *,
     workspace_id: str,
     proposal_id: str,
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     actor_user_id: Optional[str] = None,
     actor_label: Optional[str] = None,
 ) -> KnowledgeUpdateProposal:
     proposal = (
         db.query(KnowledgeUpdateProposal)
-        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .filter(
+            KnowledgeUpdateProposal.id == proposal_id,
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+        )
         .first()
     )
     if not proposal:
@@ -8079,8 +8478,8 @@ def update_proposal_open_question_statuses(
     if not questions:
         raise ValueError("Knowledge update proposal has no open questions")
 
-    status_map: Dict[str, str] = {}
-    raw_items: List[Dict[str, Any]] = []
+    status_map: dict[str, str] = {}
+    raw_items: list[dict[str, Any]] = []
     for raw in items:
         if not isinstance(raw, dict):
             continue
@@ -8096,9 +8495,7 @@ def update_proposal_open_question_statuses(
             raw.get("reason"),
         ]
         clean_aliases = [
-            alias
-            for alias in (_clean_optional_string(value) for value in aliases)
-            if alias
+            alias for alias in (_clean_optional_string(value) for value in aliases) if alias
         ]
         if not clean_aliases:
             continue
@@ -8168,7 +8565,7 @@ def update_proposal_open_question_statuses(
     return proposal
 
 
-def _resolve_rewrite_context(workspace_settings: Optional[Dict[str, Any]] = None) -> str:
+def _resolve_rewrite_context(workspace_settings: Optional[dict[str, Any]] = None) -> str:
     """Static domain framing for the FINAL reformulation only.
 
     Workspace ``settings.voice.transcript_rewrite_context`` overrides the global
@@ -8186,10 +8583,10 @@ def _resolve_rewrite_context(workspace_settings: Optional[Dict[str, Any]] = None
 
 
 def _resolve_plan_section_meta(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     topic_id: Optional[str],
     subtopic_id: Optional[str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve titles / path for a plan section addressed by topic/subtopic id."""
     meta = {
         "topic_id": topic_id,
@@ -8224,9 +8621,9 @@ def _section_statements(
     session: ExpertCaptureSession,
     topic_id: Optional[str],
     subtopic_id: Optional[str],
-) -> List[str]:
+) -> list[str]:
     """Tier-1 corrected expert statements belonging to a section (or all if unscoped)."""
-    statements: List[str] = []
+    statements: list[str] = []
     for turn in _read_transcript(session):
         if not isinstance(turn, dict) or turn.get("speaker") != "expert":
             continue
@@ -8236,11 +8633,7 @@ def _section_statements(
         if subtopic_id:
             if turn.get("subtopic_id") == subtopic_id:
                 statements.append(text)
-            elif (
-                turn.get("topic_id") == topic_id
-                and not turn.get("subtopic_id")
-                and topic_id
-            ):
+            elif turn.get("topic_id") == topic_id and not turn.get("subtopic_id") and topic_id:
                 # Expert spoke on the topic before a subtopic was selected.
                 statements.append(text)
         elif topic_id:
@@ -8252,7 +8645,7 @@ def _section_statements(
 
 
 def _fact_belongs_to_section(
-    fact: Dict[str, Any],
+    fact: dict[str, Any],
     topic_id: Optional[str],
     subtopic_id: Optional[str],
 ) -> bool:
@@ -8269,7 +8662,7 @@ def _section_document_sources(
     session: ExpertCaptureSession,
     topic_id: Optional[str],
     subtopic_id: Optional[str],
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     facts = [
         fact
         for fact in (session.captured_facts or [])
@@ -8319,11 +8712,11 @@ def _normalized_relevance_score(metadata: Any) -> Optional[float]:
 
 
 def _filter_retrieval_by_min_score(
-    chunks: List[str],
-    metadatas: List[Dict[str, Any]],
-    scores: List[float],
+    chunks: list[str],
+    metadatas: list[dict[str, Any]],
+    scores: list[float],
     min_score: float,
-) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
+) -> tuple[list[str], list[dict[str, Any]], list[float]]:
     """Exclude retrieval diagnostics and low-relevance hits from reports.
 
     The threshold is applied to a NORMALIZED per-chunk relevance score in [0, 1]
@@ -8333,9 +8726,9 @@ def _filter_retrieval_by_min_score(
     it on the tiny client-weighted fusion score is exactly the regression this
     guards against.
     """
-    kept_chunks: List[str] = []
-    kept_meta: List[Dict[str, Any]] = []
-    kept_scores: List[float] = []
+    kept_chunks: list[str] = []
+    kept_meta: list[dict[str, Any]] = []
+    kept_scores: list[float] = []
     for index, chunk in enumerate(chunks or []):
         metadata = (
             metadatas[index]
@@ -8344,8 +8737,10 @@ def _filter_retrieval_by_min_score(
         )
         # Corpus counts and retrieval diagnostics are not documentary evidence or
         # domain vocabulary. They must never become facts in an expert's report.
-        if any(metadata.get(key) in ("collection_inventory", "dense_coarse_guardrail")
-               for key in ("source_type", "semantic_type")):
+        if any(
+            metadata.get(key) in ("collection_inventory", "dense_coarse_guardrail")
+            for key in ("source_type", "semantic_type")
+        ):
             continue
         normalized = _normalized_relevance_score(metadata)
         if min_score > 0 and normalized is not None and normalized < min_score:
@@ -8359,21 +8754,23 @@ def _filter_retrieval_by_min_score(
 
 
 def _apply_open_question_statuses_to_plan_structure(
-    plan_structure: Dict[str, Any],
-    open_questions: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    plan_structure: dict[str, Any],
+    open_questions: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Propagate proposal open-question lifecycle statuses onto plan_structure nodes."""
     if not isinstance(plan_structure, dict):
         return plan_structure
-    status_by_text: Dict[str, str] = {}
-    status_by_id: Dict[str, str] = {}
+    status_by_text: dict[str, str] = {}
+    status_by_id: dict[str, str] = {}
     for question in open_questions or []:
         if not isinstance(question, dict):
             continue
         status = _normalize_proposal_open_question_status(question.get("status"))
-        text = str(
-            question.get("follow_up") or question.get("text") or question.get("reason") or ""
-        ).strip().lower()
+        text = (
+            str(question.get("follow_up") or question.get("text") or question.get("reason") or "")
+            .strip()
+            .lower()
+        )
         if text:
             status_by_text[text] = status
         for field in ("gap_id", "id", "question_id"):
@@ -8381,8 +8778,8 @@ def _apply_open_question_statuses_to_plan_structure(
             if qid:
                 status_by_id[qid.lower()] = status
 
-    def _sync_node(node: Dict[str, Any]) -> None:
-        synced: List[Dict[str, Any]] = []
+    def _sync_node(node: dict[str, Any]) -> None:
+        synced: list[dict[str, Any]] = []
         for raw in node.get("open_questions") or []:
             if not isinstance(raw, dict):
                 continue
@@ -8409,15 +8806,17 @@ def _apply_open_question_statuses_to_plan_structure(
 
 def _rebuild_proposal_report_payload(
     session: ExpertCaptureSession,
-    payload: Dict[str, Any],
-    open_questions: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+    open_questions: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Refresh plan_structure question statuses and re-assemble report markdown."""
     plan_structure = payload.get("plan_structure")
     if not isinstance(plan_structure, dict):
         return payload
     updated = dict(payload)
-    synced_structure = _apply_open_question_statuses_to_plan_structure(plan_structure, open_questions)
+    synced_structure = _apply_open_question_statuses_to_plan_structure(
+        plan_structure, open_questions
+    )
     report = _assemble_report_from_sections(session, synced_structure, open_questions)
     updated["plan_structure"] = synced_structure
     updated["open_questions"] = open_questions
@@ -8430,23 +8829,23 @@ def _rebuild_proposal_report_payload(
 
 def _assemble_report_from_sections(
     session: ExpertCaptureSession,
-    plan_structure: Dict[str, Any],
-    open_questions: List[Dict[str, Any]],
+    plan_structure: dict[str, Any],
+    open_questions: list[dict[str, Any]],
 ) -> str:
     """Assemble a Markdown report from the per-section FINAL synthesis.
 
     Prefers each section's reformulated ``synthesis``; falls back to fact bullets.
     """
-    lines: List[str] = [f"# {session.title}", "", f"Objectif : {session.objective}", ""]
+    lines: list[str] = [f"# {session.title}", "", f"Objectif : {session.objective}", ""]
 
-    def _emit_facts(facts: List[Dict[str, Any]]) -> None:
+    def _emit_facts(facts: list[dict[str, Any]]) -> None:
         for fact in facts or []:
             statement = str(fact.get("text") or "").strip()
             if statement:
                 lines.append(f"- {statement}")
 
-    def _emit_sources(node: Dict[str, Any]) -> None:
-        labels: List[str] = []
+    def _emit_sources(node: dict[str, Any]) -> None:
+        labels: list[str] = []
         for source in node.get("sources") or []:
             if not isinstance(source, dict):
                 continue
@@ -8487,7 +8886,12 @@ def _assemble_report_from_sections(
         lines.append("## Questions ouvertes pour reprise")
         lines.append("_Points restés sans réponse à la publication ; à compléter par un expert._")
         for item in visible_questions:
-            label = item.get("follow_up") or item.get("text") or item.get("reason") or item.get("gap_id")
+            label = (
+                item.get("follow_up")
+                or item.get("text")
+                or item.get("reason")
+                or item.get("gap_id")
+            )
             if label:
                 lines.append(f"- {label}")
     return "\n".join(lines).rstrip() + "\n"
@@ -8502,7 +8906,7 @@ def _strip_open_questions_section(markdown: str) -> str:
     stored ``report_markdown`` — only the published artifact is stripped.
     """
     lines = markdown.splitlines()
-    kept: List[str] = []
+    kept: list[str] = []
     skipping = False
     for line in lines:
         stripped = line.strip()
@@ -8542,11 +8946,11 @@ def set_active_capture_section(
     return session
 
 
-def _source_display_filename(md: Dict[str, Any]) -> Optional[str]:
+def _source_display_filename(md: dict[str, Any]) -> Optional[str]:
     return md.get("filename") or md.get("document_filename") or md.get("legacy_document_name")
 
 
-def _source_display_title(md: Dict[str, Any]) -> Optional[str]:
+def _source_display_title(md: dict[str, Any]) -> Optional[str]:
     """Human document name for source chips — same metadata keys the chat chips
     resolve (``document_title``/``document_filename`` come from the Qdrant
     payload), so the report never shows raw document ids."""
@@ -8560,20 +8964,24 @@ def _source_display_title(md: Dict[str, Any]) -> Optional[str]:
 
 
 def _section_sources(
-    chunks: List[str],
-    metadatas: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    chunks: list[str],
+    metadatas: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """Shape the retrieved KB passages backing a section into displayable sources.
 
     Carries the document identity (title + document_id/collection) so the
     frontend can render chat-style source chips with the document preview,
     instead of raw ids. Deduped by document."""
     metadatas = metadatas or []
-    sources: List[Dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, chunk in enumerate(chunks or []):
         text = str(chunk or "").strip()
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         document_id = md.get("document_id") or md.get("doc_id") or md.get("id")
         filename = _source_display_filename(md)
         title = _source_display_title(md)
@@ -8606,7 +9014,7 @@ def _section_sources(
 def _resolve_final_glossary(
     workspace: Any,
     session: Any,
-    chunks: Optional[List[str]] = None,
+    chunks: Optional[list[str]] = None,
 ):
     """Tier-2 glossary for the FINAL pass: workspace glossary + plan labels +
     distinctive terms from the section's retrieved KB passages.
@@ -8624,7 +9032,7 @@ def _resolve_final_glossary(
 
 async def _notify_finalize_progress(
     progress: Optional[FinalizeProgressCallback],
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
 ) -> None:
     """Best-effort progress notification (await coroutines, ignore failures)."""
     if progress is None:
@@ -8650,7 +9058,7 @@ def _prepare_section_finalize(
     topic_id: Optional[str],
     subtopic_id: Optional[str],
     static_context: Optional[str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """All DB reads for one section's FINAL pass, done up-front.
 
     Returns a plain-data snapshot (statements, meta, collection name, glossary
@@ -8665,10 +9073,14 @@ def _prepare_section_finalize(
     meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
     section_key = _section_key(meta.get("topic_id"), meta.get("subtopic_id"))
     raw_statements = _section_statements(session, meta.get("topic_id"), meta.get("subtopic_id"))
-    document_sources = _section_document_sources(session, meta.get("topic_id"), meta.get("subtopic_id"))
+    document_sources = _section_document_sources(
+        session, meta.get("topic_id"), meta.get("subtopic_id")
+    )
     label = (
         meta.get("topic_path")
-        or " / ".join(part for part in [meta.get("topic_title"), meta.get("subtopic_title")] if part)
+        or " / ".join(
+            part for part in [meta.get("topic_title"), meta.get("subtopic_title")] if part
+        )
         or (session.title or "")
     )
     if static_context is None:
@@ -8681,7 +9093,9 @@ def _prepare_section_finalize(
         workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
     except Exception:
         workspace = None
-    workspace_settings = dict(getattr(workspace, "settings", None) or {}) if workspace is not None else {}
+    workspace_settings = (
+        dict(getattr(workspace, "settings", None) or {}) if workspace is not None else {}
+    )
     return {
         "meta": meta,
         "section_key": section_key,
@@ -8704,9 +9118,9 @@ async def _compute_section_finalize_async(
     *,
     workspace_id: str,
     workspace_slug: Optional[str],
-    prep: Dict[str, Any],
+    prep: dict[str, Any],
     progress: Optional[FinalizeProgressCallback] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute phase of one section's FINAL pass — NO DB access.
 
     Chat-grade retrieval, dedupe of repeated/rephrased expert turns, Tier-2
@@ -8763,7 +9177,7 @@ async def _compute_section_finalize_async(
         {"stage": "vocabulary", "label": "Alignement vocabulaire métier…", "section_label": label},
     )
     glossary = _resolve_final_glossary(prep["glossary_workspace"], prep["glossary_session"], chunks)
-    glossary_terms: List[str] = list(glossary.terms) if glossary is not None else []
+    glossary_terms: list[str] = list(glossary.terms) if glossary is not None else []
     if glossary is not None and not glossary.is_empty:
         statements = [correct_transcript_segment_tier1(s, glossary) for s in statements]
 
@@ -8771,7 +9185,11 @@ async def _compute_section_finalize_async(
     # open-question generation (which only needs statements + chunks).
     await _notify_finalize_progress(
         progress,
-        {"stage": "reformulate", "label": "Reformulation et questions ouvertes…", "section_label": label},
+        {
+            "stage": "reformulate",
+            "label": "Reformulation et questions ouvertes…",
+            "section_label": label,
+        },
     )
     synthesis, grounded = await asyncio.gather(
         reformulate_section_async(
@@ -8802,7 +9220,9 @@ async def _compute_section_finalize_async(
         "section_label": label,
         "synthesis": synthesis,
         "open_questions": grounded,
-        "sources": _merge_report_sources(_section_sources(chunks, metadatas), prep.get("document_sources") or []),
+        "sources": _merge_report_sources(
+            _section_sources(chunks, metadatas), prep.get("document_sources") or []
+        ),
         "statement_count": len(statements),
         "raw_statement_count": len(raw_statements),
         "dedup_removed": dedup_removed,
@@ -8811,7 +9231,7 @@ async def _compute_section_finalize_async(
     }
 
 
-def _skipped_section_entry(prep: Dict[str, Any]) -> Dict[str, Any]:
+def _skipped_section_entry(prep: dict[str, Any]) -> dict[str, Any]:
     meta = prep["meta"]
     return {
         "section_key": prep["section_key"],
@@ -8830,7 +9250,7 @@ def _store_section_synthesis_entries(
     *,
     workspace_id: str,
     session_id: str,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
 ) -> ExpertCaptureSession:
     """Sequential DB write phase: store computed section syntheses + events and
     commit ONCE (the single sync session is never used concurrently)."""
@@ -8872,7 +9292,7 @@ async def finalize_capture_section(
     workspace_slug: Optional[str] = None,
     static_context: Optional[str] = None,
     progress: Optional[FinalizeProgressCallback] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """FINAL phase for ONE section (section.finish).
 
     The heavy end-of-capture pass for a section: chat-grade retrieval, dedupe of
@@ -8940,13 +9360,15 @@ async def _ensure_final_thematic_plan(
         for index in expert_indexes
     ]
     try:
-        themes = await derive_thematic_blocks_async(workspace_id=workspace_id, statements=statements)
+        themes = await derive_thematic_blocks_async(
+            workspace_id=workspace_id, statements=statements
+        )
     except Exception as exc:  # noqa: BLE001 - thematic structuring must not abort the proposal.
         _logger.warning("knowledge_capture_thematic_structuring_failed: %s", exc)
         themes = []
     if not themes:
         return session
-    topics: List[Dict[str, Any]] = []
+    topics: list[dict[str, Any]] = []
     for theme in themes:
         theme_id = str(theme.get("id") or f"theme-{len(topics) + 1:02d}")
         title = str(theme.get("title") or "").strip() or f"Thème {len(topics) + 1}"
@@ -9015,16 +9437,20 @@ async def finalize_capture(
         progress,
         {
             "stage": "restructure",
-            "label": "Restructuration selon le plan…" if has_plan else "Structuration en blocs thématiques…",
+            "label": "Restructuration selon le plan…"
+            if has_plan
+            else "Structuration en blocs thématiques…",
         },
     )
     if not has_plan:
-        session = await _ensure_final_thematic_plan(db, workspace_id=workspace_id, session_id=session_id)
+        session = await _ensure_final_thematic_plan(
+            db, workspace_id=workspace_id, session_id=session_id
+        )
         plan = dict(session.plan or {})
     else:
         session = _backfill_turn_plan_tags(db, workspace_id=workspace_id, session_id=session_id)
         plan = dict(session.plan or {})
-    sections: List[Tuple[Optional[str], Optional[str]]] = []
+    sections: list[tuple[Optional[str], Optional[str]]] = []
     for topic in plan.get("topics") or []:
         if not isinstance(topic, dict):
             continue
@@ -9041,7 +9467,7 @@ async def finalize_capture(
     # Up-front sequential DB reads: snapshot everything each section's compute
     # phase needs, so the concurrent phase below never touches the shared
     # SQLAlchemy session.
-    preps: List[Dict[str, Any]] = [
+    preps: list[dict[str, Any]] = [
         _prepare_section_finalize(
             db,
             workspace_id=workspace_id,
@@ -9056,7 +9482,7 @@ async def finalize_capture(
     semaphore = asyncio.Semaphore(_FINALIZE_SECTION_CONCURRENCY)
     started_count = 0
 
-    async def _run_section(prep: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _run_section(prep: dict[str, Any]) -> Optional[dict[str, Any]]:
         nonlocal started_count
         async with semaphore:
             started_count += 1
@@ -9065,7 +9491,9 @@ async def finalize_capture(
                 progress,
                 {
                     "stage": "section",
-                    "label": f"Synthèse « {section_label} »…" if section_label else "Synthèse de la capture…",
+                    "label": f"Synthèse « {section_label} »…"
+                    if section_label
+                    else "Synthèse de la capture…",
                     "section_label": section_label,
                     "current": min(started_count, total),
                     "total": total,
@@ -9086,7 +9514,7 @@ async def finalize_capture(
 
     # Concurrent compute phase (LLM + retrieval), bounded fan-out.
     results = await asyncio.gather(*(_run_section(prep) for prep in preps))
-    finalized_sections: Dict[str, Dict[str, Any]] = {
+    finalized_sections: dict[str, dict[str, Any]] = {
         str(entry["section_key"]): entry
         for entry in results
         if isinstance(entry, dict) and entry.get("section_key") and not entry.get("skipped")
@@ -9103,7 +9531,9 @@ async def finalize_capture(
         except Exception as exc:  # noqa: BLE001 - the proposal is still built from the computed entries.
             _logger.warning("knowledge_capture_finalize_store_failed: %s", exc)
             db.rollback()
-    await _notify_finalize_progress(progress, {"stage": "report", "label": "Assemblage du rapport…"})
+    await _notify_finalize_progress(
+        progress, {"stage": "report", "label": "Assemblage du rapport…"}
+    )
     db.expire_all()
     fresh_session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     db.refresh(fresh_session)
@@ -9124,7 +9554,7 @@ async def finalize_capture(
 
 
 def _match_proposal_open_question(
-    questions: List[Dict[str, Any]],
+    questions: list[dict[str, Any]],
     question_id: str,
 ) -> Optional[int]:
     qid = _clean_optional_string(question_id)
@@ -9163,7 +9593,10 @@ async def answer_proposal_open_question(
     """
     proposal = (
         db.query(KnowledgeUpdateProposal)
-        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .filter(
+            KnowledgeUpdateProposal.id == proposal_id,
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+        )
         .first()
     )
     if not proposal:
@@ -9274,7 +9707,10 @@ def update_proposal_report_content(
 ) -> KnowledgeUpdateProposal:
     proposal = (
         db.query(KnowledgeUpdateProposal)
-        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .filter(
+            KnowledgeUpdateProposal.id == proposal_id,
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+        )
         .first()
     )
     if not proposal:
@@ -9333,10 +9769,12 @@ async def _rewrite_report_with_instruction_async(
     session: ExpertCaptureSession,
     current_report: str,
     instruction: str,
-    open_questions: Optional[List[Dict[str, Any]]] = None,
+    open_questions: Optional[list[dict[str, Any]]] = None,
     use_llm: bool = True,
-) -> Tuple[str, Dict[str, Any]]:
-    fallback = _append_report_instruction_fallback(current_report=current_report, instruction=instruction)
+) -> tuple[str, dict[str, Any]]:
+    fallback = _append_report_instruction_fallback(
+        current_report=current_report, instruction=instruction
+    )
     if not use_llm:
         return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
     api_key, model = _resolve_llm_config(workspace_id)
@@ -9361,7 +9799,8 @@ async def _rewrite_report_with_instruction_async(
         }
         client = AsyncOpenAI(api_key=api_key)
         response = await asyncio.wait_for(
-            client.chat.completions.create(
+            async_openai_chat(
+                client,
                 model=model,
                 **_model_chat_kwargs(model, temperature=0.2),
                 messages=[
@@ -9381,12 +9820,17 @@ async def _rewrite_report_with_instruction_async(
         content = response.choices[0].message.content if response.choices else None
         updated = (content or "").strip()
         if len(updated) < max(80, len(current_report.strip()) // 4):
-            return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
+            return fallback, {
+                "status": "instruction_recorded_fallback",
+                "provider": "deterministic",
+            }
         return updated, {
             "status": "llm_applied",
             "provider": "openai",
             "model": model,
         }
+    except UsageError:
+        raise
     except Exception as exc:
         _logger.warning("knowledge_capture_report_instruction_llm_failed: %s", exc)
         return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
@@ -9417,7 +9861,10 @@ async def apply_proposal_report_instruction(
 ) -> KnowledgeUpdateProposal:
     proposal = (
         db.query(KnowledgeUpdateProposal)
-        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .filter(
+            KnowledgeUpdateProposal.id == proposal_id,
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+        )
         .first()
     )
     if not proposal:
@@ -9437,7 +9884,9 @@ async def apply_proposal_report_instruction(
     )
     if not base_content:
         raise ValueError("Proposal report content cannot be empty")
-    open_questions = payload.get("open_questions") if isinstance(payload.get("open_questions"), list) else []
+    open_questions = (
+        payload.get("open_questions") if isinstance(payload.get("open_questions"), list) else []
+    )
     updated_content, edit_meta = await _rewrite_report_with_instruction_async(
         workspace_id=workspace_id,
         session=session,
@@ -9492,21 +9941,24 @@ async def apply_proposal_report_instruction(
 
 def _is_free_conversation_session(session: ExpertCaptureSession) -> bool:
     plan = session.plan or {}
-    return plan.get("mode") == "free_conversation" or plan.get("schema_version") == FREE_CONVERSATION_SCHEMA_VERSION
+    return (
+        plan.get("mode") == "free_conversation"
+        or plan.get("schema_version") == FREE_CONVERSATION_SCHEMA_VERSION
+    )
 
 
 def is_free_conversation_session(session: ExpertCaptureSession) -> bool:
     return _is_free_conversation_session(session)
 
 
-def _metadata_float(metadata: Dict[str, Any], key: str) -> float:
+def _metadata_float(metadata: dict[str, Any], key: str) -> float:
     try:
         return float(metadata.get(key) or 0.0)
     except (TypeError, ValueError):
         return 0.0
 
 
-def _retrieval_metadata_has_strong_evidence(metadatas: List[Dict[str, Any]]) -> bool:
+def _retrieval_metadata_has_strong_evidence(metadatas: list[dict[str, Any]]) -> bool:
     for metadata in metadatas:
         coverage = _metadata_float(metadata, "retrieval_evidence_coverage")
         policy_score = _metadata_float(metadata, "retrieval_policy_score")
@@ -9521,8 +9973,8 @@ def _capture_prefetch_passive_state(
     session: ExpertCaptureSession,
     *,
     status: str,
-    oracle_exact_matches: List[Dict[str, Any]],
-    metadatas: List[Dict[str, Any]],
+    oracle_exact_matches: list[dict[str, Any]],
+    metadatas: list[dict[str, Any]],
 ) -> tuple[bool, Optional[str]]:
     if not _is_free_conversation_session(session):
         return False, None
@@ -9547,7 +9999,7 @@ async def prefetch_capture_retrieval(
     mode: str = "chah",
     top_k: int = 4,
     timeout_seconds: float = RETRIEVAL_PREFETCH_TIMEOUT_SECONDS,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     text = (partial_text or "").strip()
     if not text:
@@ -9594,16 +10046,16 @@ async def prefetch_capture_retrieval(
     db.commit()
 
     started = time.perf_counter()
-    chunks: List[str] = []
-    scores: List[float] = []
-    metadatas: List[Dict[str, Any]] = []
+    chunks: list[str] = []
+    scores: list[float] = []
+    metadatas: list[dict[str, Any]] = []
     status = "completed"
-    detail: Dict[str, Any] = {}
+    detail: dict[str, Any] = {}
     event_type = "retrieval_prefetch_completed"
     collection_name = "documents"
     warm_cache = _get_capture_warm_cache(session.id)
     warm_cache_hit = False
-    oracle_exact_matches: List[Dict[str, Any]] = []
+    oracle_exact_matches: list[dict[str, Any]] = []
 
     try:
         ctx = _load_context(db, workspace_id, session.context_id)
@@ -9630,7 +10082,11 @@ async def prefetch_capture_retrieval(
             ),
             timeout=timeout_seconds,
         )
-        metrics = retrieval_context.get("metrics") if isinstance(retrieval_context.get("metrics"), dict) else {}
+        metrics = (
+            retrieval_context.get("metrics")
+            if isinstance(retrieval_context.get("metrics"), dict)
+            else {}
+        )
         chunks = list(retrieval_context.get("chunks") or [])
         scores = list(retrieval_context.get("scores") or [])
         metadatas = list(retrieval_context.get("metadatas") or [])
@@ -9641,7 +10097,8 @@ async def prefetch_capture_retrieval(
             "detail": retrieval_context.get("detail"),
             "vector_db_type": metrics.get("vector_db_type"),
             "dense_policy": metrics.get("dense_policy"),
-            "retrieval_profile": metrics.get("retrieval_profile") or retrieval_context.get("retrieval_profile"),
+            "retrieval_profile": metrics.get("retrieval_profile")
+            or retrieval_context.get("retrieval_profile"),
             "profile": metrics.get("profile"),
             "scope_confidence": metrics.get("scope_confidence"),
             "fallback_reason": metrics.get("fallback_reason"),
@@ -9716,7 +10173,7 @@ async def prefetch_capture_retrieval(
     db.commit()
     db.refresh(final_event)
 
-    hint_payload: Dict[str, Any] = {}
+    hint_payload: dict[str, Any] = {}
     if not passive and chunks and len(_words(text)) >= 6:
         hint_payload = process_capture_partial_hints(
             db,
@@ -9750,8 +10207,12 @@ async def prefetch_capture_retrieval(
         "hints": [] if passive else (hint_payload.get("hints") or []),
         "active_subtopic_id": None if passive else hint_payload.get("active_subtopic_id"),
         "active_topic_id": None if passive else hint_payload.get("active_topic_id"),
-        "active_section_confidence": 0.0 if passive else (hint_payload.get("active_section_confidence") or 0.0),
-        "contradiction_candidates": [] if passive else (hint_payload.get("contradiction_candidates") or []),
+        "active_section_confidence": 0.0
+        if passive
+        else (hint_payload.get("active_section_confidence") or 0.0),
+        "contradiction_candidates": []
+        if passive
+        else (hint_payload.get("contradiction_candidates") or []),
         **question_meta,
     }
 
@@ -9765,7 +10226,7 @@ def list_capture_events(
     status: Optional[str] = None,
     after_sequence: Optional[int] = None,
     business_only: bool = False,
-) -> List[ExpertCaptureEvent]:
+) -> list[ExpertCaptureEvent]:
     q = db.query(ExpertCaptureEvent).filter(
         ExpertCaptureEvent.workspace_id == workspace_id,
         ExpertCaptureEvent.session_id == session_id,
@@ -9790,7 +10251,7 @@ def amend_capture_event(
     text_amended: str,
     actor: Optional[str] = None,
     reason: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     event = (
         db.query(ExpertCaptureEvent)
@@ -9853,7 +10314,9 @@ def get_session(
 ) -> ExpertCaptureSession:
     session = (
         db.query(ExpertCaptureSession)
-        .filter(ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id)
+        .filter(
+            ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id
+        )
         .first()
     )
     if not session:
@@ -9888,7 +10351,9 @@ def _session_summary_short(session: ExpertCaptureSession) -> str:
     expert_turns = [
         str(turn.get("text") or "").strip()
         for turn in (session.transcript or [])
-        if isinstance(turn, dict) and turn.get("speaker") == "expert" and str(turn.get("text") or "").strip()
+        if isinstance(turn, dict)
+        and turn.get("speaker") == "expert"
+        and str(turn.get("text") or "").strip()
     ]
     if expert_turns:
         return _compact_text(" ".join(expert_turns[-2:]))
@@ -9897,7 +10362,7 @@ def _session_summary_short(session: ExpertCaptureSession) -> str:
     return "Session de capture."
 
 
-def _count_proposal_open_questions(questions: Optional[List[Dict[str, Any]]]) -> int:
+def _count_proposal_open_questions(questions: Optional[list[dict[str, Any]]]) -> int:
     """Count proposal questions still awaiting a decision (status ``open`` only)."""
     return len(
         [
@@ -9911,7 +10376,7 @@ def _count_proposal_open_questions(questions: Optional[List[Dict[str, Any]]]) ->
 
 def _sync_session_proposal_open_questions_count(
     session: ExpertCaptureSession,
-    questions: Optional[List[Dict[str, Any]]],
+    questions: Optional[list[dict[str, Any]]],
 ) -> None:
     count = _count_proposal_open_questions(questions)
     metrics = dict(session.metrics or {})
@@ -9937,7 +10402,8 @@ def _session_open_questions_count(session: ExpertCaptureSession) -> int:
         [
             item
             for item in open_questions
-            if item.get("status") not in {"addressed", "answered", "dismissed", "deferred", "invalid"}
+            if item.get("status")
+            not in {"addressed", "answered", "dismissed", "deferred", "invalid"}
         ]
     )
 
@@ -9970,7 +10436,9 @@ def _session_created_by_label(session: ExpertCaptureSession) -> Optional[str]:
     return _resolve_user_label(db, user_id)
 
 
-def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] = None) -> Dict[str, Any]:
+def serialize_session(
+    session: ExpertCaptureSession, *, surface: Optional[str] = None
+) -> dict[str, Any]:
     # Sessions reached without ``get_session`` (e.g. list queries) may still carry a
     # deferred transcript: rebuild it from the ledger so every downstream read in
     # this serializer (summary, open-question count, turn_count, transcript) is exact.
@@ -9982,7 +10450,9 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
     timer_metrics = _compute_timer_metrics(session)
     summary_short = _session_summary_short(session)
     open_questions_count = _session_open_questions_count(session)
-    last_activity = (session.updated_at or session.completed_at or session.started_at or session.created_at)
+    last_activity = (
+        session.updated_at or session.completed_at or session.started_at or session.created_at
+    )
     # Lightweight scalar count of recorded conversation turns, mirroring the RAG
     # session ``message_count`` so unified admin views can show a single column.
     turn_count = len([turn for turn in (session.transcript or []) if isinstance(turn, dict)])
@@ -10025,14 +10495,16 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
     }
 
 
-def _serialize_plan_for_ui(plan: Dict[str, Any], *, surface: Optional[str] = None) -> Dict[str, Any]:
+def _serialize_plan_for_ui(
+    plan: dict[str, Any], *, surface: Optional[str] = None
+) -> dict[str, Any]:
     serialized = dict(plan)
     serialized["questions"] = []
-    topics: List[Dict[str, Any]] = []
+    topics: list[dict[str, Any]] = []
     for topic in plan.get("topics") or []:
         if not isinstance(topic, dict):
             continue
-        subtopics: List[Dict[str, Any]] = []
+        subtopics: list[dict[str, Any]] = []
         for subtopic in topic.get("subtopics") or []:
             if not isinstance(subtopic, dict):
                 continue
@@ -10047,7 +10519,7 @@ def _serialize_plan_for_ui(plan: Dict[str, Any], *, surface: Optional[str] = Non
     return serialized
 
 
-def serialize_proposal(proposal: KnowledgeUpdateProposal) -> Dict[str, Any]:
+def serialize_proposal(proposal: KnowledgeUpdateProposal) -> dict[str, Any]:
     payload = dict(proposal.proposal or {})
     if payload.get("publication"):
         payload["publication"] = _publication_with_source_urls(payload["publication"])
@@ -10066,7 +10538,7 @@ def serialize_proposal(proposal: KnowledgeUpdateProposal) -> Dict[str, Any]:
     }
 
 
-def _count_open_questions(payload: Dict[str, Any]) -> int:
+def _count_open_questions(payload: dict[str, Any]) -> int:
     count = 0
     for question in payload.get("open_questions") or []:
         if not isinstance(question, dict):
@@ -10077,7 +10549,7 @@ def _count_open_questions(payload: Dict[str, Any]) -> int:
     return count
 
 
-def _fiche_word_count(payload: Dict[str, Any]) -> int:
+def _fiche_word_count(payload: dict[str, Any]) -> int:
     recommended = dict(payload.get("recommended_ingestion") or {})
     content = recommended.get("content") or ""
     if not content:
@@ -10092,7 +10564,7 @@ def _published_at_sort_key(proposal: KnowledgeUpdateProposal) -> str:
     return str(publication.get("published_at") or reviewed_at or created_at or "")
 
 
-def _user_display(users_by_id: Dict[str, Any], user_id: Optional[str]) -> Optional[Dict[str, str]]:
+def _user_display(users_by_id: dict[str, Any], user_id: Optional[str]) -> Optional[dict[str, str]]:
     if not user_id:
         return None
     user = users_by_id.get(user_id)
@@ -10106,9 +10578,9 @@ def _serialize_published_fiche(
     proposal: KnowledgeUpdateProposal,
     session: Optional[ExpertCaptureSession],
     *,
-    users_by_id: Dict[str, Any],
+    users_by_id: dict[str, Any],
     current_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     payload = dict(proposal.proposal or {})
     publication = dict(payload.get("publication") or {})
     recommended = dict(payload.get("recommended_ingestion") or {})
@@ -10141,12 +10613,18 @@ def _serialize_published_fiche(
     published_at = publication.get("published_at")
     chunks_processed = publication.get("chunks_processed") or metadata.get("chunks_processed") or 0
 
-    author_user_id = (session.created_by_user_id if session else None) or proposal.created_by_user_id
+    author_user_id = (
+        session.created_by_user_id if session else None
+    ) or proposal.created_by_user_id
     published_by_user_id = proposal.reviewer_user_id or author_user_id
 
-    publication = _publication_with_source_urls({
-        **publication, "document_id": document_id, "collection_slug": collection_slug,
-    })
+    publication = _publication_with_source_urls(
+        {
+            **publication,
+            "document_id": document_id,
+            "collection_slug": collection_slug,
+        }
+    )
     export_urls = dict(publication.get("export_urls") or {})
     raw_url = export_urls.get("raw_url") or export_urls.get("download_url")
 
@@ -10203,7 +10681,7 @@ def list_published_fiches(
     q: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     rows = (
         db.query(KnowledgeUpdateProposal, ExpertCaptureSession)
         .join(ExpertCaptureSession, ExpertCaptureSession.id == KnowledgeUpdateProposal.session_id)
@@ -10220,7 +10698,7 @@ def list_published_fiches(
     author_key = (author_user_id or "").strip()
     needle = (q or "").strip().lower()
 
-    filtered: List[Tuple[KnowledgeUpdateProposal, ExpertCaptureSession]] = []
+    filtered: list[tuple[KnowledgeUpdateProposal, ExpertCaptureSession]] = []
     for proposal, session in rows:
         payload = dict(proposal.proposal or {})
         publication = dict(payload.get("publication") or {})
@@ -10276,7 +10754,7 @@ def list_published_fiches(
         if proposal.reviewer_user_id:
             user_ids.add(proposal.reviewer_user_id)
 
-    users_by_id: Dict[str, Any] = {}
+    users_by_id: dict[str, Any] = {}
     if user_ids:
         from app.models.user import User
 
@@ -10284,7 +10762,9 @@ def list_published_fiches(
             users_by_id[user.id] = user
 
     fiches = [
-        _serialize_published_fiche(proposal, session, users_by_id=users_by_id, current_user_id=current_user_id)
+        _serialize_published_fiche(
+            proposal, session, users_by_id=users_by_id, current_user_id=current_user_id
+        )
         for proposal, session in page
     ]
     return {
@@ -10296,11 +10776,11 @@ def list_published_fiches(
     }
 
 
-def serialize_event(event: ExpertCaptureEvent) -> Dict[str, Any]:
+def serialize_event(event: ExpertCaptureEvent) -> dict[str, Any]:
     return _serialize_event(event)
 
 
-def _serialize_event(event: ExpertCaptureEvent) -> Dict[str, Any]:
+def _serialize_event(event: ExpertCaptureEvent) -> dict[str, Any]:
     return {
         "id": event.id,
         "workspace_id": event.workspace_id,
@@ -10346,7 +10826,7 @@ def _record_capture_event(
     status: str = "accepted",
     parent_event_id: Optional[str] = None,
     created_by: Optional[str] = None,
-    meta_data: Optional[Dict[str, Any]] = None,
+    meta_data: Optional[dict[str, Any]] = None,
     started_at: Optional[datetime] = None,
     ended_at: Optional[datetime] = None,
 ) -> ExpertCaptureEvent:
@@ -10414,7 +10894,7 @@ def _set_transcript_dirty(session: ExpertCaptureSession, value: bool) -> None:
     flag_modified(session, "metrics")
 
 
-def _list_turn_events(db: DBSession, session_id: str) -> List[ExpertCaptureEvent]:
+def _list_turn_events(db: DBSession, session_id: str) -> list[ExpertCaptureEvent]:
     return (
         db.query(ExpertCaptureEvent)
         .filter(
@@ -10426,7 +10906,7 @@ def _list_turn_events(db: DBSession, session_id: str) -> List[ExpertCaptureEvent
     )
 
 
-def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> List[Dict[str, Any]]:
+def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> list[dict[str, Any]]:
     """Rebuild the ordered transcript turn list from the capture event ledger.
 
     The turn dict mirrors exactly what ``append_turn`` materializes (same keys,
@@ -10434,7 +10914,7 @@ def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> List[Dict[s
     column was written eagerly or rebuilt lazily. Amendments are reflected because
     the finalized event itself carries ``text_amended`` once an operator edits it.
     """
-    turns: List[Dict[str, Any]] = []
+    turns: list[dict[str, Any]] = []
     for event in events:
         if event.event_type not in _TURN_EVENT_TYPES:
             continue
@@ -10474,7 +10954,7 @@ def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> List[Dict[s
 _FEED_EVENT_TYPES = (*_TURN_EVENT_TYPES, "capture_view_referenced")
 
 
-def _capture_feed_view_ref(event: ExpertCaptureEvent, meta: Dict[str, Any]) -> Dict[str, Any]:
+def _capture_feed_view_ref(event: ExpertCaptureEvent, meta: dict[str, Any]) -> dict[str, Any]:
     """Shape a journaled ``capture_view_referenced`` event into the anchor view
     ref the Fil timeline binds to (mirrors the realtime WS / HTTP push shape)."""
     confidence = meta.get("confidence")
@@ -10511,7 +10991,7 @@ def build_capture_feed(
     *,
     workspace_id: str,
     session_id: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Project the append-only event ledger into the ordered "Le Fil" feed (D1
     step C): one typed entry per ``speak`` (voice turn) / ``note`` (text turn) /
     ``anchor`` (deictic ``capture_view_referenced``) event, carrying the anchor
@@ -10527,8 +11007,8 @@ def build_capture_feed(
         .order_by(ExpertCaptureEvent.sequence.asc(), ExpertCaptureEvent.created_at.asc())
         .all()
     )
-    turn_channel: Dict[str, str] = {}
-    feed: List[Dict[str, Any]] = []
+    turn_channel: dict[str, str] = {}
+    feed: list[dict[str, Any]] = []
     for event in rows:
         meta = event.meta_data or {}
         ts_ms = int(event.created_at.timestamp() * 1000) if event.created_at else None
@@ -10584,7 +11064,7 @@ def _read_transcript(
     session: ExpertCaptureSession,
     *,
     events: Optional[Iterable[ExpertCaptureEvent]] = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Correct transcript for a reader without mutating the session. Cheap (the
     cached column) unless a silent turn deferred the rewrite, in which case it is
     rebuilt from the supplied/related event ledger."""
@@ -10603,7 +11083,7 @@ def _materialize_committed_transcript(
     session: ExpertCaptureSession,
     *,
     events: Optional[Iterable[ExpertCaptureEvent]] = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Refresh the in-memory ``session.transcript`` from the ledger WITHOUT marking
     it dirty for SQLAlchemy (no per-read write). Used by read seams (``get_session``,
     ``serialize_session``) so raw ``session.transcript`` access is correct again."""
@@ -10657,7 +11137,7 @@ def _sync_session_transcript_from_event(
     _set_transcript_dirty(session, False)
 
 
-def _sync_captured_fact(session: ExpertCaptureSession, turn: Dict[str, Any]) -> None:
+def _sync_captured_fact(session: ExpertCaptureSession, turn: dict[str, Any]) -> None:
     captured = list(session.captured_facts or [])
     target_id = f"fact-{turn.get('id')}"
     changed = False
@@ -10676,7 +11156,11 @@ def _sync_captured_fact(session: ExpertCaptureSession, turn: Dict[str, Any]) -> 
 def _load_context(db: DBSession, workspace_id: str, context_id: Optional[str]) -> Optional[Context]:
     if not context_id:
         return None
-    return db.query(Context).filter(Context.id == context_id, Context.workspace_id == workspace_id).first()
+    return (
+        db.query(Context)
+        .filter(Context.id == context_id, Context.workspace_id == workspace_id)
+        .first()
+    )
 
 
 def _load_proposal(
@@ -10733,13 +11217,17 @@ def _load_active_proposal(
     )
     if proposal:
         return proposal
-    return _latest_pending_proposal_for_session(db, workspace_id=workspace_id, session_id=session_id)
+    return _latest_pending_proposal_for_session(
+        db, workspace_id=workspace_id, session_id=session_id
+    )
 
 
 def _proposal_conversation_confirmed(proposal: Optional[KnowledgeUpdateProposal]) -> bool:
     if not proposal:
         return False
-    return ((proposal.proposal or {}).get("conversation") or {}).get("state") == "proposal_confirmed"
+    return ((proposal.proposal or {}).get("conversation") or {}).get(
+        "state"
+    ) == "proposal_confirmed"
 
 
 def _mark_proposal_conversation_state(
@@ -10769,7 +11257,9 @@ def _has_substantive_answer_text(text: str) -> bool:
     return len(_words(stripped)) >= 8
 
 
-def _session_has_proposal_material(db: DBSession, *, workspace_id: str, session: ExpertCaptureSession) -> bool:
+def _session_has_proposal_material(
+    db: DBSession, *, workspace_id: str, session: ExpertCaptureSession
+) -> bool:
     if session.captured_facts:
         return True
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session.id)
@@ -10777,13 +11267,17 @@ def _session_has_proposal_material(db: DBSession, *, workspace_id: str, session:
     return bool(payload.get("captured_facts"))
 
 
-def session_has_proposal_material(db: DBSession, *, workspace_id: str, session: ExpertCaptureSession) -> bool:
+def session_has_proposal_material(
+    db: DBSession, *, workspace_id: str, session: ExpertCaptureSession
+) -> bool:
     return _session_has_proposal_material(db, workspace_id=workspace_id, session=session)
 
 
 def _resolve_collection_name(ctx: Optional[Context]) -> str:
     state = (ctx.environment_state or {}) if ctx else {}
-    collection = state.get("collection") or state.get("collection_name") or state.get("rag_collection")
+    collection = (
+        state.get("collection") or state.get("collection_name") or state.get("rag_collection")
+    )
     return str(collection).strip() if collection else "documents"
 
 
@@ -10818,7 +11312,7 @@ def _retrieval_refs_for_event(
     workspace_id: str,
     session_id: str,
     retrieval_event_id: Optional[str],
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if not retrieval_event_id:
         return []
     event = (
@@ -10836,9 +11330,13 @@ def _retrieval_refs_for_event(
     chunks = meta.get("chunks") or []
     scores = meta.get("scores") or []
     metadatas = meta.get("metadatas") or []
-    refs: List[Dict[str, Any]] = []
+    refs: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks[:4]):
-        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        md = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         refs.append(
             {
                 "event_id": event.id,
@@ -10853,12 +11351,12 @@ def _retrieval_refs_for_event(
     return refs
 
 
-def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _flatten_plan_questions(plan: dict[str, Any]) -> list[dict[str, Any]]:
     topics = plan.get("topics") or []
     if not topics:
         return list(plan.get("questions") or [])
 
-    questions: List[Dict[str, Any]] = []
+    questions: list[dict[str, Any]] = []
     for topic in topics:
         topic_id = topic.get("id")
         topic_title = topic.get("title") or "Topic"
@@ -10868,7 +11366,9 @@ def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
         # Legacy guided plans (subtopics carry authored questions) keep their order.
         topic_is_outline = not any((subtopic.get("questions") or []) for subtopic in subtopics)
         if not subtopics:
-            topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(topic_title)
+            topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(
+                topic_title
+            )
             questions.append(
                 {
                     "id": f"{topic_id}-present" if topic_id else None,
@@ -10883,7 +11383,9 @@ def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
                 }
             )
         elif subtopics and topic_is_outline:
-            topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(topic_title)
+            topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(
+                topic_title
+            )
             questions.append(
                 {
                     "id": f"{topic_id}-overview" if topic_id else None,
@@ -10901,7 +11403,9 @@ def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
             subtopic_id = subtopic.get("id")
             subtopic_title = subtopic.get("title") or topic_title
             path_label = f"{topic_title} / {subtopic_title}"
-            sub_prompt = str(subtopic.get("prompt") or "").strip() or presentation_prompt(subtopic_title)
+            sub_prompt = str(subtopic.get("prompt") or "").strip() or presentation_prompt(
+                subtopic_title
+            )
             sub_questions = subtopic.get("questions") or []
             if sub_questions:
                 for question in sub_questions:
@@ -10933,12 +11437,12 @@ def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _normalize_topic_plan(
-    incoming: Dict[str, Any],
+    incoming: dict[str, Any],
     *,
-    fallback: Optional[Dict[str, Any]] = None,
+    fallback: Optional[dict[str, Any]] = None,
     review_status: Optional[str] = None,
     actor_user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     fallback = fallback or {}
     if not isinstance(incoming, dict):
         raise ValueError("Plan payload must be an object")
@@ -10949,7 +11453,7 @@ def _normalize_topic_plan(
     topic_ids: set[str] = set()
     subtopic_ids: set[str] = set()
     question_ids: set[str] = set()
-    normalized_topics: List[Dict[str, Any]] = []
+    normalized_topics: list[dict[str, Any]] = []
     question_counter = 1
 
     for topic_index, raw_topic in enumerate(raw_topics, start=1):
@@ -10965,12 +11469,14 @@ def _normalize_topic_plan(
         if not isinstance(raw_subtopics, list) or not raw_subtopics:
             raise ValueError(f"Topic '{topic_title}' must contain at least one subtopic")
 
-        normalized_subtopics: List[Dict[str, Any]] = []
+        normalized_subtopics: list[dict[str, Any]] = []
         topic_minutes = 0
         for subtopic_index, raw_subtopic in enumerate(raw_subtopics, start=1):
             if not isinstance(raw_subtopic, dict):
                 raise ValueError("Each subtopic must be an object")
-            subtopic_id = str(raw_subtopic.get("id") or f"{topic_id}-sub-{subtopic_index:02d}").strip()
+            subtopic_id = str(
+                raw_subtopic.get("id") or f"{topic_id}-sub-{subtopic_index:02d}"
+            ).strip()
             subtopic_title = str(raw_subtopic.get("title") or f"Subtopic {subtopic_index}").strip()
             if not subtopic_id or subtopic_id in subtopic_ids:
                 raise ValueError("Subtopic ids must be unique")
@@ -10980,7 +11486,7 @@ def _normalize_topic_plan(
             if not isinstance(raw_questions, list) or not raw_questions:
                 raise ValueError(f"Subtopic '{subtopic_title}' must contain at least one question")
 
-            normalized_questions: List[Dict[str, Any]] = []
+            normalized_questions: list[dict[str, Any]] = []
             for raw_question in raw_questions:
                 if not isinstance(raw_question, dict):
                     raise ValueError("Each question must be an object")
@@ -11065,17 +11571,17 @@ def _normalize_topic_plan(
     return plan
 
 
-def _plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _plan_questions(plan: dict[str, Any]) -> list[dict[str, Any]]:
     if plan.get("topics"):
         return _flatten_plan_questions(plan)
     return list(plan.get("questions") or [])
 
 
-def _topic_plan_requires_approval(plan: Dict[str, Any]) -> bool:
+def _topic_plan_requires_approval(plan: dict[str, Any]) -> bool:
     return False
 
 
-def _question_trace_metadata(plan: Dict[str, Any], question_id: Optional[str]) -> Dict[str, Any]:
+def _question_trace_metadata(plan: dict[str, Any], question_id: Optional[str]) -> dict[str, Any]:
     question = _find_question(plan, question_id)
     if not question:
         return {}
@@ -11086,20 +11592,22 @@ def _question_trace_metadata(plan: Dict[str, Any], question_id: Optional[str]) -
     }
 
 
-def _find_question(plan: Dict[str, Any], question_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def _find_question(plan: dict[str, Any], question_id: Optional[str]) -> Optional[dict[str, Any]]:
     questions = _plan_questions(plan)
     if question_id:
         return next((q for q in questions if q.get("id") == question_id), None)
     return questions[0] if questions else None
 
 
-def _find_gap(gaps: List[Dict[str, Any]], gap_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def _find_gap(gaps: list[dict[str, Any]], gap_id: Optional[str]) -> Optional[dict[str, Any]]:
     if not gap_id:
         return None
     return next((gap for gap in gaps if gap.get("id") == gap_id), None)
 
 
-def _next_plan_question(plan: Dict[str, Any], evaluations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _next_plan_question(
+    plan: dict[str, Any], evaluations: list[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
     questions = _plan_questions(plan)
     if not questions:
         return None
@@ -11116,7 +11624,7 @@ def _next_plan_question(plan: Dict[str, Any], evaluations: List[Dict[str, Any]])
     }
 
 
-def _metrics_for_session(session: ExpertCaptureSession) -> Dict[str, Any]:
+def _metrics_for_session(session: ExpertCaptureSession) -> dict[str, Any]:
     evaluations = session.evaluations or []
     sufficient = [ev for ev in evaluations if ev.get("verdict") == "sufficient"]
     questions = _plan_questions(session.plan or {})
@@ -11125,7 +11633,9 @@ def _metrics_for_session(session: ExpertCaptureSession) -> Dict[str, Any]:
         if questions
         else None
     )
-    last_activity = session.updated_at or session.completed_at or session.started_at or session.created_at
+    last_activity = (
+        session.updated_at or session.completed_at or session.started_at or session.created_at
+    )
     return {
         **(session.metrics or {}),
         "turns": len(session.transcript or []),
@@ -11146,9 +11656,9 @@ def _record_capture_run(
     workspace_id: str,
     capability_id: Optional[str],
     trigger: str,
-    input_ref: Dict[str, Any],
-    output_ref: Dict[str, Any],
-    skill_slugs: List[str],
+    input_ref: dict[str, Any],
+    output_ref: dict[str, Any],
+    skill_slugs: list[str],
     initiated_by_user_id: Optional[str] = None,
 ) -> str:
     now = datetime.utcnow()
@@ -11204,7 +11714,7 @@ def _record_capture_run(
     return run.id
 
 
-def _confidence_from_output(output_ref: Dict[str, Any]) -> Optional[float]:
+def _confidence_from_output(output_ref: dict[str, Any]) -> Optional[float]:
     evaluation = output_ref.get("evaluation") or {}
     if isinstance(evaluation, dict) and evaluation.get("score") is not None:
         return float(evaluation["score"])

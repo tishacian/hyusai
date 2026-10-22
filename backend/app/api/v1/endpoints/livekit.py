@@ -1,16 +1,17 @@
 """LiveKit control-plane endpoints for realtime Agentium voice sessions."""
+
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
-from app.db.base import get_db
 from app.core.iam.dependencies import PermissionContext, require_permission
 from app.core.logging import get_logger
+from app.db.base import get_db
 from app.services.livekit_service import LiveKitService, LiveKitServiceError, LiveKitUpstreamError
 
 logger = get_logger(__name__)
@@ -29,7 +30,7 @@ class LiveKitRoomRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     surface: str = Field(default="knowledge_capture", min_length=1)
     mode: str = Field(default="conversation_only", min_length=1)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class LiveKitTokenRequest(LiveKitRoomRequest):
@@ -43,14 +44,16 @@ class LiveKitTokenRequest(LiveKitRoomRequest):
 class LiveKitAgentDispatchRequest(BaseModel):
     surface: str = Field(default="knowledge_capture", min_length=1)
     mode: str = Field(default="conversation_only", min_length=1)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    voice_session_start: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    voice_session_start: dict[str, Any] = Field(default_factory=dict)
     destination_identity: Optional[str] = None
     mock_partial_text: Optional[str] = None
 
 
 @router.get("/config")
-async def livekit_config(permission: PermissionContext = Depends(livekit_permission)) -> Dict[str, Any]:
+async def livekit_config(
+    permission: PermissionContext = Depends(livekit_permission),
+) -> dict[str, Any]:
     del permission
     return LiveKitService().public_config()
 
@@ -59,7 +62,7 @@ async def livekit_config(permission: PermissionContext = Depends(livekit_permiss
 async def livekit_room(
     req: LiveKitRoomRequest,
     permission: PermissionContext = Depends(livekit_permission),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     service = LiveKitService()
     room_name = service.build_room_name(
         workspace_slug=permission.workspace.slug,
@@ -93,7 +96,13 @@ async def livekit_room(
 async def livekit_token(
     req: LiveKitTokenRequest,
     permission: PermissionContext = Depends(livekit_permission),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    from app.services.livekit_service import require_qualified_voice_usage
+
+    try:
+        require_qualified_voice_usage(permission.workspace.id)
+    except LiveKitServiceError as exc:
+        raise _livekit_http_error(exc) from exc
     service = LiveKitService()
     room_name = req.room_name or service.build_room_name(
         workspace_slug=permission.workspace.slug,
@@ -153,7 +162,13 @@ async def livekit_agent_dispatch(
     session_id: str,
     req: LiveKitAgentDispatchRequest,
     permission: PermissionContext = Depends(livekit_permission),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    from app.services.livekit_service import require_qualified_voice_usage
+
+    try:
+        require_qualified_voice_usage(permission.workspace.id)
+    except LiveKitServiceError as exc:
+        raise _livekit_http_error(exc) from exc
     service = LiveKitService()
     room_name = service.build_room_name(
         workspace_slug=permission.workspace.slug,
@@ -249,7 +264,7 @@ async def livekit_webhook(
     request: Request,
     authorization: Optional[str] = Header(default=None),
     db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     service = LiveKitService()
     raw_body = await request.body()
     try:
@@ -259,7 +274,10 @@ async def livekit_webhook(
     try:
         raw_payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
     except (UnicodeDecodeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail={"code": "invalid_livekit_webhook_payload", "message": "Invalid JSON payload"}) from exc
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_livekit_webhook_payload", "message": "Invalid JSON payload"},
+        ) from exc
     payload = raw_payload if isinstance(raw_payload, dict) else {}
     record = service.record_webhook_event(db, payload)
     logger.info(
@@ -276,6 +294,8 @@ def _livekit_http_error(exc: LiveKitServiceError) -> HTTPException:
     status_code = 502 if isinstance(exc, LiveKitUpstreamError) else 503
     if exc.code == "livekit_not_configured":
         status_code = 503
+    if exc.code == "USAGE_TRANSPORT_UNQUALIFIED":
+        status_code = 409
     if exc.code == "livekit_auth_error":
         status_code = 401
     return HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)})

@@ -5,6 +5,7 @@ optional local Tesseract fallback for development or small deployments. All
 dependencies are intentionally soft: unavailable OCR providers produce warnings
 instead of breaking ingestion unless OCR is marked required.
 """
+
 from __future__ import annotations
 
 import base64
@@ -16,6 +17,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.model_usage_sdk import openai_chat
 
 logger = get_logger(__name__)
 
@@ -49,10 +51,14 @@ def build_ocr_config(overrides: dict[str, Any] | None = None) -> OcrConfig:
     if isinstance(priority_raw, str):
         provider_priority = tuple(item.strip() for item in priority_raw.split(",") if item.strip())
     else:
-        provider_priority = tuple(str(item).strip() for item in priority_raw or [] if str(item).strip())
+        provider_priority = tuple(
+            str(item).strip() for item in priority_raw or [] if str(item).strip()
+        )
     languages_raw = overrides.get("languages", settings.document_ocr_languages)
     if isinstance(languages_raw, str):
-        languages = tuple(item.strip() for item in languages_raw.replace("+", ",").split(",") if item.strip())
+        languages = tuple(
+            item.strip() for item in languages_raw.replace("+", ",").split(",") if item.strip()
+        )
     else:
         languages = tuple(str(item).strip() for item in languages_raw or [] if str(item).strip())
     return OcrConfig(
@@ -60,30 +66,56 @@ def build_ocr_config(overrides: dict[str, Any] | None = None) -> OcrConfig:
         scan_detection=bool(overrides.get("scan_detection", settings.document_ocr_scan_detection)),
         force_ocr=bool(overrides.get("force_ocr", settings.document_ocr_force_ocr)),
         min_text_chars_for_native_pdf=int(
-            overrides.get("min_text_chars_for_native_pdf", settings.document_ocr_min_text_chars_for_native_pdf) or 0
+            overrides.get(
+                "min_text_chars_for_native_pdf", settings.document_ocr_min_text_chars_for_native_pdf
+            )
+            or 0
         ),
         provider_priority=provider_priority or ("ppocr_service", "tesseract_local"),
-        ppocr_endpoint_url=(overrides.get("ppocr_endpoint_url") or settings.document_ocr_ppocr_endpoint_url or None),
+        ppocr_endpoint_url=(
+            overrides.get("ppocr_endpoint_url") or settings.document_ocr_ppocr_endpoint_url or None
+        ),
         languages=languages or ("eng",),
-        min_confidence=float(overrides.get("min_confidence", settings.document_ocr_min_confidence) or 0.0),
-        timeout_seconds=float(overrides.get("timeout_seconds", settings.document_ocr_timeout_seconds) or 30.0),
+        min_confidence=float(
+            overrides.get("min_confidence", settings.document_ocr_min_confidence) or 0.0
+        ),
+        timeout_seconds=float(
+            overrides.get("timeout_seconds", settings.document_ocr_timeout_seconds) or 30.0
+        ),
         retries=int(overrides.get("retries", settings.document_ocr_retries) or 0),
-        retry_backoff_ms=int(overrides.get("retry_backoff_ms", settings.document_ocr_retry_backoff_ms) or 0),
+        retry_backoff_ms=int(
+            overrides.get("retry_backoff_ms", settings.document_ocr_retry_backoff_ms) or 0
+        ),
         required=bool(overrides.get("required", settings.document_ocr_required)),
-        openai_vision_enabled=bool(overrides.get("openai_vision_enabled", settings.document_ocr_openai_vision_enabled)),
-        openai_model=str(overrides.get("openai_model", settings.document_ocr_openai_model) or "gpt-4o-mini"),
-        openai_detail=str(overrides.get("openai_detail", settings.document_ocr_openai_detail) or "low"),
-        openai_max_image_bytes=int(overrides.get("openai_max_image_bytes", settings.document_ocr_openai_max_image_bytes) or 0),
+        openai_vision_enabled=bool(
+            overrides.get("openai_vision_enabled", settings.document_ocr_openai_vision_enabled)
+        ),
+        openai_model=str(
+            overrides.get("openai_model", settings.document_ocr_openai_model) or "gpt-4o-mini"
+        ),
+        openai_detail=str(
+            overrides.get("openai_detail", settings.document_ocr_openai_detail) or "low"
+        ),
+        openai_max_image_bytes=int(
+            overrides.get("openai_max_image_bytes", settings.document_ocr_openai_max_image_bytes)
+            or 0
+        ),
         openai_enrich_min_chars=int(
-            overrides.get("openai_enrich_min_chars", settings.document_ocr_openai_enrich_min_chars) or 0
+            overrides.get("openai_enrich_min_chars", settings.document_ocr_openai_enrich_min_chars)
+            or 0
         ),
         openai_enrich_min_confidence=float(
-            overrides.get("openai_enrich_min_confidence", settings.document_ocr_openai_enrich_min_confidence) or 0.0
+            overrides.get(
+                "openai_enrich_min_confidence", settings.document_ocr_openai_enrich_min_confidence
+            )
+            or 0.0
         ),
     )
 
 
-def resolve_ocr_config_for_workspace(workspace_id: str | None = None, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def resolve_ocr_config_for_workspace(
+    workspace_id: str | None = None, overrides: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Return a serialisable OCR config dict for parser kwargs.
 
     Workspace-specific settings are optional and live under
@@ -99,14 +131,26 @@ def resolve_ocr_config_for_workspace(workspace_id: str | None = None, overrides:
             db = SessionLocal()
             try:
                 workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
-                settings_dict = dict(workspace.settings or {}) if workspace and isinstance(workspace.settings, dict) else {}
-                doc_settings = settings_dict.get("document_intelligence") if isinstance(settings_dict.get("document_intelligence"), dict) else {}
-                ocr_settings = doc_settings.get("ocr") if isinstance(doc_settings.get("ocr"), dict) else {}
+                settings_dict = (
+                    dict(workspace.settings or {})
+                    if workspace and isinstance(workspace.settings, dict)
+                    else {}
+                )
+                doc_settings = (
+                    settings_dict.get("document_intelligence")
+                    if isinstance(settings_dict.get("document_intelligence"), dict)
+                    else {}
+                )
+                ocr_settings = (
+                    doc_settings.get("ocr") if isinstance(doc_settings.get("ocr"), dict) else {}
+                )
                 merged.update(ocr_settings)
             finally:
                 db.close()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not resolve workspace OCR config", workspace_id=workspace_id, error=str(exc))
+            logger.warning(
+                "Could not resolve workspace OCR config", workspace_id=workspace_id, error=str(exc)
+            )
     if overrides:
         merged.update(overrides)
     return build_ocr_config(merged).__dict__
@@ -148,7 +192,9 @@ def extract_ocr_for_image(
             elif provider == "tesseract_local":
                 result = _extract_tesseract_local(path, resolved)
             elif provider == "openai_vision":
-                result = _extract_openai_vision(path, resolved, prior_text=(fallback_result or {}).get("text"))
+                result = _extract_openai_vision(
+                    path, resolved, prior_text=(fallback_result or {}).get("text")
+                )
             else:
                 warnings.append(f"ocr_provider_unknown:{provider}")
                 continue
@@ -185,7 +231,9 @@ def extract_ocr_for_image(
     if fallback_result is not None:
         return {
             **fallback_result,
-            "warnings": list(fallback_result.get("warnings") or []) + warnings + ["ocr_low_confidence_openai_unavailable"],
+            "warnings": list(fallback_result.get("warnings") or [])
+            + warnings
+            + ["ocr_low_confidence_openai_unavailable"],
         }
 
     if resolved.required:
@@ -237,7 +285,11 @@ def _extract_ppocr_service(path: str, config: OcrConfig) -> dict[str, Any] | Non
                         "confidence": _to_number(item.get("conf")),
                     }
                 )
-            return {"text": _blocks_to_text(blocks), "blocks": blocks, "model": data.get("model") or "ppocr_service"}
+            return {
+                "text": _blocks_to_text(blocks),
+                "blocks": blocks,
+                "model": data.get("model") or "ppocr_service",
+            }
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             if attempt >= config.retries:
@@ -286,7 +338,9 @@ def _extract_tesseract_local(path: str, config: OcrConfig) -> dict[str, Any] | N
     return {"text": _blocks_to_text(blocks), "blocks": blocks, "model": f"tesseract:{lang}"}
 
 
-def _extract_openai_vision(path: str, config: OcrConfig, *, prior_text: str | None = None) -> dict[str, Any] | None:
+def _extract_openai_vision(
+    path: str, config: OcrConfig, *, prior_text: str | None = None
+) -> dict[str, Any] | None:
     """Use OpenAI vision as an optional premium OCR/enrichment lane.
 
     This provider is intentionally opt-in because it sends image content to an
@@ -312,7 +366,9 @@ def _extract_openai_vision(path: str, config: OcrConfig, *, prior_text: str | No
 
     mime_type = mimetypes.guess_type(path)[0] or "image/png"
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
-    prior_hint = f"\nExisting weak OCR text, use only as a hint:\n{prior_text[:1600]}" if prior_text else ""
+    prior_hint = (
+        f"\nExisting weak OCR text, use only as a hint:\n{prior_text[:1600]}" if prior_text else ""
+    )
     prompt = (
         "Extract all visible text from this industrial/document image. "
         "Preserve table-like line breaks, labels, numbers and units. "
@@ -321,7 +377,8 @@ def _extract_openai_vision(path: str, config: OcrConfig, *, prior_text: str | No
         f"{prior_hint}"
     )
     client = OpenAI(api_key=settings.openai_api_key, timeout=max(1.0, config.timeout_seconds))
-    response = client.chat.completions.create(
+    response = openai_chat(
+        client,
         model=config.openai_model,
         temperature=0,
         max_tokens=1600,
@@ -352,7 +409,9 @@ def _extract_openai_vision(path: str, config: OcrConfig, *, prior_text: str | No
     }
 
 
-def _normalize_blocks(blocks: Any, min_confidence: float, page_number: int | None) -> list[dict[str, Any]]:
+def _normalize_blocks(
+    blocks: Any, min_confidence: float, page_number: int | None
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for idx, block in enumerate(blocks or []):
         if not isinstance(block, dict):
@@ -379,12 +438,20 @@ def _blocks_to_text(blocks: list[dict[str, Any]]) -> str:
     sorted_blocks = sorted(
         blocks,
         key=lambda item: (
-            (item.get("bbox") or {}).get("y1") if (item.get("bbox") or {}).get("y1") is not None else 10**9,
-            (item.get("bbox") or {}).get("x1") if (item.get("bbox") or {}).get("x1") is not None else 10**9,
+            (item.get("bbox") or {}).get("y1")
+            if (item.get("bbox") or {}).get("y1") is not None
+            else 10**9,
+            (item.get("bbox") or {}).get("x1")
+            if (item.get("bbox") or {}).get("x1") is not None
+            else 10**9,
             str(item.get("id") or ""),
         ),
     )
-    return "\n".join(str(item.get("text") or "").strip() for item in sorted_blocks if str(item.get("text") or "").strip())
+    return "\n".join(
+        str(item.get("text") or "").strip()
+        for item in sorted_blocks
+        if str(item.get("text") or "").strip()
+    )
 
 
 def _to_number(value: Any) -> float | None:

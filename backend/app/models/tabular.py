@@ -60,6 +60,13 @@ MODEL_TERMINAL_STATUSES = frozenset({"ready", "failed", "cancelled"})
 class TabularDataset(Base):
     __tablename__ = "tabular_datasets"
 
+    evaluation_campaign_id = Column(
+        String(36),
+        ForeignKey("evaluation_campaigns.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(
         String(36),
@@ -332,6 +339,13 @@ class MLPrediction(Base):
     """
 
     __tablename__ = "ml_predictions"
+
+    evaluation_campaign_id = Column(
+        String(36),
+        ForeignKey("evaluation_campaigns.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(

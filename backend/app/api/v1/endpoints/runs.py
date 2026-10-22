@@ -40,6 +40,10 @@ from app.services.decisions import (
 from app.services.decisions import (
     reject as reject_decision,
 )
+from app.services.evaluation.read_model import (
+    restricted_runtime_checkpoint,
+    runtime_judgment_payload_visible,
+)
 from app.services.iam.decision_plane import enforce_action
 from app.services.iam.legacy_authority import (
     legacy_object_action_allowed,
@@ -200,7 +204,7 @@ def _visible_run_or_404(
     return run
 
 
-def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
+def _row(r: Run, *, db: DBSession, payload_visible: bool = True) -> dict[str, Any]:
     from app.services.run_engine.execution_principal import public_run_principal
 
     membrane_held = _membrane_egress_held(r)
@@ -215,6 +219,9 @@ def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
 
     checkpoints = []
     for checkpoint in list(r.checkpoints or []):
+        if not payload_visible:
+            checkpoints.append(restricted_runtime_checkpoint(checkpoint))
+            continue
         if (
             membrane_held
             and isinstance(checkpoint, dict)
@@ -242,8 +249,9 @@ def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         "duration_ms": r.duration_ms,
-        "input_ref": r.input_ref or {},
-        "output_ref": r.output_ref if r.output_ref is not None else {},
+        "input_ref": (r.input_ref or {}) if payload_visible else {},
+        "output_ref": (r.output_ref if r.output_ref is not None else {}) if payload_visible else {},
+        "payload_unavailable_reason": None if payload_visible else "evidence_unavailable",
         "outcome": {
             "decision": r.decision,
             "confidence": r.confidence,
@@ -253,8 +261,10 @@ def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
             "revenue_allocated": r.revenue_allocated,
             "efficiency": r.efficiency,
             "value_source": getattr(r, "value_source", None) or "unset",
-            "operator_value_note": getattr(r, "operator_value_note", None),
-            "measurement_provenance": measurement_provenance,
+            "operator_value_note": getattr(r, "operator_value_note", None)
+            if payload_visible
+            else None,
+            "measurement_provenance": measurement_provenance if payload_visible else None,
             "baseline_eligible": baseline_eligible,
             "baseline_ineligible_reason": (
                 baseline_exclusion
@@ -262,10 +272,10 @@ def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
             ),
         },
         "retries": r.retries,
-        "error": r.error,
+        "error": r.error if payload_visible else None,
         "checkpoints": checkpoints,
-        "test_result": suite_run_result(r),
-        "waiting_subflows": r.waiting_subflows or {},
+        "test_result": suite_run_result(r) if payload_visible else None,
+        "waiting_subflows": (r.waiting_subflows or {}) if payload_visible else {},
         "result_held": membrane_held,
         # Additive, secret-free integrity evidence used by the protected Lot 7
         # canary. The raw flow stays in the projection service's allowlisted
@@ -325,7 +335,9 @@ def _invocation(
     *,
     redact_io: bool = False,
     include_projection_evidence: bool = False,
+    payload_visible: bool = True,
 ) -> dict[str, Any]:
+    redact_io = redact_io or not payload_visible
     payload = {
         "id": i.id,
         "skill_slug": i.skill_slug,
@@ -337,9 +349,12 @@ def _invocation(
         "provider_cost_usd": i.provider_cost_usd,
         "input_ref": {} if redact_io else i.input_ref or {},
         "output_ref": ({} if redact_io else (i.output_ref if i.output_ref is not None else {})),
-        "metrics": i.metrics or {},
-        "trace": i.trace or {},
-        "error": i.error,
+        "metrics": (i.metrics or {}) if payload_visible else {},
+        "trace": (i.trace or {})
+        if payload_visible
+        else {key: value for key, value in (i.trace or {}).items() if key == "node_id"},
+        "error": i.error if payload_visible else None,
+        "payload_unavailable_reason": None if payload_visible else "evidence_unavailable",
         "execution_evidence": {
             "resolution": (
                 i.execution_snapshot.get("resolution")
@@ -436,7 +451,18 @@ async def list_runs(
         user=user,
         workspace=workspace,
     )
-    return {"runs": [_row(r, db=db) for r in rows]}
+    return {
+        "runs": [
+            _row(
+                r,
+                db=db,
+                payload_visible=runtime_judgment_payload_visible(
+                    db, r, workspace=workspace, user=user
+                ),
+            )
+            for r in rows
+        ]
+    }
 
 
 @router.get("/summary")
@@ -567,13 +593,17 @@ async def get_run(
         workspace,
         "skill_invocation",
     )
+    judgment_payload_visible = runtime_judgment_payload_visible(
+        db, r, workspace=workspace, user=user
+    )
     payload: dict[str, Any] = {
-        **_row(r, db=db),
+        **_row(r, db=db, payload_visible=judgment_payload_visible),
         "invocations": [
             _invocation(
                 i,
                 redact_io=_membrane_egress_held(r),
                 include_projection_evidence=include_invocation_evidence,
+                payload_visible=judgment_payload_visible,
             )
             for i in invocations
         ],
@@ -672,6 +702,27 @@ async def get_run(
             "ctx_snapshot": debug_cp.get("ctx_snapshot") or {},
             "last_output": debug_cp.get("last_output") or {},
         }
+    if not judgment_payload_visible:
+        if "hitl" in payload:
+            payload["hitl"] = {
+                key: value
+                for key, value in payload["hitl"].items()
+                if key
+                in {
+                    "node_id",
+                    "decision_id",
+                    "decision_status",
+                    "expires_at",
+                    "expiry_action",
+                    "seconds_remaining",
+                }
+            }
+            payload["hitl"].update(can_decide=False, decide_reason="evidence_unavailable")
+        if "debug" in payload:
+            payload["debug"] = {
+                "node_id": payload["debug"].get("node_id"),
+                "payload_unavailable_reason": "evidence_unavailable",
+            }
     return payload
 
 
@@ -824,6 +875,9 @@ async def get_skill_invocation(
             invocation,
             redact_io=_membrane_egress_held(run),
             include_projection_evidence=True,
+            payload_visible=runtime_judgment_payload_visible(
+                db, run, workspace=workspace, user=user
+            ),
         ),
         "run_id": run.id,
         "system_id": run.system_id,
@@ -1652,6 +1706,14 @@ def _sse_format(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
 
 
+def _reader_checkpoint(db, run, checkpoint, workspace_id, user_id):
+    if user_id and not runtime_judgment_payload_visible(
+        db, run, workspace=db.get(Workspace, workspace_id), user=db.get(User, user_id)
+    ):
+        return restricted_runtime_checkpoint(checkpoint)
+    return checkpoint
+
+
 async def _run_event_stream(
     run_id: str, request: Request, workspace_id: Optional[str], user_id: Optional[str] = None
 ) -> AsyncIterator[str]:
@@ -1719,6 +1781,7 @@ async def _run_event_stream(
                 ):
                     public_cp = {key: value for key, value in cp.items() if key != "state"}
                     public_cp["result_held"] = True
+                public_cp = _reader_checkpoint(db, run, public_cp, workspace_id, user_id)
                 yield _sse_format(public_cp.get("kind", "checkpoint"), public_cp)
 
             persisted_cursor = len(checkpoints)
@@ -1775,7 +1838,18 @@ async def _run_event_stream(
                     continue
                 if isinstance(ts, str):
                     replayed_ts.add(ts)
-                yield _sse_format(event.get("kind", "event"), public_checkpoint(event))
+                with SessionLocal() as current_db:
+                    current_run = (
+                        current_db.query(Run)
+                        .filter_by(id=run_id, workspace_id=workspace_id)
+                        .first()
+                    )
+                    if current_run is None:
+                        return
+                    public_event = _reader_checkpoint(
+                        current_db, current_run, public_checkpoint(event), workspace_id, user_id
+                    )
+                yield _sse_format(event.get("kind", "event"), public_event)
                 if event.get("kind") in ("run_end", "hitl_pause", "debug_pause", "subflow_wait"):
                     break
             else:
@@ -1824,6 +1898,9 @@ async def _run_event_stream(
                         ):
                             public_cp = {key: value for key, value in cp.items() if key != "state"}
                             public_cp["result_held"] = True
+                        public_cp = _reader_checkpoint(
+                            db, current, public_cp, workspace_id, user_id
+                        )
                         yield _sse_format(public_cp.get("kind", "checkpoint"), public_cp)
                     persisted_cursor = len(checkpoints)
                 finally:
@@ -1996,7 +2073,11 @@ async def override_run_outcome(
         db.rollback()
         raise
     db.refresh(r)
-    return _row(r, db=db)
+    return _row(
+        r,
+        db=db,
+        payload_visible=runtime_judgment_payload_visible(db, r, workspace=workspace, user=user),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2169,8 +2250,16 @@ async def list_run_replays(
         "parent_run_id": run_id,
         "items": [
             {
-                **_row(r, db=db),
-                "replay_overrides": r.replay_overrides or {},
+                **_row(
+                    r,
+                    db=db,
+                    payload_visible=runtime_judgment_payload_visible(
+                        db, r, workspace=workspace, user=user
+                    ),
+                ),
+                "replay_overrides": (r.replay_overrides or {})
+                if runtime_judgment_payload_visible(db, r, workspace=workspace, user=user)
+                else {},
                 "evaluation_scores": {
                     k: v
                     for k, v in (r.evaluation_scores or {}).items()

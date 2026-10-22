@@ -1,6 +1,6 @@
 """Authenticated human calibration workflow; never accepts claimed model scores."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -9,6 +9,7 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.typed_evaluation import (
+    CalibrationCaseFromEvaluation,
     CalibrationCorpus,
     CalibrationPrediction,
     HumanAnnotation,
@@ -68,6 +69,50 @@ def create(
     user: User = Depends(get_current_user),
 ):
     return _call(db, workspace, user, service.create_corpus, body.model_dump(), commit=True)
+
+
+@router.get("/corpora")
+def list_corpora(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    return _call(db, workspace, user, service.list_corpora, offset, limit)
+
+
+@router.post("/cases/from-evaluation", status_code=201)
+def create_case_from_evaluation(
+    body: CalibrationCaseFromEvaluation,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    return _call(
+        db, workspace, user, service.create_case_from_evaluation, body.model_dump(), commit=True
+    )
+
+
+@router.get("/corpora/{corpus_id}/review-units")
+def review_units(
+    corpus_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    return _call(db, workspace, user, service.review_units, corpus_id)
+
+
+@router.get("/corpora/{corpus_id}/review-units/{unit_key}")
+def review_unit(
+    corpus_id: str,
+    unit_key: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    return _call(db, workspace, user, service.review_unit, corpus_id, unit_key)
 
 
 @router.get("/corpora/{corpus_id}")

@@ -5,6 +5,7 @@ canonical Outcome block (decision, value, confidence, efficiency) and a
 ledger of SkillInvocations. Hypervisor's Balance Sheet aggregates Runs
 into Impact (per System / per Capability / portfolio).
 """
+
 from datetime import datetime
 from uuid import uuid4
 
@@ -40,6 +41,14 @@ class Run(Base):
     # System-scoped UI (/systems/:id), NULL otherwise.
     system_id = Column(String(36), ForeignKey("systems.id"), nullable=True, index=True)
     capability_id = Column(String(36), nullable=True, index=True)
+
+    evaluation_campaign_id = Column(
+        String(36),
+        ForeignKey("evaluation_campaigns.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    evaluation_binding = Column(JSON, nullable=True)
 
     input_ref = Column(JSON, default=dict)
     output_ref = Column(JSON, default=dict)
