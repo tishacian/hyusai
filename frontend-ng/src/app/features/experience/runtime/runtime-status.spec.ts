@@ -300,13 +300,13 @@ test('previews and hosts without an immutable release never restore live activit
 });
 
 
-test('no result of yours on this release is said as such, not as "not started yet"', () => {
+test('no result on this release is said as such, not as "not started yet"', () => {
   const { runtime } = restorationSetup({ lookup: () => of({ run: null }) });
   runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
   assert.equal(runtime.phase('forecast-action'), 'idle');
-  assert.equal(runtime.previousResult('forecast-action'), 'none_for_you');
-  assert.equal(EXPERIENCE_EN[idleStatusKey('live', 'none_for_you') as keyof typeof EXPERIENCE_EN], 'No result started by you on this version of the app');
-  assert.equal(EXPERIENCE_FR[idleStatusKey('live', 'none_for_you') as keyof typeof EXPERIENCE_FR], 'Aucun résultat lancé par vous sur cette version de l’application');
+  assert.equal(runtime.previousResult('forecast-action'), 'none_on_release');
+  assert.equal(EXPERIENCE_EN[idleStatusKey('live', 'none_on_release') as keyof typeof EXPERIENCE_EN], 'No result yet on this version of the app');
+  assert.equal(EXPERIENCE_FR[idleStatusKey('live', 'none_on_release') as keyof typeof EXPERIENCE_FR], 'Aucun résultat sur cette version de l’application');
 });
 
 test('a component that cannot resume a result is idle, not a network error', () => {
@@ -325,4 +325,14 @@ test('a restored result is marked restored and previews keep their idle wording'
   assert.equal(runtime.previousResult('forecast-action'), 'restored');
   assert.equal(idleStatusKey('preview', 'unchecked'), 'experience.runtime.status.idle');
   assert.equal(idleStatusKey('live', 'unchecked'), 'experience.runtime.status.idle_not_resumed');
+});
+
+
+test('a teammate restored result keeps who started it; my own does not', () => {
+  const teammate = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: false, started_by: 'camille' } }) });
+  teammate.runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.deepEqual(teammate.runtime.restoredAuthor('forecast-action'), { name: 'camille', startedAt: null });
+  const mine = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: true } }) });
+  mine.runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(mine.runtime.restoredAuthor('forecast-action'), null);
 });

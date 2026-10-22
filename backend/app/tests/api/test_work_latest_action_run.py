@@ -156,7 +156,7 @@ def test_reload_requires_the_released_ingress(sample, db_session):
     assert _latest(sample).json() == {"run": None}
 
 
-def test_another_author_does_not_supply_this_readers_action(sample, db_session):
+def test_a_teammates_result_is_the_teams_last_result(sample, db_session):
     run = db_session.get(Run, _invoke(sample))
     other = User(id="other-work-reader", username="other", email="other@example.invalid")
     db_session.add(other)
@@ -167,8 +167,11 @@ def test_another_author_does_not_supply_this_readers_action(sample, db_session):
     db_session.flush()
     run.initiated_by_user_id = other.id
     db_session.commit()
-    # Even the administrator's automatic resume is personal, not workspace-wide.
-    assert _latest(sample).json() == {"run": None}
+    # The app's last result is shared with the team, and says who started it.
+    body = _latest(sample).json()["run"]
+    assert body["id"] == run.id
+    assert body["started_by_reader"] is False
+    assert body["started_by"] == "other"
 
 
 def test_runtime_input_override_is_not_the_released_actions_result(sample, db_session):
@@ -235,3 +238,52 @@ def test_confirmation_is_derived_from_the_frozen_binding(db_session, monkeypatch
     response = _latest(sample)
     assert response.status_code == 200, response.text
     assert response.json()["run"]["id"] == run_id
+
+
+def _member(db_session, workspace, user_id, template):
+    user = User(id=user_id, username=user_id, email=f"{user_id}@example.invalid", role="member")
+    db_session.add_all([
+        user,
+        WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="member", role_template=template),
+    ])
+    db_session.commit()
+    return user
+
+
+def test_team_result_is_not_shown_outside_the_apps_audience(db_session, monkeypatch):
+    workspace, admin = helpers._seed(db_session)
+    helpers._seed_binding(db_session, workspace, admin)
+    studio = helpers._experiences_client(db_session, workspace, admin)
+    with monkeypatch.context() as patch:
+        patch.setattr(helpers, "_pages", _action_pages)
+        _experience_id, release_id = helpers._publish(
+            studio, binding_key="work.reset", audience={"roles": ["workspace_admin"]}
+        )
+    admin_client = helpers._client(db_session, workspace, admin, monkeypatch)
+    started = admin_client.post(
+        PATH,
+        json={"payload": {"query": "prévision"}, "page_id": "home", "component_id": "reset-action"},
+        headers={"Idempotency-Key": "team-audience-000000001"},
+    )
+    assert started.status_code == 201, started.text
+    outsider = _member(db_session, workspace, "work-outsider", "workspace_viewer")
+    response = helpers._client(db_session, workspace, outsider, monkeypatch).get(
+        PATH + "/latest",
+        params={"page_id": "home", "component_id": "reset-action", "release_id": release_id},
+    )
+    assert response.status_code in {403, 404}
+    assert "prévision" not in response.text
+
+
+def test_team_result_never_crosses_workspaces(sample, db_session):
+    run = db_session.get(Run, _invoke(sample))
+    run.workspace_id = "another-workspace"
+    db_session.commit()
+    assert _latest(sample).json() == {"run": None}
+
+
+def test_my_own_result_is_marked_as_mine(sample):
+    run_id = _invoke(sample)
+    body = _latest(sample).json()["run"]
+    assert body["id"] == run_id
+    assert body["started_by_reader"] is True
