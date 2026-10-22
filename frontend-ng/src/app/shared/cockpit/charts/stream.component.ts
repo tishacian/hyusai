@@ -33,7 +33,7 @@ import {
   type CkChartTick,
   type CkStreamTone,
 } from './chart.types';
-import { accumulateStackedSeries, cubicSmoothAreaPath, cubicSmoothPath, integerStep, linearAreaPath, linearPath, niceStep, spreadLabelRows } from './svg-path';
+import { accumulateStackedSeries, cubicSmoothAreaPath, cubicSmoothPath, integerStep, linearAreaPath, linearPath, niceStep, spreadLabelRows, steppedAreaPath, steppedPath } from './svg-path';
 
 export interface CkStreamSeries {
   id?: string;
@@ -350,6 +350,10 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   @Input() gridLines: CkStreamGridLine[] = [];
   /** Counts use straight segments and integral ticks; continuous series retain their smoothing. */
   @Input() discrete = false;
+  /** Daily bucket counts remain constant within their date; opt in without changing existing charts. */
+  @Input({ transform: booleanAttribute }) stepped = false;
+  /** Hide the side legend when a single series is already named by the surrounding chart. */
+  @Input({ transform: booleanAttribute }) showSeriesLabels = true;
   /** Formats a derived gridline value (e.g. `40 h`). */
   @Input() gridLabel: (value: number) => string = (value) => String(value);
   @Input() ticks: CkChartTick[] = [];
@@ -486,7 +490,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['discrete'] || shouldRebuildLayout(Object.keys(changes)) || !this.built) {
+    if (changes['discrete'] || changes['stepped'] || changes['showSeriesLabels'] || shouldRebuildLayout(Object.keys(changes)) || !this.built) {
       this.built = this.build();
     }
     if (this.focusDay != null && this.focusDay >= this.pointCount()) this.focusDay = null;
@@ -708,11 +712,11 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
       const lower = band.lower.map((value, i) => ({ x: xOf(i), y: this.yOf(value, max) }));
       const onBaseline = band.lower.every((value) => value === 0);
       areas.push({
-        d: this.discrete ? linearAreaPath(upper, onBaseline ? null : lower, this.yOf(0, max)) : onBaseline ? cubicSmoothAreaPath(upper, null, this.yOf(0, max)) : cubicSmoothAreaPath(upper, lower),
+        d: this.stepped ? steppedAreaPath(upper, onBaseline ? null : lower, this.yOf(0, max)) : this.discrete ? linearAreaPath(upper, onBaseline ? null : lower, this.yOf(0, max)) : onBaseline ? cubicSmoothAreaPath(upper, null, this.yOf(0, max)) : cubicSmoothAreaPath(upper, lower),
         fill: this.fillFor(tone),
         hatch: this.hatchFor(tone),
-        top: this.discrete ? linearPath(upper) : cubicSmoothPath(upper),
-        base: onBaseline ? null : this.discrete ? linearPath(lower) : cubicSmoothPath(lower),
+        top: this.stepped ? steppedPath(upper) : this.discrete ? linearPath(upper) : cubicSmoothPath(upper),
+        base: onBaseline ? null : this.stepped ? steppedPath(lower) : this.discrete ? linearPath(lower) : cubicSmoothPath(lower),
         id: row.id,
       });
       upperY.push(upper.map((point) => point.y));
@@ -720,7 +724,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     });
     const rows = spreadLabelRows(desired, LABEL_ROW, this.plotTop + 6, this.plotTop + this.plotHeight - 12);
     const labelX = this.plotLeft + plotWidth + 16 + this.gridGutter();
-    series.forEach((row, index) => {
+    if (this.showSeriesLabels) series.forEach((row, index) => {
       const tone = row.tone ?? 'ink';
       const midY = rows[index]!;
       labels.push({
@@ -752,6 +756,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   }
 
   private labelColumn(): number {
+    if (!this.showSeriesLabels) return Math.max(16, this.gridGutter() + 12);
     const names = this.series.flatMap((row) => [row.label, row.detail ?? '']);
     const longest = names.reduce((max, text) => Math.max(max, measureLabelWidth(text)), 0);
     return Math.max(LABEL_MIN, Math.ceil(longest) + 28) + this.gridGutter();

@@ -15,6 +15,25 @@
  */
 
 export const MODELS_FR = {
+  "models.alert_inbox.window_compact": "{count} derniers événements",
+
+  "models.alert_inbox.title": "Alertes ML",
+  "models.alert_inbox.scope_system": "Modèles rattachés à ce système",
+  "models.alert_inbox.scope_workspace": "Workspace",
+  "models.alert_inbox.unavailable": "Alertes indisponibles",
+  "models.alert_inbox.unread": "{count} non acquittées",
+  "models.alert_inbox.no_unread": "Aucune alerte non acquittée",
+  "models.alert_inbox.severe": "Alertes ou échecs : {count}",
+  "models.alert_inbox.window": "Parmi les {count} événements les plus récents",
+  "models.alert_inbox.paused": "Nouvelles alertes désactivées",
+  "models.alert_inbox.hide": "Réduire",
+  "models.alert_inbox.inspect": "Examiner",
+  "models.alert_inbox.open": "Opérations ML",
+  "models.alert_inbox.coverage": "{loaded} événements chargés sur {total} enregistrés. Les alertes et échecs apparaissent en premier ; cet historique ne décrit pas l’état actuel des modèles.",
+  "models.alert_inbox.more": "{count} autres événements non acquittés dans cette fenêtre. Ouvrez Opérations ML pour consulter la liste.",
+  "models.alert_inbox.state.recovered": "Rétablissement enregistré",
+  "models.alert_inbox.state.failed": "Échec enregistré",
+  "models.alert_inbox.state.expiring": "Expiration proche",
   'models.detail.selected': 'Version sélectionnée',
   'models.availability.qualification': 'Les métriques observées ne constituent pas une qualification de l’usage prévu.',
   "models.studio.quality_reservation": "Cette préparation ne conclut pas à la qualité : la séparation des populations et les preuves de contamination doivent être vérifiées sur le résultat.",
@@ -1781,6 +1800,25 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
+  "models.alert_inbox.window_compact": "Latest {count} events",
+
+  "models.alert_inbox.title": "ML alerts",
+  "models.alert_inbox.scope_system": "Models attached to this system",
+  "models.alert_inbox.scope_workspace": "Workspace",
+  "models.alert_inbox.unavailable": "Alerts unavailable",
+  "models.alert_inbox.unread": "{count} unacknowledged",
+  "models.alert_inbox.no_unread": "No unacknowledged alerts",
+  "models.alert_inbox.severe": "{count} alert or failure events",
+  "models.alert_inbox.window": "Among the {count} most recent events",
+  "models.alert_inbox.paused": "New alerts disabled",
+  "models.alert_inbox.hide": "Collapse",
+  "models.alert_inbox.inspect": "Review",
+  "models.alert_inbox.open": "ML operations",
+  "models.alert_inbox.coverage": "{loaded} of {total} recorded events loaded. Alert and failure events appear first; these are historical events, not a current health assessment.",
+  "models.alert_inbox.more": "{count} more unacknowledged events in this window. Open ML operations to review the list.",
+  "models.alert_inbox.state.recovered": "Recovery recorded",
+  "models.alert_inbox.state.failed": "Failure recorded",
+  "models.alert_inbox.state.expiring": "Expiring",
   'models.detail.selected': 'Selected version',
   'models.availability.qualification': 'Observed metrics do not establish qualification for the intended use.',
   "models.studio.quality_reservation": "This preparation makes no quality conclusion: population separation and leakage evidence must be checked on the result.",

@@ -54,6 +54,15 @@ export class ImpactActivityComponent {
     const date = this.dates()[this.selectedDay() ?? -1];
     return date ? { date, attempts: 0, completed: 0, failed: 0, cancelled: 0, pending: 0, ...this.data()?.buckets.find(bucket => bucket.date === date) } : null;
   });
+  readonly costState = computed(() => {
+    const state = this.data()?.costs.state;
+    return state === 'available' || state === 'partial' ? state : 'not_measured';
+  });
+  readonly costLabel = computed(() => this.i18n.t({
+    available: 'hypervisor.v2.activity.cost_available',
+    partial: 'hypervisor.v2.activity.cost_partial',
+    not_measured: 'hypervisor.v2.activity.cost_not_measured',
+  }[this.costState()]));
   readonly prices = computed(() => Object.entries(this.data()?.costs.by_currency ?? {}).map(([currency, amount]) => this.money(Number(amount), currency)).join(' / ') || '—');
   readonly evidence = computed(() => {
     const data = this.data();

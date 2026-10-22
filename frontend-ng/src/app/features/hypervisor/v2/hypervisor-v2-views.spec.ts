@@ -18,11 +18,23 @@ import {
   toggleStratumBlock,
   viewDenominator,
   viewPeriod,
+  usesDirectionNarrative,
 } from './hypervisor-v2-views';
 import {
   navigationZoneSurfaceUrl,
   resolveNavLink,
 } from '@app/core/navigation.catalog';
+
+test('presentation retains non-Direction and customised assemblies', () => {
+  const direction = DEFAULT_HYPERVISOR_VIEWS[0]!;
+  assert.equal(usesDirectionNarrative(direction), true);
+  assert.equal(usesDirectionNarrative(DEFAULT_HYPERVISOR_VIEWS[1]), false);
+  assert.equal(usesDirectionNarrative(DEFAULT_HYPERVISOR_VIEWS[2]), false);
+  assert.equal(usesDirectionNarrative({ ...direction, id: 'sav' }), false);
+  assert.equal(usesDirectionNarrative(removeStratumBlock(direction, 'comprendre', 'cadran')), false);
+  assert.equal(usesDirectionNarrative(moveStratumBlock(direction, 'comprendre', 'cadran', -1)), false);
+  assert.equal(usesDirectionNarrative(null), false);
+});
 
 test('parseViewsPayload falls back to Direction / Operations / Conformite defaults', () => {
   const parsed = parseViewsPayload(null);
@@ -31,7 +43,7 @@ test('parseViewsPayload falls back to Direction / Operations / Conformite defaul
   assert.equal(viewPeriod(parsed.views[0]), '90d');
   assert.equal(viewDenominator(parsed.views[1]), 'runs');
   assert.equal(viewDenominator(parsed.views[2]), 'runs');
-  assert.deepEqual(stratumBlockTypes(parsed.views[1]!, 'comprendre'), ['monument', 'cadran', 'rivers', 'signal']);
+  assert.deepEqual(stratumBlockTypes(parsed.views[1]!, 'comprendre'), ['activity', 'monument', 'cadran', 'rivers', 'signal']);
   assert.deepEqual(stratumBlockTypes(parsed.views[1]!, 'decider'), []);
   assert.deepEqual(stratumBlockTypes(parsed.views[2]!, 'comprendre'), ['unites', 'couverture', 'decisions']);
   assert.equal(showsBlock(parsed.views[0]!, 'comprendre', 'unites'), false);

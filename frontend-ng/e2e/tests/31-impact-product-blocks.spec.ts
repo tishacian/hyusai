@@ -64,7 +64,8 @@ test.describe('Configured product Impact blocks — isolated end-user QA', () =>
     const { requests } = await setup(page);
     await page.goto('/hypervisor?facet=synthese');
     await expect(page.getByRole('button', { name: /Personnaliser/ })).toBeVisible();
-    await expect(page.locator('ck-page-frame header p').filter({ hasText: 'capabilities' })).toContainText('2 capabilities');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Décider à partir des résultats');
+    await expect(page.getByTestId('impact-reading-scope')).toHaveValue('');
     await expect(page.getByTestId('impact-activity')).toHaveCount(0);
     await expect(page.getByTestId('impact-financial-scenario')).toHaveCount(0);
     expect(requests.some(path => path.startsWith('/ecommerce-claims'))).toBe(false);
@@ -101,7 +102,8 @@ test.describe('Configured product Impact blocks — isolated end-user QA', () =>
     await expect(page.getByTestId('impact-projected-roi')).toContainText('350');
     await expect(page.getByTestId('impact-view-scope')).toContainText('Inventory');
     await expect(page.getByTestId('hypervisor-v2-monument').locator('.hv2-monument')).toHaveText('12');
-    await expect(page.locator('ck-page-frame header p').filter({ hasText: 'capabilities' })).toContainText('0 capabilities');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Support desk');
+    await expect(page.getByTestId('impact-reading-scope')).toHaveValue('inventory');
     await expect(page.getByTestId('hypervisor-v2-monument')).toContainText('terminées en 7 jours');
     expect(await page.locator('[data-testid=hypervisor-v2-stratum-comprendre]').evaluate(el => Array.from(el.querySelectorAll('app-impact-financial-scenario,app-impact-activity')).map(x => x.tagName.toLowerCase()))).toEqual(['app-impact-financial-scenario', 'app-impact-activity']);
     expect(requests.some(path => path.startsWith('/ecommerce-claims'))).toBe(false);
