@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.run import Run
 from app.models.work_record_run import WorkRecordRun
 from app.services.experience.bindings import record_ref_from_payload
+from app.services.experience.record_identity import resolve_record_identity
 
 MAX_PAGE = 50
 
@@ -30,11 +31,14 @@ def record_work_attempt(
     payload: Any,
     run: Run,
     user_id: Optional[str],
+    workspace: Any = None,
+    experience_slug: Optional[str] = None,
 ) -> Optional[WorkRecordRun]:
-    """Append the Run to its record's attempts when the binding declares an
-    identity and the payload carries a reference. Returns the row or None."""
-    identity = snapshot.get("record_identity")
-    if not isinstance(identity, Mapping):
+    """Append the Run to its record's attempts when the action has a record
+    identity (released or supplied by a business reader) and the payload
+    carries a reference. Returns the row or None."""
+    identity = resolve_record_identity(snapshot, workspace=workspace, experience_slug=experience_slug)
+    if not identity:
         return None
     record_ref = record_ref_from_payload(identity, payload)
     if record_ref is None:
@@ -66,7 +70,8 @@ def record_attempts_page(
     limit: int,
     offset: int,
 ) -> tuple[list[tuple[WorkRecordRun, Run]], bool]:
-    """Newest first, this reader's own attempts only, with one extra row
+    """Newest first, the attempts of everyone the app serves (each Run is
+    still filtered by its read rights by the caller), with one extra row
     fetched to say whether a next page exists."""
     size = max(1, min(int(limit), MAX_PAGE))
     rows = (
@@ -77,7 +82,6 @@ def record_attempts_page(
             WorkRecordRun.experience_id == experience_id,
             WorkRecordRun.record_namespace == namespace,
             WorkRecordRun.record_ref == record_ref,
-            WorkRecordRun.initiated_by_user_id == user_id,
             Run.workspace_id == workspace_id,
         )
         .order_by(WorkRecordRun.created_at.desc(), WorkRecordRun.id.desc())
