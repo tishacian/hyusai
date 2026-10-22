@@ -27,6 +27,7 @@ extension (no runtime download on a locked-down VM).
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import tempfile
@@ -39,6 +40,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
@@ -151,15 +153,31 @@ def detect_format(filename: str, content_type: str | None = None) -> str:
 
 
 def next_version(db: DBSession, *, workspace_id: str, slug: str) -> int:
-    rows = (
-        db.query(TabularDataset.version)
+    """Allocate within the caller's transaction, including a new dataset lineage.
+
+    A row lock cannot protect the first version, and locking the current last
+    row does not make a concurrent ``max + 1`` safe. Hold a PostgreSQL advisory
+    lock for this workspace/slug until the caller commits or rolls back the
+    inserted row. All producers (uploads, imports, transforms and scores) pass
+    here. The key also matches the preparation service's earlier lineage lock.
+    """
+
+    if db.get_bind().dialect.name == "postgresql":
+        lock = int.from_bytes(
+            hashlib.sha256(f"{workspace_id}/{slug}".encode()).digest()[:8],
+            "big",
+            signed=True,
+        )
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+    latest = (
+        db.query(func.max(TabularDataset.version))
         .filter(
             TabularDataset.workspace_id == workspace_id,
             TabularDataset.slug == slug,
         )
-        .all()
+        .scalar()
     )
-    return max((int(row[0] or 0) for row in rows), default=0) + 1
+    return int(latest or 0) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -387,34 +405,50 @@ def _read_source(path: Path, fmt: str) -> Any:
 
 def dataset_files(dataset: TabularDataset) -> list[str]:
     from app.services.dataops.storage import dataset_files as files
+
     return files(dataset)
 
 
-def materialize_dataset(dataset: TabularDataset, directory: Path, *, max_bytes: int | None = None) -> list[Path]:
+def materialize_dataset(
+    dataset: TabularDataset, directory: Path, *, max_bytes: int | None = None
+) -> list[Path]:
     from app.services.dataops.storage import materialize_files
+
     if not dataset.storage_key:
-        raise TabularError(code="DATASET_NOT_READY", message="The dataset has no committed data.", status_code=409)
+        raise TabularError(
+            code="DATASET_NOT_READY", message="The dataset has no committed data.", status_code=409
+        )
     return materialize_files(dataset, directory, max_bytes=max_bytes)
 
 
 def dataset_digest(dataset: TabularDataset) -> str:
     from app.services.dataops.storage import dataset_digest as digest
+
     return digest(dataset)
 
 
 def open_dataset_arrow(dataset: TabularDataset):
     from app.services.dataops.storage import open_dataset_arrow as open_arrow
+
     return open_arrow(dataset)
 
 
-def materialize(dataset: TabularDataset, destination: Path, *, max_bytes: int | None = None) -> Path:
+def materialize(
+    dataset: TabularDataset, destination: Path, *, max_bytes: int | None = None
+) -> Path:
     """Legacy single-file API. Multipart callers must use materialize_dataset."""
     from app.services.dataops.storage import is_delta
+
     if is_delta(dataset):
-        raise TabularError(code="DATASET_MULTIPART_REQUIRES_FILE_LIST",
-                           message="Use materialize_dataset for a Delta dataset.", status_code=409)
+        raise TabularError(
+            code="DATASET_MULTIPART_REQUIRES_FILE_LIST",
+            message="Use materialize_dataset for a Delta dataset.",
+            status_code=409,
+        )
     if not dataset.storage_key:
-        raise TabularError(code="DATASET_NOT_READY", message="The dataset has no committed data.", status_code=409)
+        raise TabularError(
+            code="DATASET_NOT_READY", message="The dataset has no committed data.", status_code=409
+        )
     return get_object_store().copy_to_local(dataset.storage_key, destination, max_bytes=max_bytes)
 
 
@@ -684,6 +718,7 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
         if dataset is None:
             return {"id": dataset_id, "status": "missing"}
         from app.models.workspace import Workspace
+
         db.query(Workspace).filter_by(id=dataset.workspace_id).with_for_update().one()
         db.refresh(dataset)
         # The workspace lock makes the pending -> ingesting claim exclusive.
@@ -731,12 +766,17 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
                     mark_step(db, dataset, "profiling", rows=frame.height)
                     mark_step(db, dataset, "writing", rows=frame.height)
                     register_frame(
-                        db, workspace_id=dataset.workspace_id, name=dataset.name,
-                        frame=frame, into=dataset,
+                        db,
+                        workspace_id=dataset.workspace_id,
+                        name=dataset.name,
+                        frame=frame,
+                        into=dataset,
                     )
                     profile = {
-                        "row_count": dataset.row_count, "column_count": dataset.column_count,
-                        "schema": dataset.schema_json, "stats": dataset.stats_json,
+                        "row_count": dataset.row_count,
+                        "column_count": dataset.column_count,
+                        "schema": dataset.schema_json,
+                        "stats": dataset.stats_json,
                         "preview": dataset.preview_json,
                     }
                     key, size = dataset.storage_key, dataset.size_bytes
@@ -951,8 +991,10 @@ def register_frame(
         if settings.dataops_write_delta_enabled:
             table = frame.to_arrow()
             paths = write_batches(
-                root, table.to_batches(max_chunksize=settings.dataops_batch_rows),
-                schema=table.schema, delta=True,
+                root,
+                table.to_batches(max_chunksize=settings.dataops_batch_rows),
+                schema=table.schema,
+                delta=True,
             )
             return settle_files(db, dataset, paths, delta_root=root)
         # Keep the legacy Polars encoding and its historical byte fingerprint.
@@ -998,10 +1040,14 @@ def register_parquet_file(
     from app.services.dataops.storage import profile_files, settle_files, write_batches
 
     if Path(path).stat().st_size > settings.dataops_max_output_mb * 1024**2:
-        raise TabularError(code="DATASET_TOO_LARGE", message="Result exceeds the output byte budget.")
+        raise TabularError(
+            code="DATASET_TOO_LARGE", message="Result exceeds the output byte budget."
+        )
     profile = None if settings.dataops_write_delta_enabled else profile_files([Path(path)])
     if profile is not None and profile["row_count"] > settings.tabular_transform_max_rows:
-        raise TabularError(code="DATASET_TOO_LARGE", message="Result exceeds the legacy row ceiling")
+        raise TabularError(
+            code="DATASET_TOO_LARGE", message="Result exceeds the legacy row ceiling"
+        )
     dataset = reserve_frame(
         db,
         workspace_id=workspace_id,
@@ -1018,8 +1064,10 @@ def register_parquet_file(
         with tempfile.TemporaryDirectory(prefix="delta-register-") as tmp:
             root = Path(tmp)
             scanner = ds.dataset(str(path), format="parquet").scanner(
-                batch_size=settings.dataops_batch_rows, use_threads=False,
-                batch_readahead=0, fragment_readahead=0,
+                batch_size=settings.dataops_batch_rows,
+                use_threads=False,
+                batch_readahead=0,
+                fragment_readahead=0,
             )
             paths = write_batches(
                 root, scanner.to_batches(), schema=scanner.projected_schema, delta=True

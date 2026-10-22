@@ -181,7 +181,7 @@ test('the ratio fact is secondary and the hero reads as one sentence', () => {
     '/hypervisor/decisions': () => of({ items: [] }),
   });
   view.reload();
-  assert.equal(view.pageTitle(), 'hypervisor.v2.page.title');
+  assert.equal(view.pageTitle(), 'hypervisor.v2.intent.direction.title');
   assert.equal(view.riversTitle(), 'hypervisor.v2.rivers.title.hours');
   assert.equal(view.valueDeclaredShare(), '', 'no declared value, no share');
 

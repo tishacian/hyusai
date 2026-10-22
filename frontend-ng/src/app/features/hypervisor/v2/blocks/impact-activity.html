@@ -9,24 +9,41 @@
   @if (busy()) { <p role="status">{{ i18n.t('hypervisor.v2.loading') }}</p> }
   @else if (problem()) { <p role="alert">{{ i18n.t('hypervisor.v2.product.unavailable') }}</p> }
   @else if (data(); as activity) {
-    @if (activity.limited) { <p role="status">{{ i18n.t('hypervisor.v2.activity.limited', { limit: activity.limit }) }}</p> }
-    <dl class="product-metrics">
-      <div><dt>{{ i18n.t('hypervisor.v2.activity.attempts') }}</dt><dd data-testid="impact-attempts">{{ number(activity.counts.attempts) }}</dd></div>
-      @if (metrics().includes('statuses')) {
-        <div><dt>{{ i18n.t('hypervisor.v2.activity.completed') }}</dt><dd>{{ number(activity.counts.completed) }}</dd></div>
-        <div><dt>{{ i18n.t('hypervisor.v2.activity.failed_cancelled') }}</dt><dd>{{ number(activity.counts.failed + activity.counts.cancelled) }}</dd></div>
-        <div><dt>{{ i18n.t('hypervisor.v2.activity.pending') }}</dt><dd>{{ number(activity.counts.pending) }}</dd></div>
-      }
-      @if (metrics().includes('calls')) { <div><dt>{{ i18n.t('hypervisor.v2.activity.calls') }}</dt><dd>{{ number(activity.counts.invocations) }}</dd></div> }
-      @if (metrics().includes('duration')) { <div><dt>{{ i18n.t('hypervisor.v2.activity.technical') }}</dt><dd>{{ number(activity.median_technical_seconds, 1) }} <small>s</small></dd></div> }
-    </dl>
-    @if (activity.counts.attempts) {
-      <div class="product-chart" data-testid="impact-activity-chart">
-        <h3>{{ i18n.t('hypervisor.v2.activity.daily') }}</h3>
-        <p class="activity-chart-hint">{{ i18n.t('hypervisor.v2.activity.day_hint') }}</p>
-        <ck-chart-stream [series]="chart()" [discrete]="true" [dayLabels]="dayLabels()" [ticks]="ticks()" [height]="150" [fluid]="true" [lockedDay]="selectedDay()" (dayLock)="selectDay($event)" />
+    @if (activity.limited) { <p class="product-notice" role="status">{{ i18n.t('hypervisor.v2.activity.limited', { limit: activity.limit }) }}</p> }
+    <div class="activity-overview">
+      <div class="activity-outcomes">
+        <dl class="product-metrics activity-metrics">
+          @if (metrics().includes('statuses')) {
+            <div class="metric-lead"><dt>{{ i18n.t('hypervisor.v2.activity.completed') }}</dt><dd>{{ number(activity.counts.completed) }}</dd></div>
+          }
+          <div [class.metric-lead]="!metrics().includes('statuses')"><dt>{{ i18n.t('hypervisor.v2.activity.attempts') }}</dt><dd data-testid="impact-attempts">{{ number(activity.counts.attempts) }}</dd></div>
+          @if (metrics().includes('statuses')) {
+            <div><dt>{{ i18n.t('hypervisor.v2.activity.failed_cancelled') }}</dt><dd>{{ number(activity.counts.failed + activity.counts.cancelled) }}</dd></div>
+            <div><dt>{{ i18n.t('hypervisor.v2.activity.pending') }}</dt><dd>{{ number(activity.counts.pending) }}</dd></div>
+          }
+        </dl>
+        <p class="product-note activity-volume-note">{{ i18n.t('hypervisor.v2.activity.attempts_note') }}</p>
       </div>
-    } @else { <p>{{ i18n.t('hypervisor.v2.activity.empty') }}</p> }
+      @if (activity.counts.attempts) {
+        <div class="product-chart" data-testid="impact-activity-chart">
+          <h3>{{ i18n.t('hypervisor.v2.activity.daily') }}</h3>
+          <p class="activity-chart-hint">{{ i18n.t('hypervisor.v2.activity.day_hint') }}</p>
+          <ck-chart-stream [series]="chart()" [discrete]="true" [stepped]="true" [showSeriesLabels]="false" [dayLabels]="dayLabels()" [ticks]="ticks()" [height]="132" [fluid]="true" [lockedDay]="selectedDay()" (dayLock)="selectDay($event)" />
+        </div>
+      } @else { <p class="activity-empty">{{ i18n.t('hypervisor.v2.activity.empty') }}</p> }
+    </div>
+    @if (metrics().includes('calls') || metrics().includes('duration') || metrics().includes('costs')) {
+      <dl class="activity-facts">
+        @if (metrics().includes('calls')) { <div><dt>{{ i18n.t('hypervisor.v2.activity.calls') }}</dt><dd>{{ number(activity.counts.invocations) }}</dd></div> }
+        @if (metrics().includes('duration')) { <div><dt>{{ i18n.t('hypervisor.v2.activity.technical') }}</dt><dd>{{ number(activity.median_technical_seconds, 1) }} <small>s</small><span class="fact-note">{{ i18n.t('hypervisor.v2.activity.technical_short_note') }}</span></dd></div> }
+        @if (metrics().includes('costs')) {
+          <div class="activity-costs" data-testid="impact-costs">
+            <dt>{{ i18n.t('hypervisor.v2.activity.costs') }} <span class="evidence-label">{{ costLabel() }}</span></dt>
+            <dd>{{ prices() }}<span class="fact-note">{{ activity.costs.priced_invocations }}/{{ activity.counts.invocations }} {{ i18n.t('hypervisor.v2.activity.priced') }} · {{ i18n.t('hypervisor.v2.activity.cost_short_note') }}</span></dd>
+          </div>
+        }
+      </dl>
+    }
     @if (activity.counts.attempts || selected()) {
       @if (evidence(); as proof) {
         <details class="activity-evidence" data-testid="impact-evidence" [open]="evidenceOpen()" #evidencePanel (toggle)="evidenceOpen.set(evidencePanel.open)">
@@ -49,12 +66,12 @@
               @for (run of proof.runs; track run.id) { <tr><td>{{ dateTime(run.started_at) }}</td><td>{{ status(run.status) }}</td><td><a [navLink]="{ type: 'run', ref: run.id }">{{ i18n.t('hypervisor.v2.activity.open') }} <span class="sr-only">{{ run.id }}</span></a></td></tr> }
             </tbody></table></div>
           }
+          <div class="activity-method">
+            <p class="product-note">{{ i18n.t('hypervisor.v2.activity.time_note') }} @if (metrics().includes('duration')) { {{ i18n.t('hypervisor.v2.activity.sample', { count: activity.technical_sample_count }) }} }</p>
+            @if (metrics().includes('costs')) { <p class="product-note">{{ i18n.t('hypervisor.v2.activity.cost_note') }}</p> }
+          </div>
         </details>
       }
     }
-    @if (metrics().includes('costs')) {
-      <p class="product-note" data-testid="impact-costs">{{ i18n.t('hypervisor.v2.activity.costs') }} : {{ prices() }} · {{ activity.costs.priced_invocations }}/{{ activity.counts.invocations }} {{ i18n.t('hypervisor.v2.activity.priced') }}. {{ i18n.t('hypervisor.v2.activity.cost_note') }}</p>
-    }
-    <p class="product-note">{{ i18n.t('hypervisor.v2.activity.time_note') }} @if (metrics().includes('duration')) { {{ i18n.t('hypervisor.v2.activity.sample', { count: activity.technical_sample_count }) }} }</p>
   }
 </section>

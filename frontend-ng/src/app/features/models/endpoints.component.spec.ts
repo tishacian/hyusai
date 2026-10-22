@@ -41,6 +41,7 @@ test('Hypervisor inbox discards alerts after a workspace switch', async () => {
   const component = Object.assign(Object.create(MLAlertInboxComponent.prototype), {
     destroyed: false, workspace: {captureRequestScope: () => ({}), isRequestScopeCurrent: () => active},
     api: {features: async () => ({enabled: true}), alerts: () => new Promise(done => {finish = done;})},
+    generation: 0, systemId: () => null, alertsEnabled: signal(false), loading: signal(false), expanded: signal(null),
     enabled: signal(false), failed: signal(false), total: signal(0), items: signal([]),
   }) as any;
   const pending = component.ngOnInit(); await Promise.resolve(); active = false;

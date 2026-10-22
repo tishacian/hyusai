@@ -75,6 +75,24 @@ export function linearAreaPath(upper: readonly SvgPoint[], lower?: readonly SvgP
   return `${linearPath(upper)}L${linearPath(bottom).slice(1)}Z`;
 }
 
+/** Hold each bucket at its observed value, changing at the midpoint between dates. */
+export function steppedPath(points: readonly SvgPoint[]): string {
+  if (!points.length) return '';
+  let path = `M${fmt(points[0].x)},${fmt(points[0].y)}`;
+  for (let i = 1; i < points.length; i += 1) {
+    const previous = points[i - 1], next = points[i];
+    path += `H${fmt((previous.x + next.x) / 2)}V${fmt(next.y)}`;
+  }
+  return points.length > 1 ? `${path}H${fmt(points[points.length - 1].x)}` : path;
+}
+
+/** A discrete area shares its step boundaries with its baseline or lower stacked band. */
+export function steppedAreaPath(upper: readonly SvgPoint[], lower?: readonly SvgPoint[] | null, baselineY = 0): string {
+  if (upper.length < 2) return '';
+  const bottom = lower?.length ? [...lower].reverse() : [{ x: upper[upper.length - 1].x, y: baselineY }, { x: upper[0].x, y: baselineY }];
+  return `${steppedPath(upper)}L${steppedPath(bottom).slice(1)}Z`;
+}
+
 export function integerStep(max: number): number { return Math.max(1, Math.ceil(niceStep(max))); }
 
 export function sankeyRibbonPath(source: SvgSegment, target: SvgSegment): string {

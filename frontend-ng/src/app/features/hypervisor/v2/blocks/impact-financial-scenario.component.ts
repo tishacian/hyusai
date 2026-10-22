@@ -8,28 +8,30 @@ import type { HypervisorBlockRef } from '../hypervisor-v2-views';
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './impact-product-blocks.scss',
   template: `
-    <section class="impact-product" data-testid="impact-financial-scenario">
+    <section class="impact-product financial-scenario" data-testid="impact-financial-scenario">
       <header class="product-head">
         <div><h2>{{ block().title || i18n.t('hypervisor.v2.block.financial_scenario') }}</h2><p>{{ scopeLabel() }} · {{ i18n.t('hypervisor.v2.scenario.declared') }}</p></div>
         @if (canEdit()) { <button type="button" (click)="configure.emit()">{{ i18n.t('hypervisor.v2.product.configure') }}</button> }
       </header>
       @if (projection(); as result) {
-        <dl class="product-metrics">
-          <div><dt>{{ i18n.t('hypervisor.v2.scenario.net') }}</dt><dd data-testid="impact-projected-net">{{ money(result.net, result.currency) }}</dd></div>
+        <dl class="product-metrics scenario-metrics">
+          <div class="metric-lead"><dt>{{ i18n.t('hypervisor.v2.scenario.net') }}</dt><dd data-testid="impact-projected-net">{{ money(result.net, result.currency) }}</dd></div>
           <div><dt>{{ i18n.t('hypervisor.v2.scenario.roi') }}</dt><dd data-testid="impact-projected-roi">{{ percent(result.roi) }}</dd></div>
           <div><dt>{{ i18n.t('hypervisor.v2.scenario.threshold') }}</dt><dd>{{ number(result.breakEvenMinutes) }} <small>min</small></dd></div>
           <div><dt>{{ i18n.t('hypervisor.v2.scenario.monthly') }}</dt><dd>{{ money(result.monthlyNet, result.currency) }}</dd></div>
         </dl>
-        <p class="product-note">{{ i18n.t('governance.impact.formula') }}</p>
+        <p class="scenario-basis" data-testid="impact-scenario-basis">{{ i18n.t('hypervisor.v2.scenario.basis', { manual: assumption('manual_minutes'), assisted: assumption('assisted_minutes'), hourly: assumption('hourly_cost'), budget: assumption('unit_budget') }) }}</p>
+        <p class="product-note scenario-boundary">{{ i18n.t('hypervisor.v2.scenario.projection_note') }}</p>
       } @else { <p>{{ i18n.t('hypervisor.v2.scenario.incomplete') }}</p> }
-      <details open><summary>{{ i18n.t('hypervisor.v2.scenario.assumptions') }}</summary>
+      <details class="scenario-assumptions" data-testid="impact-scenario-assumptions" [open]="!projection()"><summary>{{ i18n.t('hypervisor.v2.scenario.assumptions') }}<span class="activity-evidence-count">{{ i18n.t('hypervisor.v2.scenario.method') }}</span></summary>
         <dl class="product-assumptions">
           @for (field of fields; track field) { <div><dt>{{ i18n.t('hypervisor.v2.scenario.' + field) }}</dt><dd>{{ assumption(field) }}</dd></div> }
         </dl>
         @if (block().settings['unit_label']; as unit) { <p>{{ i18n.t('hypervisor.v2.scenario.unit_label') }} : {{ unit }}</p> }
         @if (block().settings['note']; as note) { <p>{{ note }}</p> }
+        <p class="product-note">{{ i18n.t('governance.impact.formula') }}</p>
+        <p class="product-note">{{ i18n.t('hypervisor.v2.scenario.note') }}</p>
       </details>
-      <p class="product-note">{{ i18n.t('hypervisor.v2.scenario.note') }}</p>
     </section>
   `,
 })

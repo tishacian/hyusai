@@ -11,8 +11,10 @@ import {
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, forkJoin, of, type Observable } from 'rxjs';
@@ -84,6 +86,7 @@ import {
   REGISTER_COLUMNS,
   VIEW_SORTS,
   cloneView,
+  usesDirectionNarrative,
   impactGenericView,
   isImpactViewId,
   moveStratumBlock,
@@ -200,6 +203,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
   },
   imports: [
     MLAlertInboxComponent,
+    FormsModule,
     WriteOutcomeComponent,
     NgTemplateOutlet,
     PageFrameComponent,
@@ -236,7 +240,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       [title]="pageTitle()"
       [description]="presentationTheme() ? '' : pageSummary()"
     >
-      <app-ml-alert-inbox />
       @if (arrivalChipLabel(); as chip) {
         <ck-filter-chip
           kind="provenance"
@@ -258,19 +261,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
           </button>
         } @else {
-          <div class="hv2-switch" role="tablist">
-            @for (view of switcherViews(); track view.id) {
-              <button
-                type="button"
-                role="tab"
-                [attr.data-testid]="'hypervisor-v2-view-' + view.id"
-                [attr.aria-selected]="view.id === switcherActiveId()"
-                [attr.title]="viewLabel(view)"
-                [class.hv2-switch-on]="view.id === switcherActiveId()"
-                (click)="selectSwitcherView(view.id)"
-              ><span>{{ viewLabel(view) }}</span></button>
-            }
-          </div>
           <button
             type="button"
             class="hv2-text-btn"
@@ -286,9 +276,53 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         }
       </div>
 
+      <div sub class="hv2-view-nav">
+        @if (!presentationTheme()) {
+          <div class="hv2-switch" role="tablist" [attr.aria-label]="i18n.t('hypervisor.v2.reader.views')">
+            @for (view of switcherViews(); track view.id) {
+              <button type="button" role="tab"
+                [attr.data-testid]="'hypervisor-v2-view-' + view.id"
+                [attr.aria-selected]="view.id === switcherActiveId()"
+                [attr.title]="viewLabel(view)"
+                [class.hv2-switch-on]="view.id === switcherActiveId()"
+                (click)="selectSwitcherView(view.id)"><span>{{ viewLabel(view) }}</span></button>
+            }
+          </div>
+        }
+      </div>
+
       @if (!activeImpactViewId() && activeView()) {
-        <p class="hv2-scope" data-testid="impact-view-scope">{{ systemScopeLabel() }} · {{ i18n.t('hypervisor.v2.period.' + viewPeriod(activeView())) }} · {{ i18n.t('hypervisor.v2.product.completed_charts') }}</p>
+        <section class="hv2-reader" [attr.aria-label]="i18n.t('hypervisor.v2.reader.label')" data-testid="impact-reading-controls">
+          <div class="hv2-reader-controls">
+            @if (!presentationTheme()) {
+              <label class="hv2-reader-scope">{{ i18n.t('hypervisor.v2.reader.scope') }}
+                <select data-testid="impact-reading-scope" [ngModel]="activeView()?.system_id || ''" [disabled]="systemsProblem() || loading()" (ngModelChange)="setSystemScope($event)">
+                  <option value="">{{ i18n.t('hypervisor.v2.product.all_systems') }}</option>
+                  @if (activeView()?.system_id && !selectedScopeAvailable()) { <option [value]="activeView()!.system_id">{{ systemScopeLabel() }}</option> }
+                  @for (system of activitySystems(); track system.id) { <option [value]="system.id">{{ system.name }}</option> }
+                </select>
+              </label>
+              <div class="hv2-reader-periods" role="group" [attr.aria-label]="i18n.t('hypervisor.v2.customize.period')">
+                @for (period of periods; track period) {
+                  <button type="button" [attr.data-testid]="'impact-reading-period-' + period" [attr.aria-pressed]="viewPeriod(activeView()) === period" [disabled]="loading()" (click)="setPeriod(period)">{{ i18n.t('hypervisor.v2.period.' + period) }}</button>
+                }
+              </div>
+              <button type="button" class="hv2-text-btn" data-testid="impact-refresh" [disabled]="loading()" (click)="refreshReadingView()">{{ i18n.t('hypervisor.v2.product.refresh') }}</button>
+              @if (saveMessage() === 'hypervisor.v2.product.unsaved' && canEdit()) { <button type="button" class="hv2-reader-draft hv2-text-btn" (click)="customizeOpen.set(true)">{{ i18n.t('hypervisor.v2.product.unsaved') }}</button> }
+            }
+            <p class="hv2-scope" data-testid="impact-view-scope">{{ systemScopeLabel() }} · {{ i18n.t('hypervisor.v2.period.' + viewPeriod(activeView())) }} · {{ i18n.t('hypervisor.v2.product.completed_charts') }}</p>
+          </div>
+          @if (!presentationTheme()) {
+            <nav class="hv2-reader-links" [attr.aria-label]="i18n.t('hypervisor.v2.reader.inspect')">
+              <a [navLink]="registreFacetLink()">{{ i18n.t('hypervisor.v2.reader.results') }} <span aria-hidden="true">→</span></a>
+              <a [navLink]="basesFacetLink()">{{ i18n.t('hypervisor.v2.reader.bases') }}@if (sourceStates().series === 'ready' && series()) { <span class="ck-tnum">{{ declaredCount() }}/{{ series()!.register.length }}</span> } <span aria-hidden="true">→</span></a>
+              <a [navLink]="decisionsFacetLink()">{{ i18n.t('hypervisor.v2.reader.decisions') }}@if (sourceStates().decisions === 'ready') { <span class="ck-tnum">{{ proposedDecisions().length }}</span> } <span aria-hidden="true">→</span></a>
+              <span class="hv2-reader-note">{{ i18n.t('hypervisor.v2.reader.decisions_scope') }}</span>
+            </nav>
+          }
+        </section>
       }
+      @if (!presentationTheme()) { <app-ml-alert-inbox presentation="compact" /> }
       @if (loading()) {
         <p class="hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
       } @else if (loadProblem(); as problem) {
@@ -396,7 +430,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 </article>
               }
             </section>
-          } @else if (presentationTheme() && !hasProductBlocks()) {
+          } @else if (presentationTheme() && usesDirectionNarrative(activeView())) {
             <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
           } @else {
             <p class="sr-only" role="status" aria-live="polite" data-testid="hypervisor-v2-lock-announcer">{{ lockAnnouncement() }}</p>
@@ -472,8 +506,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               </section>
             }
           </div>
-            <app-operational-objective />
-            <app-hypervisor-automation />
+            @if (!presentationTheme()) {
+              <details class="hv2-steering" data-testid="impact-steering-controls">
+                <summary><span>{{ i18n.t('hypervisor.v2.reader.steering') }}</span><span class="hv2-reader-note">{{ i18n.t('hypervisor.v2.reader.steering_note') }}</span></summary>
+                <app-operational-objective [systemId]="activeView()?.system_id || null" />
+                <p class="hv2-reader-note">{{ i18n.t('hypervisor.v2.reader.automation_scope') }}</p>
+                <app-hypervisor-automation />
+              </details>
+            }
         }
         }
 
@@ -1455,7 +1495,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 @if (showCol('cost')) { <th class="hv2-num">{{ i18n.t('hypervisor.v2.col.cost') }}</th> }
                 @if (showCol('basis')) { <th>{{ i18n.t('hypervisor.v2.col.basis') }}</th> }
                 @if (showCol('value')) { <th class="hv2-num">{{ i18n.t('hypervisor.v2.col.value') }}</th> }
-                <th class="hv2-arrow-col"><span aria-hidden="true">→</span></th>
+                <th class="hv2-arrow-col"><span aria-hidden="true">→</span><span class="sr-only">{{ i18n.t('hypervisor.v2.register.open_system') }}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -1645,7 +1685,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         <div class="hv2-product-editor">
           <label>{{ i18n.t('hypervisor.v2.product.view_name') }}<input [value]="view.label" [disabled]="!canEdit()" maxlength="100" (input)="setViewLabel(eventValue($event))" /></label>
           <label>{{ i18n.t('hypervisor.v2.product.scope') }}
-            <select data-testid="impact-system-scope" [value]="view.system_id || ''" [disabled]="!canEdit() || systemsProblem()" (change)="setSystemScope(eventValue($event))">
+            <select data-testid="impact-system-scope" [ngModel]="view.system_id || ''" [disabled]="!canEdit() || systemsProblem()" (ngModelChange)="setSystemScope($event)">
               <option value="">{{ i18n.t('hypervisor.v2.product.all_systems') }}</option>
               @for (system of activitySystems(); track system.id) { <option [value]="system.id">{{ system.name }}</option> }
             </select>
@@ -1745,12 +1785,14 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             }
           </div>
         </div>
+        <div class="hv2-customize-footer">
         <p role="status" data-testid="impact-save-message">{{ saveMessage() ? i18n.t(saveMessage()) : '' }}</p>
         @if (canEdit()) {
           <button type="button" class="hv2-text-btn" (click)="saveViews()" [disabled]="savingViews()">
             {{ i18n.t('hypervisor.v2.customize.save') }}
           </button>
         }
+        </div>
       }
     </ck-panel>
   `,
@@ -1805,6 +1847,30 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-proof-body .hv2-sel-list { margin: 0; }
     .hv2-actions, .hv2-list-row, .hv2-block-row, .hv2-btn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .hv2-actions { min-width: 0; max-width: 100%; }
+    .hv2-view-nav:has(.hv2-switch) { margin-top: 12px; }
+    .hv2-reader { margin: 0 0 16px; border-block: 1px solid var(--ck-stroke-2); }
+    .hv2-reader-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 0; }
+    .hv2-reader-scope { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: var(--ck-fg-2); }
+    .hv2-reader-scope select { max-width: min(360px, 56vw); min-width: 0; padding: 7px 26px 7px 10px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; background: var(--ck-bg-panel); color: var(--ck-fg-1); font: inherit; text-overflow: ellipsis; }
+    .hv2-reader-periods { display: flex; padding: 2px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; }
+    .hv2-reader-periods button { padding: 5px 10px; border: 1px solid transparent; border-radius: 4px; font: inherit; font-size: 12px; color: var(--ck-fg-2); background: transparent; cursor: pointer; }
+    .hv2-reader-periods button[aria-pressed=true] { color: var(--ck-fg-1); background: var(--ck-bg-panel); border-color: var(--ck-stroke-strong); }
+    .hv2-reader-controls .hv2-scope { width: 100%; margin: 0; color: var(--ck-fg-3); }
+    .hv2-reader-controls > .hv2-text-btn { font-size: 12px; }
+    .hv2-reader-draft { margin-left: auto; }
+    .hv2-reader-links { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; padding: 10px 0; border-top: 1px solid var(--ck-stroke-2); font-size: 12px; }
+    .hv2-reader-links a { display: inline-flex; align-items: center; gap: 8px; color: var(--ck-fg-2); text-decoration: none; }
+    .hv2-reader-links a:hover { color: var(--ck-accent); }
+    .hv2-reader-links .ck-tnum { color: var(--ck-fg-1); font-weight: 600; }
+    .hv2-reader-note { color: var(--ck-fg-3); font-size: 12px; line-height: 1.5; }
+    .hv2-reader-links > .hv2-reader-note { margin-left: auto; }
+    .hv2-steering { margin-top: 24px; border-top: 1px solid var(--ck-stroke-2); }
+    .hv2-steering > summary { cursor: pointer; padding: 18px 0; font-size: 14px; }
+    .hv2-steering > summary > span:first-child { font-weight: 600; margin-right: 20px; }
+    .hv2-steering[open] > summary { margin-bottom: 12px; }
+    .hv2-customize-footer { position: sticky; bottom: -24px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--ck-bg-panel); border-top: 1px solid var(--ck-stroke-2); padding: 14px 0; }
+    .hv2-customize-footer p { margin: 0; font-size: 12px; }
+    @media (max-width: 640px) { .hv2-reader-scope { width: 100%; } .hv2-reader-scope select { flex: 1; max-width: 100%; } .hv2-reader-links { display: none; } .hv2-reader-draft { margin-left: 0; } .hv2-steering > summary > .hv2-reader-note { display: block; margin-top: 6px; } }
     .hv2-customize-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2182,6 +2248,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   );
 
   readonly viewPeriod = viewPeriod;
+  readonly usesDirectionNarrative = usesDirectionNarrative;
+  private readonly mlInbox = viewChild(MLAlertInboxComponent);
   readonly showsColumn = showsColumn;
   readonly showsBlock = showsBlock;
   readonly measuredMark = MARK_MEASURED;
@@ -2945,10 +3013,20 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
         ? this.i18n.t('hypervisor.v2.theme.title_days', { days })
         : this.i18n.t('hypervisor.v2.theme.title');
     }
+    if (this.activeFacet() === 'synthese' && !this.activeImpactViewId() && this.activeView()) {
+      const id = this.activeView()!.id;
+      return ['direction', 'operations', 'conformite'].includes(id)
+        ? this.i18n.t('hypervisor.v2.intent.' + id + '.title')
+        : this.viewLabel(this.activeView()!);
+    }
     return this.i18n.t('hypervisor.v2.page.title');
   }
 
   pageSummary(): string {
+    if (this.activeFacet() === 'synthese' && !this.activeImpactViewId() && this.activeView()) {
+      const id = this.activeView()!.id;
+      return this.i18n.t('hypervisor.v2.intent.' + (['direction', 'operations', 'conformite'].includes(id) ? id : 'custom') + '.description');
+    }
     const view = this.series();
     if (!view) return this.i18n.t('hypervisor.v2.page.description');
     const capabilities = new Set(view.register.map((row) => row.capabilityId).filter(Boolean)).size;
@@ -3638,6 +3716,16 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   systemScopeLabel(): string {
     const id = this.activeView()?.system_id;
     return id ? this.activitySystems().find(system => system.id === id)?.name || this.i18n.t('hypervisor.v2.product.system_unavailable') : this.i18n.t('hypervisor.v2.product.all_systems');
+  }
+
+  selectedScopeAvailable(): boolean {
+    return this.activitySystems().some(system => system.id === this.activeView()?.system_id);
+  }
+
+  refreshReadingView(): void {
+    // Re-read evidence without replacing local view configuration.
+    void this.mlInbox()?.reload();
+    this.reload(false);
   }
 
   setViewLabel(label: string): void { this.patchActive(view => ({ ...view, label })); }

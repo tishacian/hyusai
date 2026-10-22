@@ -116,7 +116,7 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
     period: '30d',
     schema_version: 2,
     strata: {
-      comprendre: blocks('monument', 'cadran', 'rivers', 'signal'),
+      comprendre: blocks('activity', 'monument', 'cadran', 'rivers', 'signal'),
       detailler: blocks('registre'),
       decider: [],
     },
@@ -138,6 +138,13 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
     sort: 'name',
   },
 ];
+
+/** The narrative presentation is only a rendering of the default Direction
+ * assembly. A personalised assembly must retain its own blocks and order. */
+export function usesDirectionNarrative(view: HypervisorNamedView | null | undefined): boolean {
+  return view?.id === 'direction'
+    && JSON.stringify(view.strata) === JSON.stringify(DEFAULT_HYPERVISOR_VIEWS[0]!.strata);
+}
 
 /** Five named Impact views assembled from the six generic blocks. */
 export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [

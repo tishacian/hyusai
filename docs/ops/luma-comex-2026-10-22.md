@@ -1,5 +1,15 @@
 # Luma — conduite de la démonstration COMEX du 22 octobre 2026
 
+> **Dernière recette : 22 octobre, 08:29 UTC, révision `d03ce83a`.**
+> Cinq nouvelles exécutions alimentent Work, Flow, Impact et les jobs. La file
+> et la prévision sont consultables ; deux enquêtes attendent une revue humaine
+> avec Judge non évalué. Une collision de version dataset a été reproduite et
+> corrigée dans la livraison suivante. L’application équipe est publiée en R2.
+> Voir [les preuves et limites actuelles](luma-impact-activity-2026-10-22.md) et
+> [le parcours Work → Builder → Impact et son nouveau polish](impact-polish-2026-10-22.md).
+> Les répétitions ci-dessous conservent leur état historique ; leurs réserves
+> de déploiement ne constituent pas le statut actuel de ces composants.
+
 ## Mise à jour de recette — 22 octobre
 
 La révision `550807bf` est confirmée en service. La file a été recalculée depuis

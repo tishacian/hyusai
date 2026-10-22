@@ -8,6 +8,8 @@ import {
   niceStep,
   integerStep,
   linearAreaPath,
+  steppedPath,
+  steppedAreaPath,
   radialDayAngle,
   radialPoint,
   radialSpokeEndpoints,
@@ -27,6 +29,21 @@ test('niceStep picks round gridline steps that give about four lines', () => {
 test('discrete counts never receive fractional grid lines or interpolated curves', () => {
   for (const maximum of [0, 1, 2, 3, 5, 10, 100]) assert.ok(Number.isInteger(integerStep(maximum)) && integerStep(maximum) >= 1);
   assert.equal(linearAreaPath([{x:0,y:8},{x:10,y:2},{x:20,y:6}], null, 10), 'M0,8L10,2L20,6L20,10L0,10Z');
+});
+
+test('one active daily bucket stays rectangular and never paints activity into adjacent empty buckets', () => {
+  const observations = [{ x: 0, y: 10 }, { x: 10, y: 0 }, { x: 20, y: 10 }];
+  assert.equal(steppedPath(observations), 'M0,10H5V0H15V10H20');
+  assert.equal(steppedAreaPath(observations, null, 10), 'M0,10H5V0H15V10H20L20,10H10V10H0Z');
+  assert.equal(steppedPath([]), '');
+  assert.equal(steppedPath([{ x: 2, y: 7 }]), 'M2,7');
+  assert.equal(steppedAreaPath([{ x: 2, y: 7 }]), '');
+});
+
+test('stacked daily buckets share exactly the same transition boundaries in both directions', () => {
+  const upper = [{ x: 0, y: 4 }, { x: 10, y: 1 }, { x: 30, y: 6 }];
+  const lower = [{ x: 0, y: 8 }, { x: 10, y: 5 }, { x: 30, y: 8 }];
+  assert.equal(steppedAreaPath(upper, lower), 'M0,4H5V1H20V6H30L30,8H20V5H5V8H0Z');
 });
 
 test('spreadLabelRows pushes overlapping labels apart inside the plot', () => {
