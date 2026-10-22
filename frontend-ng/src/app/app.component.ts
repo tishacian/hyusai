@@ -6,14 +6,16 @@ import { CkPanelHostComponent } from './shared/cockpit/panel-host';
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { FaviconService } from './core/favicon.service';
+import { NewVersionNoticeComponent } from './shared/ui/new-version-notice.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ChatOverlayComponent, HelpPanelComponent, CkPanelHostComponent],
+  imports: [RouterOutlet, ChatOverlayComponent, HelpPanelComponent, CkPanelHostComponent, NewVersionNoticeComponent],
   template: `
     <router-outlet />
     <app-panel-host />
+    <app-new-version-notice />
     @defer (on idle; when overlay.isOpen()) { <app-chat-overlay /> }
     @defer (on idle; when help.isOpen()) { <app-help-panel /> }
   `,
