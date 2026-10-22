@@ -3395,6 +3395,9 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.accessRoles.set(roles);
     this.accessGroups.set(groups);
     this.accessWhole.set(Array.isArray(policy['roles']) && roles.length === 0 && groups.length === 0);
+    // Preview as someone the app is for: a viewer default showed "access
+    // denied" on every app restricted to other roles.
+    if (roles.length && !roles.includes(this.previewRole())) this.previewRole.set(roles[0]!);
     this.metadataLanguages.set(
       [...new Set((row.languages ?? []).map((item) => item.toLowerCase()).filter((item) => item === 'fr' || item === 'en'))],
     );
