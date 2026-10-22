@@ -14,8 +14,9 @@ API, worker CPU, worker DataOps, runner de connecteurs et agent LiveKit au même
 SHA, workers recréés et sessions LiveKit drainées. Relire la readiness avant de
 reprendre les Runs sous budget. L'attestation d'une ancienne révision ne couvre
 pas cette livraison ; sans renouvellement les modèles déjà utilisés par Luma
-seraient également refusés. Cette attestation ne qualifie pas TypeSafe pour les
-plafonds bloquants.
+seraient également refusés. Vérifier que `qualified_transports` contient
+`model_plane.typesafe.pinned_monetary_v1`. Cette capacité couvre uniquement les
+versions et dimensions monétaires décrites ci-dessous.
 
 Ne pas interrompre une campagne ou un Run en cours pour cette livraison.
 Comparer avant/après les publications, brouillons, bindings et politiques de
@@ -43,9 +44,12 @@ le modèle demandé et celui effectivement retourné.
 
 Le test authentifié réalisé le 22 octobre avec la clé fournie a répondu **200**.
 Le compte expose `jev-latest` et `jev-preview` ; aucun identifiant figé n'était
-retourné par sa découverte. Ne pas présenter un identifiant absent comme
-disponible pour ce compte. Aucun appel d'inférence n'a été effectué et la clé
-n'a pas été enregistrée dans le dépôt ou dans une configuration locale.
+retourné par sa découverte. La documentation [Models](https://docs.typesafe.ai/models.md)
+précise que les identifiants versionnés restent acceptés même si la liste ne
+retourne que les alias. Une version saisie explicitement n'est pas présentée
+comme découverte ou testée. Aucun appel d'inférence n'a encore été effectué.
+La clé est enregistrée uniquement dans les secrets du workspace Showcase,
+jamais dans le dépôt, une configuration locale ou l'environnement de l'instance.
 
 ## Utilisation dans un Flow
 
@@ -89,17 +93,40 @@ compteur absent reste inconnu. Un résultat invalide peut être facturé : son u
 mesuré reste comptabilisé. Les reprises réutilisent le résultat canonique ; il
 n'existe aucun retry réseau ni fallback automatique.
 
-**Les plafonds monétaires bloquants ne sont pas encore qualifiés pour TypeSafe.**
-L'API native n'expose pas le même contrat de borne des tokens que les transports
-texte qualifiés. Avec un plafond bloquant applicable, l'admission refuse l'appel
-avant envoi (`USAGE_TRANSPORT_UNQUALIFIED`). La connexion et la découverte des
-modèles restent utilisables. Ne pas désactiver un plafond existant pour contourner
-ce refus ; la qualification du transport budgétaire nécessite un travail distinct.
+**Les plafonds monétaires sont qualifiés pour `jev-1.13.0` et `jev-1.14.0`,
+avec un tarif de sortie nul et le contexte standard.** Les alias mobiles restent
+non qualifiés et sont refusés sous plafond (`USAGE_TRANSPORT_UNQUALIFIED`).
 
-Les limites du lot Judge restent appliquées avant appel et réconciliées ensuite,
-mais ne constituent pas une garantie de plafond monétaire fournisseur.
-Pour ce transport, `max_output_tokens` est une provision de réservation locale,
-pas un paramètre transmis à l'API Jev pour limiter sa sortie.
+Le contrat fournisseur documente 64k tokens par requête, comprenant l'état et
+toutes les questions ; l'état n'est facturé qu'une fois. Le transport réserve
+conservativement **65 536 tokens d'entrée** au tarif déclaré. Il n'envoie jamais
+le header `TypeSafe-Danger-Zone-Long-Context` qui ouvrirait 262k tokens. Une
+requête dépassant la limite native est refusée par le fournisseur. Le calcul
+utilise le payload natif validé, aucune borne fournie par le client.
+
+La sortie est gratuite mais son nombre de tokens n'est pas borné par le
+protocole. Il reste donc inconnu avant réponse : aucun zéro fictif n'est
+enregistré. Un plafond portant sur les **tokens totaux** refuse cet appel
+(`USAGE_BOUND_REQUIRED`). Un tarif de sortie non nul empêche aussi l'admission
+monétaire, faute de borne. Les compteurs absents restent inconnus ; le coût
+peut être calculé sur les seules dimensions effectivement facturées. Sans
+mesure d'entrée, la réserve monétaire reste en attente.
+
+Le modèle retourné doit correspondre à la version demandée. Un autre modèle
+est refusé : ses compteurs restent tracés, son coût ne peut pas être établi avec
+le tarif du modèle demandé, la réserve est conservée et une réconciliation est
+requise. Une réponse avec des compteurs mais sans identité de modèle ne suffit
+pas non plus à lever cette réserve. Aucun nouvel essai automatique n'est lancé.
+
+Les réservations workspace et Judge restent atomiques. Le budget local du Judge
+doit accepter les 65 536 tokens d'entrée réservés et sa provision de sortie ;
+ses limites cumulées sont réconciliées après réponse. `max_output_tokens` reste
+une provision locale, pas une limite transmise à Jev. Ces garanties reposent sur
+le tarif déclaré et le contrat fournisseur, pas sur une facture rapprochée.
+
+Sources du contrat : [limites et tarifs](https://docs.typesafe.ai/models.md),
+[refus de contexte](https://docs.typesafe.ai/api/errors.md),
+[facturation d'un lot de questions](https://docs.typesafe.ai/cookbooks/parallel_questions.md).
 
 ## Recette et Luma
 
@@ -109,10 +136,26 @@ contrats de citation incompatibles, persistance du Judge, usage et réutilisatio
 idempotente. Elle ne prouve pas la qualité métier, la latence ou le coût d'un
 appel réel Jev.
 
-Pour la recette distante, il faut une clé TypeSafe avec accès au modèle et le
-déploiement de cette livraison. Dans un périmètre autorisant les appels sans
-plafond bloquant, exécuter d'abord un cas synthétique, vérifier l'identité du
-modèle, ses compteurs, son tarif et les traces, puis comparer sur un corpus revu.
+La validation de cette livraison couvre les tests ciblés de transport, de ledger,
+de Judge et de préflight, le build frontend et les parcours navigateur FR/EN.
+Les tests PostgreSQL de concurrence sont présents mais n'ont pas été exécutés
+dans cet environnement, faute de `MODEL_USAGE_POSTGRES_URL` de test. Le test
+SQLite de réservations simultanément engagées vérifie le refus du deuxième appel
+et le règlement idempotent ; il ne remplace pas une recette des verrous PostgreSQL.
+
+Le fournisseur est connecté dans Showcase. Le tarif EUR de `jev-1.13.0` est
+enregistré : 0,037386505252 EUR par million de tokens d'entrée, sortie gratuite.
+Il reprend le prix officiel de 0,042 USD/Mtok et la convention de conversion
+déjà utilisée par le workspace : 0,890154886950 EUR/USD, observation du
+21 octobre 2026, référence BCE. Le plafond reste à 2 000 EUR/mois, révision 2.
+
+Après déploiement et nouvelle attestation, utiliser les cas synthétiques et
+le parcours de nœud isolé dans [la recette Jev](../demo-runs/showcase-ecommerce/jev/README.md).
+Ils produisent de vrais Runs rattachés au système Luma, sans sauvegarder le
+graphe fourni dans r38, sans publier une version et sans envoyer de remboursement.
+Vérifier l'identité du modèle, les distributions, les compteurs, le tarif et les
+traces. Les deux options existantes `flow_workbench_v1` et `flow_publication_v1`
+sont déjà ouvertes dans Showcase ; aucun nouveau drapeau n'est nécessaire.
 
 Cette livraison ne change aucun Flow, brouillon, publication, modèle ou budget de
 Luma. Son juge actuel exige des citations et continue d'utiliser GPT-5. Un nœud

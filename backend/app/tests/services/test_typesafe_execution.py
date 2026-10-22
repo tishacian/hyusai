@@ -1,8 +1,12 @@
 """Native decisions share policy and usage accounting without becoming chat."""
 
+import hashlib
+import json
 from dataclasses import replace
+from decimal import Decimal
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from app.services.model_plane import execution as runtime
@@ -200,6 +204,45 @@ async def test_decision_policy_reservation_usage_and_observed_model(monkeypatch,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["jev-1.13.0", "jev-1.14.0"])
+async def test_pinned_decision_hashes_exact_native_payload_without_inventing_output_cap(
+    monkeypatch, ledger, model
+):
+    calls = []
+    state = "Colis livré à une autre adresse."
+
+    async def evaluate(**kwargs):
+        calls.append(kwargs)
+        return {
+            "model": model,
+            "answers": {"supported": {"type": "noul", "noul": 0.9}},
+            "usage": {"input_tokens": 100, "output_tokens": 12},
+            "returned_model_reported": True,
+        }
+
+    monkeypatch.setattr(typesafe, "evaluate", evaluate)
+    await runtime.complete_model(
+        replace(execution(), model=model),
+        state,
+        {"workspace_id": "synthetic-workspace"},
+        generation_options=OPTIONS,
+        stream=False,
+    )
+    prepared = ledger[0][1]
+    expected_wire = {"model": model, "state": state, "questions": QUESTIONS}
+    expected_hash = hashlib.sha256(
+        json.dumps(
+            expected_wire, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode()
+    ).hexdigest()
+    assert prepared["request_sha256"] == expected_hash
+    assert prepared["admission_qualified"] is True
+    assert prepared["input_token_bound"] == 65536
+    assert prepared["output_token_bound"] is None
+    assert calls == [{"api_key": "synthetic-secret", **expected_wire, "timeout_s": 30}]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "options,stream,images",
     [
@@ -275,6 +318,62 @@ async def test_real_budget_records_blocked_attempt_without_reservation_or_send(
 
 
 @pytest.mark.asyncio
+async def test_pinned_native_call_reserves_then_settles_real_monetary_budget(
+    governed_workspace, monkeypatch
+):
+    from app.models.model_usage import ModelUsageCall, UsageBudgetBucket, UsageBudgetPolicy
+    from app.services import model_usage
+
+    scope = governed_workspace
+    model_usage.create_tariff(
+        scope.db,
+        scope.workspace,
+        scope.user,
+        provider="typesafe",
+        model="jev-1.13.0",
+        currency="USD",
+        input_per_million="0.042",
+        output_per_million="0",
+    )
+    usage_fixtures.policy(scope, tokens=None, amount="0.01")
+    calls = []
+
+    async def evaluate(**kwargs):
+        calls.append(kwargs)
+        scope.db.expire_all()
+        pending = scope.db.query(ModelUsageCall).one()
+        assert pending.status == "dispatched"
+        assert pending.reserved_tokens is None
+        assert pending.reserved_amount == Decimal("0.002752512")
+        return {
+            "model": "jev-1.13.0",
+            "answers": {"supported": {"type": "noul", "noul": 0.9}},
+            "usage": {"input_tokens": 120, "output_tokens": 12},
+            "returned_model_reported": True,
+        }
+
+    monkeypatch.setattr(typesafe, "evaluate", evaluate)
+    result = await runtime.complete_model(
+        replace(execution(), model="jev-1.13.0"),
+        "Synthetic claim",
+        {"_model_usage_context": scope.ctx},
+        generation_options=OPTIONS,
+        stream=False,
+    )
+    assert len(calls) == 1 and result["usage"]["total_tokens"] == 132
+    scope.db.expire_all()
+    settled = scope.db.query(ModelUsageCall).one()
+    bucket = scope.db.query(UsageBudgetBucket).one()
+    policy = scope.db.query(UsageBudgetPolicy).one()
+    assert settled.amount == Decimal("0.00000504")
+    assert settled.usage_coverage == "complete"
+    assert bucket.consumed_tokens == 132 and bucket.reserved_tokens == 0
+    assert Decimal(bucket.reserved_amounts["USD"]) == 0
+    assert Decimal(bucket.consumed_amounts["USD"]) == settled.amount
+    assert policy.reconciliation_required is False
+
+
+@pytest.mark.asyncio
 async def test_invalid_answer_retains_measured_spend_and_safe_error(monkeypatch, ledger):
     async def invalid(**kwargs):
         raise typesafe.TypeSafeError(
@@ -292,6 +391,43 @@ async def test_invalid_answer_retains_measured_spend_and_safe_error(monkeypatch,
     assert ledger[-1][1]["status"] == "failed"
     assert ledger[-1][1]["usage"]["total_tokens"] == 12
     assert ctx["_provider_usage_v1"]["calls"][0]["usage"]["total_tokens"] == 12
+
+
+@pytest.mark.asyncio
+async def test_pinned_model_mismatch_fails_once_and_preserves_observed_usage(monkeypatch, ledger):
+    real_client = httpx.AsyncClient
+    sends = []
+
+    def handle(request):
+        sends.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "model": "jev-other",
+                "answers": {"supported": {"type": "noul", "noul": 0.9}},
+                "usage": {"input_tokens": 111, "output_tokens": 7},
+            },
+        )
+
+    monkeypatch.setattr(
+        typesafe.httpx,
+        "AsyncClient",
+        lambda **options: real_client(transport=httpx.MockTransport(handle), **options),
+    )
+    ctx = {"workspace_id": "synthetic-workspace"}
+    with pytest.raises(typesafe.TypeSafeError, match="TYPESAFE_RETURNED_MODEL_MISMATCH"):
+        await runtime.complete_model(
+            replace(execution(), model="jev-1.13.0"),
+            "Synthetic claim",
+            ctx,
+            generation_options=OPTIONS,
+            stream=False,
+        )
+    assert len(sends) == 1
+    assert ledger[-1][1]["status"] == "failed"
+    assert ledger[-1][1]["returned_model"] == "jev-other"
+    assert ledger[-1][1]["usage"]["total_tokens"] == 118
+    assert ctx["_provider_usage_v1"]["calls"][0]["usage"]["total_tokens"] == 118
 
 
 @pytest.mark.asyncio

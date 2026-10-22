@@ -78,6 +78,33 @@ async def test_native_request_and_alias_preserve_reported_model_and_counters():
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requested", ["jev-1.13.0", "jev-1.14.0"])
+@pytest.mark.parametrize("returned", ["jev-latest", "jev-preview", "jev-unknown"])
+async def test_pinned_request_refuses_a_changed_model_but_keeps_paid_usage(requested, returned):
+    calls = []
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, json={**RESPONSE, "model": returned})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(
+            typesafe.TypeSafeError, match="TYPESAFE_RETURNED_MODEL_MISMATCH"
+        ) as caught:
+            await typesafe.evaluate(
+                api_key="synthetic-key",
+                model=requested,
+                state="Synthetic claim",
+                questions=QUESTIONS,
+                client=client,
+            )
+    assert len(calls) == 1
+    assert caught.value.usage == RESPONSE["usage"]
+    assert caught.value.returned_model == returned
+    assert "synthetic-key" not in str(caught.value)
+
+
 @pytest.mark.parametrize(
     "usage", [None, {}, {"input_tokens": None}, {"input_tokens": -1, "output_tokens": True}]
 )

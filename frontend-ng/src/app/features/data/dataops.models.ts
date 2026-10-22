@@ -205,6 +205,7 @@ export function validateJudgeDraft(draft: TypedJudgeDraft): string[] {
   }
   if ([draft.tariff.input_per_million,draft.tariff.output_per_million].some(value => !Number.isFinite(value) || value < 0 || value > 1000)) errors.push('dataops.error.judge_tariff');
   if (draft.tariff.provider === 'typesafe') {
+    if (['jev-1.13.0', 'jev-1.14.0'].includes(draft.tariff.model) && draft.budget.max_tokens < 65536 + draft.budget.max_output_tokens) errors.push('dataops.error.judge_typesafe_reservation');
     if (draft.questions.some(q => q.requires_evidence)) errors.push('dataops.error.judge_typesafe_evidence');
     if (draft.questions.some(q => q.type === 'multi_choice')) errors.push('dataops.error.judge_typesafe_multiple');
     if (draft.questions.some(q => q.type === 'score' && (!Number.isInteger(q.minimum) || !Number.isInteger(q.maximum)
@@ -300,10 +301,11 @@ export function typedJudgeFailure(result: TypedEvaluationResult | null): {messag
   else if (reason === 'JUDGE_PROVIDER_UNAVAILABLE') { message = 'temporarily_unavailable'; action = 'retry'; }
   else if (reason === 'JUDGE_ACCESS_REVOKED') { message = 'access'; action = 'access'; }
   else if (reason === 'JUDGE_TYPESAFE_CONTRACT_UNSUPPORTED') { message = 'typed_contract'; action = 'configuration'; }
-  else if (reason === 'USAGE_TRANSPORT_UNQUALIFIED') { message = 'typed_budget'; action = 'configuration'; }
+  else if (reason === 'USAGE_TRANSPORT_UNQUALIFIED' || reason === 'USAGE_BOUND_REQUIRED') { message = 'typed_budget'; action = 'configuration'; }
   else if (['TYPESAFE_AUTHENTICATION_FAILED', 'TYPESAFE_ACCESS_DENIED'].includes(reason ?? '')) { message = 'provider_access'; action = 'configuration'; }
   else if (['TYPESAFE_RATE_LIMITED', 'TYPESAFE_OVERLOADED', 'TYPESAFE_REQUEST_FAILED', 'TYPESAFE_CONNECTION_FAILED'].includes(reason ?? '')) { message = 'temporarily_unavailable'; action = 'retry'; }
   else if (reason === 'TYPESAFE_TIMEOUT') { message = 'timeout'; action = 'retry'; }
+  else if (reason === 'TYPESAFE_RETURNED_MODEL_MISMATCH') { message = 'returned_model'; action = 'provider_reconciliation'; }
   else if (reason === 'TYPESAFE_RESPONSE_INVALID') { message = 'validation'; action = 'configuration'; }
   else if (['JUDGE_BUDGET_EXHAUSTED', 'JUDGE_MEASURED_BUDGET_EXCEEDED', 'SERVICE_BUDGET_EXHAUSTED'].includes(reason ?? '')) { message = 'budget'; action = 'budget'; }
   const index = reason === 'JUDGE_RESPONSE_INVALID' ? result.response_diagnostic?.question_index : undefined;

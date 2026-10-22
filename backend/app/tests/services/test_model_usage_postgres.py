@@ -129,6 +129,66 @@ def test_concurrent_admission_only_one_call_fits_all_shared_limits(pg_usage):
         assert all(Decimal(b.reserved_amounts["USD"]) == Decimal("0.3") for b in buckets)
 
 
+def test_concurrent_native_monetary_admission_never_double_spends_free_output_room(pg_usage):
+    """Unknown free outputs do not weaken the shared monetary reservation lock."""
+    s = pg_usage
+    with s.factory() as db:
+        workspace = db.get(Workspace, "usage-ws")
+        actor = SimpleNamespace(id="test-operator")
+        usage.create_tariff(
+            db,
+            workspace,
+            actor,
+            provider="typesafe",
+            model="jev-1.13.0",
+            currency="USD",
+            input_per_million="0.042",
+            output_per_million="0",
+        )
+        for policy_scope in ("workspace", "system"):
+            usage.save_budget(
+                db,
+                workspace,
+                actor,
+                scope=policy_scope,
+                system_id="usage-app" if policy_scope == "system" else None,
+                enabled=True,
+                max_tokens=None,
+                currency_limits={"USD": "0.002752512"},
+                expected_revision=1,
+            )
+    barrier = threading.Barrier(2)
+
+    def admit(key):
+        barrier.wait(timeout=5)
+        try:
+            return usage.prepare_call(
+                s.ctx,
+                request_key=key,
+                provider="typesafe",
+                model="jev-1.13.0",
+                input_token_bound=65_536,
+                output_token_bound=None,
+                admission_qualified=True,
+            )["status"]
+        except usage.UsageError as exc:
+            return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(admit, str(i)) for i in range(2)]
+        assert sorted(f.result(timeout=10) for f in futures) == [
+            "USAGE_BUDGET_EXHAUSTED",
+            "prepared",
+        ]
+    with s.factory() as db:
+        assert db.query(UsageReservation).count() == 2
+        assert all(row.reserved_tokens == 0 for row in db.query(UsageBudgetBucket))
+        assert all(
+            Decimal(row.reserved_amounts["USD"]) == Decimal("0.002752512")
+            for row in db.query(UsageBudgetBucket)
+        )
+
+
 def _dataset():
     return TabularDataset(
         id=str(uuid4()),

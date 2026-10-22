@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { guidedJudgeIdentity, judgeOutputPaths, nextRubricVersion, selectJudgeModel } from './typed-judge-guidance';
+import { guidedJudgeIdentity, judgeOutputPaths, nextRubricVersion, selectExplicitJudgeModel, selectJudgeModel } from './typed-judge-guidance';
 import { newJudgeDraft } from './dataops.models';
 import { selectableEvaluationModel, selectableTextModel, type ModelCatalogEntry } from '@app/core/model-catalog';
 
@@ -35,4 +35,30 @@ test('changing evaluator preserves rubric requirements and sources while invalid
   next.tariff.reference = 'typesafe-prices';
   assert.equal(selectJudgeModel(next, jev), next, 'reselecting the same engine keeps its reviewed price');
   assert.equal(selectJudgeModel(original, {...jev, configured: false}), original);
+});
+
+test('an explicit version outside the catalogue preserves evidence and resets prices without claiming discovery', () => {
+  const original = selectJudgeModel(newJudgeDraft(), {...jev, model: 'jev-latest'});
+  original.tariff.reference = 'reviewed-alias-price';
+  original.tariff.input_per_million = 0.042;
+  const catalogue = [{...jev, model: 'jev-latest'}];
+  const next = selectExplicitJudgeModel(original, catalogue, 'jev-1.13.0');
+  assert.equal(next.tariff.model, 'jev-1.13.0');
+  assert.equal(next.tariff.reference, '');
+  assert.equal(next.tariff.input_per_million, 0);
+  assert.deepEqual(next.questions, original.questions);
+  assert.equal(next.questions[0].requires_evidence, true);
+  assert.equal(catalogue[0].model, 'jev-latest');
+  assert.equal(catalogue.length, 1, 'manual entry never invents a discovered catalogue item');
+  next.tariff.reference = 'pinned-version-price';
+  assert.equal(selectExplicitJudgeModel(next, catalogue, 'jev-1.13.0'), next);
+});
+
+test('explicit model entry requires a configured evaluation provider and a valid identifier', () => {
+  const original = selectJudgeModel(newJudgeDraft(), jev);
+  for (const name of ['', ' jev-1.13.0', 'jev latest', 'jev\n', 'x'.repeat(201)]) {
+    assert.equal(selectExplicitJudgeModel(original, [jev], name), original);
+  }
+  assert.equal(selectExplicitJudgeModel(original, [{...jev, configured: false}], 'jev-1.14.0'), original);
+  assert.equal(selectExplicitJudgeModel(original, [{...jev, provider: 'openai'}], 'jev-1.14.0'), original);
 });

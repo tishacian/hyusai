@@ -526,7 +526,7 @@ def _provider_generation_options(execution, generation_options):
         ):
             raise ModelExecutionError("typesafe: explicit typed questions are required.")
         if type(options.get("max_tokens")) is not int or not 1 <= options["max_tokens"] <= 8192:
-            raise ModelExecutionError("typesafe: a bounded output reservation is required.")
+            raise ModelExecutionError("typesafe: a local output-token provision is required.")
         timeout = options.get("timeout_s", 60)
         if type(timeout) not in {int, float} or not 0 < timeout <= 120:
             raise ModelExecutionError("typesafe: timeout must be between zero and 120 seconds.")
@@ -583,6 +583,7 @@ async def _complete_once_scoped(
     from app.services.evaluation.judge import normalize_provider_usage, record_provider_usage
     from app.services.model_usage_transport import ProviderCall, output_limit, tracking_active
 
+    native_payload = None
     try:
         options = _provider_generation_options(execution, generation_options)
         if execution.provider == "typesafe":
@@ -599,7 +600,7 @@ async def _complete_once_scoped(
                 raise ModelExecutionError(
                     "typesafe: connection is not configured. Open Models & Providers."
                 )
-            typesafe.validate_request(
+            native_payload = typesafe.validate_request(
                 model=execution.model, state=prompt, questions=options["typed_questions"]
             )
         if "image_parts" in options:
@@ -643,8 +644,11 @@ async def _complete_once_scoped(
     call = ProviderCall(
         execution.provider,
         execution.model,
-        {"prompt": prompt, "options": options},
-        output_token_bound=output_limit(options),
+        native_payload if native_payload is not None else {"prompt": prompt, "options": options},
+        # Jev's local Judge provision is not an API-enforced output cap. Its
+        # native transport independently qualifies monetary admission using
+        # the exact wire payload and the provider's fixed input context limit.
+        output_token_bound=None if native_payload is not None else output_limit(options),
         qualified=not callable(before_dispatch) or callable(atomic_admission),
         operation="typed_decisions" if execution.provider == "typesafe" else "completion",
         admission_hook=(
@@ -675,9 +679,9 @@ async def _complete_once_scoped(
             try:
                 result = await typesafe.evaluate(
                     api_key=execution._api_key,
-                    model=execution.model,
-                    state=prompt,
-                    questions=options["typed_questions"],
+                    model=native_payload["model"],
+                    state=native_payload["state"],
+                    questions=native_payload["questions"],
                     timeout_s=options.get("timeout_s", 60),
                 )
             except typesafe.TypeSafeError as exc:

@@ -251,7 +251,8 @@ for (const locale of ['en', 'fr'] as const) {
     const card = app.locator('section').filter({has: page.getByRole('heading', {name:'TypeSafe', exact:true})});
     await expect(card).toBeVisible();
     await expect(card).toContainText(locale === 'fr' ? 'Moteur de décisions typées' : 'Typed decision engine');
-    await expect(card).toContainText(locale === 'fr' ? 'plafonds budgétaires' : 'Blocking budget limits');
+    await expect(card).toContainText(locale === 'fr' ? 'Les plafonds monétaires prennent en charge Jev 1.13.0' : 'Monetary limits support Jev 1.13.0');
+    await expect(card).toContainText(locale === 'fr' ? 'Les alias et les plafonds de tokens restent bloqués' : 'Aliases and token limits remain blocked');
     await expect(card.locator('a[href="https://console.typesafe.ai/keys"]')).toHaveAttribute('rel', 'noopener noreferrer');
     const key = card.locator('input[type=password]');
     await expect(key).toHaveValue('');

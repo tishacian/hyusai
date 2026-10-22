@@ -1,0 +1,664 @@
+{
+  "format": "luma-jev-node-preview-v1",
+  "applied": false,
+  "purpose": "exploratory_second_opinion_on_synthetic_fixture_cases",
+  "rubric_human_reviewed": false,
+  "calibration_qualified": false,
+  "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+  "workspace_slug": "agentium-showcase",
+  "required_qualified_transport": "model_plane.typesafe.pinned_monetary_v1",
+  "preserve": {
+    "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+    "draft_revision": 38,
+    "draft_flow_sha256": "3038f5301b0675a19d93f223f14f3e60d33de508530022fb215e6e28607156e2",
+    "draft_policy_sha256": "b451dc8fa413cb3de2d58826531d944163ef5d74f95e13bda8313bc63144b0dc",
+    "published_version_id": "b8eb64d3-e417-41bf-898a-7b1ad232d64a",
+    "published_version_number": 10,
+    "published_flow_sha256": "77d4d521a3526fce8a25ee125ddf010976d637f2f2335d8afee98f1a4dbd09f0",
+    "published_policy_sha256": "b451dc8fa413cb3de2d58826531d944163ef5d74f95e13bda8313bc63144b0dc"
+  },
+  "cases": [
+    {
+      "case_id": "RC-1042",
+      "scenario": "delivery_conflict",
+      "input_ref": {
+        "subject_ref": "offline-fixture:RC-1042:jev-second-opinion-v1",
+        "evidence": [
+          {
+            "id": "fixture_facts",
+            "text": "{\"available_case_documents\": [\"claim-lm1042\", \"delivery-lm1042\"], \"claim_id\": \"RC-1042\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-1042\", \"opened_at\": \"2026-09-25T10:00:00Z\", \"order_id\": \"LM-1042\", \"reason\": \"delivery_disputed\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-014\", \"order_id\": \"LM-1042\", \"ordered_at\": \"2026-09-20T10:00:00Z\", \"paid_amount\": \"420.00\", \"payment_status\": \"paid\", \"shipping_postcode\": \"75011\"}], \"refunds\": [], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-1042\", \"shipment_id\": \"SH-1042\", \"status\": \"delivered\", \"status_at\": \"2026-09-24T14:00:00Z\", \"tracking_id\": \"CA-1042\"}]}}",
+            "sha256": "1e4d74e19d4dfed3dcf823a140e1447ebb1092b4072b5929e611227e70fb4ca4"
+          },
+          {
+            "id": "refund-policy-v2",
+            "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+            "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+          },
+          {
+            "id": "claim-lm1042",
+            "text": "# Réclamation RC-1042 - livraison contestée\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-25 | En vigueur / pièce courante\n\nRéférence : RC-1042. Commande : LM-1042. Client fictif : C-014. Date de demande : 25 septembre 2026.\n\nDemande client : ma commande de lampe, d'un montant de 420 EUR, apparaît livree mais je n'ai pas reçu le colis. Merci de vérifier le lieu de remise et de me proposer une solution.\n\nLe client conteste la réception. Ce document ne constitue pas une preuve que le colis a ete perdu ni une autorisation de remboursement.\n",
+            "sha256": "c19a71a64000fde9f6d2f06599d21720f1605fde31bc975ca828aa7a66170327"
+          },
+          {
+            "id": "delivery-lm1042",
+            "text": "# Bordereau ColisAzur - LM-1042\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-24 | En vigueur / pièce courante\n\nCommande : LM-1042. Suivi : CA-1042. Date de remise déclarée : 24 septembre 2026. Statut déclaré : livré.\n\nLieu de remise enregistré sur ce bordereau : Paris, code postal 75012.\n\nIdentité du destinataire ayant réceptionné le colis : non renseignée. Confirmation de réception par le client de la commande : non disponible.\n\nPièce de démonstration : ce document rapporte les informations du transporteur. Il doit être rapproché de l'adresse de la commande et de la réclamation.\n",
+            "sha256": "af0fcf9007f860fc324bbc9a1c1ee4afafcd1d637689f2be8eb6c179c70af1cf"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "path": "fixtures/fixture_spec.json",
+          "sha256": "22a342f36e2036c442546f985bd7a543359fd4e63c44ffeff060a348d78bc408"
+        },
+        {
+          "path": "fixtures/source-texts/refund-policy-v2.md",
+          "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+        },
+        {
+          "path": "fixtures/source-texts/claim-lm1042.md",
+          "sha256": "c19a71a64000fde9f6d2f06599d21720f1605fde31bc975ca828aa7a66170327"
+        },
+        {
+          "path": "fixtures/source-texts/delivery-lm1042.md",
+          "sha256": "af0fcf9007f860fc324bbc9a1c1ee4afafcd1d637689f2be8eb6c179c70af1cf"
+        }
+      ],
+      "expected_business_direction": {
+        "chosen_resolution": "Ouvrir une enquête transporteur",
+        "safe_followup": "Soumettre l'enquête transporteur au responsable SAV",
+        "proposed_refund_amount_eur": "0",
+        "basis": "existing_synthetic_fixture_policy; not a newly reviewed Jev rubric"
+      },
+      "human_annotation": null,
+      "observed_result": null,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/systems/f3ea83de-df89-45ec-8a85-c00d676b2713/flow-workbench/node-runs",
+        "body": {
+          "acknowledge_real_side_effects": true,
+          "flow_definition": {
+            "schema_version": 3,
+            "source": "flow",
+            "extended": true,
+            "nodes": [
+              {
+                "id": "quality.triage_jev",
+                "kind": "task",
+                "type": "skill",
+                "label": "Orienter la revue SAV · Jev",
+                "config": {
+                  "skill_slug": "evaluate_v2",
+                  "typed_evaluation": {
+                    "rubric_id": "luma-exploratory-second-opinion",
+                    "rubric_version": "1",
+                    "questions": [
+                      {
+                        "key": "chosen_resolution",
+                        "question": "Quel traitement le responsable SAV doit-il examiner selon les faits et la politique fournis ? Un statut livré ne prouve pas la réception si les pièces se contredisent. Une perte confirmée permet d'examiner un remboursement, un remboursement antérieur interdit le doublon, et une pièce nécessaire absente impose de la demander. Ne jamais exécuter une action.",
+                        "type": "choice",
+                        "choices": [
+                          "Ouvrir une enquête transporteur",
+                          "Proposer un remboursement à la validation humaine",
+                          "Clôturer sans nouveau remboursement",
+                          "Demander le justificatif manquant"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "refund_supported",
+                        "question": "Les informations fournies suffisent-elles à proposer un nouveau remboursement à l'examen humain, sans paiement automatique ? La perte doit être confirmée, la politique applicable et le montant payé connus, et aucun remboursement antérieur ne doit épuiser le montant remboursable. Une contradiction de livraison ou une pièce nécessaire absente ne suffit pas.",
+                        "type": "probability",
+                        "required": false,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "safe_followup",
+                        "question": "Quelle prochaine étape conserve la maîtrise du responsable SAV ? Choisir la suite correspondant aux faits, sans inventer de pièce, d'autorisation ni de paiement. Toute action reste soumise à l'humain.",
+                        "type": "choice",
+                        "choices": [
+                          "Soumettre l'enquête transporteur au responsable SAV",
+                          "Soumettre le montant remboursable et ses preuves au responsable SAV",
+                          "Présenter le remboursement antérieur et faire valider la clôture",
+                          "Demander la pièce puis reprendre l'enquête après réception"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      }
+                    ],
+                    "budget": {
+                      "max_calls": 1,
+                      "max_tokens": 131072,
+                      "max_cost_usd": 0.003,
+                      "max_output_tokens": 2048,
+                      "timeout_s": 60,
+                      "max_prompt_bytes": 32000
+                    },
+                    "tariff": {
+                      "provider": "typesafe",
+                      "model": "jev-1.13.0",
+                      "input_per_million": 0.042,
+                      "output_per_million": 0.0,
+                      "currency": "USD",
+                      "reference": "https://docs.typesafe.ai/models.md (checked 2026-10-22)"
+                    }
+                  },
+                  "on_error": "fail"
+                }
+              }
+            ],
+            "edges": []
+          },
+          "expected_flow_sha256": "803f6f4880bafd65219c47b19a0398f1462ff7d5403746de88a788f5c43ca336",
+          "node_id": "quality.triage_jev",
+          "input_ref": {
+            "subject_ref": "offline-fixture:RC-1042:jev-second-opinion-v1",
+            "evidence": [
+              {
+                "id": "fixture_facts",
+                "text": "{\"available_case_documents\": [\"claim-lm1042\", \"delivery-lm1042\"], \"claim_id\": \"RC-1042\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-1042\", \"opened_at\": \"2026-09-25T10:00:00Z\", \"order_id\": \"LM-1042\", \"reason\": \"delivery_disputed\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-014\", \"order_id\": \"LM-1042\", \"ordered_at\": \"2026-09-20T10:00:00Z\", \"paid_amount\": \"420.00\", \"payment_status\": \"paid\", \"shipping_postcode\": \"75011\"}], \"refunds\": [], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-1042\", \"shipment_id\": \"SH-1042\", \"status\": \"delivered\", \"status_at\": \"2026-09-24T14:00:00Z\", \"tracking_id\": \"CA-1042\"}]}}",
+                "sha256": "1e4d74e19d4dfed3dcf823a140e1447ebb1092b4072b5929e611227e70fb4ca4"
+              },
+              {
+                "id": "refund-policy-v2",
+                "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+                "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+              },
+              {
+                "id": "claim-lm1042",
+                "text": "# Réclamation RC-1042 - livraison contestée\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-25 | En vigueur / pièce courante\n\nRéférence : RC-1042. Commande : LM-1042. Client fictif : C-014. Date de demande : 25 septembre 2026.\n\nDemande client : ma commande de lampe, d'un montant de 420 EUR, apparaît livree mais je n'ai pas reçu le colis. Merci de vérifier le lieu de remise et de me proposer une solution.\n\nLe client conteste la réception. Ce document ne constitue pas une preuve que le colis a ete perdu ni une autorisation de remboursement.\n",
+                "sha256": "c19a71a64000fde9f6d2f06599d21720f1605fde31bc975ca828aa7a66170327"
+              },
+              {
+                "id": "delivery-lm1042",
+                "text": "# Bordereau ColisAzur - LM-1042\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-24 | En vigueur / pièce courante\n\nCommande : LM-1042. Suivi : CA-1042. Date de remise déclarée : 24 septembre 2026. Statut déclaré : livré.\n\nLieu de remise enregistré sur ce bordereau : Paris, code postal 75012.\n\nIdentité du destinataire ayant réceptionné le colis : non renseignée. Confirmation de réception par le client de la commande : non disponible.\n\nPièce de démonstration : ce document rapporte les informations du transporteur. Il doit être rapproché de l'adresse de la commande et de la réclamation.\n",
+                "sha256": "af0fcf9007f860fc324bbc9a1c1ee4afafcd1d637689f2be8eb6c179c70af1cf"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "RC-1043",
+      "scenario": "confirmed_loss",
+      "input_ref": {
+        "subject_ref": "offline-fixture:RC-1043:jev-second-opinion-v1",
+        "evidence": [
+          {
+            "id": "fixture_facts",
+            "text": "{\"available_case_documents\": [\"claim-lm1043\", \"loss-lm1043\"], \"claim_id\": \"RC-1043\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-1043\", \"opened_at\": \"2026-09-29T10:00:00Z\", \"order_id\": \"LM-1043\", \"reason\": \"parcel_lost\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-015\", \"order_id\": \"LM-1043\", \"ordered_at\": \"2026-09-21T10:00:00Z\", \"paid_amount\": \"49.90\", \"payment_status\": \"paid\", \"shipping_postcode\": \"69003\"}], \"refunds\": [], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-1043\", \"shipment_id\": \"SH-1043\", \"status\": \"lost\", \"status_at\": \"2026-09-28T14:00:00Z\", \"tracking_id\": \"CA-1043\"}]}}",
+            "sha256": "ed1bab0eeac3a32476d0ea017e8cfab9ea8a794e0b5de16d7a1570e20d19c00e"
+          },
+          {
+            "id": "refund-policy-v2",
+            "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+            "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+          },
+          {
+            "id": "claim-lm1043",
+            "text": "# Réclamation RC-1043 - colis non reçu\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-29 | En vigueur / pièce courante\n\nRéférence : RC-1043. Commande : LM-1043. Client fictif : C-015. Date : 29 septembre 2026.\n\nDemande client : le vase de ma commande de 49,90 EUR n'est pas arrivé. Je souhaite un remboursement après verification de la situation du colis.\n",
+            "sha256": "7f64cdfd235482edac960f89349224b36682cfc36835d0a4da23e7daf8f102fa"
+          },
+          {
+            "id": "loss-lm1043",
+            "text": "# Confirmation ColisAzur - perte du colis CA-1043\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-28 | En vigueur / pièce courante\n\nCommande : LM-1043. Suivi : CA-1043. Date de confirmation : 28 septembre 2026.\n\nConclusion de l'enquête transporteur : colis perdu. Aucune preuve de livraison disponible.\n\nCette confirmation concerne seulement l'expedition CA-1043. Le choix commercial et l'autorisation du remboursement relevent de Luma Maison.\n",
+            "sha256": "40d1afe48c1909978a9ea45bd588bfc0cfd3a09cbaa815a36605b8106d6ac8c8"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "path": "fixtures/fixture_spec.json",
+          "sha256": "22a342f36e2036c442546f985bd7a543359fd4e63c44ffeff060a348d78bc408"
+        },
+        {
+          "path": "fixtures/source-texts/refund-policy-v2.md",
+          "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+        },
+        {
+          "path": "fixtures/source-texts/claim-lm1043.md",
+          "sha256": "7f64cdfd235482edac960f89349224b36682cfc36835d0a4da23e7daf8f102fa"
+        },
+        {
+          "path": "fixtures/source-texts/loss-lm1043.md",
+          "sha256": "40d1afe48c1909978a9ea45bd588bfc0cfd3a09cbaa815a36605b8106d6ac8c8"
+        }
+      ],
+      "expected_business_direction": {
+        "chosen_resolution": "Proposer un remboursement à la validation humaine",
+        "safe_followup": "Soumettre le montant remboursable et ses preuves au responsable SAV",
+        "proposed_refund_amount_eur": "49.90",
+        "basis": "existing_synthetic_fixture_policy; not a newly reviewed Jev rubric"
+      },
+      "human_annotation": null,
+      "observed_result": null,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/systems/f3ea83de-df89-45ec-8a85-c00d676b2713/flow-workbench/node-runs",
+        "body": {
+          "acknowledge_real_side_effects": true,
+          "flow_definition": {
+            "schema_version": 3,
+            "source": "flow",
+            "extended": true,
+            "nodes": [
+              {
+                "id": "quality.triage_jev",
+                "kind": "task",
+                "type": "skill",
+                "label": "Orienter la revue SAV · Jev",
+                "config": {
+                  "skill_slug": "evaluate_v2",
+                  "typed_evaluation": {
+                    "rubric_id": "luma-exploratory-second-opinion",
+                    "rubric_version": "1",
+                    "questions": [
+                      {
+                        "key": "chosen_resolution",
+                        "question": "Quel traitement le responsable SAV doit-il examiner selon les faits et la politique fournis ? Un statut livré ne prouve pas la réception si les pièces se contredisent. Une perte confirmée permet d'examiner un remboursement, un remboursement antérieur interdit le doublon, et une pièce nécessaire absente impose de la demander. Ne jamais exécuter une action.",
+                        "type": "choice",
+                        "choices": [
+                          "Ouvrir une enquête transporteur",
+                          "Proposer un remboursement à la validation humaine",
+                          "Clôturer sans nouveau remboursement",
+                          "Demander le justificatif manquant"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "refund_supported",
+                        "question": "Les informations fournies suffisent-elles à proposer un nouveau remboursement à l'examen humain, sans paiement automatique ? La perte doit être confirmée, la politique applicable et le montant payé connus, et aucun remboursement antérieur ne doit épuiser le montant remboursable. Une contradiction de livraison ou une pièce nécessaire absente ne suffit pas.",
+                        "type": "probability",
+                        "required": false,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "safe_followup",
+                        "question": "Quelle prochaine étape conserve la maîtrise du responsable SAV ? Choisir la suite correspondant aux faits, sans inventer de pièce, d'autorisation ni de paiement. Toute action reste soumise à l'humain.",
+                        "type": "choice",
+                        "choices": [
+                          "Soumettre l'enquête transporteur au responsable SAV",
+                          "Soumettre le montant remboursable et ses preuves au responsable SAV",
+                          "Présenter le remboursement antérieur et faire valider la clôture",
+                          "Demander la pièce puis reprendre l'enquête après réception"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      }
+                    ],
+                    "budget": {
+                      "max_calls": 1,
+                      "max_tokens": 131072,
+                      "max_cost_usd": 0.003,
+                      "max_output_tokens": 2048,
+                      "timeout_s": 60,
+                      "max_prompt_bytes": 32000
+                    },
+                    "tariff": {
+                      "provider": "typesafe",
+                      "model": "jev-1.13.0",
+                      "input_per_million": 0.042,
+                      "output_per_million": 0.0,
+                      "currency": "USD",
+                      "reference": "https://docs.typesafe.ai/models.md (checked 2026-10-22)"
+                    }
+                  },
+                  "on_error": "fail"
+                }
+              }
+            ],
+            "edges": []
+          },
+          "expected_flow_sha256": "803f6f4880bafd65219c47b19a0398f1462ff7d5403746de88a788f5c43ca336",
+          "node_id": "quality.triage_jev",
+          "input_ref": {
+            "subject_ref": "offline-fixture:RC-1043:jev-second-opinion-v1",
+            "evidence": [
+              {
+                "id": "fixture_facts",
+                "text": "{\"available_case_documents\": [\"claim-lm1043\", \"loss-lm1043\"], \"claim_id\": \"RC-1043\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-1043\", \"opened_at\": \"2026-09-29T10:00:00Z\", \"order_id\": \"LM-1043\", \"reason\": \"parcel_lost\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-015\", \"order_id\": \"LM-1043\", \"ordered_at\": \"2026-09-21T10:00:00Z\", \"paid_amount\": \"49.90\", \"payment_status\": \"paid\", \"shipping_postcode\": \"69003\"}], \"refunds\": [], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-1043\", \"shipment_id\": \"SH-1043\", \"status\": \"lost\", \"status_at\": \"2026-09-28T14:00:00Z\", \"tracking_id\": \"CA-1043\"}]}}",
+                "sha256": "ed1bab0eeac3a32476d0ea017e8cfab9ea8a794e0b5de16d7a1570e20d19c00e"
+              },
+              {
+                "id": "refund-policy-v2",
+                "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+                "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+              },
+              {
+                "id": "claim-lm1043",
+                "text": "# Réclamation RC-1043 - colis non reçu\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-29 | En vigueur / pièce courante\n\nRéférence : RC-1043. Commande : LM-1043. Client fictif : C-015. Date : 29 septembre 2026.\n\nDemande client : le vase de ma commande de 49,90 EUR n'est pas arrivé. Je souhaite un remboursement après verification de la situation du colis.\n",
+                "sha256": "7f64cdfd235482edac960f89349224b36682cfc36835d0a4da23e7daf8f102fa"
+              },
+              {
+                "id": "loss-lm1043",
+                "text": "# Confirmation ColisAzur - perte du colis CA-1043\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-28 | En vigueur / pièce courante\n\nCommande : LM-1043. Suivi : CA-1043. Date de confirmation : 28 septembre 2026.\n\nConclusion de l'enquête transporteur : colis perdu. Aucune preuve de livraison disponible.\n\nCette confirmation concerne seulement l'expedition CA-1043. Le choix commercial et l'autorisation du remboursement relevent de Luma Maison.\n",
+                "sha256": "40d1afe48c1909978a9ea45bd588bfc0cfd3a09cbaa815a36605b8106d6ac8c8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "RC-1044",
+      "scenario": "already_refunded",
+      "input_ref": {
+        "subject_ref": "offline-fixture:RC-1044:jev-second-opinion-v1",
+        "evidence": [
+          {
+            "id": "fixture_facts",
+            "text": "{\"available_case_documents\": [\"claim-lm1044\", \"refund-receipt-lm1044\"], \"claim_id\": \"RC-1044\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-1044\", \"opened_at\": \"2026-09-29T11:00:00Z\", \"order_id\": \"LM-1044\", \"reason\": \"refund_requested\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-016\", \"order_id\": \"LM-1044\", \"ordered_at\": \"2026-09-02T10:00:00Z\", \"paid_amount\": \"89.00\", \"payment_status\": \"paid\", \"shipping_postcode\": \"33000\"}], \"refunds\": [{\"amount\": \"89.00\", \"currency\": \"EUR\", \"executed_at\": \"2026-09-06T10:00:00Z\", \"order_id\": \"LM-1044\", \"refund_id\": \"RF-1044\", \"status\": \"executed\"}], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-1044\", \"shipment_id\": \"SH-1044\", \"status\": \"delivered\", \"status_at\": \"2026-09-04T14:00:00Z\", \"tracking_id\": \"CA-1044\"}]}}",
+            "sha256": "bc614c4c949d7cf84a58080e0f5085495aa2dc13456b96139cdb97d9c26ae6ff"
+          },
+          {
+            "id": "refund-policy-v2",
+            "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+            "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+          },
+          {
+            "id": "claim-lm1044",
+            "text": "# Réclamation RC-1044 - nouvelle demande\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-29 | En vigueur / pièce courante\n\nRéférence : RC-1044. Commande : LM-1044. Client fictif : C-016. Date : 29 septembre 2026.\n\nDemande client : je demande un remboursement de 89 EUR pour cette commande. Merci de confirmer le traitement de mon dossier.\n\nAvant toute action, consulter l'historique de la commande et les remboursements enregistrés. Une demande répétée ne constitue pas, à elle seule, une fraude.\n",
+            "sha256": "77f2201dd2eda4fafe6c473eec210b4b4a4e9b29eea2ba9400b5c79f97cc68e4"
+          },
+          {
+            "id": "refund-receipt-lm1044",
+            "text": "# Reçu de démonstration RF-1044\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-06 | En vigueur / pièce courante\n\nRéférence du reçu : RF-1044. Commande : LM-1044. Montant : 89 EUR. Date : 6 septembre 2026.\n\nÉtat de la fixture : remboursement exécuté. Cette référence doit correspondre au remboursement déjà enregistré dans le jeu PostgreSQL.\n\nCe reçu est synthétique. Il n'atteste aucune transaction financière réelle. Il permet de vérifier le contrôle de doublon du scenario.\n",
+            "sha256": "d18735cac2807c59108b32d8750af9d60504439a3f7bc372e3bb46ca10ae3a3d"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "path": "fixtures/fixture_spec.json",
+          "sha256": "22a342f36e2036c442546f985bd7a543359fd4e63c44ffeff060a348d78bc408"
+        },
+        {
+          "path": "fixtures/source-texts/refund-policy-v2.md",
+          "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+        },
+        {
+          "path": "fixtures/source-texts/claim-lm1044.md",
+          "sha256": "77f2201dd2eda4fafe6c473eec210b4b4a4e9b29eea2ba9400b5c79f97cc68e4"
+        },
+        {
+          "path": "fixtures/source-texts/refund-receipt-lm1044.md",
+          "sha256": "d18735cac2807c59108b32d8750af9d60504439a3f7bc372e3bb46ca10ae3a3d"
+        }
+      ],
+      "expected_business_direction": {
+        "chosen_resolution": "Clôturer sans nouveau remboursement",
+        "safe_followup": "Présenter le remboursement antérieur et faire valider la clôture",
+        "proposed_refund_amount_eur": "0",
+        "basis": "existing_synthetic_fixture_policy; not a newly reviewed Jev rubric"
+      },
+      "human_annotation": null,
+      "observed_result": null,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/systems/f3ea83de-df89-45ec-8a85-c00d676b2713/flow-workbench/node-runs",
+        "body": {
+          "acknowledge_real_side_effects": true,
+          "flow_definition": {
+            "schema_version": 3,
+            "source": "flow",
+            "extended": true,
+            "nodes": [
+              {
+                "id": "quality.triage_jev",
+                "kind": "task",
+                "type": "skill",
+                "label": "Orienter la revue SAV · Jev",
+                "config": {
+                  "skill_slug": "evaluate_v2",
+                  "typed_evaluation": {
+                    "rubric_id": "luma-exploratory-second-opinion",
+                    "rubric_version": "1",
+                    "questions": [
+                      {
+                        "key": "chosen_resolution",
+                        "question": "Quel traitement le responsable SAV doit-il examiner selon les faits et la politique fournis ? Un statut livré ne prouve pas la réception si les pièces se contredisent. Une perte confirmée permet d'examiner un remboursement, un remboursement antérieur interdit le doublon, et une pièce nécessaire absente impose de la demander. Ne jamais exécuter une action.",
+                        "type": "choice",
+                        "choices": [
+                          "Ouvrir une enquête transporteur",
+                          "Proposer un remboursement à la validation humaine",
+                          "Clôturer sans nouveau remboursement",
+                          "Demander le justificatif manquant"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "refund_supported",
+                        "question": "Les informations fournies suffisent-elles à proposer un nouveau remboursement à l'examen humain, sans paiement automatique ? La perte doit être confirmée, la politique applicable et le montant payé connus, et aucun remboursement antérieur ne doit épuiser le montant remboursable. Une contradiction de livraison ou une pièce nécessaire absente ne suffit pas.",
+                        "type": "probability",
+                        "required": false,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "safe_followup",
+                        "question": "Quelle prochaine étape conserve la maîtrise du responsable SAV ? Choisir la suite correspondant aux faits, sans inventer de pièce, d'autorisation ni de paiement. Toute action reste soumise à l'humain.",
+                        "type": "choice",
+                        "choices": [
+                          "Soumettre l'enquête transporteur au responsable SAV",
+                          "Soumettre le montant remboursable et ses preuves au responsable SAV",
+                          "Présenter le remboursement antérieur et faire valider la clôture",
+                          "Demander la pièce puis reprendre l'enquête après réception"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      }
+                    ],
+                    "budget": {
+                      "max_calls": 1,
+                      "max_tokens": 131072,
+                      "max_cost_usd": 0.003,
+                      "max_output_tokens": 2048,
+                      "timeout_s": 60,
+                      "max_prompt_bytes": 32000
+                    },
+                    "tariff": {
+                      "provider": "typesafe",
+                      "model": "jev-1.13.0",
+                      "input_per_million": 0.042,
+                      "output_per_million": 0.0,
+                      "currency": "USD",
+                      "reference": "https://docs.typesafe.ai/models.md (checked 2026-10-22)"
+                    }
+                  },
+                  "on_error": "fail"
+                }
+              }
+            ],
+            "edges": []
+          },
+          "expected_flow_sha256": "803f6f4880bafd65219c47b19a0398f1462ff7d5403746de88a788f5c43ca336",
+          "node_id": "quality.triage_jev",
+          "input_ref": {
+            "subject_ref": "offline-fixture:RC-1044:jev-second-opinion-v1",
+            "evidence": [
+              {
+                "id": "fixture_facts",
+                "text": "{\"available_case_documents\": [\"claim-lm1044\", \"refund-receipt-lm1044\"], \"claim_id\": \"RC-1044\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-1044\", \"opened_at\": \"2026-09-29T11:00:00Z\", \"order_id\": \"LM-1044\", \"reason\": \"refund_requested\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-016\", \"order_id\": \"LM-1044\", \"ordered_at\": \"2026-09-02T10:00:00Z\", \"paid_amount\": \"89.00\", \"payment_status\": \"paid\", \"shipping_postcode\": \"33000\"}], \"refunds\": [{\"amount\": \"89.00\", \"currency\": \"EUR\", \"executed_at\": \"2026-09-06T10:00:00Z\", \"order_id\": \"LM-1044\", \"refund_id\": \"RF-1044\", \"status\": \"executed\"}], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-1044\", \"shipment_id\": \"SH-1044\", \"status\": \"delivered\", \"status_at\": \"2026-09-04T14:00:00Z\", \"tracking_id\": \"CA-1044\"}]}}",
+                "sha256": "bc614c4c949d7cf84a58080e0f5085495aa2dc13456b96139cdb97d9c26ae6ff"
+              },
+              {
+                "id": "refund-policy-v2",
+                "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+                "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+              },
+              {
+                "id": "claim-lm1044",
+                "text": "# Réclamation RC-1044 - nouvelle demande\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-29 | En vigueur / pièce courante\n\nRéférence : RC-1044. Commande : LM-1044. Client fictif : C-016. Date : 29 septembre 2026.\n\nDemande client : je demande un remboursement de 89 EUR pour cette commande. Merci de confirmer le traitement de mon dossier.\n\nAvant toute action, consulter l'historique de la commande et les remboursements enregistrés. Une demande répétée ne constitue pas, à elle seule, une fraude.\n",
+                "sha256": "77f2201dd2eda4fafe6c473eec210b4b4a4e9b29eea2ba9400b5c79f97cc68e4"
+              },
+              {
+                "id": "refund-receipt-lm1044",
+                "text": "# Reçu de démonstration RF-1044\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-06 | En vigueur / pièce courante\n\nRéférence du reçu : RF-1044. Commande : LM-1044. Montant : 89 EUR. Date : 6 septembre 2026.\n\nÉtat de la fixture : remboursement exécuté. Cette référence doit correspondre au remboursement déjà enregistré dans le jeu PostgreSQL.\n\nCe reçu est synthétique. Il n'atteste aucune transaction financière réelle. Il permet de vérifier le contrôle de doublon du scenario.\n",
+                "sha256": "d18735cac2807c59108b32d8750af9d60504439a3f7bc372e3bb46ca10ae3a3d"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "RC-5007",
+      "scenario": "missing_delivery_document",
+      "input_ref": {
+        "subject_ref": "offline-fixture:RC-5007:jev-second-opinion-v1",
+        "evidence": [
+          {
+            "id": "fixture_facts",
+            "text": "{\"available_case_documents\": [\"claim-lm5007\"], \"claim_id\": \"RC-5007\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [\"delivery-lm5007\"], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-5007\", \"opened_at\": \"2026-09-25T10:00:00Z\", \"order_id\": \"LM-5007\", \"reason\": \"delivery_disputed\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-B5007\", \"order_id\": \"LM-5007\", \"ordered_at\": \"2026-09-20T10:00:00Z\", \"paid_amount\": \"420.00\", \"payment_status\": \"paid\", \"shipping_postcode\": \"75011\"}], \"refunds\": [], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-5007\", \"shipment_id\": \"SH-5007\", \"status\": \"delivered\", \"status_at\": \"2026-09-24T14:00:00Z\", \"tracking_id\": \"CA-5007\"}]}}",
+            "sha256": "66e1cd3737a7369e90683a71e1fb822115a92cf05b69ec935351654e9077b1f4"
+          },
+          {
+            "id": "refund-policy-v2",
+            "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+            "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+          },
+          {
+            "id": "claim-lm5007",
+            "text": "# Réclamation RC-5007 - livraison contestée\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-25 | En vigueur / pièce courante\n\nRéférence : RC-5007. Commande : LM-5007. Client fictif : C-B5007. Date de demande : 25 septembre 2026.\n\nDemande client : ma commande de lampe, d'un montant de 420 EUR, apparaît livree mais je n'ai pas reçu le colis. Merci de vérifier le lieu de remise et de me proposer une solution.\n\nLe client conteste la réception. Ce document ne constitue pas une preuve que le colis a ete perdu ni une autorisation de remboursement.\n",
+            "sha256": "16e4baf8822d895c119d073255ab4d2c4bd469660bdb89fb4db89b6b6e26b11a"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "path": "fixtures/fixture_spec.json",
+          "sha256": "22a342f36e2036c442546f985bd7a543359fd4e63c44ffeff060a348d78bc408"
+        },
+        {
+          "path": "fixtures/source-texts/refund-policy-v2.md",
+          "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+        },
+        {
+          "path": "fixtures/benchmark/source-texts/claim-lm5007.md",
+          "sha256": "16e4baf8822d895c119d073255ab4d2c4bd469660bdb89fb4db89b6b6e26b11a"
+        },
+        {
+          "path": "fixtures/build_benchmark.py",
+          "sha256": "14ee8dca1aa35385e8811aae81b6baadbbb0a701df7997ff924a5737d59314c8"
+        },
+        {
+          "path": "fixtures/benchmark/protocol.json",
+          "sha256": "af32229326200da740c6631bd6e9f75a40df2a288558c7c3ea07189f8b455156"
+        }
+      ],
+      "expected_business_direction": {
+        "chosen_resolution": "Demander le justificatif manquant",
+        "safe_followup": "Demander la pièce puis reprendre l'enquête après réception",
+        "proposed_refund_amount_eur": "0",
+        "basis": "existing_synthetic_fixture_policy; not a newly reviewed Jev rubric"
+      },
+      "human_annotation": null,
+      "observed_result": null,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/systems/f3ea83de-df89-45ec-8a85-c00d676b2713/flow-workbench/node-runs",
+        "body": {
+          "acknowledge_real_side_effects": true,
+          "flow_definition": {
+            "schema_version": 3,
+            "source": "flow",
+            "extended": true,
+            "nodes": [
+              {
+                "id": "quality.triage_jev",
+                "kind": "task",
+                "type": "skill",
+                "label": "Orienter la revue SAV · Jev",
+                "config": {
+                  "skill_slug": "evaluate_v2",
+                  "typed_evaluation": {
+                    "rubric_id": "luma-exploratory-second-opinion",
+                    "rubric_version": "1",
+                    "questions": [
+                      {
+                        "key": "chosen_resolution",
+                        "question": "Quel traitement le responsable SAV doit-il examiner selon les faits et la politique fournis ? Un statut livré ne prouve pas la réception si les pièces se contredisent. Une perte confirmée permet d'examiner un remboursement, un remboursement antérieur interdit le doublon, et une pièce nécessaire absente impose de la demander. Ne jamais exécuter une action.",
+                        "type": "choice",
+                        "choices": [
+                          "Ouvrir une enquête transporteur",
+                          "Proposer un remboursement à la validation humaine",
+                          "Clôturer sans nouveau remboursement",
+                          "Demander le justificatif manquant"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "refund_supported",
+                        "question": "Les informations fournies suffisent-elles à proposer un nouveau remboursement à l'examen humain, sans paiement automatique ? La perte doit être confirmée, la politique applicable et le montant payé connus, et aucun remboursement antérieur ne doit épuiser le montant remboursable. Une contradiction de livraison ou une pièce nécessaire absente ne suffit pas.",
+                        "type": "probability",
+                        "required": false,
+                        "requires_evidence": false
+                      },
+                      {
+                        "key": "safe_followup",
+                        "question": "Quelle prochaine étape conserve la maîtrise du responsable SAV ? Choisir la suite correspondant aux faits, sans inventer de pièce, d'autorisation ni de paiement. Toute action reste soumise à l'humain.",
+                        "type": "choice",
+                        "choices": [
+                          "Soumettre l'enquête transporteur au responsable SAV",
+                          "Soumettre le montant remboursable et ses preuves au responsable SAV",
+                          "Présenter le remboursement antérieur et faire valider la clôture",
+                          "Demander la pièce puis reprendre l'enquête après réception"
+                        ],
+                        "required": true,
+                        "requires_evidence": false
+                      }
+                    ],
+                    "budget": {
+                      "max_calls": 1,
+                      "max_tokens": 131072,
+                      "max_cost_usd": 0.003,
+                      "max_output_tokens": 2048,
+                      "timeout_s": 60,
+                      "max_prompt_bytes": 32000
+                    },
+                    "tariff": {
+                      "provider": "typesafe",
+                      "model": "jev-1.13.0",
+                      "input_per_million": 0.042,
+                      "output_per_million": 0.0,
+                      "currency": "USD",
+                      "reference": "https://docs.typesafe.ai/models.md (checked 2026-10-22)"
+                    }
+                  },
+                  "on_error": "fail"
+                }
+              }
+            ],
+            "edges": []
+          },
+          "expected_flow_sha256": "803f6f4880bafd65219c47b19a0398f1462ff7d5403746de88a788f5c43ca336",
+          "node_id": "quality.triage_jev",
+          "input_ref": {
+            "subject_ref": "offline-fixture:RC-5007:jev-second-opinion-v1",
+            "evidence": [
+              {
+                "id": "fixture_facts",
+                "text": "{\"available_case_documents\": [\"claim-lm5007\"], \"claim_id\": \"RC-5007\", \"evidence_kind\": \"synthetic_demo\", \"financial_execution\": \"not_executed\", \"human_action_authorized\": false, \"missing_case_documents\": [\"delivery-lm5007\"], \"read_mode\": \"offline_fixture\", \"tables\": {\"claims\": [{\"claim_id\": \"RC-5007\", \"opened_at\": \"2026-09-25T10:00:00Z\", \"order_id\": \"LM-5007\", \"reason\": \"delivery_disputed\", \"state\": \"to_investigate\"}], \"orders\": [{\"currency\": \"EUR\", \"customer_id\": \"C-B5007\", \"order_id\": \"LM-5007\", \"ordered_at\": \"2026-09-20T10:00:00Z\", \"paid_amount\": \"420.00\", \"payment_status\": \"paid\", \"shipping_postcode\": \"75011\"}], \"refunds\": [], \"shipments\": [{\"carrier\": \"ColisAzur\", \"order_id\": \"LM-5007\", \"shipment_id\": \"SH-5007\", \"status\": \"delivered\", \"status_at\": \"2026-09-24T14:00:00Z\", \"tracking_id\": \"CA-5007\"}]}}",
+                "sha256": "66e1cd3737a7369e90683a71e1fb822115a92cf05b69ec935351654e9077b1f4"
+              },
+              {
+                "id": "refund-policy-v2",
+                "text": "# Politique de remboursement - version 2\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 2 | Date : 2026-09-01 | En vigueur / pièce courante\n\nApplicable aux commandes Luma Maison passées à compter du 1er septembre 2026. Cette version remplace la version 1 archivée.\n\nArticle 1 - Avant toute proposition, rapprocher la commande payée, le statut de livraison, les pièces du dossier et les remboursements déjà enregistrés. L'identifiant de commande relie les preuves.\n\nArticle 2 - Un statut transporteur livré ne prouve pas la réception à la bonne adresse. Si le code postal du bordereau diffère de celui de la commande, la preuve est contradictoire : demander une enquête transporteur. Ne pas affirmer que le client a reçu le colis.\n\nArticle 3 - Une perte confirmée par le transporteur rend le remboursement éligible à l'examen humain. Le montant proposé ne peut dépasser le montant payé moins les remboursements déjà exécutés.\n\nArticle 4 - Tout remboursement exige une validation humaine avant exécution. Au-delà de 300 EUR, la responsable SAV examine personnellement la proposition et ses justificatifs.\n\nArticle 5 - Un remboursement déjà exécuté pour la même commande doit être présenté dans le dossier. Une nouvelle demande identique ne génère pas un second remboursement.\n\nArticle 6 - Une preuve manquante produit une demande d'information. Aucun fait ni accord financier ne doit être inventé. Conserver décision, motif, sources et reçu d'action.\n",
+                "sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+              },
+              {
+                "id": "claim-lm5007",
+                "text": "# Réclamation RC-5007 - livraison contestée\n\nDÉMONSTRATION SYNTHÉTIQUE - aucun client ni remboursement réel\n\nVersion : 1 | Date : 2026-09-25 | En vigueur / pièce courante\n\nRéférence : RC-5007. Commande : LM-5007. Client fictif : C-B5007. Date de demande : 25 septembre 2026.\n\nDemande client : ma commande de lampe, d'un montant de 420 EUR, apparaît livree mais je n'ai pas reçu le colis. Merci de vérifier le lieu de remise et de me proposer une solution.\n\nLe client conteste la réception. Ce document ne constitue pas une preuve que le colis a ete perdu ni une autorisation de remboursement.\n",
+                "sha256": "16e4baf8822d895c119d073255ab4d2c4bd469660bdb89fb4db89b6b6e26b11a"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
