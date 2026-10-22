@@ -1,6 +1,7 @@
 """Campaign boundaries use real ledgers and isolated artifacts, never caller dry-run flags."""
 
 import copy
+import importlib.util
 import json
 from datetime import datetime
 from pathlib import Path
@@ -387,6 +388,12 @@ def test_luma_proposal_is_unreviewed_has_twelve_distinct_inputs_and_valid_cases(
         / "docs/demo-runs/showcase-ecommerce/fixtures/observability/qa-plan.proposal.json"
     )
     proposal = json.loads(path.read_text())
+    spec = importlib.util.spec_from_file_location(
+        "build_luma_qa_plan", path.with_name("build_qa_plan.py")
+    )
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    assert generator.build("SELECT_LUMA_SYSTEM", []) == proposal
     cases = proposal["suite_draft"]["cases"]
     assert len(cases) == len({case["input_ref"]["claim_id"] for case in cases}) == 12
     assert len({case["case_family"] for case in cases}) == 6
@@ -396,5 +403,63 @@ def test_luma_proposal_is_unreviewed_has_twelve_distinct_inputs_and_valid_cases(
     )
     assert all("reference_answer" not in case for case in cases)
     assert all(CaseBody.model_validate(case) for case in cases)
+    proposals = [case for case in cases if case["case_family"] != "missing_evidence"]
+    assert len(proposals) == 10
+    for case in proposals:
+        checks = {check["id"]: check for check in case["assertions"]}
+        assert checks["expected-amount"]["value"] == (
+            "49.90" if checks["expected-action"]["value"] == "refund" else "0"
+        )
+        assert checks["expected-currency"]["value"] == "EUR"
+        assert checks["matching-claim"]["value"] == case["input_ref"]["claim_id"]
+        assert checks["current-policy-version"]["value"] == "2"
+    for case in cases:
+        if case["case_family"] == "missing_evidence":
+            assert {check["id"] for check in case["assertions"]} == {"ask-human", "not-completed"}
     with pytest.raises(ValidationError):
         SuiteBody.model_validate(proposal["suite_draft"])
+
+
+@pytest.mark.parametrize(
+    "path,incorrect_value,failed_check",
+    [
+        (["amount"], "50.00", "expected-amount"),
+        (["amount"], 49.9, "expected-amount"),
+        (["currency"], "USD", "expected-currency"),
+        (["claim_id"], "RC-5004", "matching-claim"),
+        (["order_id"], "LM-5004", "matching-order"),
+        (["requires_human"], False, "human-required"),
+        (["financial_execution"], "real", "simulated-financial-execution"),
+        (["missing_references"], ["missing_loss_confirmation"], "no-missing-references"),
+        (["resolution_policy", "document_key"], "refund-policy-v1", "current-policy-document"),
+        (["resolution_policy", "document_version"], "1", "current-policy-version"),
+        (["resolution_policy", "document_sha256"], "0" * 64, "current-policy-digest"),
+    ],
+)
+def test_luma_proposal_rejects_financial_or_provenance_drift(path, incorrect_value, failed_check):
+    from app.services.ecommerce.claims import propose
+    from app.tests.services.test_ecommerce_claims import case
+
+    proposal = json.loads(
+        (
+            Path(__file__).resolve().parents[4]
+            / "docs/demo-runs/showcase-ecommerce/fixtures/observability/qa-plan.proposal.json"
+        ).read_text()
+    )
+    checks = next(
+        item["assertions"]
+        for item in proposal["suite_draft"]["cases"]
+        if item["input_ref"]["claim_id"] == "RC-5003"
+    )
+    # Use the real proposal contract for the same confirmed-loss scenario;
+    # bind its output to this cohort's identity before evaluating generic checks.
+    output = propose(*case(1043))
+    output.update(claim_id="RC-5003", order_id="LM-5003")
+    assert campaigns.assertion_results(output, checks)["verdict"] == "passed"
+    target = output
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = incorrect_value
+    result = campaigns.assertion_results(output, checks)
+    assert result["verdict"] == "failed"
+    assert failed_check in {item["id"] for item in result["assertions"] if item["passed"] is False}

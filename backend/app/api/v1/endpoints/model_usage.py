@@ -12,6 +12,7 @@ from app.db.base import get_db
 from app.models.model_usage import ModelTariff, UsageBudgetPolicy
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.schemas.model_usage import TariffProvenance
 from app.services import model_usage as usage
 from app.services import model_usage_views as views
 from app.services.activity_observability.queries import require_membership
@@ -40,6 +41,7 @@ class TariffBody(BaseModel):
     output_per_million: str
     cached_input_per_million: str | None = None
     cache_write_per_million: str | None = None
+    provenance: TariffProvenance | None = None
 
 
 class RolloutBody(BaseModel):

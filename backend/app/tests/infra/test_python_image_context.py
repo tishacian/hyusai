@@ -6,6 +6,7 @@ their own exclusion list. Two failures are worth a test: a runtime file that
 silently stops shipping (a demo seed reading ``docs/``, Sentinel reading
 ``config/``), and a secret or a laptop venv that silently starts shipping.
 """
+
 import re
 from pathlib import Path
 
@@ -45,9 +46,16 @@ RUNTIME_READS = [
     "docs/showcase-notices-knowledge-guide.md",
     "docs/andritz-notices-techniques-spl-knowledge-guide.md",
 ]
-RUNTIME_DIRECTORIES = ["backend/app/services/document_meta/docmeta", "backend/app/seeds/sample_data"]
+RUNTIME_DIRECTORIES = [
+    "backend/app/services/document_meta/docmeta",
+    "backend/app/seeds/sample_data",
+]
 
 NEVER_SHIPPED = [
+    "backend/app/tests/conftest.py",
+    "backend/app/tests/services/test_model_usage.py",
+    "backend/app/tests/fixtures/tenant_prompts/andritz_chat_prompts.json",
+    "backend/app/tests/connectors/test_postgresql.py",
     "docker/env/agentium.env",
     "docker/env/keycloak.agentium.env",
     "backend/.env",
@@ -106,7 +114,9 @@ def test_python_ignores_extend_the_root_file_verbatim():
     root = _patterns(ROOT / ".dockerignore")
     first, *others = (_patterns(path) for path in PYTHON_IGNORES)
     assert all(other == first for other in others), "the Python images must see the same context"
-    assert first[: len(root)] == root, "the Python ignore file must start with the root file verbatim"
+    assert first[: len(root)] == root, (
+        "the Python ignore file must start with the root file verbatim"
+    )
 
 
 @pytest.mark.parametrize("ignore_file", PYTHON_IGNORES, ids=lambda path: path.name)
@@ -116,7 +126,9 @@ def test_runtime_reads_stay_in_the_python_image_context(ignore_file):
         assert (ROOT / path).exists(), f"stale runtime read in this test: {path}"
         assert not _excluded(path, patterns), f"{ignore_file.name} drops a runtime file: {path}"
     for directory in RUNTIME_DIRECTORIES:
-        files = [p for p in (ROOT / directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+        files = [
+            p for p in (ROOT / directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts
+        ]
         assert files, f"stale runtime directory in this test: {directory}"
         sample = files[0].relative_to(ROOT).as_posix()
         assert not _excluded(sample, patterns), f"{ignore_file.name} drops {directory}/"
@@ -128,9 +140,14 @@ def test_runtime_reads_stay_in_the_python_image_context(ignore_file):
 def test_secrets_and_laptop_state_never_reach_an_image(ignore_file):
     patterns = _patterns(ignore_file)
     for path in (
-        "docker/env/agentium.env", "backend/.env", "backend/.venv/bin/python", ".claude/x",
-        ".terraform/providers/provider", "ops/terraform/.terraform/providers/provider",
-        "terraform.tfstate", "ops/instance/terraform.tfstate.backup",
+        "docker/env/agentium.env",
+        "backend/.env",
+        "backend/.venv/bin/python",
+        ".claude/x",
+        ".terraform/providers/provider",
+        "ops/terraform/.terraform/providers/provider",
+        "terraform.tfstate",
+        "ops/instance/terraform.tfstate.backup",
         "ops/terraform/deployment.tfplan",
     ):
         assert _excluded(path, patterns), f"{ignore_file.name} ships {path}"
@@ -142,6 +159,24 @@ def test_python_images_skip_sources_their_runtime_never_reads(ignore_file):
     patterns = _patterns(ignore_file)
     for path in NEVER_SHIPPED:
         assert _excluded(path, patterns), f"{ignore_file.name} ships {path}"
+
+
+@pytest.mark.parametrize("ignore_file", PYTHON_IGNORES, ids=lambda path: path.name)
+def test_connector_runtime_identity_keeps_every_certification_recipe(ignore_file):
+    # kit_identity hashes every .py/.json, including test_*.py: removing only
+    # tests inside the kit silently changes its runtime certification identity.
+    patterns = _patterns(ignore_file)
+    directory = ROOT / "backend/app/tests/connectors/kit"
+    files = [
+        path
+        for path in directory.rglob("*")
+        if path.is_file() and path.suffix in {".py", ".json"} and "__pycache__" not in path.parts
+    ]
+    assert files and (directory / "manifest.json") in files
+    for path in files:
+        assert not _excluded(path.relative_to(ROOT).as_posix(), patterns), (
+            f"{ignore_file.name} changes the connector kit identity by dropping {path.name}"
+        )
 
 
 def test_the_matcher_follows_moby_semantics():
@@ -161,4 +196,6 @@ def test_code_packages_named_secrets_reach_their_image():
     assert not _excluded("backend/app/services/secrets/registry.py", root)
     assert _excluded("docker/secrets/token.txt", root)
     for ignore_file in PYTHON_IGNORES:
-        assert _excluded("frontend-ng/src/app/shared/secrets/secrets.api.ts", _patterns(ignore_file))
+        assert _excluded(
+            "frontend-ng/src/app/shared/secrets/secrets.api.ts", _patterns(ignore_file)
+        )

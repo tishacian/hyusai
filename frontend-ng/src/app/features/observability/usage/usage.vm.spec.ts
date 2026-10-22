@@ -1,3 +1,4 @@
+import { convertedTariffRate, declaredConversionRates, tariffProvenanceDraft, validateTariffProvenance } from './tariff-provenance.vm';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { budgetAvailable, budgetDraft, budgetPercent, usageAmount, usageBreakdown, usageChartMaximum, usageCostCoverage, usageNumber, usageQuery, usageSeriesValues, validateBudgetDraft } from './usage.vm';
@@ -75,4 +76,45 @@ test('all usage keys have non-empty French and English translations', () => {
   const keys = Object.keys(OBSERVABILITY_FR).filter(key => key.startsWith('observability.usage.')) as Array<keyof typeof OBSERVABILITY_FR>;
   assert.ok(keys.length > 100);
   for (const key of keys) { assert.ok(OBSERVABILITY_FR[key].trim(), key); assert.ok(OBSERVABILITY_EN[key].trim(), key); }
+});
+
+test('tariff provenance is optional for historical payloads and never silently converts amounts', () => {
+  const draft = tariffProvenanceDraft(), target = { provider: 'provider', model: 'model', currency: 'EUR', input_per_million: '1', output_per_million: '4' };
+  assert.deepEqual(validateTariffProvenance(draft, target), {});
+  draft.reference = 'Published price';
+  assert.equal(validateTariffProvenance(draft, target).error, 'USAGE_TARIFF_PROVENANCE_INVALID');
+  draft.observedOn = '2026-10-22';
+  assert.deepEqual(validateTariffProvenance(draft, target), { provenance: { reference: 'Published price', observed_on: '2026-10-22' } });
+  assert.equal(target.input_per_million, '1');
+  draft.observedOn = '2026-02-30';
+  assert.equal(validateTariffProvenance(draft, target).error, 'USAGE_TARIFF_PROVENANCE_INVALID');
+});
+test('declared conversion uses decimal arithmetic and the same half-even precision as the server', () => {
+  assert.equal(convertedTariffRate('1.25', '0.92'), '1.15');
+  assert.equal(convertedTariffRate('0E-12', '0.92'), '0');
+  assert.equal(convertedTariffRate('1E-12', '0.5'), '0');
+  assert.equal(convertedTariffRate('3E-12', '0.5'), '0.000000000002');
+  assert.equal(convertedTariffRate('0.1', '0.2'), '0.02');
+  assert.equal(convertedTariffRate('1.0000000000005', '1'), '1');
+  assert.equal(convertedTariffRate('1.25', '0,92'), '1.15');
+  assert.throws(() => convertedTariffRate('1', '0'));
+  assert.throws(() => convertedTariffRate('1', 'NaN'));
+});
+test('conversion provenance binds the exact entered rates, preserves zero cache rates and refuses stale conversions', () => {
+  const draft = tariffProvenanceDraft();Object.assign(draft, { reference: 'Provider pricing', observedOn: '2026-10-22', conversionEnabled: true, sourceCurrency: 'USD', rate: '0,92', rateReference: 'Treasury convention', rateObservedOn: '2026-10-21' });
+  draft.sourceRates.input_per_million = '1.25'; draft.sourceRates.output_per_million = '10'; draft.sourceRates.cached_input_per_million = '0';
+  const target = { provider: 'provider', model: 'model', currency: 'EUR', input_per_million: '1.15', output_per_million: '9.2', cached_input_per_million: '0' };
+  assert.deepEqual(declaredConversionRates(draft, target), { input_per_million: '1.15', output_per_million: '9.2', cached_input_per_million: '0' });
+  const valid = validateTariffProvenance(draft, target);assert.equal(valid.error, undefined);assert.equal(valid.provenance?.conversion?.rate, '0.92');
+  assert.equal(valid.provenance?.conversion?.source_rates.cached_input_per_million, '0');assert.equal('cache_write_per_million' in valid.provenance!.conversion!.source_rates, false);
+  target.input_per_million = '1.16';assert.equal(validateTariffProvenance(draft, target).error, 'USAGE_TARIFF_CONVERSION_MISMATCH');assert.equal(target.input_per_million, '1.16');
+  draft.sourceCurrency = 'EUR';assert.equal(validateTariffProvenance(draft, target).error, 'USAGE_TARIFF_PROVENANCE_INVALID');
+});
+
+test('a positive sub-micro currency cost never appears as a free call in French or English', () => {
+  for (const locale of ['fr','en']) {
+    const tiny=usageAmount('0.00000038','USD',locale),zero=usageAmount('0','USD',locale);
+    assert.ok(tiny.startsWith('< '));assert.ok(tiny.includes(locale==='fr'?'0,000001':'0.000001'));assert.notEqual(tiny,zero);assert.equal(zero.startsWith('< '),false);
+    assert.equal(usageAmount('0.000001','USD',locale).startsWith('< '),false);assert.equal(usageAmount(null,'USD',locale),'—');
+  }
 });

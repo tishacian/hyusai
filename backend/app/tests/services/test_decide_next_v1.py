@@ -403,7 +403,7 @@ def test_context_preserves_legacy_array_selector_provenance():
 async def test_authorized_context_is_in_the_first_planner_prompt_and_trace(monkeypatch):
     seen = {}
 
-    async def complete(prompt, model, ctx):
+    async def complete(prompt, model, ctx, **options):
         seen.update(prompt=prompt, model=model)
         return json.dumps({"next_skill": "azure_llm_v1", "confidence": 0.9})
 

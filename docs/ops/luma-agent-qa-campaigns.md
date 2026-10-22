@@ -42,6 +42,12 @@ Remplacer la révision, les identifiants et la clé par les valeurs actuelles. L
 
 La limite de suite reste 20 cas ; les deux répétitions sont distinctes de ce plafond. Une délégation/subflow atteignable est refusée explicitement dans cette livraison. Des branches hors de l'ingress choisi ne sont pas lancées. Si une nouvelle version rend un exécuteur non qualifié atteignable, qualifier cet adaptateur en code avant de l'autoriser.
 
+Le mode `qualified_prefix` prépare désormais une **projection distincte** du Flow, depuis l'entrée sélectionnée jusqu'aux frontières humaines. Il conserve les assets PostgreSQL/documentaires entrants, leurs exigences et l'opération métier de l'entrée. Il ne supprime aucun nœud du brouillon. Un nœud inachevé hors parcours ne bloque donc pas la campagne ; une erreur atteignable ou une dépendance exécutable hors préfixe reste bloquante. La validation des previews ordinaires et de la publication ne change pas.
+
+Le préflight expose `projections.baseline/candidate` : SHA du Flow source, SHA projeté, nœuds retenus/exclus, assets et frontières humaines. Le candidat conserve aussi sa révision de brouillon et la baseline son Run source. Ces preuves sont figées dans la campagne ; les Runs conservent `execution.source_flow_sha256` distinct de leur `flow_sha256`. La baseline réutilise ses contrats historiques validés, sans résoudre à nouveau ses Skills dans le catalogue. En mode strict, une déclaration de sortie inerte peut compléter le contrat après la frontière ; le moteur QA s'arrête avant elle et toute reprise reste refusée.
+
+Sur Luma r38/v10, le nœud utilisateur `flow.mv95zi21.1` reste dans le brouillon. L'enquête projetée exclut ce nœud, les autres entrées et les actions après `hitl.review`, tout en gardant les six assets liés. Si le parcours métier n'a pas changé, présenter les essais comme un contrôle de répétabilité/non-régression. Une différence de verdict entre deux exécutions ne prouve pas, à elle seule, une amélioration causée par le brouillon.
+
 ## Exécuter et inspecter
 
 Après examen du préflight, envoyer le même corps à `POST /api/v1/evaluation/campaigns`, enrichi de son `preflight_sha256`. Une modification du brouillon ou du profil invalide le préflight. La requête idempotente ne crée pas de doublons ; une nouvelle tentative utilise une nouvelle clé. Toutes les répétitions restent dans le rapport, sans choisir le meilleur essai.

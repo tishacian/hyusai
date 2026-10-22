@@ -1,0 +1,1196 @@
+{
+  "schema_version": 1,
+  "status": "proposal_not_human_reviewed",
+  "purpose": "Local evidence comparison for proposed QA criteria; not a campaign result or human calibration corpus.",
+  "capture_directory_label": "luma-observability-live-2026-10-22",
+  "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+  "flow_at_capture": {
+    "draft_revision": 38,
+    "draft_flow_sha256": "3038f5301b0675a19d93f223f14f3e60d33de508530022fb215e6e28607156e2",
+    "published_version_id": "b8eb64d3-e417-41bf-898a-7b1ad232d64a",
+    "published_version_number": 10,
+    "published_flow_sha256": "77d4d521a3526fce8a25ee125ddf010976d637f2f2335d8afee98f1a4dbd09f0"
+  },
+  "input_files": [
+    {
+      "filename": "collections-live.json",
+      "sha256": "bb4f4784fbeefa289329fbe6ee03ff3b53aab19ae1dd776b35469866faa89652"
+    },
+    {
+      "filename": "policy-live.json",
+      "sha256": "2c989b7e6ed10d6987cc404f0e960ffc1a9044a7016b00b5affb53aa3b2757b9"
+    },
+    {
+      "filename": "flow-state-before.json",
+      "sha256": "458bd34ac0419d79291e711dc68994f420b1772abdc5c31ffc44499c50f1b51a"
+    }
+  ],
+  "generator": {
+    "path": "docs/demo-runs/showcase-ecommerce/fixtures/observability/build_qa_plan.py",
+    "sha256": "0c7b17bb7e127dff07a3de1b27d7f11d041f350ad054d14b454e363ab0cc0c12"
+  },
+  "collections": [
+    {
+      "id": "c4988dd7-6afd-4530-b567-7de3cc95f6db",
+      "slug": "luma-maison-benchmark",
+      "name": "Luma Maison — Cohorte d’expérimentation",
+      "status": "ready",
+      "document_count": 36
+    },
+    {
+      "id": "e1c7da53-b485-422d-997c-a0369aad6244",
+      "slug": "luma-maison-dossier-lm1042",
+      "name": "Luma Maison — Dossier LM-1042",
+      "status": "ready",
+      "document_count": 2
+    },
+    {
+      "id": "eb2c0bea-bd42-43d2-9a5c-07622322ec89",
+      "slug": "luma-maison-dossier-lm1043",
+      "name": "Luma Maison — Dossier LM-1043",
+      "status": "ready",
+      "document_count": 2
+    },
+    {
+      "id": "9e4ff8df-c8b0-46ed-81e9-4983aa363343",
+      "slug": "luma-maison-dossier-lm1044",
+      "name": "Luma Maison — Dossier LM-1044",
+      "status": "ready",
+      "document_count": 2
+    },
+    {
+      "id": "49b073f5-2cec-43d3-bcc0-c25484f60f08",
+      "slug": "luma-maison-regles",
+      "name": "Luma Maison — Règles SAV en vigueur",
+      "status": "ready",
+      "document_count": 4
+    }
+  ],
+  "policy_at_capture": {
+    "policy": {
+      "schema_version": 1,
+      "document_key": "refund-policy-v2",
+      "document_version": "2",
+      "document_sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5",
+      "currency": "EUR",
+      "manager_approval_above": "300.00"
+    },
+    "sha256": "6c32f1b17e3139fddfcfbbc1db69ea1167ad12d8b9ca43d7a77e5824531e9d2a",
+    "source": "legacy_defaults",
+    "revision": 0,
+    "updated_at": null,
+    "invariants": {
+      "human_approval_required": true,
+      "financial_execution": "simulated",
+      "duplicate_action_guard": true,
+      "live_evidence_recheck": true
+    }
+  },
+  "document_verification": {
+    "unique_documents": 26,
+    "case_document_references": 70,
+    "all_binary_sha256_match_live": true,
+    "scope": "Local binary hashes matched to captured PostgreSQL document_refs and source metadata; Markdown is a separate source-text artifact."
+  },
+  "documents": [
+    {
+      "reference": "carrier-contract-v1",
+      "version": "1",
+      "order_id": null,
+      "source_filename": "contrat-transporteur-v1.pdf",
+      "document_id": "8cbbe64c-9337-5263-bfee-4e52ab7aca7b",
+      "collection_slug": "luma-maison-regles",
+      "knowledge_source_id": "8142f54e-057e-4c8b-8677-f842df777223",
+      "live_document_sha256": "293f6a9e88c31113cdbf253b93626147eb40305991c6db0835ed47b2d871cf20",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/documents/contrat-transporteur-v1.pdf",
+      "local_binary_sha256": "293f6a9e88c31113cdbf253b93626147eb40305991c6db0835ed47b2d871cf20",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/source-texts/carrier-contract-v1.md",
+      "local_source_text_sha256": "ae96be1eae89f48e0b5dc0ca345376c72cf3e3f71c651f4c5ebe9e3f837e45fd"
+    },
+    {
+      "reference": "claim-lm5001",
+      "version": "1",
+      "order_id": "LM-5001",
+      "source_filename": "reclamation-lm5001.pdf",
+      "document_id": "db840fcb-13a9-52ed-813f-c39ffd2f7946",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "8913f380-96f3-4b3f-ad9d-ecce2074e85f",
+      "live_document_sha256": "6acb127c42891fad409ac0a148c89d95c2a003409ac24b6323452adcf563bc4b",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5001.pdf",
+      "local_binary_sha256": "6acb127c42891fad409ac0a148c89d95c2a003409ac24b6323452adcf563bc4b",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5001.md",
+      "local_source_text_sha256": "5109498f62582146cd9211d1ddc8896e203532861f07238f804f4eb30efff31b"
+    },
+    {
+      "reference": "decision-guide-v1",
+      "version": "1",
+      "order_id": null,
+      "source_filename": "guide-validation-sav-v1.pdf",
+      "document_id": "5aed6055-096f-5d3d-b4cd-ddb4a39ddb52",
+      "collection_slug": "luma-maison-regles",
+      "knowledge_source_id": "7b6925a2-b901-4da8-9851-2c465630b9cf",
+      "live_document_sha256": "642cf61d82934e2160d7c7fc9729a9cac6f6a8ee951b9fca3a322287937cbf02",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/documents/guide-validation-sav-v1.pdf",
+      "local_binary_sha256": "642cf61d82934e2160d7c7fc9729a9cac6f6a8ee951b9fca3a322287937cbf02",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/source-texts/decision-guide-v1.md",
+      "local_source_text_sha256": "b6a84c5bf3b03984a3ae410622b3ba933c91d88873f46bb0a4225dc79801c94d"
+    },
+    {
+      "reference": "delivery-lm5001",
+      "version": "1",
+      "order_id": "LM-5001",
+      "source_filename": "bordereau-livraison-lm5001.pdf",
+      "document_id": "7f3b26dd-7480-5b2e-ac42-8a53609ca696",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "1c5b7297-3ec7-46be-81e4-c5db0a90fa4a",
+      "live_document_sha256": "4a69b8bf32197b744c976d5d24fe5e2f3002bb285ae327866f8d22127fa664d4",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/bordereau-livraison-lm5001.pdf",
+      "local_binary_sha256": "4a69b8bf32197b744c976d5d24fe5e2f3002bb285ae327866f8d22127fa664d4",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/delivery-lm5001.md",
+      "local_source_text_sha256": "6bb2820737ec9e43d746614963d291e02b5172494be9097c53db596c6c4315c1"
+    },
+    {
+      "reference": "refund-policy-v2",
+      "version": "2",
+      "order_id": null,
+      "source_filename": "politique-remboursement-v2.pdf",
+      "document_id": "9480eab9-95a2-511d-a0c7-3862e3cb5cbd",
+      "collection_slug": "luma-maison-regles",
+      "knowledge_source_id": "e3dc8440-5481-44a2-84dc-55a731c7cb2f",
+      "live_document_sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/documents/politique-remboursement-v2.pdf",
+      "local_binary_sha256": "240adbc2cd772111c015b5b3530b4dc8c3c9c98cf16d14c4aef6229420eb66a5",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/source-texts/refund-policy-v2.md",
+      "local_source_text_sha256": "8248feb881679873068a4f17c4c1c14094a4f44992274da4061e35b3e290b5ea"
+    },
+    {
+      "reference": "investigation-guide-v1",
+      "version": "1",
+      "order_id": null,
+      "source_filename": "procedure-enquete-livraison-v1.docx",
+      "document_id": "32efcef7-2bde-5648-be9f-ce6a9b6bf2a3",
+      "collection_slug": "luma-maison-regles",
+      "knowledge_source_id": "2060b13d-3fa0-4fc7-975e-f1daf37acae3",
+      "live_document_sha256": "e352f66e19676abf8c0b9659412d7fe8de4799b100607bc8ddf533127aca2369",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/documents/procedure-enquete-livraison-v1.docx",
+      "local_binary_sha256": "e352f66e19676abf8c0b9659412d7fe8de4799b100607bc8ddf533127aca2369",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/source-texts/investigation-guide-v1.md",
+      "local_source_text_sha256": "beec06f33b83a38d4917614b525397ccd169d9379e2047a1bcb09d9a6c078722"
+    },
+    {
+      "reference": "claim-lm5002",
+      "version": "1",
+      "order_id": "LM-5002",
+      "source_filename": "reclamation-lm5002.pdf",
+      "document_id": "256d7d08-2d18-5170-86fc-c0714dd3dc3c",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "6d3b0cdc-7549-4e15-a773-a6aae4f72aaf",
+      "live_document_sha256": "4dec846e8f169e90a71d9a05cee47b47643c9fe4b6f659b52955d2b740328c42",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5002.pdf",
+      "local_binary_sha256": "4dec846e8f169e90a71d9a05cee47b47643c9fe4b6f659b52955d2b740328c42",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5002.md",
+      "local_source_text_sha256": "70959fbd9d042223e7af4e7fef8e9409b6568ca9b58ff8eb955fca67602e3b5f"
+    },
+    {
+      "reference": "delivery-lm5002",
+      "version": "1",
+      "order_id": "LM-5002",
+      "source_filename": "bordereau-livraison-lm5002.pdf",
+      "document_id": "ef9534e0-673a-5ced-8bd1-dcca11311722",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "5781427e-8513-4a10-8bff-6eff489e34ba",
+      "live_document_sha256": "b9d5a44fcf99461b967316e51f252cc8132b6fb9f5ae29c5e4a120afd16ec6c2",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/bordereau-livraison-lm5002.pdf",
+      "local_binary_sha256": "b9d5a44fcf99461b967316e51f252cc8132b6fb9f5ae29c5e4a120afd16ec6c2",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/delivery-lm5002.md",
+      "local_source_text_sha256": "1292690b403fcff62f3f44795d38906595ba6cfd3831be96db9035aaaedb5c40"
+    },
+    {
+      "reference": "loss-lm5003",
+      "version": "1",
+      "order_id": "LM-5003",
+      "source_filename": "confirmation-perte-lm5003.pdf",
+      "document_id": "967ae13a-3d90-5a68-91f0-f460ccf21a6d",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "955457d7-d9ee-4741-bc3e-99608b9d6302",
+      "live_document_sha256": "938be37536bd0af2d3e04ffaa29e4c3731319dc7f9df3bc8af3c6f9e9ed034d5",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/confirmation-perte-lm5003.pdf",
+      "local_binary_sha256": "938be37536bd0af2d3e04ffaa29e4c3731319dc7f9df3bc8af3c6f9e9ed034d5",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/loss-lm5003.md",
+      "local_source_text_sha256": "828d3ca73668b77f649bb3f70c59c779f98020c6babc60a3970e29a87fc3e137"
+    },
+    {
+      "reference": "claim-lm5003",
+      "version": "1",
+      "order_id": "LM-5003",
+      "source_filename": "reclamation-lm5003.pdf",
+      "document_id": "d8531854-63ef-574e-81af-fd234eb0a702",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "474a7022-c11e-4272-96e3-80ec803a7165",
+      "live_document_sha256": "3e91d220d43bcf7aa979242b6b2f545db8235321f296819699b988eafa4119bf",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5003.pdf",
+      "local_binary_sha256": "3e91d220d43bcf7aa979242b6b2f545db8235321f296819699b988eafa4119bf",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5003.md",
+      "local_source_text_sha256": "3a74f451c5e70cf226a7bb37ce1cec7c821f864006c836d061eb63fcf2d510d9"
+    },
+    {
+      "reference": "loss-lm5004",
+      "version": "1",
+      "order_id": "LM-5004",
+      "source_filename": "confirmation-perte-lm5004.pdf",
+      "document_id": "d92438da-ba43-5b6c-a677-445a4ed22969",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "f2110051-9aca-43d4-87b9-c8c6fc9b6e99",
+      "live_document_sha256": "f15938a5366c51d6cf2f2adcef783a61e2644173e2ea1a3038f9ca37bb61b677",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/confirmation-perte-lm5004.pdf",
+      "local_binary_sha256": "f15938a5366c51d6cf2f2adcef783a61e2644173e2ea1a3038f9ca37bb61b677",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/loss-lm5004.md",
+      "local_source_text_sha256": "7621f9832c49b4b9a1a1baa87aec9f71ce65c07a1737725f2bc5fc0793b2c248"
+    },
+    {
+      "reference": "claim-lm5004",
+      "version": "1",
+      "order_id": "LM-5004",
+      "source_filename": "reclamation-lm5004.pdf",
+      "document_id": "7348867b-ba22-5dad-a1cc-5d69ddc26355",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "faab1288-ca16-4565-8b68-579d2703128c",
+      "live_document_sha256": "8f0ca67baddc960e49a3e12961308e047e1aa9d28eb86f61868e5b3ede99598b",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5004.pdf",
+      "local_binary_sha256": "8f0ca67baddc960e49a3e12961308e047e1aa9d28eb86f61868e5b3ede99598b",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5004.md",
+      "local_source_text_sha256": "be94a1558f01c834a485fb79e933b8fd71ecd8015dd85d29ee2928a9a611651f"
+    },
+    {
+      "reference": "claim-lm5005",
+      "version": "1",
+      "order_id": "LM-5005",
+      "source_filename": "reclamation-lm5005.pdf",
+      "document_id": "16495168-fed5-5cb8-a20c-953bbc64a5d2",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "d02037d0-07a6-43e4-8276-45b92f18ef95",
+      "live_document_sha256": "1c9c2ec45f9fd0b852b4fadf2bd32264f07fe0c7332b0f9a7c665b5cfef7bdaa",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5005.pdf",
+      "local_binary_sha256": "1c9c2ec45f9fd0b852b4fadf2bd32264f07fe0c7332b0f9a7c665b5cfef7bdaa",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5005.md",
+      "local_source_text_sha256": "31c0a02c7aea9cf9a130ef1d8ae5a543e3dd1bc71c63390c434ff0a21ac9ad45"
+    },
+    {
+      "reference": "refund-receipt-lm5005",
+      "version": "1",
+      "order_id": "LM-5005",
+      "source_filename": "recu-remboursement-lm5005.pdf",
+      "document_id": "121ed31e-80b3-5bf3-bf01-b8cac4981971",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "e10c794d-1d7c-40bf-94be-d3f7e9ba58eb",
+      "live_document_sha256": "0e8a99356ffec6c4bea626c87ce3d90b6063f2d9b88d4b9df0ce641a83dff2d1",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/recu-remboursement-lm5005.pdf",
+      "local_binary_sha256": "0e8a99356ffec6c4bea626c87ce3d90b6063f2d9b88d4b9df0ce641a83dff2d1",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/refund-receipt-lm5005.md",
+      "local_source_text_sha256": "3a081977374514400360d1c4cbc74f6216c54b265f595737aa91cdd5de5f5af2"
+    },
+    {
+      "reference": "claim-lm5006",
+      "version": "1",
+      "order_id": "LM-5006",
+      "source_filename": "reclamation-lm5006.pdf",
+      "document_id": "3c07ea0d-416c-5747-8b9d-4fb88d524c54",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "0331943a-cf78-461f-9688-4ed432e2d628",
+      "live_document_sha256": "728329e2b1dc4a93efa81d2de23260cbe14ac0e92cdbde022edee26fb693c5b4",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5006.pdf",
+      "local_binary_sha256": "728329e2b1dc4a93efa81d2de23260cbe14ac0e92cdbde022edee26fb693c5b4",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5006.md",
+      "local_source_text_sha256": "e6acbac935234728dd91f873be34b8ebdc037e8193de329b8f4a6d322554da28"
+    },
+    {
+      "reference": "refund-receipt-lm5006",
+      "version": "1",
+      "order_id": "LM-5006",
+      "source_filename": "recu-remboursement-lm5006.pdf",
+      "document_id": "de34315b-bf92-5a1d-8d31-7d865728124f",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "4b0f8794-5fae-41c0-87b6-9c57b6c1c89c",
+      "live_document_sha256": "4c41d0d829e08bed14dd205e68c310fb425b9427dff99b5070285da6d80d5f18",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/recu-remboursement-lm5006.pdf",
+      "local_binary_sha256": "4c41d0d829e08bed14dd205e68c310fb425b9427dff99b5070285da6d80d5f18",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/refund-receipt-lm5006.md",
+      "local_source_text_sha256": "f1ef98f11e30118846f378f8d9cbeae50b4f746d6232c80e2ac2dab448afee9d"
+    },
+    {
+      "reference": "claim-lm5007",
+      "version": "1",
+      "order_id": "LM-5007",
+      "source_filename": "reclamation-lm5007.pdf",
+      "document_id": "c1f5e2a9-8acf-5f59-b4d3-a9fbd162bf35",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "bae4b4cf-365c-415e-a8b0-e5dcda1e038d",
+      "live_document_sha256": "33bdca7d6bf7681fc57a161e69f168f9f14a9f33c85fe8d7d15119c95f83ed45",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5007.pdf",
+      "local_binary_sha256": "33bdca7d6bf7681fc57a161e69f168f9f14a9f33c85fe8d7d15119c95f83ed45",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5007.md",
+      "local_source_text_sha256": "16e4baf8822d895c119d073255ab4d2c4bd469660bdb89fb4db89b6b6e26b11a"
+    },
+    {
+      "reference": "claim-lm5008",
+      "version": "1",
+      "order_id": "LM-5008",
+      "source_filename": "reclamation-lm5008.pdf",
+      "document_id": "7b1399e0-2843-5b7c-915c-59ea6a8341d7",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "8059626e-3d79-45e0-a0ce-70dd0dd1f236",
+      "live_document_sha256": "b3e60ed2509ddadc16db15f13160f40635c7851f4fe35feaf9d9687c2592c463",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5008.pdf",
+      "local_binary_sha256": "b3e60ed2509ddadc16db15f13160f40635c7851f4fe35feaf9d9687c2592c463",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5008.md",
+      "local_source_text_sha256": "5cffe3d1ff4b4c63ea925a40a12633980891250770962afb6411cc3a371fbaf6"
+    },
+    {
+      "reference": "claim-lm5009",
+      "version": "1",
+      "order_id": "LM-5009",
+      "source_filename": "reclamation-lm5009.pdf",
+      "document_id": "9c52a9b0-847a-596b-8088-b943741b1510",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "933a44ce-0668-4629-ae00-1a340943e3cb",
+      "live_document_sha256": "0c087d86fecf187d24431d4da5c3a865b72e78a395e468364faeec45acc4a7dc",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5009.pdf",
+      "local_binary_sha256": "0c087d86fecf187d24431d4da5c3a865b72e78a395e468364faeec45acc4a7dc",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5009.md",
+      "local_source_text_sha256": "83b169558cfed0d66cdfbbc6782dddbd298f153ee1ba3a2e267012870bb25026"
+    },
+    {
+      "reference": "delivery-lm5009",
+      "version": "1",
+      "order_id": "LM-5009",
+      "source_filename": "bordereau-livraison-lm5009.pdf",
+      "document_id": "d3376632-3da5-5763-b6f2-4ddf920f78e6",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "3aaa43f7-4608-4bec-901b-24863f33c284",
+      "live_document_sha256": "f77f308ed5940ec7aa3b74a0021e3574eb095e1ec376b76056a979e26002eaee",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/bordereau-livraison-lm5009.pdf",
+      "local_binary_sha256": "f77f308ed5940ec7aa3b74a0021e3574eb095e1ec376b76056a979e26002eaee",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/delivery-lm5009.md",
+      "local_source_text_sha256": "6de08900546fb5cac465dc86d90d7ceb1cf79a8477e9eff0a536cf987c4d3daa"
+    },
+    {
+      "reference": "claim-lm5010",
+      "version": "1",
+      "order_id": "LM-5010",
+      "source_filename": "reclamation-lm5010.pdf",
+      "document_id": "a2599b2f-2a99-59d5-b913-73f2194ae4d9",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "9283860e-db74-43e0-93ad-6a6f727c79fa",
+      "live_document_sha256": "8ef9c5bec4f66370a3155cbbceb08ff84dbf36e79998fd6b71205cf61352e51a",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5010.pdf",
+      "local_binary_sha256": "8ef9c5bec4f66370a3155cbbceb08ff84dbf36e79998fd6b71205cf61352e51a",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5010.md",
+      "local_source_text_sha256": "a7f9a21b456f06bd310c2cf8369021d4e641d7af4ef787b012f392cc8e56b2ef"
+    },
+    {
+      "reference": "delivery-lm5010",
+      "version": "1",
+      "order_id": "LM-5010",
+      "source_filename": "bordereau-livraison-lm5010.pdf",
+      "document_id": "9ca0d4b7-657b-52a1-a0a9-aedcc56ef6b6",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "d0f10e8d-148f-420e-9adb-11fe5c825a52",
+      "live_document_sha256": "bac0f96b516ca953e281c9be225c24bf91419a9e563c7bdbde0bdf2f0c56a1e4",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/bordereau-livraison-lm5010.pdf",
+      "local_binary_sha256": "bac0f96b516ca953e281c9be225c24bf91419a9e563c7bdbde0bdf2f0c56a1e4",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/delivery-lm5010.md",
+      "local_source_text_sha256": "5955c84e40befb15e3104146d77b4d662dd740de96743457adddf9405eade009"
+    },
+    {
+      "reference": "loss-lm5011",
+      "version": "1",
+      "order_id": "LM-5011",
+      "source_filename": "confirmation-perte-lm5011.pdf",
+      "document_id": "248b0205-a9f5-5b19-9a1e-6ca07e2a6dbd",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "a9bd22a2-047f-484d-a38c-9a67d98f202e",
+      "live_document_sha256": "04b1da226d124aa4cc43a7e7311c48f51f857d4e336793a395080c14e202153d",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/confirmation-perte-lm5011.pdf",
+      "local_binary_sha256": "04b1da226d124aa4cc43a7e7311c48f51f857d4e336793a395080c14e202153d",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/loss-lm5011.md",
+      "local_source_text_sha256": "5ec214a9158ffc2be27d0eced107545376aacde40531b76eeefcd8b74cf2ae31"
+    },
+    {
+      "reference": "claim-lm5011",
+      "version": "1",
+      "order_id": "LM-5011",
+      "source_filename": "reclamation-lm5011.pdf",
+      "document_id": "62e80489-15ca-58ae-bd23-8edc3b06e3ab",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "aced6178-a28e-4f6a-b93f-d9d1cd5cff98",
+      "live_document_sha256": "49ddbd986160fd6d2744035a9c1e729e2a30502986ff886a44000dac44ce11de",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5011.pdf",
+      "local_binary_sha256": "49ddbd986160fd6d2744035a9c1e729e2a30502986ff886a44000dac44ce11de",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5011.md",
+      "local_source_text_sha256": "f46ca12ccafc90e155416ce9ba0a5a7c40dc431a7c78563f8d4e071942a3ef6d"
+    },
+    {
+      "reference": "loss-lm5012",
+      "version": "1",
+      "order_id": "LM-5012",
+      "source_filename": "confirmation-perte-lm5012.pdf",
+      "document_id": "048ae71b-97b0-55d3-86e7-54da6bccca20",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "163b435b-0ba7-4766-b5dd-a1f939718214",
+      "live_document_sha256": "a0caf36954fc7eedee55c0cddc69483277721aa25dd7a6318c01ab991eb70b56",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/confirmation-perte-lm5012.pdf",
+      "local_binary_sha256": "a0caf36954fc7eedee55c0cddc69483277721aa25dd7a6318c01ab991eb70b56",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/loss-lm5012.md",
+      "local_source_text_sha256": "457e5a13105de9c06bc897077c79a4d81e9e29941c9dfe2ac1fe106d7c83ba98"
+    },
+    {
+      "reference": "claim-lm5012",
+      "version": "1",
+      "order_id": "LM-5012",
+      "source_filename": "reclamation-lm5012.pdf",
+      "document_id": "b6ae8062-4b87-5bee-89af-0cfeb56879bc",
+      "collection_slug": "luma-maison-benchmark",
+      "knowledge_source_id": "e23c1b8f-d388-4bf3-9044-6b02830e707e",
+      "live_document_sha256": "3808332c0cc15808ce3dd3db13895062c8628c39f417b59a103978df72fa08ff",
+      "local_binary": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/documents/reclamation-lm5012.pdf",
+      "local_binary_sha256": "3808332c0cc15808ce3dd3db13895062c8628c39f417b59a103978df72fa08ff",
+      "binary_sha256_matches_live": true,
+      "local_source_text": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/source-texts/claim-lm5012.md",
+      "local_source_text_sha256": "c2160b9ed4e831e455a6ae0883b6cd881d9861604de5b7587f8d80786b4c5a3a"
+    }
+  ],
+  "cases": [
+    {
+      "claim_id": "RC-5001",
+      "case_family": "delivery_contradiction",
+      "capture_file": "rc5001-live.json",
+      "capture_file_sha256": "fc0db0b961b9b3ab7ea2dde85058fb2b776c1fee56b00e8c8b6452e574b888aa",
+      "captured_at": "2026-10-22T11:58:13.635283+00:00",
+      "snapshot_sha256": "3049b37ef360032119ebc894242144eb735daeae7387f43da5deb4272eee4092",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5001",
+        "state": "to_investigate",
+        "reason": "delivery_disputed",
+        "paid_amount": "420.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "75011"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5001",
+          "tracking_id": "CA-5001",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-24T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5001",
+        "decision-guide-v1",
+        "delivery-lm5001",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": "082748bb-f83c-4f73-895c-5efbd6287f32",
+      "proposed_oracle": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5001"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5002",
+      "case_family": "delivery_contradiction",
+      "capture_file": "rc5002-live.json",
+      "capture_file_sha256": "8ce010b10829d0c6affb4061f18b02ca4902c623b8b078574741e1658712f7ed",
+      "captured_at": "2026-10-22T11:59:49.696571+00:00",
+      "snapshot_sha256": "53d31c5a98c9cd191a08cc3817d2f9269b1d0b97f47ee1a77b20ddd72767b336",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5002",
+        "state": "to_investigate",
+        "reason": "delivery_disputed",
+        "paid_amount": "420.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "75011"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5002",
+          "tracking_id": "CA-5002",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-24T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5002",
+        "decision-guide-v1",
+        "delivery-lm5002",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [
+        {
+          "receipt_id": "b867f17a-5266-4ce4-afa8-cfd731e03e09",
+          "run_id": "33114164-3273-4492-ba7e-cc208b3fdb20",
+          "decision_id": "5fe51192-8b01-4835-998d-72e1e4c95f3a",
+          "action": "carrier_investigation",
+          "reason": "delivery_address_mismatch",
+          "amount": "0",
+          "currency": "EUR",
+          "status": "simulated",
+          "financial_execution": "simulated",
+          "external_payment_called": false,
+          "requires_human": true,
+          "requires_sav_manager": false,
+          "executed_at": "2026-10-06T22:06:56.963805"
+        }
+      ],
+      "latest_run_id": "51e11093-be5f-4c9f-b242-1fb21634b267",
+      "proposed_oracle": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5002"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5003",
+      "case_family": "confirmed_loss",
+      "capture_file": "rc5003-live.json",
+      "capture_file_sha256": "0296a04231403f43ba0f547ea9ddefeb17223925f70c55e78eb300d33e2a0151",
+      "captured_at": "2026-10-22T11:58:14.149071+00:00",
+      "snapshot_sha256": "d3d1e356d6b27ab25b9e394f5f92634e82f4e610867e1ac9f1231f27ab8c1914",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5003",
+        "state": "to_investigate",
+        "reason": "parcel_lost",
+        "paid_amount": "49.90",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "69003"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5003",
+          "tracking_id": "CA-5003",
+          "carrier": "ColisAzur",
+          "status": "lost",
+          "status_at": "2026-09-28T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "loss-lm5003",
+        "carrier-contract-v1",
+        "claim-lm5003",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": "d4d3ece1-cd9b-49aa-ae2c-2f59593c1846",
+      "proposed_oracle": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5003"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5004",
+      "case_family": "confirmed_loss",
+      "capture_file": "rc5004-live.json",
+      "capture_file_sha256": "4796148a6888f1cc8e48695831d071238ab6be13d99ae4f1e679bd75a0057da2",
+      "captured_at": "2026-10-22T11:59:50.269405+00:00",
+      "snapshot_sha256": "7cec96a246ad4392c9e6929ee605e1a6c3f60d760d7e2c537a0e0186d49f1b26",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5004",
+        "state": "to_investigate",
+        "reason": "parcel_lost",
+        "paid_amount": "49.90",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "69003"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5004",
+          "tracking_id": "CA-5004",
+          "carrier": "ColisAzur",
+          "status": "lost",
+          "status_at": "2026-09-28T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "loss-lm5004",
+        "carrier-contract-v1",
+        "claim-lm5004",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [
+        {
+          "receipt_id": "2f5d4808-7e42-4c08-a24f-ca9138e9cf47",
+          "run_id": "a1da0ad7-e1a1-4fd1-b4f7-e5cd58466974",
+          "decision_id": "2ce0ec5a-d944-41e5-ab6d-6c6419753e6f",
+          "action": "refund",
+          "reason": "carrier_loss_confirmed",
+          "amount": "49.90",
+          "currency": "EUR",
+          "status": "simulated",
+          "financial_execution": "simulated",
+          "external_payment_called": false,
+          "requires_human": true,
+          "requires_sav_manager": false,
+          "executed_at": "2026-10-06T22:07:05.218310"
+        }
+      ],
+      "latest_run_id": "e204637d-a87f-40eb-b4a6-20677c148dd7",
+      "proposed_oracle": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5004"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5005",
+      "case_family": "duplicate_refund",
+      "capture_file": "rc5005-live.json",
+      "capture_file_sha256": "c22706ca29d581e189e95449e92da234c10a11add66b50266202036988d7f755",
+      "captured_at": "2026-10-22T11:58:14.546634+00:00",
+      "snapshot_sha256": "749316f7eefb73253e8baf9349aae5055d0f87fd3ab6cc8fa520c3bcc4e3fa44",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5005",
+        "state": "to_investigate",
+        "reason": "refund_requested",
+        "paid_amount": "89.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "33000"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5005",
+          "tracking_id": "CA-5005",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-04T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [
+        {
+          "refund_id": "RF-5005",
+          "amount": "89.00",
+          "currency": "EUR",
+          "status": "executed",
+          "executed_at": "2026-09-06T10:00:00+00:00"
+        }
+      ],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5005",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1",
+        "refund-receipt-lm5005"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": null,
+      "proposed_oracle": {
+        "action": "close_duplicate",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "refund-receipt-lm5005"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5006",
+      "case_family": "duplicate_refund",
+      "capture_file": "rc5006-live.json",
+      "capture_file_sha256": "ed2d99c8ddf6f99ea60cc1b27aadc107f88437769c12dce5f874d9c0ef1568d4",
+      "captured_at": "2026-10-22T11:59:50.890496+00:00",
+      "snapshot_sha256": "d8ee2057dbc7ec0e42f7d398da771f9fccbf7d2bc80c0891caa9aea25e9dd42a",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5006",
+        "state": "to_investigate",
+        "reason": "refund_requested",
+        "paid_amount": "89.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "33000"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5006",
+          "tracking_id": "CA-5006",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-04T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [
+        {
+          "refund_id": "RF-5006",
+          "amount": "89.00",
+          "currency": "EUR",
+          "status": "executed",
+          "executed_at": "2026-09-06T10:00:00+00:00"
+        }
+      ],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5006",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1",
+        "refund-receipt-lm5006"
+      ],
+      "historical_simulated_receipts": [
+        {
+          "receipt_id": "26a7145c-c56b-47dd-9863-639697611436",
+          "run_id": "f590b35c-207f-48b5-96e1-50b35597fb4c",
+          "decision_id": "11c99bc7-410a-4066-9a95-a0e35550e7e7",
+          "action": "close_duplicate",
+          "reason": "already_refunded",
+          "amount": "0",
+          "currency": "EUR",
+          "status": "simulated",
+          "financial_execution": "simulated",
+          "external_payment_called": false,
+          "requires_human": true,
+          "requires_sav_manager": false,
+          "executed_at": "2026-10-06T22:09:46.608263"
+        }
+      ],
+      "latest_run_id": "d2a98456-2217-453b-a53d-010cafab487c",
+      "proposed_oracle": {
+        "action": "close_duplicate",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "refund-receipt-lm5006"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5007",
+      "case_family": "missing_evidence",
+      "capture_file": "rc5007-live.json",
+      "capture_file_sha256": "d708102a6ecc7c70c4882a6b4e02b5d06aba919c701860d55e1a6b9225295998",
+      "captured_at": "2026-10-22T11:58:14.942541+00:00",
+      "snapshot_sha256": "fef3364f8e4ebcc89cb96a38892f535f0dffa5d870923bb7a55a9f41b48831d2",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5007",
+        "state": "to_investigate",
+        "reason": "delivery_disputed",
+        "paid_amount": "420.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "75011"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5007",
+          "tracking_id": "CA-5007",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-24T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5007",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": null,
+      "proposed_oracle": {
+        "action": "request_information",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5008",
+      "case_family": "missing_evidence",
+      "capture_file": "rc5008-live.json",
+      "capture_file_sha256": "64dc7ca1d8f7ac896979a0b837b523e0d8e831cc239f94bb92836b961a2595e5",
+      "captured_at": "2026-10-22T11:59:51.429106+00:00",
+      "snapshot_sha256": "4e930afd54533464dc463362a517f9d6b7428eb1ee99c536e1c089fe1cee7007",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5008",
+        "state": "to_investigate",
+        "reason": "delivery_disputed",
+        "paid_amount": "420.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "75011"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5008",
+          "tracking_id": "CA-5008",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-24T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5008",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": "4e13c0e9-389e-4e5a-849d-44607a6eed74",
+      "proposed_oracle": {
+        "action": "request_information",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5009",
+      "case_family": "policy_and_provenance",
+      "capture_file": "rc5009-live.json",
+      "capture_file_sha256": "4857188f94b5f31aaabc72131fd0db6714034ef52250457a7a36f4bedb8c04fa",
+      "captured_at": "2026-10-22T11:59:51.803553+00:00",
+      "snapshot_sha256": "25a7166d6cfc3268bca04025304a4993d6a51606af4de4f9029c19dbc76dfe22",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5009",
+        "state": "to_investigate",
+        "reason": "delivery_disputed",
+        "paid_amount": "420.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "75011"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5009",
+          "tracking_id": "CA-5009",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-24T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5009",
+        "decision-guide-v1",
+        "delivery-lm5009",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": "0d227034-871e-4288-92a8-6c2dfff39eee",
+      "proposed_oracle": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5009"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5010",
+      "case_family": "policy_and_provenance",
+      "capture_file": "rc5010-live.json",
+      "capture_file_sha256": "2d65266d5ac0b18798689bb3590c190c62961984e2fe9f4aa317e15617d1432a",
+      "captured_at": "2026-10-22T11:59:52.295004+00:00",
+      "snapshot_sha256": "47ae53df20b22f0f437ddc0610eb64196e02f0c5e16e11c29049afbddb5aa7d2",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5010",
+        "state": "to_investigate",
+        "reason": "delivery_disputed",
+        "paid_amount": "420.00",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "75011"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5010",
+          "tracking_id": "CA-5010",
+          "carrier": "ColisAzur",
+          "status": "delivered",
+          "status_at": "2026-09-24T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "carrier-contract-v1",
+        "claim-lm5010",
+        "decision-guide-v1",
+        "delivery-lm5010",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [
+        {
+          "receipt_id": "25ff9ae1-5831-4ac8-8113-d3c0dde7d59f",
+          "run_id": "bf126182-dce5-4458-904b-a3e3dc025c7d",
+          "decision_id": "3d09a6c4-95b9-4bd1-b7f5-0a50569507d7",
+          "action": "carrier_investigation",
+          "reason": "delivery_address_mismatch",
+          "amount": "0",
+          "currency": "EUR",
+          "status": "simulated",
+          "financial_execution": "simulated",
+          "external_payment_called": false,
+          "requires_human": true,
+          "requires_sav_manager": false,
+          "executed_at": "2026-10-06T22:09:47.083084"
+        }
+      ],
+      "latest_run_id": "21477ddf-7c0b-4a7e-8c87-36d5373b1128",
+      "proposed_oracle": {
+        "action": "carrier_investigation",
+        "amount": "0",
+        "references": [
+          "refund-policy-v2",
+          "delivery-lm5010"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5011",
+      "case_family": "ml_advice_and_human_authority",
+      "capture_file": "rc5011-live.json",
+      "capture_file_sha256": "e05b67b30111e009921d956b38fabe4b8261eed919f7489e34545674a5fd9ddc",
+      "captured_at": "2026-10-22T11:59:52.867086+00:00",
+      "snapshot_sha256": "0244161005282d34d335891fdabc23d27fbaf7de7df5ff1deac02bf7e2b97d72",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5011",
+        "state": "to_investigate",
+        "reason": "parcel_lost",
+        "paid_amount": "49.90",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "69003"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5011",
+          "tracking_id": "CA-5011",
+          "carrier": "ColisAzur",
+          "status": "lost",
+          "status_at": "2026-09-28T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "loss-lm5011",
+        "carrier-contract-v1",
+        "claim-lm5011",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [],
+      "latest_run_id": null,
+      "proposed_oracle": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5011"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    },
+    {
+      "claim_id": "RC-5012",
+      "case_family": "ml_advice_and_human_authority",
+      "capture_file": "rc5012-live.json",
+      "capture_file_sha256": "a8b06c36282aba5a6111cd725df99e68dd62e6a214d21d22cdfeff10ea911be2",
+      "captured_at": "2026-10-22T11:59:53.263269+00:00",
+      "snapshot_sha256": "3e88e43c680347ab93d99f572b579174e91a6d97eb3cdb8727e5b8f5f86dc9eb",
+      "source": "postgresql",
+      "read_mode": "live",
+      "evidence_kind": "synthetic_demo",
+      "facts": {
+        "order_id": "LM-5012",
+        "state": "to_investigate",
+        "reason": "parcel_lost",
+        "paid_amount": "49.90",
+        "currency": "EUR",
+        "payment_status": "paid",
+        "shipping_postcode": "69003"
+      },
+      "shipments": [
+        {
+          "shipment_id": "SH-5012",
+          "tracking_id": "CA-5012",
+          "carrier": "ColisAzur",
+          "status": "lost",
+          "status_at": "2026-09-28T14:00:00+00:00"
+        }
+      ],
+      "postgresql_refunds": [],
+      "document_references": [
+        "loss-lm5012",
+        "carrier-contract-v1",
+        "claim-lm5012",
+        "decision-guide-v1",
+        "refund-policy-v2",
+        "investigation-guide-v1"
+      ],
+      "historical_simulated_receipts": [
+        {
+          "receipt_id": "168166ab-0e52-4fc9-b5b0-9f262570daf2",
+          "run_id": "81e253b7-b291-4e34-94b0-4f8f96a153c3",
+          "decision_id": "fa6b5617-e693-4604-a3dc-738c5df1d10d",
+          "action": "refund",
+          "reason": "carrier_loss_confirmed",
+          "amount": "49.90",
+          "currency": "EUR",
+          "status": "simulated",
+          "financial_execution": "simulated",
+          "external_payment_called": false,
+          "requires_human": true,
+          "requires_sav_manager": false,
+          "executed_at": "2026-10-06T22:09:47.713265"
+        }
+      ],
+      "latest_run_id": "696d0f07-8edb-4f2d-b40a-b6c41c0ebf52",
+      "proposed_oracle": {
+        "action": "refund",
+        "amount": "49.90",
+        "references": [
+          "refund-policy-v2",
+          "loss-lm5012"
+        ]
+      },
+      "assertion_result": null,
+      "judge_result": null,
+      "human_review": null
+    }
+  ],
+  "human_review": null,
+  "campaign_created": false,
+  "campaign_executed": false
+}

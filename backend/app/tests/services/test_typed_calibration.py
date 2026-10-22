@@ -304,6 +304,7 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
         ("parameters", {**result["generation_contract"]["parameters"], "reasoning_effort": "low"}),
         ("parameters", {**result["generation_contract"]["parameters"], "max_tokens": 8192}),
         ("prompt_protocol_sha256", "0" * 64),
+        ("prompt_protocol_sha256", judge._text_hash(judge._PASSAGE_PROMPT_TEMPLATE)),
         ("response_schema_sha256", "0" * 64),
     ]:
         changed = copy.deepcopy(result)

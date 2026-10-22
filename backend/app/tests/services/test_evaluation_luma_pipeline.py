@@ -104,7 +104,7 @@ async def test_qualification_executes_the_hybrid_prefix_and_preserves_business_a
     contract = compile_execution_contract(
         db_session,
         workspace_id=ws.id,
-        runtime_mode="dag",
+        runtime_mode="dag_overlay",
         allowed_skill_ids=main.skill_ids,
         flow=flow,
     )
@@ -184,7 +184,7 @@ async def test_qualification_executes_the_hybrid_prefix_and_preserves_business_a
         baseline.execution_contract = compile_execution_contract(
             db_session,
             workspace_id=ws.id,
-            runtime_mode="dag",
+            runtime_mode="dag_overlay",
             allowed_skill_ids=main.skill_ids,
             flow=flow,
         )

@@ -1,0 +1,4 @@
+# This single finding is the synthetic document identifier "refund-policy-v2",
+# not an API credential. Keep the captured policy field intact; do not suppress
+# other fields or files in the evidence manifest.
+docs/demo-runs/showcase-ecommerce/qa-2026-10-22/criteria-evidence.snapshot.json:generic-api-key:72

@@ -3,7 +3,7 @@
 .flow-result > * { min-width: 0; max-width: 100%; }
 .flow-result h4 { margin: 0; font-size: 13px; font-weight: 600; }
 .flow-result__empty { margin: 0; padding: 28px 16px; color: var(--ck-fg-3); text-align: center; line-height: 1.6; }
-.flow-result__error { margin: 0; padding: 12px; color: var(--ck-danger, #f87171); line-height: 1.5; overflow-wrap: anywhere; }
+.flow-result__error { margin: 0; padding: 12px; color: var(--ck-status-neg-fg); line-height: 1.5; overflow-wrap: anywhere; }
 .flow-result__chart-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .flow-result__chart-head label { display: flex; align-items: center; gap: 8px; color: var(--ck-fg-3); font-size: 12px; max-width: 100%; }
 .flow-result__chart-head select { min-height: 30px; max-width: 210px; min-width: 0; padding: 4px 8px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; background: var(--ck-bg-inset); color: var(--ck-fg-1); font: inherit; }

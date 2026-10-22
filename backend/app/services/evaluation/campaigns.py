@@ -437,27 +437,49 @@ def preflight_campaign(db, *, suite, baseline, workspace, body):
     current_manifest = corpus_manifest(db, workspace.id, collection_ids)
     if current_manifest != suite.corpus_manifest:
         raise HTTPException(409, "Corpus changed; create and review a new suite revision")
-    candidate = flow_workbench.prepare_preview(
-        db,
-        system_id=suite.system_id,
-        workspace=workspace,
-        flow_definition=draft.flow_definition,
-        expected_flow_sha256=draft.flow_sha256,
-        ingress_id=body.get("ingress_id"),
-        ingress_kind=body.get("kind"),
-    )
-    frozen = copy.deepcopy(baseline.execution_contract)
-    baseline_prepared = flow_workbench.PreparedPreview(
-        system=candidate.system,
-        flow=copy.deepcopy(baseline.flow_snapshot),
-        flow_sha256=baseline.flow_sha256,
-        source_flow_sha256=baseline.flow_sha256,
-        contract=frozen,
-        runtime_reason="evaluation_frozen_baseline",
-        ingress=flow_workbench._select_ingress(
-            frozen, ingress_id=body.get("ingress_id"), ingress_kind=body.get("kind")
-        ),
-    )
+    projections = {}
+    if body.get("execution_mode") == "qualified_prefix":
+        from app.services.evaluation import projection
+
+        candidate, projections["candidate"] = projection.prepare_candidate(
+            db,
+            system_id=suite.system_id,
+            workspace=workspace,
+            source=draft.flow_definition,
+            expected_sha256=draft.flow_sha256,
+            ingress_id=body.get("ingress_id"),
+            ingress_kind=body.get("kind"),
+        )
+        baseline_prepared, projections["baseline"] = projection.prepare_baseline(
+            baseline=baseline,
+            system=candidate.system,
+            ingress_id=body.get("ingress_id"),
+            ingress_kind=body.get("kind"),
+        )
+        projections["candidate"]["source_draft_revision"] = draft.revision
+        projections["baseline"]["source_run_id"] = baseline.id
+    else:
+        candidate = flow_workbench.prepare_preview(
+            db,
+            system_id=suite.system_id,
+            workspace=workspace,
+            flow_definition=draft.flow_definition,
+            expected_flow_sha256=draft.flow_sha256,
+            ingress_id=body.get("ingress_id"),
+            ingress_kind=body.get("kind"),
+        )
+        frozen = copy.deepcopy(baseline.execution_contract)
+        baseline_prepared = flow_workbench.PreparedPreview(
+            system=candidate.system,
+            flow=copy.deepcopy(baseline.flow_snapshot),
+            flow_sha256=baseline.flow_sha256,
+            source_flow_sha256=baseline.flow_sha256,
+            contract=frozen,
+            runtime_reason="evaluation_frozen_baseline",
+            ingress=flow_workbench._select_ingress(
+                frozen, ingress_id=body.get("ingress_id"), ingress_kind=body.get("kind")
+            ),
+        )
     corpus_limitations = sorted(
         {
             limitation
@@ -501,6 +523,7 @@ def preflight_campaign(db, *, suite, baseline, workspace, body):
         "profiles": profiles,
         "suite_revision": suite.revision,
         "candidate_draft_revision": draft.revision,
+        "projections": projections,
         "corpus_manifest": current_manifest,
     }
     source_bindings = {}
@@ -651,6 +674,7 @@ def create_campaign(
             "cases": copy.deepcopy(suite.cases),
             "corpus_manifest": current_manifest,
             "candidate_draft_revision": preflight["candidate_draft_revision"],
+            "projections": preflight["projections"],
             "schema_version": 2,
             "execution_mode": preflight["execution_mode"],
             "repeat_count": preflight["repeat_count"],
@@ -693,6 +717,9 @@ def create_campaign(
                         "golden_case_id": case["id"],
                         "comparison_side": side,
                         "readonly_comparison": not qualified,
+                        "source_draft_revision": preflight["candidate_draft_revision"]
+                        if side == "candidate"
+                        else None,
                     },
                 )
                 if qualified:

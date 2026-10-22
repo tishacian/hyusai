@@ -5205,6 +5205,7 @@ async def _route_llm_complete(
         output = await complete_model(
             execution, prompt, ctx, generation_options=generation_options, stream=False
         )
+        ctx["_model_output_truncated"] = output.get("output_truncated") is True
         return str(output["completion"]).strip()
     cache_owner = ctx if isinstance(ctx, dict) else {}
     client_cache = cache_owner.get("_resolved_model_client_cache")
@@ -5255,6 +5256,7 @@ async def _route_llm_complete(
         model=str(prefs.get("model") or "unknown"),
     )
     if isinstance(result, dict):
+        cache_owner["_model_output_truncated"] = result.get("output_truncated") is True
         return str(
             result.get("content") or result.get("response") or result.get("completion") or ""
         ).strip()
@@ -6591,6 +6593,7 @@ async def _decide_next_v1(
     """JSON-only next-skill choice inside a mandate-filtered catalog."""
 
     from app.services.run_engine.agent_loop import (
+        DECISION_MAX_OUTPUT_TOKENS,
         DEFAULT_CONFIDENCE_FLOOR,
         build_decide_prompt,
         coerce_decide_output,
@@ -6628,14 +6631,25 @@ async def _decide_next_v1(
         ctx["_agent_loop_context_evidence"] = decision_context[1]
     model = _model_name(payload.get("model"), ctx.get("default_model"))
     completion = ""
+    ctx.pop("_model_output_truncated", None)
     try:
         ctx["_use_prechecked_model"] = True
-        completion = await _route_llm_complete(prompt, model, ctx)
+        completion = await _route_llm_complete(
+            prompt, model, ctx, generation_options={"max_tokens": DECISION_MAX_OUTPUT_TOKENS}
+        )
     except Exception as exc:  # noqa: BLE001 — fail-closed, never raise into the walker
-        logger.warning("decide_next_v1: model call failed, blocking", error=str(exc))
-        return normalize({}, "llm_failure")
+        from app.services.model_usage import UsageError
+
+        logger.warning("decide_next_v1: model call failed, blocking", error_code=type(exc).__name__)
+        return normalize(
+            {}, "usage_admission_refused" if isinstance(exc, UsageError) else "llm_failure"
+        )
     finally:
         ctx.pop("_use_prechecked_model", None)
+    if ctx.pop("_model_output_truncated", False):
+        # A syntactically complete prefix can still be a truncated decision.
+        # Retain actual usage, but never execute a tool from that prefix.
+        return normalize({}, "output_truncated")
     parsed = _loads_lenient_json(completion)
     if parsed is None:
         return normalize({}, "json_parse_failure")

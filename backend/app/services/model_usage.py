@@ -10,12 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from decimal import ROUND_CEILING, Decimal, InvalidOperation, localcontext
-from typing import Callable
+from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.db.base import SessionLocal
@@ -31,6 +33,7 @@ from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
+from app.schemas.model_usage import TariffProvenance
 
 TRAFFIC = {"business", "evaluation", "preview", "ingestion"}
 PURPOSES = {
@@ -93,7 +96,7 @@ def _decimal(value):
         raise UsageError("USAGE_AMOUNT_INVALID", 422) from None
     if not result.is_finite() or result < 0 or result > Decimal("100000000000"):
         raise UsageError("USAGE_AMOUNT_INVALID", 422)
-    return result.quantize(Decimal("0.000000000001"))
+    return result.quantize(Decimal("0.000000000001"), rounding=ROUND_HALF_EVEN)
 
 
 def _count(value):
@@ -334,7 +337,8 @@ def _tariff_snapshot(row):
             "provider": row.provider,
             "model": row.model,
             "currency": row.currency,
-            "rates": row.rates,
+            "rates": {key: value for key, value in row.rates.items() if key in RATE_KEYS},
+            "provenance": row.rates.get("provenance"),
             "created_at": row.created_at.isoformat() + "Z",
         }
         if row
@@ -805,10 +809,45 @@ def public_call(row):
         "provider_tokens_at_versioned_tariff" if row.amount is not None else "unknown"
     )
     result["billed_amount"] = None
+    result["tariff_snapshot"] = row.tariff_snapshot
     return result
 
 
-def create_tariff(db, workspace, user, *, provider, model, currency, **rates):
+def _tariff_provenance(value, currency, rates):
+    if value is None:
+        return None
+    try:
+        evidence = TariffProvenance.model_validate(value).model_dump(mode="json")
+    except ValidationError:
+        raise UsageError("USAGE_TARIFF_PROVENANCE_INVALID", 422) from None
+    if not evidence["reference"].strip():
+        raise UsageError("USAGE_TARIFF_PROVENANCE_INVALID", 422)
+    conversion = evidence.get("conversion")
+    if conversion is not None:
+        original = conversion["source_rates"]
+        if (
+            conversion["source_currency"] == currency
+            or set(original) != set(rates)
+            or not conversion["reference"].strip()
+        ):
+            raise UsageError("USAGE_TARIFF_CONVERSION_INVALID", 422)
+        rate = _decimal(conversion["rate"])
+        if rate <= 0:
+            raise UsageError("USAGE_TARIFF_CONVERSION_INVALID", 422)
+        original = {key: str(_decimal(value)) for key, value in original.items()}
+        with localcontext() as context:
+            context.prec = 50
+            for key, value in original.items():
+                expected = (Decimal(value) * rate).quantize(
+                    Decimal("0.000000000001"), rounding=ROUND_HALF_EVEN
+                )
+                if expected != Decimal(rates[key]):
+                    raise UsageError("USAGE_TARIFF_CONVERSION_MISMATCH", 422)
+        conversion["rate"], conversion["source_rates"] = str(rate), original
+    return evidence
+
+
+def create_tariff(db, workspace, user, *, provider, model, currency, provenance=None, **rates):
     _workspace_lock(db, workspace.id)
     if not re.fullmatch(r"[A-Z]{3}", currency) or not provider or not model:
         raise UsageError("USAGE_TARIFF_INVALID", 422)
@@ -817,6 +856,8 @@ def create_tariff(db, workspace, user, *, provider, model, currency, **rates):
     ):
         raise UsageError("USAGE_TARIFF_INVALID", 422)
     rates = {key: str(_decimal(value)) for key, value in rates.items() if value is not None}
+    evidence = _tariff_provenance(provenance, currency, rates)
+    stored_rates = {**rates, "provenance": evidence} if evidence else rates
     latest = (
         db.query(ModelTariff)
         .filter_by(workspace_id=workspace.id, provider=provider, model=model)
@@ -830,7 +871,7 @@ def create_tariff(db, workspace, user, *, provider, model, currency, **rates):
         model=model,
         revision=latest.revision + 1 if latest else 1,
         currency=currency,
-        rates=rates,
+        rates=stored_rates,
         created_by_user_id=user.id,
         created_at=_now(),
     )

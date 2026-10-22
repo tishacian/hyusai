@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "environment": "agentium.papai.ai",
+  "revision": "55415938d1067b61f321cfda6f8ce30d0a449060",
+  "observed_on": "2026-10-22",
+  "run_id": "7a62253c-015b-423a-8a48-7bcd6c345a25",
+  "population": "business",
+  "data_kind": "synthetic_demo",
+  "status": "hitl_pending",
+  "financial_action_performed": false,
+  "usage": {
+    "counts": {
+      "calls": 11,
+      "dispatched": 11,
+      "completed": 11,
+      "failed": 0,
+      "unknown": 0,
+      "blocked": 0,
+      "pending": 0,
+      "cancelled": 0
+    },
+    "tokens": {
+      "input": 48303,
+      "output": 3484,
+      "total": 51787,
+      "cached_input": 18304,
+      "cache_write": null,
+      "reasoning": 2304,
+      "known_calls": 11,
+      "unknown_calls": 0
+    },
+    "costs": [
+      {
+        "currency": "USD",
+        "known_amount": "0.074479150000",
+        "known_calls": 11,
+        "unknown_calls": 0,
+        "basis": "provider_tokens_at_versioned_tariff",
+        "billed_amount": null
+      }
+    ],
+    "groups": [
+      {
+        "provider": "openai",
+        "model": "gpt-5",
+        "purpose": "agent_decision",
+        "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+        "traffic": "business",
+        "currency": "USD",
+        "calls": 4,
+        "total_tokens": 42728,
+        "known_amount": "0.056338000000"
+      },
+      {
+        "provider": "openai",
+        "model": "gpt-5",
+        "purpose": "judge",
+        "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+        "traffic": "business",
+        "currency": "USD",
+        "calls": 1,
+        "total_tokens": 8939,
+        "known_amount": "0.018138750000"
+      },
+      {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "purpose": "embedding",
+        "system_id": "f3ea83de-df89-45ec-8a85-c00d676b2713",
+        "traffic": "business",
+        "currency": "USD",
+        "calls": 6,
+        "total_tokens": 120,
+        "known_amount": "0.000002400000"
+      }
+    ],
+    "cost_coverage": {
+      "known_calls": 11,
+      "unknown_calls": 0,
+      "complete": true
+    },
+    "basis": "provider_calls",
+    "billed_amount": null,
+    "coverage": {
+      "mode": "complete_retained_calls",
+      "complete": true,
+      "limit": 20000,
+      "scanned": 11,
+      "as_of": "2026-10-22T12:04:08.784791Z",
+      "historical_calls_reconstructed": false,
+      "billed_cost_available": false
+    }
+  },
+  "judge": {
+    "evaluation_id": "4eced3d0-073b-493c-a402-88e478c92371",
+    "status": "failed",
+    "quality_status": "unassessed",
+    "reason": "JUDGE_RESPONSE_INVALID",
+    "response_diagnostic": {
+      "category": "evidence_quote",
+      "question_index": 0,
+      "citation_index": 0
+    },
+    "coverage": {
+      "questions_total": 5,
+      "questions_answered": 0,
+      "evidence_total": 3,
+      "evidence_examined": 0,
+      "images_total": 0,
+      "images_examined": 0,
+      "scope": "declared_unit_only"
+    }
+  },
+  "configuration_preserved": {
+    "draft_revision": 38,
+    "draft_sha256": "3038f5301b0675a19d93f223f14f3e60d33de508530022fb215e6e28607156e2",
+    "published_version": 10,
+    "published_flow_sha256": "77d4d521a3526fce8a25ee125ddf010976d637f2f2335d8afee98f1a4dbd09f0",
+    "investigation_binding_equal": true,
+    "sla_serving_version": 5,
+    "note": "The business pilot adds one prediction and a scored dataset version; serving configuration is unchanged."
+  },
+  "budget": {
+    "scope": "workspace",
+    "currency": "EUR",
+    "monthly_limit": "2000",
+    "timezone": "Europe/Paris",
+    "enabled": false,
+    "revision": 1
+  },
+  "campaign_runs_created": 0
+}
