@@ -1597,6 +1597,50 @@ test('a ⌘Z from the chrome around the builder is left to the breadcrumb', () =
   } finally { harness.cleanup(); }
 });
 
+test('result surfaces preserve the draft and history on Delete, Backspace, undo, redo and save shortcuts', () => {
+  const commands = [
+    { key: 'Delete' }, { key: 'Backspace' },
+    { key: 'z', metaKey: true }, { key: 'z', ctrlKey: true },
+    { key: 'z', metaKey: true, shiftKey: true }, { key: 'y', ctrlKey: true },
+    { key: 's', metaKey: true }, { key: 's', ctrlKey: true },
+  ];
+  for (const surface of ['app-flow-observation-bar', 'app-flow-observation-panel',
+    'app-flow-observation-card', 'app-flow-observation-modal']) {
+    const harness = makeHarness();
+    try {
+      harness.service.hydrateScratch();
+      const selected = harness.store.addNode({ type: 'task', label: 'Retained draft node' });
+      harness.store.addNode({ type: 'task', label: 'Redo candidate' });
+      harness.store.undo();
+      harness.store.setSelection(selected);
+      const before = harness.store.snapshot(), revision = harness.store.revision();
+      assert.equal(harness.store.canUndo(), true);
+      assert.equal(harness.store.canRedo(), true);
+      // Focus can be a summary/span/chart deep inside the result host while
+      // the canonical node selection deliberately remains available.
+      const target = Object.assign(new FocusNode(builderHost), {
+        closest: (selector: string) => selector.split(',').includes(surface) ? {} : null,
+      });
+      for (const command of commands) {
+        let prevented = false, stopped = false;
+        harness.keydown({ ...command, target,
+          preventDefault: () => { prevented = true; },
+          stopPropagation: () => { stopped = true; },
+        } as unknown as KeyboardEvent);
+        assert.equal(prevented, true, `${surface}: ${command.key}`);
+        assert.equal(stopped, true, 'do not forward undo to breadcrumb navigation');
+        assert.deepEqual(harness.store.snapshot(), before);
+        assert.equal(harness.store.selectedNodeId(), selected);
+        assert.equal(harness.store.revision(), revision);
+        assert.equal(harness.store.dirty(), true, 'consultation must not save the draft');
+        assert.equal(harness.store.canUndo(), true);
+        assert.equal(harness.store.canRedo(), true);
+        assert.equal(harness.canonical.saveCalls.length, 0);
+      }
+    } finally { harness.cleanup(); }
+  }
+});
+
 
 test('L20a: promotion never uses window.prompt and sends an empty objective by default', () => {
   const source = readFileSync(

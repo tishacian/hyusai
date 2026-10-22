@@ -219,7 +219,8 @@
   }
 }
 
-.ck-flow-node__run-step {
+.ck-flow-node__run-step,
+.ck-flow-node__observe {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -275,6 +276,26 @@
     border-color: transparent;
   }
 }
+
+.ck-flow-node__observation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+  color: var(--ck-fg-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.ck-flow-node__observation-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 3px;
+  background: var(--ck-fg-4);
+}
+.ck-flow-node__observation[data-status='completed'] .ck-flow-node__observation-dot { background: var(--ck-signal-pos); }
+.ck-flow-node__observation[data-status='running'] .ck-flow-node__observation-dot { background: var(--ck-signal-cool); }
+.ck-flow-node__observation[data-status='failed'] .ck-flow-node__observation-dot { background: var(--ck-signal-neg); }
 
 .ck-flow-node__title {
   display: flex;

@@ -64,6 +64,7 @@ import {
 } from './flow-validation.service';
 import {
   blocksFlowDeleteShortcut,
+  blocksFlowMutationShortcut,
   yieldsFlowHistoryShortcut,
 } from './flow-keyboard-target.vm';
 import { emptyScratchFlow } from './flow.types';
@@ -1592,6 +1593,15 @@ export class FlowPersistenceService {
       target?.isContentEditable === true;
 
     const mod = event.metaKey || event.ctrlKey;
+    const editorCommand = mod && ['z', 'y', 's'].includes(event.key.toLowerCase());
+    const deletionKey = !mod && (event.key === 'Delete' || event.key === 'Backspace');
+    if ((editorCommand || deletionKey) && blocksFlowMutationShortcut(event.target)) {
+      // A result chart or provenance disclosure can keep the old Flow node
+      // selected. Reading must never save, undo, redo or delete that graph.
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (mod) {
       const key = event.key.toLowerCase();
       const chrome = yieldsFlowHistoryShortcut(event.target, this.host.nativeElement);

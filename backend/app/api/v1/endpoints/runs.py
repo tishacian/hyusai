@@ -229,6 +229,11 @@ def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
     return {
         "id": r.id,
         "system_id": r.system_id,
+        # Attribution is the accepted Run snapshot, never the System's current
+        # draft or publication. Historical unknowns intentionally stay null.
+        "flow_version_id": r.flow_version_id,
+        "flow_sha256": r.flow_sha256,
+        "execution_surface": r.execution_surface,
         "capability_id": r.capability_id,
         "status": r.status,
         "trigger": r.trigger,

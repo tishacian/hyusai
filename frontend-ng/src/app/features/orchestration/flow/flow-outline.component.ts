@@ -87,6 +87,14 @@ import { edgeKey, FlowStore } from './flow.store';
                   </span>
                 </button>
 
+                @if (canObserve()) {
+                  <button type="button" class="flow-outline__observe"
+                    [attr.aria-label]="i18n.t('flow.observation.node.open', { name: nodeName(node) })"
+                    (click)="observeNode.emit(node.id)">
+                    {{ i18n.t('flow.observation.node.result') }}
+                  </button>
+                }
+
                 <details class="flow-outline__move">
                   <summary>{{ i18n.t('flow.outline.move') }}</summary>
                   <div
@@ -217,6 +225,8 @@ export class FlowOutlineComponent {
 
   readonly editingLocked = input(false);
   readonly inspectNode = output<string>();
+  readonly canObserve = input(false);
+  readonly observeNode = output<string>();
 
   protected readonly sourceId = signal('');
   protected readonly targetId = signal('');

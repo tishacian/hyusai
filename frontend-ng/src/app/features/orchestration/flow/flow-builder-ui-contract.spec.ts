@@ -254,7 +254,7 @@ test('the inspector exposes the AgentLoop envelope and a HumanGate that resumes'
     inspector,
     /loadItsdStarter\(\): void \{[\s\S]*?itsdAgentLoopStarterFlow\(\)[\s\S]*?setSelection\('loop\.itsd'\)/,
   );
-  assert.match(FLOW_EN['flow.inspector.agent_loop.hint'], /which skill to call next/);
+  assert.match(FLOW_EN['flow.inspector.agent_loop.hint'], /chooses its next tool/);
   assert.match(FLOW_EN['flow.inspector.human_gate.hint'], /resumes on the same run/);
   assert.equal(
     FLOW_EN['flow.inspector.agent_loop.load_starter'],
@@ -374,7 +374,7 @@ test('closing the inspector preserves graph selection and later selection reopen
   );
   assert.match(
     builder,
-    /if \(this\.store\.selectedNode\(\)\) \{\s*this\.inspectorOpen\.set\(true\)/,
+    /if \(this\.store\.selectedNode\(\)\) \{\s*(?:this\.observation\.closeNode\(\);\s*)?this\.inspectorOpen\.set\(true\)/,
     'the toolbar can explicitly reopen the selected node too',
   );
 });

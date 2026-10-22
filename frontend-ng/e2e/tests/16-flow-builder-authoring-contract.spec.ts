@@ -112,6 +112,52 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
   });
 }
 
+// Explicit read contracts for the shared shell. Unknown endpoints and every
+// mutation still fall through to the scenario's strict 501 boundary.
+function shellRead(path: string): JsonRecord | null {
+  switch (path) {
+    case `/auth/workspaces/${WORKSPACE_SLUG}/me/experience`:
+      return {
+        version: 1, persona: 'builder', journey: 'client_sources',
+        completed_steps: [], dismissed: true, available: false, sources: [],
+        rail_labels: 'auto', first_seen_at: '2026-08-06T08:00:00Z',
+      };
+    case '/settings':
+      return {};
+    case '/iam/matrix':
+      return {
+        workspace, subject_user_id: 'user-flow-contract', role_template: 'workspace_admin',
+        custom_labels: [], role_flags: {}, enforcement: false, permissions: [],
+      };
+    case '/skills/runtime-health':
+      return { skills: {}, summary: { bound: 0, stub: 0, unbound: 0, catalog_only: 0 } };
+    case '/reasoning/templates':
+      return { templates: [] };
+    case '/voice/runtimes':
+      return { runtimes: [] };
+    case '/actions/effective':
+      return { actions: [] };
+    case '/sessions':
+      return { sessions: [] };
+    case '/documents/collections':
+      return { collections: [] };
+    case '/connectors':
+      return { connectors: [], can_configure: false };
+    case '/observability/activities/features':
+      return {
+        enabled: false, execution_view_enabled: false, activity_series_enabled: false,
+        scopes: ['workspace', 'system'], kinds: ['run', 'skill_invocation'],
+        statuses: ['pending', 'running', 'succeeded', 'failed'],
+      };
+    case `/systems/${SYSTEM_ID}/trigger-deliveries`:
+      return { coverage: 'accepted_only', mode: 'dry_run', enabled: false, deliveries: [] };
+    case `/systems/${SYSTEM_ID}/automation-review`:
+      return { runs: [], review: null };
+    default:
+      return null;
+  }
+}
+
 function requestBody(request: Request): JsonRecord {
   const value = request.postDataJSON() as unknown;
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -254,6 +300,8 @@ for (const editable of [true, false]) {
       const request = route.request();
       const path = decodeURIComponent(new URL(request.url()).pathname.replace(/^\/api\/v1/, ''));
       const method = request.method();
+      const shell = method === 'GET' ? shellRead(path) : null;
+      if (shell !== null) return json(route, shell);
       if (path === '/auth/validate' && method === 'POST') {
         return json(route, { valid: true, user_id: 'user-flow-contract', email: 'flow.contract@example.test', role: 'admin' });
       }
@@ -554,6 +602,8 @@ test('clone → edit → validate → save → input → execute → result → 
     const path = url.pathname.replace(/^\/api\/v1/, '');
     const method = request.method();
 
+    const shell = method === 'GET' ? shellRead(path) : null;
+    if (shell !== null) return json(route, shell);
     if (path === '/auth/validate' && method === 'POST') {
       return json(route, {
         valid: true,
@@ -1027,7 +1077,7 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(page.getByText('Flow history')).toBeVisible();
   const versionTwo = page.locator('app-flow-versions li').filter({ hasText: 'v2' });
   await expect(versionTwo).toBeVisible();
-  await expect(versionTwo).toContainText('PUBLISHED');
+  await expect(versionTwo).toContainText('Published');
   events.push('ui:restore');
   await versionTwo.getByRole('button', { name: /Restore this version/i }).click();
   const restoreDialog = page.getByRole('dialog', { name: 'Confirm rollback' });
@@ -1046,7 +1096,9 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(page.locator('app-flow-node').filter({ hasText: EDITED_LABEL })).toHaveCount(0);
   await expect.poll(() => events.includes('api:validate:restored')).toBe(true);
 
-  expect(stateReads).toBe(2);
+  // Read the publication, enter the draft explicitly, then verify the restored
+  // draft against the authoritative server state.
+  expect(stateReads).toBe(3);
   expect(unexpectedRequests).toEqual([]);
   expect(blockedExternalRequests.every((request) => (
     request.startsWith('GET https://fonts.googleapis.com/')

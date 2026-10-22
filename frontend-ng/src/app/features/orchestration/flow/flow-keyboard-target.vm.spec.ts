@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   FLOW_DELETE_BLOCK_SELECTOR,
+  FLOW_READ_ONLY_SURFACE_SELECTOR,
   blocksFlowDeleteShortcut,
+  blocksFlowMutationShortcut,
   yieldsFlowHistoryShortcut,
 } from './flow-keyboard-target.vm';
 
@@ -18,6 +20,7 @@ function target(matches: boolean): EventTarget {
 test('global node deletion yields to native and ARIA interaction surfaces', () => {
   for (const selector of [
     'button',
+    'summary',
     'a',
     'dialog',
     'menu',
@@ -35,6 +38,21 @@ test('global node deletion yields to native and ARIA interaction surfaces', () =
   assert.equal(blocksFlowDeleteShortcut(target(false)), false);
   assert.equal(blocksFlowDeleteShortcut(null), false);
   assert.equal(blocksFlowDeleteShortcut({} as EventTarget), false);
+});
+
+test('Flow mutation shortcuts yield to descendants of read-only observation surfaces', () => {
+  for (const surface of [
+    '[data-flow-readonly]', '[data-flow-observation]',
+    'app-flow-observation-bar', 'app-flow-observation-panel',
+    'app-flow-observation-card', 'app-flow-observation-modal',
+  ]) {
+    const child = { closest: (selector: string) => selector.split(',').includes(surface) ? {} : null } as unknown as EventTarget;
+    assert.equal(blocksFlowMutationShortcut(child), true, surface);
+  }
+  const canvas = { closest: (selector: string) => { assert.equal(selector, FLOW_READ_ONLY_SURFACE_SELECTOR); return null; } } as unknown as EventTarget;
+  assert.equal(blocksFlowMutationShortcut(canvas), false);
+  assert.equal(blocksFlowMutationShortcut(null), false);
+  assert.equal(blocksFlowMutationShortcut({} as EventTarget), false);
 });
 
 test('closest-based guard covers a nested icon inside a button or dialog', () => {

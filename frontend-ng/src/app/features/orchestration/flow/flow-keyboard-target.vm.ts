@@ -5,6 +5,7 @@ export const FLOW_DELETE_BLOCK_SELECTOR = [
   'textarea',
   'select',
   'button',
+  'summary',
   'a',
   'dialog',
   'menu',
@@ -21,6 +22,25 @@ export const FLOW_DELETE_BLOCK_SELECTOR = [
 
 interface ClosestCapableTarget {
   closest(selector: string): unknown;
+}
+
+/** Consultative surfaces never own the editor's destructive/history actions.
+ * Host selectors cover nested charts, provenance disclosures and modal content
+ * without requiring every rendered child to repeat a marker.
+ */
+export const FLOW_READ_ONLY_SURFACE_SELECTOR = [
+  '[data-flow-readonly]',
+  '[data-flow-observation]',
+  'app-flow-observation-bar',
+  'app-flow-observation-panel',
+  'app-flow-observation-card',
+  'app-flow-observation-modal',
+].join(',');
+
+export function blocksFlowMutationShortcut(target: EventTarget | null): boolean {
+  const candidate = target as Partial<ClosestCapableTarget> | null;
+  return typeof candidate?.closest === 'function'
+    && !!candidate.closest(FLOW_READ_ONLY_SURFACE_SELECTOR);
 }
 
 /** True when a global Flow delete shortcut must yield to the focused UI. */

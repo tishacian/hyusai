@@ -324,6 +324,19 @@
   border: 0;
 }
 
+.flow-outline__observe {
+  min-height: 28px;
+  padding: 4px 10px;
+  margin: 0 0 8px 8px;
+  color: var(--ck-signal-cool);
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-sm);
+  font: 500 12px/1.4 var(--ck-font-sans);
+  cursor: pointer;
+  &:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 2px; }
+}
+
 @container (max-width: 720px) {
   .flow-outline__grid {
     grid-template-columns: 1fr;
