@@ -139,3 +139,109 @@ def test_a_replay_without_evaluation_still_links_its_parent():
     run = _run("completed", parent_run_id="run-before", evaluation_binding={"attempt_index": "2"})
 
     assert run_follow_up(run)["attempt"] == {"index": None, "previous_run_id": "run-before"}
+
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from app.services.run_follow_up import (  # noqa: E402
+    run_decision_state,
+    run_follow_up_detail,
+    run_subject,
+)
+
+NOW = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
+
+
+def _paused(status="hitl_pending", **extra):
+    run = _run(
+        status,
+        checkpoints=[
+            {
+                "kind": "hitl_pause",
+                "node_id": "review",
+                "decision_id": "dec-1",
+                "prompt": "Open a carrier investigation",
+                "expires_at": (NOW + timedelta(hours=2)).replace(tzinfo=None).isoformat(),
+                "expiry_action": "reject",
+            },
+            *extra.pop("checkpoints", []),
+        ],
+    )
+    run.id = "run-1"
+    run.input_ref = extra.pop("input_ref", {"claim_id": "RC-1", "_ingress": {"x": 1}})
+    run.decision = None
+    return run
+
+
+def test_an_open_decision_carries_its_server_computed_deadline():
+    state = run_decision_state(_paused(), now=NOW)
+
+    assert state["state"] == "awaiting"
+    assert state["expires_at"] == "2026-10-22T14:00:00Z"
+    assert state["seconds_remaining"] == 7200
+    assert state["expiry_action"] == "reject"
+
+
+def test_a_deadline_already_passed_is_expired_even_before_the_sweep():
+    state = run_decision_state(_paused(), now=NOW + timedelta(hours=3))
+
+    assert state["state"] == "expired"
+    assert state["seconds_remaining"] == 0
+
+
+def test_an_applied_expiry_is_reported_with_its_time_and_action():
+    run = _paused(
+        "failed",
+        checkpoints=[
+            {
+                "kind": "gate_ttl_expired",
+                "t": "2026-10-22T14:00:05",
+                "decision_id": "dec-1",
+                "expiry_action": "reject",
+            }
+        ],
+    )
+
+    state = run_decision_state(run, now=NOW)
+
+    assert state["state"] == "expired"
+    assert state["expired_at"] == "2026-10-22T14:00:05Z"
+    assert state["expiry_action"] == "reject"
+
+
+def test_the_decision_row_deadline_wins_over_the_checkpoint_copy():
+    decision = SimpleNamespace(
+        expires_at=datetime(2026, 10, 22, 13, 0),
+        expiry_action="escalate",
+        title="Approve the refund",
+        status="proposed",
+    )
+
+    state = run_decision_state(_paused(), decision=decision, now=NOW)
+
+    assert state["expires_at"] == "2026-10-22T13:00:00Z"
+    assert state["expiry_action"] == "escalate"
+    assert state["title"] == "Approve the refund"
+
+
+def test_a_run_that_never_paused_has_no_decision():
+    assert run_decision_state(_run("completed"), now=NOW) is None
+
+
+def test_subject_reads_input_identifiers_and_skips_internal_keys():
+    run = SimpleNamespace(input_ref={"_case_id": "hidden", "note": "x", "order_number": 42})
+    assert run_subject(run) == {"field": "order_number", "value": "42"}
+    assert run_subject(SimpleNamespace(input_ref={"flag": True})) is None
+
+
+def test_detail_hides_payload_facts_when_the_reader_cannot_see_them():
+    visible = run_follow_up_detail(_paused(), payload_visible=True, now=NOW)
+    hidden = run_follow_up_detail(_paused(), payload_visible=False, now=NOW)
+
+    assert visible["subject"] == {"field": "claim_id", "value": "RC-1"}
+    assert visible["proposal"] == "Open a carrier investigation"
+    assert visible["business_state"] == "awaiting_human_decision"
+    assert hidden["subject"] is None and hidden["proposal"] is None
+    assert hidden["decision"]["decision_id"] is None
+    assert hidden["decision"]["state"] == "awaiting"
+    assert hidden["payload_unavailable_reason"] == "evidence_unavailable"

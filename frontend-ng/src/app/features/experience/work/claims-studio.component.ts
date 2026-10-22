@@ -31,6 +31,7 @@ import { WorkApiService } from './work-api.service';
 import { runtimeFailureKind } from '../runtime/runtime-failure';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
+import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
 
 type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
   | { key: string; state: 'confirmed'; runId: string };
@@ -55,7 +56,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -149,6 +150,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
             </section>
             <aside class="claims-decision" [attr.aria-label]="i18n.t('experience.claims.decision')">
               <h2>{{ i18n.t('experience.claims.decision') }}</h2>
+              @if (run(); as current) { <app-run-situation [runId]="current.id" [refreshKey]="current.status" [compact]="true" [showRunLink]="true" /> }
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
                 <span>{{ triage()?.prediction_contract?.label || i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
                 <p>{{ priorityLabel(advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>

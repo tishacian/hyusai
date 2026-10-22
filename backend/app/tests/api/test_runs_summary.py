@@ -174,3 +174,29 @@ def test_run_projections_carry_the_follow_up_state(db_session):
         "run-at-boundary": "stopped_at_review_boundary",
         "run-cancelled": "cancelled",
     }
+
+
+def test_follow_up_endpoint_reads_one_visible_run(db_session):
+    workspace = Workspace(id="ws-follow-up-api", slug="follow-up-api", name="Follow-up API")
+    run = Run(
+        id="run-follow-up-api",
+        workspace_id=workspace.id,
+        status="hitl_pending",
+        input_ref={"claim_id": "RC-9"},
+        checkpoints=[{"kind": "hitl_pause", "node_id": "review", "prompt": "Refund 49.90 EUR"}],
+    )
+    db_session.add_all([workspace, run])
+    db_session.commit()
+    client = _client(db_session, workspace)
+
+    response = client.get(f"/runs/{run.id}/follow-up")
+    missing = client.get("/runs/unknown-run/follow-up")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == run.id
+    assert body["business_state"] == "awaiting_human_decision"
+    assert body["subject"] == {"field": "claim_id", "value": "RC-9"}
+    assert body["proposal"] == "Refund 49.90 EUR"
+    assert body["decision"]["state"] == "awaiting"
+    assert missing.status_code == 404

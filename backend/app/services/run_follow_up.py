@@ -21,6 +21,8 @@ new attempt is shown next to the earlier one instead of replacing it.
 
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 EVALUATION_STOPPED_AT_HUMAN_GATE = "EVALUATION_STOPPED_AT_HUMAN_GATE"
@@ -115,3 +117,126 @@ def _attempt(run: Any) -> Optional[dict[str, Any]]:
     if index is None and previous is None:
         return None
     return {"index": index, "previous_run_id": previous}
+
+
+
+_SUBJECT_KEY = re.compile(r"(^|_)(id|ref|reference|number)$", re.IGNORECASE)
+
+
+def _instant(value: Any) -> Optional[datetime]:
+    """Parse an ISO instant; naive values are UTC (the engine's convention)."""
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
+
+
+def run_subject(run: Any) -> Optional[dict[str, str]]:
+    """The business object a Run treats, read from its input identifiers."""
+    input_ref = getattr(run, "input_ref", None)
+    if not isinstance(input_ref, dict):
+        return None
+    for key, value in input_ref.items():
+        if key.startswith("_") or not _SUBJECT_KEY.search(key):
+            continue
+        if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value).strip():
+            return {"field": key, "value": str(value).strip()}
+    return None
+
+
+def run_decision_state(
+    run: Any,
+    *,
+    decision: Any = None,
+    now: Optional[datetime] = None,
+) -> Optional[dict[str, Any]]:
+    """State of the human decision a Run asked for, computed on the server.
+
+    ``decision`` is the Decision row of the last pause when the caller could
+    load it; its deadline wins over the checkpoint copy. Returns ``None`` when
+    the Run never paused for a person.
+    """
+    pause = _last_checkpoint(run, "hitl_pause")
+    if pause is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    decision_id = _text(pause.get("decision_id"))
+    expired = next(
+        (
+            cp
+            for cp in reversed(list(getattr(run, "checkpoints", None) or []))
+            if isinstance(cp, dict)
+            and cp.get("kind") == "gate_ttl_expired"
+            and (not decision_id or cp.get("decision_id") == decision_id)
+        ),
+        None,
+    )
+    deadline = _instant(getattr(decision, "expires_at", None)) or _instant(pause.get("expires_at"))
+    expiry_action = _text(getattr(decision, "expiry_action", None)) or _text(pause.get("expiry_action"))
+    state = {
+        "decision_id": decision_id,
+        "title": _text(getattr(decision, "title", None)),
+        "expires_at": _iso(deadline),
+        "expiry_action": expiry_action,
+        "expired_at": None,
+        "seconds_remaining": None,
+    }
+    status = _text(getattr(run, "status", None))
+    if expired is not None:
+        state["state"] = "expired"
+        state["expired_at"] = _iso(_instant(expired.get("t")))
+        state["expiry_action"] = _text(expired.get("expiry_action")) or expiry_action
+    elif _last_checkpoint(run, "evaluation_boundary") is not None:
+        state["state"] = "closed_by_evaluation"
+    elif status == "hitl_pending":
+        if deadline is not None and deadline <= now:
+            # The sweep has not applied the expiry yet; never present it as open.
+            state["state"] = "expired"
+            state["seconds_remaining"] = 0
+        else:
+            state["state"] = "awaiting"
+            if deadline is not None:
+                state["seconds_remaining"] = int((deadline - now).total_seconds())
+    else:
+        decision_status = _text(getattr(decision, "status", None))
+        state["state"] = decision_status or "closed"
+    return state
+
+
+def run_follow_up_detail(
+    run: Any,
+    *,
+    payload_visible: bool,
+    decision: Any = None,
+    now: Optional[datetime] = None,
+) -> dict[str, Any]:
+    """The follow-up read model served by GET /runs/{id}/follow-up."""
+    follow_up = run_follow_up(run, payload_visible=payload_visible)
+    decision_state = run_decision_state(run, decision=decision, now=now)
+    proposal = None
+    if payload_visible:
+        proposal = (
+            (decision_state or {}).get("title")
+            or _text((_last_checkpoint(run, "hitl_pause") or {}).get("prompt"))
+            or _text(getattr(run, "decision", None))
+        )
+    if decision_state is not None and not payload_visible:
+        decision_state = {**decision_state, "title": None, "decision_id": None}
+    return {
+        "run_id": getattr(run, "id", None),
+        **follow_up,
+        "subject": run_subject(run) if payload_visible else None,
+        "proposal": proposal,
+        "decision": decision_state,
+        "payload_unavailable_reason": None if payload_visible else "evidence_unavailable",
+    }

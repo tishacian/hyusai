@@ -52,7 +52,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
 import { observabilityNumber } from '../observability/observability-labels';
 import { RunUsageComponent } from '../observability/usage/run-usage.component';
 import { runSectionLabels } from './run-sections';
-import { RunSituationComponent } from './run-situation.component';
+import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
 import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up';
 
 @Component({
@@ -128,7 +128,7 @@ import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up
       } @else if (detailSection() === 'usage') {
         <app-run-usage [runId]="currentRun.id" />
       } @else {
-        <div class="run-result"><app-run-situation [run]="currentRun" /><ck-run-outcome-card [run]="currentRun" /></div>
+        <div class="run-result"><app-run-situation [runId]="currentRun.id" [refreshKey]="currentRun.status" /><ck-run-outcome-card [run]="currentRun" /></div>
         <button
           type="button"
           class="time-spent"
@@ -282,7 +282,7 @@ import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up
           >{{ chip }}</a>
         }
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
-        <app-run-situation [run]="run()!" />
+        <app-run-situation [runId]="run()!.id" [refreshKey]="run()!.status" />
         <div class="mb-6">
           <ck-run-outcome-card [run]="run()!" />
 

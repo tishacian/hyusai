@@ -74,3 +74,35 @@ export function runStatusLabel(
 export function stoppedAtReviewBoundary(run: FollowUpCarrier | null | undefined): boolean {
   return run?.follow_up?.business_state === 'stopped_at_review_boundary';
 }
+
+/** State of the human decision a Run asked for, computed by the server. */
+export interface RunDecisionState {
+  state: 'awaiting' | 'expired' | 'closed_by_evaluation' | 'closed' | string;
+  decision_id: string | null;
+  title: string | null;
+  expires_at: string | null;
+  expiry_action: string | null;
+  expired_at: string | null;
+  seconds_remaining: number | null;
+}
+
+/** `GET /runs/{id}/follow-up` — same read rights as the Run itself. */
+export interface RunFollowUpDetail extends RunFollowUp {
+  run_id: string;
+  subject: { field: string; value: string } | null;
+  proposal: string | null;
+  decision: RunDecisionState | null;
+  payload_unavailable_reason: string | null;
+}
+
+/** Instants carry their time zone so two screens never disagree silently. */
+export function formatRunInstant(value: string | null | undefined, locale: string): string | null {
+  if (!value) return null;
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`;
+  const time = Date.parse(normalized);
+  if (!Number.isFinite(time)) return null;
+  // dateStyle/timeStyle cannot be combined with timeZoneName: spell the parts.
+  return new Date(time).toLocaleString(locale, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+  });
+}
