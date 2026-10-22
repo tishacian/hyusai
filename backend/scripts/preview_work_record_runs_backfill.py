@@ -26,11 +26,14 @@ from app.db.base import SessionLocal  # noqa: E402
 from app.models.experience import ExperienceRelease  # noqa: E402
 from app.models.run import Run  # noqa: E402
 from app.models.work_record_run import WorkRecordRun  # noqa: E402
+from app.models.workspace import Workspace  # noqa: E402
 from app.services.experience.bindings import record_ref_from_payload  # noqa: E402
+from app.services.experience.record_identity import resolve_record_identity  # noqa: E402
 
 
 def preview(db: DBSession, *, workspace_id: str, sample: int = 20) -> dict[str, Any]:
     """Classify the workspace's Work Runs without writing anything."""
+    workspace = db.get(Workspace, workspace_id)
     linked = {
         run_id
         for (run_id,) in db.query(WorkRecordRun.run_id).filter(WorkRecordRun.workspace_id == workspace_id)
@@ -61,8 +64,10 @@ def preview(db: DBSession, *, workspace_id: str, sample: int = 20) -> dict[str, 
             ),
             None,
         )
-        identity = binding.get("record_identity") if isinstance(binding, dict) else None
-        if not isinstance(identity, dict):
+        identity = resolve_record_identity(
+            binding, workspace=workspace, experience_slug=adapter.get("experience_slug")
+        )
+        if not identity:
             reasons["binding_without_record_identity"] += 1
             continue
         record_ref = record_ref_from_payload(identity, run.input_ref)

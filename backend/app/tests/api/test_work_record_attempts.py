@@ -76,12 +76,30 @@ def test_attempts_are_paginated_newest_first(sample):
     assert rest["has_more"] is False and rest["next_offset"] is None
 
 
-def test_another_reader_does_not_see_my_attempts(sample, db_session):
-    _invoke(sample, "mine")
-    other = User(id="work-other-reader", username="other-reader", role="admin")
-    db_session.add(other)
+def test_a_teammate_sees_the_cases_attempts_with_their_author(sample, db_session):
+    from app.models.workspace import WorkspaceMember
+
+    run_id = _invoke(sample, "mine")
+    other = User(id="work-other-reader", username="other-reader", role="member")
+    db_session.add_all([
+        other,
+        WorkspaceMember(workspace_id=sample.workspace.id, user_id=other.id, role="member",
+                        role_template="workspace_admin"),
+    ])
     db_session.commit()
     client = helpers._client(db_session, sample.workspace, other, sample.monkeypatch)
+    body = client.get(RECORDS.format(ref="prévision"), params={"namespace": "search"}).json()
+    assert [a["run_id"] for a in body["attempts"]] == [run_id]
+    assert body["attempts"][0]["started_by_reader"] is False
+    assert body["attempts"][0]["started_by"] == sample.user.username
+
+
+def test_an_outsider_sees_no_attempt(sample, db_session):
+    _invoke(sample, "mine")
+    outsider = User(id="work-outsider-reader", username="outsider", role="member")
+    db_session.add(outsider)
+    db_session.commit()
+    client = helpers._client(db_session, sample.workspace, outsider, sample.monkeypatch)
     response = client.get(RECORDS.format(ref="prévision"), params={"namespace": "search"})
     assert response.status_code in {200, 403, 404}
     if response.status_code == 200:
@@ -124,3 +142,40 @@ def test_backfill_preview_classifies_runs_and_writes_nothing(sample, db_session)
     assert report["sample"][0]["run_id"] == run_id
     assert report["sample"][0]["record_ref"] == "prévision"
     assert db_session.query(WorkRecordRun).count() == 0
+
+
+def test_a_business_reader_can_supply_the_identity_without_republishing(db_session, monkeypatch):
+    from app.services.experience import record_identity
+
+    workspace, user = helpers._seed(db_session)
+    helpers._seed_binding(db_session, workspace, user)  # no identity declared on the binding
+    studio = helpers._experiences_client(db_session, workspace, user)
+    with monkeypatch.context() as patch:
+        patch.setattr(helpers, "_pages", _action_pages)
+        helpers._publish(studio, binding_key="work.reset")
+    calls = []
+
+    def provider(ws, slug, key):
+        calls.append((slug, key))
+        return {"namespace": "search", "input_field": "query"} if key == "work.reset" else None
+
+    monkeypatch.setattr(record_identity, "_PROVIDERS", [provider])
+    client = helpers._client(db_session, workspace, user, monkeypatch)
+    sample = SimpleNamespace(client=client)
+    run_id = _invoke(sample, "provided")
+    page = client.get(RECORDS.format(ref="prévision"), params={"namespace": "search"}).json()
+    resolved = client.get("/work/password-reset/bindings/work.reset/resolve").json()
+    assert [a["run_id"] for a in page["attempts"]] == [run_id]
+    assert resolved["binding"]["record_identity"] == {"namespace": "search", "input_field": "query"}
+    assert ("password-reset", "work.reset") in calls
+
+
+def test_resolver_prefers_the_released_contract_and_validates_providers(monkeypatch):
+    from app.services.experience import record_identity
+
+    monkeypatch.setattr(record_identity, "_PROVIDERS", [lambda ws, slug, key: {"namespace": "Bad Space", "input_field": "x"}])
+    released = {"binding_key": "k", "record_identity": {"namespace": "claim", "input_field": "claim_id"}}
+    assert record_identity.resolve_record_identity(released, workspace=None, experience_slug="app") == {
+        "namespace": "claim", "input_field": "claim_id",
+    }
+    assert record_identity.resolve_record_identity({"binding_key": "k"}, workspace=None, experience_slug="app") is None

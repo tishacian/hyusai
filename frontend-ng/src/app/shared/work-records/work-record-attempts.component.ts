@@ -13,6 +13,9 @@ export interface WorkRecordAttempt {
   completed_at: string | null;
   status: string;
   follow_up: RunFollowUp;
+  /** Team history: whether the reader started it, and who did. */
+  started_by_reader?: boolean;
+  started_by?: string | null;
 }
 
 interface AttemptsPage {
@@ -72,6 +75,7 @@ const PAGE = 10;
                     >
                       <span class="when">{{ when(attempt) }}</span>
                       <span class="state">{{ stateLabel(attempt) }}</span>
+                      @if (attempt.started_by_reader === false && attempt.started_by) { <span class="state">· {{ i18n.t('experience.record_attempts.by', { name: attempt.started_by }) }}</span> }
                       @if (n === 0) { <span class="tag">{{ i18n.t('experience.record_attempts.latest') }}</span> }
                     </button>
                   </li>

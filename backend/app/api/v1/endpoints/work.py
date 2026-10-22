@@ -27,6 +27,7 @@ from app.services.chat_execution_policy import migration_059_system_id
 from app.services.experience import bindings as binding_service
 from app.services.experience import lifecycle as experience_service
 from app.services.experience import work_records
+from app.services.experience.record_identity import resolve_record_identity
 from app.services.experience.work_receipt import run_receipt
 from app.services.run_follow_up import run_follow_up
 from app.services.iam.config_service import load_iam_config
@@ -909,8 +910,12 @@ async def resolve_work_binding(
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
     except binding_service.BindingError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    public = experience_service.serialize_public_binding_resolution(resolved)
+    public["binding"]["record_identity"] = resolve_record_identity(
+        snapshot, workspace=workspace, experience_slug=identity["slug"]
+    )
     return {
-        **experience_service.serialize_public_binding_resolution(resolved),
+        **public,
         "experience_slug": identity["slug"],
         "experience_release_id": release.id,
         "experience_deployment_id": deployment.id,
@@ -1011,11 +1016,11 @@ def list_work_record_runs(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Attempts a Work record received from this reader, newest first.
+    """Attempts a Work record received, newest first.
 
-    Read only. Visibility is always per user (the attempts you started), and
-    each Run still passes the normal Run read rights. A new attempt is listed
-    next to the earlier ones; nothing is replaced.
+    Read only. Shared with the app's audience like its last result: each Run
+    still passes the normal Run read rights. A new attempt is listed next to
+    the earlier ones; nothing is replaced.
     """
     _require_enabled(workspace)
     _enforce_consume(db, user=user, workspace=workspace)
@@ -1025,11 +1030,14 @@ def list_work_record_runs(
         )
     except experience_service.ExperienceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    app_slug = experience_service.release_identity(release)["slug"]
     declared = any(
-        isinstance(item, dict)
-        and isinstance(item.get("record_identity"), dict)
-        and item["record_identity"].get("namespace") == namespace
+        (resolve_record_identity(item, workspace=workspace, experience_slug=app_slug) or {}).get(
+            "namespace"
+        )
+        == namespace
         for item in release.bindings_snapshot or []
+        if isinstance(item, dict)
     )
     if not declared:
         raise HTTPException(
@@ -1063,6 +1071,10 @@ def list_work_record_runs(
             "completed_at": run.completed_at.isoformat() + "Z" if run.completed_at else None,
             "status": run.status,
             "follow_up": run_follow_up(run, payload_visible=False),
+            "started_by_reader": run.initiated_by_user_id == getattr(user, "id", None),
+            "started_by": getattr(db.get(User, run.initiated_by_user_id), "username", None)
+            if run.initiated_by_user_id
+            else None,
         }
         for row, run in rows
         if run.id in readable
@@ -1173,6 +1185,8 @@ async def invoke_work_binding(
                     payload=body.payload,
                     run=run,
                     user_id=getattr(user, "id", None),
+                    workspace=workspace,
+                    experience_slug=identity["slug"],
                 )
         except IntegrityError:
             run = _idempotent_run(
