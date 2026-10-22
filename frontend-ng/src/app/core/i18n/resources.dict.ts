@@ -15,6 +15,28 @@
  */
 
 export const RESOURCES_FR = {
+  "resources.compare.title": "Comparer une décision d’agent",
+  "resources.compare.description": "Comparez deux modèles sur les mêmes consignes et observations retenues. Les outils proposés ne seront pas exécutés.",
+  "resources.compare.open": "Choisir une décision",
+  "resources.compare.source": "Décision de référence",
+  "resources.compare.empty": "Aucune décision d’agent terminée n’est accessible dans ce workspace.",
+  "resources.compare.context": "{count} observations retenues · contexte figé",
+  "resources.compare.candidate": "Candidat {number}",
+  "resources.compare.ack": "Lancer deux générations facturables, sans exécuter leurs actions.",
+  "resources.compare.start": "Comparer les décisions",
+  "resources.compare.refresh": "Actualiser les résultats",
+  "resources.compare.quality": "Comparaison exploratoire : la qualité métier n’est pas encore qualifiée. Vérifiez les propositions et leurs preuves avant de choisir un modèle.",
+  "resources.compare.same_input": "Consignes et contexte identiques pour les candidats ; chaque modèle suit la gouvernance du workspace.",
+  "resources.compare.choice": "Action proposée",
+  "resources.compare.stop": "Terminer la recherche",
+  "resources.compare.rationale": "Justification",
+  "resources.compare.contract": "Décision conforme au contrat",
+  "resources.compare.unavailable": "Décision non disponible",
+  "resources.compare.provenance": "Empreintes et traçabilité",
+  "resources.compare.load_error": "Impossible de charger les décisions.",
+  "resources.compare.failed": "La comparaison n’a pas pu démarrer. Réessayez avec la même sélection.",
+  "resources.compare.poll_error": "La lecture des résultats a échoué. Les exécutions peuvent continuer ; actualisez ou ouvrez leurs traces.",
+
   "connectors.test": "Tester l’accès",
 
   "connectors.mcp.remove_effect": "Retirer un serveur prend effet après Enregistrer : ses outils ne seront plus utilisables pour les prochains lancements. Les opérations déjà lancées continuent ; les identifiants externes doivent être révoqués auprès du fournisseur.",
@@ -1195,6 +1217,28 @@ export const RESOURCES_FR = {
  * other, before the guard even runs.
  */
 export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
+  "resources.compare.title": "Compare an agent decision",
+  "resources.compare.description": "Compare two models on the same retained instructions and observations. Proposed tools will not execute.",
+  "resources.compare.open": "Choose a decision",
+  "resources.compare.source": "Reference decision",
+  "resources.compare.empty": "No completed agent decision is accessible in this workspace.",
+  "resources.compare.context": "{count} retained observations · frozen context",
+  "resources.compare.candidate": "Candidate {number}",
+  "resources.compare.ack": "Run two billable generations without executing their actions.",
+  "resources.compare.start": "Compare decisions",
+  "resources.compare.refresh": "Refresh results",
+  "resources.compare.quality": "Exploratory comparison: business quality has not been qualified. Review proposals and evidence before choosing a model.",
+  "resources.compare.same_input": "Identical instructions and context for both candidates; each model follows workspace governance.",
+  "resources.compare.choice": "Proposed action",
+  "resources.compare.stop": "Finish the investigation",
+  "resources.compare.rationale": "Rationale",
+  "resources.compare.contract": "Decision conforms to the contract",
+  "resources.compare.unavailable": "Decision unavailable",
+  "resources.compare.provenance": "Fingerprints and traceability",
+  "resources.compare.load_error": "Could not load decisions.",
+  "resources.compare.failed": "The comparison could not start. Retry with the same selection.",
+  "resources.compare.poll_error": "Could not read results. Runs may continue; refresh or open their traces.",
+
   "connectors.test": "Test access",
 
   "connectors.mcp.remove_effect": "Removing a server takes effect after Save: its tools will be unavailable for future runs. Operations already started continue; revoke external credentials with the provider.",

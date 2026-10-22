@@ -440,6 +440,7 @@ def can_cancel(db, row, workspace, user, *, new_admission=True):
                 system=system,
                 execution_source="activity_cancel",
                 execution_contract=(run.execution_contract or {}) if run else {},
+                flow_snapshot=run.flow_snapshot if run else None,
             )
         except HTTPException:
             return False  # Never expose policy/contract details in metadata.

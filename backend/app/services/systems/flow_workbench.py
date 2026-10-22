@@ -243,6 +243,7 @@ def _compile(
     flow: dict[str, Any],
     workspace: Any,
     system: System,
+    control_policy_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     try:
         contract = flow_publication.compile_execution_contract(
@@ -250,6 +251,7 @@ def _compile(
             flow,
             workspace,
             system=system,
+            control_policy_snapshot=control_policy_snapshot,
         )
     except flow_publication.FlowPublicationError as exc:
         raise _translate_publication(exc) from exc
@@ -493,8 +495,7 @@ def _isolated_flow(
     target["config"] = {
         **copy.deepcopy(dict(config)),
         "inputs_map": {
-            key: {"node_id": "run", "path": [key], "required": True}
-            for key in mapped_keys
+            key: {"node_id": "run", "path": [key], "required": True} for key in mapped_keys
         },
         "passthrough_inputs": [],
     }
@@ -545,6 +546,7 @@ def prepare_node_preview(
     expected_flow_sha256: str,
     node_id: str,
     input_ref: Mapping[str, Any],
+    control_policy_snapshot: dict[str, Any] | None = None,
 ) -> PreparedPreview:
     system = _locked_system(db, system_id=system_id, workspace=workspace)
     source_flow, source_digest = _canonical_request_flow(
@@ -566,6 +568,7 @@ def prepare_node_preview(
         flow=isolated,
         workspace=workspace,
         system=system,
+        control_policy_snapshot=control_policy_snapshot,
     )
     if contract.get("runtime_mode") == "sequential_legacy":
         raise FlowWorkbenchError(

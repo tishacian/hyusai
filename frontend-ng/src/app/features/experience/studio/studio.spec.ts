@@ -963,6 +963,9 @@ test('Accessibility facet lists app-wide controls and selects the concerned bloc
 
 test('form-result generation wires status, result and evidence to the chosen action and preserves other sources', () => {
   const template = seedDocument('form_result', 'Team priorities', { subtitle: 'Refresh', empty: 'No data', approvalBody: 'Review' });
+  assert.equal(template.pages[0]!.title, 'Team priorities');
+  assert.equal(template.pages[0]!.props?.['description'], 'Refresh');
+  assert.equal(template.pages[0]!.components.some(node => node.type === 'header'), false);
   const linked = bindSeedDocument(template, [
     { bindingKey: 'team.refresh', ingressId: 'refresh', inputSchema: { type: 'object', properties: {} } },
     { bindingKey: 'team.audit', ingressId: 'audit', inputSchema: { type: 'object', properties: {} } },

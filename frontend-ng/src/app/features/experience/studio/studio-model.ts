@@ -446,18 +446,19 @@ export function seedDocument(
       ]);
     case 'form_result':
     default:
+      // The runtime already renders the page heading. Put guidance on the page
+      // instead of generating a second, identical header block.
       return page(title, [
-        header,
         form,
         { type: 'runtime_status', id: 'seed-status' },
         { type: 'result', id: 'seed-result' },
         { type: 'evidence', id: 'seed-evidence' },
-      ]);
+      ], labels.subtitle);
   }
 }
 
-function page(title: string, components: ExperienceDocument['pages'][number]['components']): ExperienceDocument {
-  return { pages: [{ id: 'home', title, components }] };
+function page(title: string, components: ExperienceDocument['pages'][number]['components'], description?: string): ExperienceDocument {
+  return { pages: [{ id: 'home', title, ...(description ? { props: { description } } : {}), components }] };
 }
 
 function legacyThemeAudience(theme: Record<string, unknown> | undefined): string[] {

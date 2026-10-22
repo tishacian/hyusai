@@ -23,6 +23,11 @@ from app.models.run import Run, SkillInvocation
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.collection_access import require_named_collection_read
 from app.services.connectors.generic import postgresql_claims as pg
+from app.services.ecommerce.resolution_policy import (
+    policy_evidence,
+    resolve_policy,
+    same_proposal,
+)
 from app.services.run_engine.execution_principal import execution_user_id
 
 SKILLS = {
@@ -42,10 +47,11 @@ def _config(workspace):
     config = settings.get("ecommerce_claims") or {}
     if (
         not config.get("allowed_claim_ids")
-        or not config.get("policy_sha256")
+        or not (config.get("policy_sha256") or config.get("resolution_policy"))
         or not config.get("allowed_collection_slugs")
     ):
         raise ValueError("ECOMMERCE_CLAIMS_NOT_CONFIGURED")
+    resolve_policy(config)
     return config
 
 
@@ -242,11 +248,17 @@ def propose(snapshot, evidence, config):
     """Independent, deterministic guard over the actual retrieved passages."""
     data, provenance = snapshot["data"], snapshot["provenance"]
     order = data["context"][0]
+    rules = resolve_policy(config)
     passages = [p for group in evidence for p in (group or {}).get("results", [])]
     refs = {p["reference"] for p in passages}
-    policy = next((r for r in data["documents"] if r["document_key"] == "refund-policy-v2"), None)
-    required = {"refund-policy-v2"}
-    if not policy or policy["sha256"] != config["policy_sha256"] or policy["version"] != "2":
+    policy = next((r for r in data["documents"] if r["document_key"] == rules.document_key), None)
+    required = {rules.document_key}
+    if (
+        not policy
+        or policy["sha256"] != rules.document_sha256
+        or policy["version"] != rules.document_version
+        or policy.get("document_type") != "policy"
+    ):
         raise ValueError("CLAIM_POLICY_REVISION_INVALID")
     if order["ordered_at"][:10] < policy["effective_from"]:
         raise ValueError("CLAIM_POLICY_NOT_APPLICABLE")
@@ -257,7 +269,9 @@ def propose(snapshot, evidence, config):
         raise ValueError("CLAIM_EVIDENCE_SNAPSHOT_MISMATCH")
     paid = Decimal(order["paid_amount"])
     executed = [r for r in data["refunds"] if r["status"] == "executed"]
-    if order["currency"] != "EUR" or any(r["currency"] != "EUR" for r in data["refunds"]):
+    if order["currency"] != rules.currency or any(
+        r["currency"] != rules.currency for r in data["refunds"]
+    ):
         raise ValueError("CLAIM_CURRENCY_UNSUPPORTED")
     amounts = [Decimal(r["amount"]) for r in executed]
     if any(not a.is_finite() or a < 0 for a in amounts):
@@ -343,9 +357,10 @@ def propose(snapshot, evidence, config):
         "summary": "waiting_information" if action == "request_information" else "resolution_ready",
         "reason": reason,
         "amount": str(amount),
-        "currency": "EUR",
+        "currency": rules.currency,
         "requires_human": True,
-        "requires_sav_manager": amount > Decimal(300),
+        "requires_sav_manager": amount > Decimal(rules.manager_approval_above),
+        "resolution_policy": policy_evidence(rules),
         "missing_references": missing,
         "snapshot_sha256": provenance["snapshot_sha256"],
         "evidence_sha256": pg.digest(passages),
@@ -405,7 +420,13 @@ def _simulate(db, workspace, run, config, claim_id, proposal, *, data_source=Non
     # this call waits for the audit. NO KEY UPDATE still excludes other action
     # writers but permits the audit's KEY SHARE. The unique constraint remains
     # the final guard against duplicate actions.
-    db.query(Workspace).filter(Workspace.id == workspace.id).with_for_update(key_share=True).one()
+    workspace = (
+        db.query(Workspace)
+        .filter(Workspace.id == workspace.id)
+        .populate_existing()
+        .with_for_update(key_share=True)
+        .one()
+    )
     existing = (
         db.query(ClaimAction)
         .filter(ClaimAction.workspace_id == workspace.id, ClaimAction.run_id == run.id)
@@ -413,6 +434,13 @@ def _simulate(db, workspace, run, config, claim_id, proposal, *, data_source=Non
     )
     if existing:
         return existing.receipt
+    # An administrator may have changed the business contract while this
+    # investigation was awaiting approval or while the source was read.
+    # Recheck it under the same lock used by the settings writer, before any
+    # new receipt can inherit an approval obtained for different rules.
+    current_rules = resolve_policy(_config(workspace))
+    if proposal.get("resolution_policy") != policy_evidence(current_rules):
+        raise ValueError("CLAIM_PROPOSAL_CHANGED")
     decision = _approved_human(db, workspace, run, proposal)
     current = pg.snapshot(workspace, claim_id)
     if current["provenance"]["snapshot_sha256"] != proposal["snapshot_sha256"]:
@@ -529,7 +557,7 @@ async def invoke(mode, payload, ctx):
             return {**proposal, **contractual_zero_token_usage("ecommerce:deterministic_guard")}
         if mode == "simulate":
             recorded = _recorded(db, run, "propose")
-            if recorded is None or any(recorded.get(k) != proposal.get(k) for k in proposal):
+            if not same_proposal(recorded, proposal, config):
                 raise ValueError("CLAIM_PROPOSAL_CHANGED")
             result = _simulate(db, workspace, run, config, claim_id, proposal, data_source=source)
             if owns_db:

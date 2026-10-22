@@ -285,6 +285,74 @@ Day-1 PIH / NAWA = `act_with_approval` sur tout write (SAP, AD, ITSM).
 Pas de second protocole « resume token Lobster ». Le token **est**
 `(run_id, decision_id, checkpoint.kind=hitl_pause)`.
 
+### 3.5 Contexte de décision et modèle explicites — contrat ajouté le 2026-10-22
+
+L'auteur choisit les entrées métier nécessaires au décideur et, éventuellement,
+son modèle dans la configuration du nœud. Ces réglages font partie du Flow publié :
+
+```json
+{
+  "model": "openai:gpt-5",
+  "inputs_map": {
+    "prediction": {"node_id": "score", "path": ["prediction"], "required": true},
+    "facts": {"node_id": "prepare", "path": ["facts"], "required": true}
+  },
+  "decision_context": {"keys": ["prediction", "facts"], "max_bytes": 16384}
+}
+```
+
+- Seules les clés sélectionnées dans `inputs_map` entrent dans `context`, dès le
+  premier appel de `decide_next_v1`. Sans `decision_context`, les anciens Flows
+  gardent leur comportement ; les autres entrées ne sont pas ajoutées implicitement.
+- Maximum 16 clés uniques, non vides, de 128 caractères au plus. Les noms de
+  contrôle (`goal`, `model`, `observations`, etc.), les clés privées préfixées `_`
+  et les noms de secrets sont interdits. Les champs de secrets imbriqués et les
+  valeurs connues du registre de secrets sont expurgés avant transmission.
+- La limite porte sur le JSON canonique UTF-8 : 16384 octets par défaut, réglable
+  de 256 à 32768. Un dépassement (`AGENT_CONTEXT_TOO_LARGE`), une valeur non JSON
+  ou une profondeur supérieure à 12 interrompt l'exécution avant l'appel modèle.
+  Aucun fait n'est tronqué pour faire entrer le contexte dans le budget.
+- `context_evidence` conserve les clés présentes/manquantes, les sélecteurs
+  d'origine, la taille et l'empreinte SHA-256. `trace.agent_loop_context` expose
+  uniquement ces métadonnées. Les valeurs sélectionnées restent consultables dans
+  l'entrée de l'invocation autorisée. Une enveloppe modifiée est refusée avant appel.
+- Une pause humaine conserve ce contexte et son empreinte. La reprise réutilise
+  l'instantané accepté ; modifier le brouillon ne remplace ni le contexte ni le
+  modèle du Run suspendu.
+- `model` est un identifiant `provider:model`, sans secret. Il passe par le plan
+  modèle canonique et la policy avant dispatch ; le wrapper réutilise la connexion
+  vérifiée. Sans ce champ, l'héritage système/workspace existant reste applicable.
+  Le fournisseur et le modèle réellement appelés figurent dans `trace.model_execution`.
+
+La sélection de contexte ne remplace pas les permissions des outils, la policy
+des modèles, les contrôles d'approbation ni les conditions `done_when`.
+
+Lorsqu'un mandat borne `allowed_models`, les opérations natives dont le serveur
+connaît l'absence de génération LLM (préparation visuelle, SQL sans accès externe,
+inférence tabulaire, recherche documentaire et primitives PostgreSQL) restent
+exécutables. Le catalogue proposé à l'agent ne simule pas un appel modèle : chaque
+appel effectif repasse par le contrôle du Skill, puis par le contrôle de son
+modèle résolu. Une connexion ou un alias figé prend priorité sur le registre
+mutable. Un runtime inconnu, du Python Polars arbitraire, un connecteur générique
+MCP/OpenAPI ou un sous-flow ne reçoit aucune exemption : déclarer un modèle dans
+ses entrées ou dans le System ne prouve pas le modèle réellement appelé. Les
+Flows hybrides entièrement reconnus sont admis sur leur version publiée/figée,
+puis contrôlés à chaque invocation ; l'admission HTTP, la reprise et la vue des
+droits appliquent le même classificateur.
+
+### 3.6 Rendre un résultat métier après une Decision
+
+Un `sink` sans `inputs_map` retourne son prédécesseur actif. Après une Decision,
+cela signifie `chosen_branch`, `decision_resolution` et les évaluations de
+branches. Pour alimenter une application avec le résultat d'une étape antérieure,
+conserver l'arête de branchement et mapper les champs voulus dans le sink, par
+exemple `case_count → {"node_id":"score","path":["scored_rows"]}`.
+
+Le validateur émet l'avertissement non bloquant `sink_returns_routing_fields`
+lorsqu'un sink directement relié à une Decision n'a aucun mapping explicite.
+Un mapping volontaire des champs de routage reste permis. La sémantique runtime
+et les sorties des anciens Flows ne sont pas modifiées par cet avertissement.
+
 ---
 
 ## 4. Ce qu'on n'importe **pas**

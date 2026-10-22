@@ -408,10 +408,11 @@ _PROMPT_TEMPLATE = (
     "null value and a declared reason. Give a brief explanation, not hidden reasoning. "
     "Use one short sentence per explanation and only the exact citation spans needed "
     "to support each answer. Do not repeat source passages in explanations. "
-    "Cite exact text spans using zero-based Unicode character offsets [start,end). "
-    "Text_spans partition the complete source: concatenating their quotes restores it. "
-    "Copy a relevant span's start/end/quote unchanged and its parent id as evidence_id. "
-    "Offsets count decoded Unicode, not JSON escapes. A span does not itself prove an answer. "
+    "For text, return only evidence_id and a short exact contiguous quote from that source. "
+    "Do not calculate or return character offsets. Copy the decoded text unchanged, "
+    "including punctuation and whitespace; do not paraphrase or normalize it. "
+    "The quote must occur exactly once within that source: include enough surrounding "
+    "text to distinguish repeated passages. A quote does not itself prove an answer. "
     "For an image cite kind=image, its evidence_id, exact image_sha256, a normalized "
     "[left,top,right,bottom] region (or null for the whole image) and a brief visible description. "
     "If required evidence is missing or ambiguous, abstain. Return only schema-valid JSON.\n"
@@ -419,26 +420,20 @@ _PROMPT_TEMPLATE = (
 )
 
 
-def _citation_spans(text: str) -> list[dict[str, Any]]:
-    """Give the model exact locators without changing or dropping source text.
+def _provider_schema(questions) -> dict:
+    """Transport exact quotes; persisted citations keep canonical Unicode offsets.
 
-    This only changes prompt presentation. Validation still compares each returned
-    quote to the authorized, immutable source at the returned Unicode offsets.
-    Bounded, contiguous windows avoid asking a model to count thousands of
-    characters in nested JSON, while keeping prompt overhead small.
+    Offsets are derived only from a unique literal match in an authorized source.
+    Removing arithmetic from the generation contract does not repair bad quotes
+    or accept ambiguous matches. Image citations keep their existing contract.
     """
-    spans, start = [], 0
-    while start < len(text):
-        end = min(start + 1024, len(text))
-        if end < len(text):
-            # Prefer a word boundary near the end of the window. Keep the space
-            # in the current span so concatenation is lossless, including CRLF.
-            boundary = text.rfind(" ", start + 768, end)
-            if boundary >= 0:
-                end = boundary + 1
-        spans.append({"start": start, "end": end, "quote": text[start:end]})
-        start = end
-    return spans
+    schema = compile_question_schema(questions)
+    for answer in schema["properties"]["answers"]["properties"].values():
+        citation = answer["properties"]["evidence"]["items"]["anyOf"][0]
+        citation["required"] = ["evidence_id", "quote"]
+        del citation["properties"]["start"]
+        del citation["properties"]["end"]
+    return schema
 
 
 def _prompt(spec) -> str:
@@ -452,7 +447,7 @@ def _prompt(spec) -> str:
                     "id": e.id,
                     "kind": e.kind,
                     "sha256": e.sha256,
-                    **({"text_spans": _citation_spans(e.text)} if e.kind == "text" else {}),
+                    **({"text": e.text} if e.kind == "text" else {}),
                 }
                 for e in spec.evidence
             ]
@@ -491,7 +486,30 @@ def _generation_parameters(execution, spec):
     return parameters
 
 
-def _parse(completion, spec, schema):
+def _resolve_quote_offsets(parsed, spec):
+    """Bind a literal quote to exactly one span; never guess, normalize or repair."""
+    evidence = {item.id: item for item in spec.evidence}
+    for question_index, question in enumerate(spec.questions):
+        for citation_index, citation in enumerate(parsed["answers"][question.key]["evidence"]):
+            if citation.get("kind") == "image":
+                continue
+            position = {"question_index": question_index, "citation_index": citation_index}
+            source = evidence.get(citation["evidence_id"])
+            if source is None:
+                raise _ResponseValidationError("evidence_scope", **position)
+            if source.kind != "text":
+                raise _ResponseValidationError("evidence_kind", **position)
+            quote = citation["quote"]
+            start = source.text.find(quote)
+            if start < 0:
+                raise _ResponseValidationError("evidence_quote", **position)
+            # Advancing by one also rejects overlapping occurrences ("aa" in "aaa").
+            if source.text.find(quote, start + 1) >= 0:
+                raise _ResponseValidationError("evidence_quote_ambiguous", **position)
+            citation.update(start=start, end=start + len(quote))
+
+
+def _parse(completion, spec, schema, *, resolve_quotes=False):
     def reject_constant(_):
         raise ValueError("Nonfinite number")
 
@@ -528,6 +546,11 @@ def _parse(completion, spec, schema):
                     None,
                 )
             raise _ResponseValidationError("schema", question_index=question_index)
+        if resolve_quotes:
+            _resolve_quote_offsets(parsed, spec)
+            # The external result contract and its exact source-span validation
+            # stay unchanged. No provider-supplied offsets are silently corrected.
+            Draft202012Validator(compile_question_schema(spec.questions)).validate(parsed)
         evidence = {item.id: item for item in spec.evidence}
         for question_index, question in enumerate(spec.questions):
             answer = parsed["answers"][question.key]
@@ -796,7 +819,7 @@ async def _evaluate(db, spec, ctx):
         if ctx.get("_typed_judge_context")
         else None
     )
-    schema = compile_question_schema(spec.questions)
+    schema = _provider_schema(spec.questions)
     prompt = _prompt(spec)
     parameters = _generation_parameters(execution, spec)
     generation_contract = {
@@ -984,7 +1007,7 @@ async def _evaluate(db, spec, ctx):
             raise TypedEvaluationError("JUDGE_VISION_RETURNED_MODEL_CHANGED")
         if output.get("output_truncated") is True:
             raise TypedEvaluationError("JUDGE_OUTPUT_TRUNCATED")
-        answers = _parse(output.get("completion"), spec, schema)
+        answers = _parse(output.get("completion"), spec, schema, resolve_quotes=True)
         status = (
             "completed" if all(a["status"] == "answered" for a in answers.values()) else "partial"
         )

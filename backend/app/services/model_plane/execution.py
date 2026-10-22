@@ -359,6 +359,7 @@ def skill_model_request(
         "workspace_llm_v1": "workspace",
         "llm_label_dataset_v1": "workspace",
         "evaluate_v2": "workspace",
+        "decide_next_v1": "workspace",
     }
     provider = _text(params.get("provider")) if kind == "prompt_template" else providers.get(slug)
     if not provider:
@@ -380,6 +381,15 @@ def skill_model_request(
         source = "executor"
     if not chosen and not legacy_defaults:
         chosen, source = _text(system_model), "system"
+    if slug == "decide_next_v1" and chosen:
+        # AgentLoop authors select a provider-qualified model in the published
+        # Flow. Resolve it before the capability check, through the same plane
+        # as other LLM nodes; never infer it from an ML result object.
+        prefix, separator, tail = chosen.partition(":")
+        if separator and (prefix in _MODEL_PREFIXES or prefix.startswith("serving_")):
+            provider, chosen = prefix, tail.strip()
+        elif chosen.lower().startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "davinci")):
+            provider = "openai"
     return {
         "provider": provider,
         "model": chosen or None,

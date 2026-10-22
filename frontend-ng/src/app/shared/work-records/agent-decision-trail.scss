@@ -1,0 +1,49 @@
+:host { display: block; min-width: 0; }
+.agent-choices { margin: 18px 0; color: var(--ck-fg-1); }
+.agent-choices-heading { display: flex; align-items: center; gap: 9px; }
+h3, h4, h5, p { margin: 0; }
+h3 { font-size: 14px; line-height: 1.4; font-weight: 650; }
+.agent-choices-count { color: var(--ck-fg-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.agent-choices-intro { margin-top: 5px; color: var(--ck-fg-3); font-size: 12px; line-height: 1.5; }
+.agent-choices-list { list-style: none; display: grid; gap: 10px; padding: 0; margin: 12px 0 0; }
+.agent-choice { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--ck-stroke-2); border-radius: 8px; background: var(--ck-bg-panel); }
+.agent-choices-list .agent-choice { margin-top: 0; }
+.agent-choice-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.agent-choice-number { display: grid; place-items: center; flex: 0 0 25px; height: 25px; margin-top: 3px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; font-size: 12px; color: var(--ck-fg-3); }
+.agent-choice-title { flex: 1; min-width: 0; }
+.agent-choice-eyebrow { display: block; color: var(--ck-fg-3); font-size: 12px; line-height: 1.4; }
+h4 { margin-top: 3px; font-size: 14px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.agent-choice-state { flex-shrink: 0; max-width: 40%; text-align: right; margin-top: 4px; color: var(--ck-fg-3); font-size: 12px; line-height: 1.5; }
+.agent-choice[data-state='completed'] .agent-choice-state { color: var(--ck-signal-cool); }
+.agent-choice[data-state='human'] .agent-choice-state,
+.agent-choice[data-state='blocked'] .agent-choice-state,
+.agent-choice[data-state='budget'] .agent-choice-state,
+.agent-choice[data-state='failed'] .agent-choice-state { color: var(--ck-signal-warn); }
+.agent-choice-rationale { margin-top: 12px; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.agent-choice-muted, .agent-choice-reserve { margin-top: 10px; color: var(--ck-fg-3); font-size: 12px; line-height: 1.55; }
+.agent-choice-reserve { padding-inline-start: 10px; border-inline-start: 2px solid var(--ck-signal-warn); color: var(--ck-fg-1); }
+.agent-choice-link { display: inline-flex; align-items: center; min-height: 32px; margin-top: 6px; font-size: 12px; color: var(--ck-signal-cool); text-decoration: none; }
+.agent-choice-link:hover { text-decoration: underline; }
+summary { width: fit-content; min-height: 32px; padding-block: 8px; box-sizing: border-box; cursor: pointer; font-size: 12px; color: var(--ck-fg-3); line-height: 1.4; }
+summary:hover { color: var(--ck-fg-1); }
+summary:focus-visible, a:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 3px; border-radius: 3px; }
+.agent-choice-evidence { margin-top: 8px; border-top: 1px solid var(--ck-stroke-2); padding-top: 3px; }
+.agent-choice-evidence-body { padding: 8px 0 2px; }
+.agent-choices-history { margin-top: 6px; }
+.agent-choices-history > summary { color: var(--ck-signal-cool); }
+h5 { margin-top: 16px; font-size: 12px; font-weight: 650; }
+.agent-choice-context { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.agent-choice-context li > div { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.agent-choice-context span, .agent-choice-context small { color: var(--ck-fg-3); }
+.agent-choice-context small { display: block; margin-top: 3px; font-size: 12px; overflow-wrap: anywhere; }
+code { overflow-wrap: anywhere; font-size: 12px; }
+.agent-choice-hash { display: grid; gap: 4px; margin-top: 12px; color: var(--ck-fg-3); font-size: 12px; }
+.agent-choice-purpose { display: grid; gap: 4px; margin-top: 14px; font-size: 12px; line-height: 1.5; }
+.agent-choice-purpose > span { color: var(--ck-fg-3); }
+.agent-choice-explanation { padding-top: 10px; border-top: 1px solid var(--ck-stroke-2); }
+@media (max-width: 540px) {
+  .agent-choice { padding: 12px; }
+  .agent-choice-top { flex-wrap: wrap; }
+  .agent-choice-title { min-width: calc(100% - 45px); }
+  .agent-choice-state { margin: 0 0 0 35px; max-width: none; text-align: left; }
+}

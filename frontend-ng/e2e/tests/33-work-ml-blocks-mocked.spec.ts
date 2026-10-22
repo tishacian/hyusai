@@ -12,10 +12,12 @@ function document() { return {pages:[{id:'forecast',title:'Charge et capacité',
   {type:'chart',id:'forecast-chart',props:{title:'Charge par jour',caption:'Observations et prévision à 14 jours',kind:'timeseries',datasetSource:{source:'run-output',componentId:'forecast-action',selector:'dataset_id'},mapping:{time:'ds',actual:'actual',value:'forecast',lower:'lower',upper:'upper',series:'channel'},unit:'dossiers'}},
 ]},{id:'history',title:'Historique',components:[{type:'callout',id:'help',props:{body:'Les décisions restent liées à leur exécution.'}}]}]}; }
 const rows = Array.from({length:28},(_,i)=> { const date=new Date('2026-10-01T00:00:00Z');date.setUTCDate(date.getUTCDate()+i);const y=Math.round(42+20*Math.sin(i/3)+i*2);return {ds:date.toISOString(),channel:'Web',actual:i<14?y:null,forecast:i>=14?y:null,lower:i>=14?y-12:null,upper:i>=14?y+14:null}; });
-async function setup(page:Page, theme='dark',locale='fr',state:'ready'|'denied'|'empty'|'stale'|'partial'='ready') {
-  let saved=document();const writes:any[]=[];const datasetRequests:string[]=[];const restoredRequests:string[]=[];
+async function setup(page:Page, theme='dark',locale='fr',state:'ready'|'denied'|'empty'|'stale'|'partial'='ready', inputlessForm=false) {
+  let saved=document();
+  if(inputlessForm) saved.pages[0].components[1] = { type:'form', id:'forecast-action', props:{ title:'', bindingKey:'operations.forecast', submitLabel:'Calculer la prévision', schema:{type:'object',properties:{}} } } as any;
+  const writes:any[]=[];const datasetRequests:string[]=[];const restoredRequests:string[]=[];
   const experience={id:'qa-experience',slug:'operations',name:'Opérations SAV',description:'Décider avec les données et les preuves',pattern:'dashboard',languages:['fr','en'],theme:{mode:theme},access_policy:{roles:[],groups:[]},created_by:'qa-user',updated_at:'2026-10-09T00:00:00Z'};
-  const binding={binding_key:'operations.forecast',system_id:'qa-system',published_flow_version_id:'qa-version',ingress_id:'source.forecast',confirmation_policy:'none',on_unavailable:'unavailable'};
+  const binding={binding_key:'operations.forecast',system_id:'qa-system',published_flow_version_id:'qa-version',ingress_id:'source.forecast',confirmation_policy:inputlessForm?'confirm':'none',on_unavailable:'unavailable'};
   await page.route('**/*',route=>['localhost','127.0.0.1'].includes(new URL(route.request().url()).hostname)?route.fallback():route.abort());
   await page.addInitScript(({theme,locale,slug})=>{localStorage.setItem('agentium_token','Bearer isolated-work-models-qa');localStorage.setItem('agentium_theme',theme);localStorage.setItem('agentium_locale',locale);localStorage.setItem('agentium_workspace_slug',slug);},{theme,locale,slug:workspace.slug});
   const json=(route:Route,body:unknown,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
@@ -52,6 +54,46 @@ async function setup(page:Page, theme='dark',locale='fr',state:'ready'|'denied'|
 
 test.describe('Generic Work prediction and time series — local product QA',()=>{
  test.beforeEach(async({},info)=>{test.skip(process.env['E2E_CHROME_V2_MOCKED']!=='1'||!['localhost','127.0.0.1'].includes(new URL(String(info.project.use.baseURL)).hostname),'Local mocked QA only');});
+ for(const [locale,width] of [['fr',1440],['en',390]] as const){
+  test(`inputless form: compact action and explicit confirmation at ${width}px`,async({page},info)=>{
+   const fixture=await setup(page,width===390?'light':'dark',locale,'ready',true);
+   let finishRun=false;
+   await page.route('**/api/v1/runs/qa-forecast-run',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({id:'qa-forecast-run',system_id:'qa-system',status:finishRun?'completed':'running',output_ref:{},skill_invocations:[]})}));
+   await page.setViewportSize({width,height:900});
+   await page.goto('/work/operations/forecast');
+   const form=page.locator('xp-rt-form form');
+   const action=form.getByRole('button',{name:'Calculer la prévision',exact:true});
+   await expect(action).toBeEnabled();
+   await expect(form).toHaveClass(/xp-rt-form-action/);
+   await expect(form.locator('app-empty-state')).toHaveCount(0);
+   await expect(form.locator('input,select,textarea')).toHaveCount(0);
+   await expect(form).toContainText(locale==='fr'?'Aucune saisie requise':'No input needed');
+   expect((await form.boundingBox())!.height).toBeLessThanOrEqual(width===390?130:80);
+   expect((await action.boundingBox())!.height).toBeLessThanOrEqual(40);
+   expect((await action.boundingBox())!.width).toBeLessThanOrEqual(240);
+   expect((await new AxeBuilder({page}).include('xp-rt-form').analyze()).violations).toEqual([]);
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   await form.screenshot({path:info.outputPath(`inputless-form-${locale}-${width}.png`)});
+   await action.focus();await page.keyboard.press('Enter');
+   const confirm=form.getByRole('button',{name:locale==='fr'?'Confirmer':'Confirm',exact:true});
+   await expect(confirm).toBeFocused();
+   expect(fixture.writes).toEqual([]);
+   await page.keyboard.press('Escape');
+   await expect(confirm).toHaveCount(0);
+   await expect(action).toBeFocused();
+   expect(fixture.writes).toEqual([]);
+   await action.click();await confirm.click();
+   await expect.poll(()=>fixture.writes.length).toBe(1);
+   expect(fixture.writes[0]).toMatchObject({page_id:'forecast',component_id:'forecast-action',payload:{},confirmed:true});
+   await expect(form).toHaveAttribute('aria-busy','true');
+   await expect(form).toBeFocused();
+   const otherControl=page.getByRole('link',{name:'Historique',exact:true});
+   await otherControl.focus();
+   finishRun=true;
+   await expect(page.locator('xp-rt-status')).toContainText(locale==='fr'?'Terminé':'Completed');
+   await expect(otherControl).toBeFocused();
+  });
+ }
  for(const [theme,locale,width] of [['dark','fr',1440],['light','en',1440],['light','fr',390]] as const){
   test(`${theme}/${locale}/${width}: run output, forecast band, provenance and keyboard`,async({page})=>{
    await page.setViewportSize({width,height:1000});const fixture=await setup(page,theme,locale);

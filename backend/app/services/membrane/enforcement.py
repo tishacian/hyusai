@@ -10,6 +10,7 @@ Compatibility rule:
 * v2 ``shadow`` reports the decision it *would* take but never tightens data;
 * only explicit, authoritative v2 ``enforce`` contracts fail closed.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -194,9 +195,9 @@ def enforce_inbound_sources(
             or metadata.get("semantic_type")
             or ""
         ).strip()
-        source_project = str(
-            metadata.get("project_code") or metadata.get("project") or ""
-        ).strip().casefold()
+        source_project = (
+            str(metadata.get("project_code") or metadata.get("project") or "").strip().casefold()
+        )
         reasons: list[str] = []
         if allowed_types and reference_type not in allowed_types:
             reasons.append(f"reference_type_not_allowed:{reference_type or 'missing'}")
@@ -241,14 +242,24 @@ def evaluate_capability(
     skill: str | None = None,
     model: str | None = None,
     action: str | None = None,
+    model_required: bool = True,
 ) -> CapabilityDecision:
-    """Evaluate the capability allow-lists through one shared policy gate."""
+    """Evaluate the capability allow-lists through one shared policy gate.
+
+    Missing model identity is denied by default. Only a server-proven non-text
+    runtime, or a non-executing catalog projection, may omit that requirement.
+    An actual model identity is always checked, including nested model calls.
+    """
 
     violations: list[str] = []
     facet = spec.capabilities
     if skill and facet.allowed_skills and skill not in facet.allowed_skills:
         violations.append(f"skill_not_allowed:{skill}")
-    if facet.allowed_models and (not model or model not in facet.allowed_models):
+    if (
+        facet.allowed_models
+        and (model_required or model)
+        and (not model or model not in facet.allowed_models)
+    ):
         violations.append(f"model_not_allowed:{model or 'missing'}")
     if action and facet.allowed_actions and action not in facet.allowed_actions:
         violations.append(f"action_not_allowed:{action}")
@@ -256,7 +267,9 @@ def evaluate_capability(
 
     # Skill allow-listing existed before v2.  Preserve it in compat; model and
     # action enforcement are activated only by v2 enforce.
-    compat_skill_block = bool(skill and violations and any(v.startswith("skill_") for v in violations))
+    compat_skill_block = bool(
+        skill and violations and any(v.startswith("skill_") for v in violations)
+    )
     blocked = compat_skill_block if spec.effective_mode is EnforcementMode.COMPAT else False
     if spec.effective_mode is EnforcementMode.ENFORCE:
         blocked = would_block
@@ -293,9 +306,7 @@ def decide_egress(
         reasons.append("confidence_below_gate")
         requested = EgressDisposition.HOLD
     valve_threshold = spec.valves.mandatory_hitl_if_confidence_below
-    if valve_threshold is not None and (
-        confidence is None or float(confidence) < valve_threshold
-    ):
+    if valve_threshold is not None and (confidence is None or float(confidence) < valve_threshold):
         reasons.append("confidence_below_mandatory_hitl_valve")
         requested = EgressDisposition.HOLD
     if include_provenance and spec.provenance.require_citations and not citations:
@@ -305,11 +316,7 @@ def decide_egress(
     if spec.effective_mode is EnforcementMode.ENFORCE:
         actual = requested
     elif spec.effective_mode is EnforcementMode.SHADOW:
-        actual = (
-            EgressDisposition.HOLD
-            if legacy_review_required
-            else EgressDisposition.ALLOW
-        )
+        actual = EgressDisposition.HOLD if legacy_review_required else EgressDisposition.ALLOW
     else:
         actual = (
             EgressDisposition.HOLD

@@ -510,7 +510,19 @@ def test_simulated_receipt_is_idempotent_and_rechecks_live_snapshot(db_session, 
     from app.models.user import User
     from app.models.workspace import Workspace
 
-    ws = Workspace(id="receipt-ws", slug="receipt-ws", name="Receipt")
+    ws = Workspace(
+        id="receipt-ws",
+        slug="receipt-ws",
+        name="Receipt",
+        settings={
+            "features": {"ecommerce_claims_v1": True},
+            "ecommerce_claims": {
+                **case(1043)[2],
+                "allowed_claim_ids": ["RC-1043"],
+                "allowed_collection_slugs": ["rules"],
+            },
+        },
+    )
     user = User(id="receipt-user", username="receipt-user", email="receipt@example.invalid")
     db_session.add_all([ws, user])
     db_session.flush()

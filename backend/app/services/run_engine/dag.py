@@ -1025,8 +1025,16 @@ async def resume_run_dag(
         )
 
         if hitl_node_id and not (is_subflow_pause or is_agent_loop_pause or is_membrane_egress):
-            _append_checkpoint(db, run, {"kind": "node_end", "node_id": hitl_node_id,
-                                        "passage_id": pause_cp.get("passage_id"), "status": "completed"})
+            _append_checkpoint(
+                db,
+                run,
+                {
+                    "kind": "node_end",
+                    "node_id": hitl_node_id,
+                    "passage_id": pause_cp.get("passage_id"),
+                    "status": "completed",
+                },
+            )
 
         return await _walk(
             db,
@@ -1147,8 +1155,12 @@ async def _walk(
 
     while ready:
         from app.services.execution.rollout import enabled_for
-        if run.execution_policy is not None or enabled_for(db, run.workspace_id, "execution_control_enabled"):
+
+        if run.execution_policy is not None or enabled_for(
+            db, run.workspace_id, "execution_control_enabled"
+        ):
             from app.services.execution.control import cancellation_requested
+
             if cancellation_requested(run.id):
                 raise asyncio.CancelledError("execution_cancelled")
         # Fan out independent tasks in parallel; hitl / subflow are
@@ -2403,7 +2415,13 @@ def _apply_predict_node_config(node: DagNode, node_input: dict[str, Any]) -> Non
 # Per-node dispatcher
 # ---------------------------------------------------------------------------
 async def _execute_node(
-    db: DBSession, run: Run, node: DagNode, graph: DagGraph, state: WalkerState, *, control,
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    graph: DagGraph,
+    state: WalkerState,
+    *,
+    control,
 ) -> dict[str, Any]:
     """Bind one logical node entry across its checkpoints and native attempts."""
     from uuid import uuid4
@@ -2411,9 +2429,13 @@ async def _execute_node(
     from app.services.run_engine.execution_correlation import passage_context, resumable_passage
     from app.services.run_engine.execution_principal import ExecutionPrincipalError
 
-    token = passage_context.set({
-        "run_id": run.id, "node_id": node.id, "passage_id": resumable_passage(run, node.id) or str(uuid4()),
-    })
+    token = passage_context.set(
+        {
+            "run_id": run.id,
+            "node_id": node.id,
+            "passage_id": resumable_passage(run, node.id) or str(uuid4()),
+        }
+    )
     try:
         return await _execute_node_body(db, run, node, graph, state, control=control)
     except ExecutionPrincipalError as exc:
@@ -2498,21 +2520,32 @@ async def _execute_node_body(
     )
 
     try:
-        state.ctx.update({
-            "run_id": run.id, "workspace_id": run.workspace_id,
-            "system_id": run.system_id, "user_id": execution_user_id(db, run),
-        })
+        state.ctx.update(
+            {
+                "run_id": run.id,
+                "workspace_id": run.workspace_id,
+                "system_id": run.system_id,
+                "user_id": execution_user_id(db, run),
+            }
+        )
         # The grant belongs to this source's System, not a child System.
         # A derived delegation contract is required before subflows can
         # inherit it; silently creating an actorless child is not safe.
         if getattr(run, "execution_principal", None) is not None and node.kind == "subflow":
             raise ExecutionPrincipalError("EXECUTION_PRINCIPAL_SUBFLOW_UNSUPPORTED")
     except ExecutionPrincipalError as exc:
-        _append_checkpoint(db, run, {
-            "kind": "node_end", "t": datetime.utcnow().isoformat(),
-            "node_id": node.id, "node_kind": node.kind,
-            "status": "failed", "error": exc.code,
-        })
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "node_end",
+                "t": datetime.utcnow().isoformat(),
+                "node_id": node.id,
+                "node_kind": node.kind,
+                "status": "failed",
+                "error": exc.code,
+            },
+        )
         return {"output": {}, "terminal_error": exc.code}
 
     # Phase 2 gate (merge path): asset nodes are declarative pass-throughs whose
@@ -2530,10 +2563,14 @@ async def _execute_node_body(
     # nodes can reference fields produced by any ancestor (e.g.
     # ``confidence`` from a task node).
     if merged_input:
-        state.ctx.update({
-            k: v for k, v in merged_input.items()
-            if v is not None and k not in {"run_id", "workspace_id", "system_id", "user_id", "workspace_slug"}
-        })
+        state.ctx.update(
+            {
+                k: v
+                for k, v in merged_input.items()
+                if v is not None
+                and k not in {"run_id", "workspace_id", "system_id", "user_id", "workspace_slug"}
+            }
+        )
 
     # ``node`` is a real built-in namespace, but it is local to this handler.
     # Independent ready nodes execute concurrently, therefore it must never be
@@ -2842,7 +2879,9 @@ async def _execute_node_body(
 
         interrupted = sys.exc_info()[1]
         if interrupted is not None:
-            summary["status"] = "cancelled" if isinstance(interrupted, asyncio.CancelledError) else "failed"
+            summary["status"] = (
+                "cancelled" if isinstance(interrupted, asyncio.CancelledError) else "failed"
+            )
         _append_checkpoint(
             db,
             run,
@@ -3529,17 +3568,22 @@ async def _run_agent_loop(
         DEFAULT_CONFIDENCE_FLOOR,
         apply_steer,
         budget_exhausted,
+        build_decision_context,
         clamp_max_turns,
         coerce_decide_output,
         coerce_privilege_tier,
         compile_mandate_view,
         evaluate_done_when,
         gate_skill,
+        validate_agent_model,
     )
     from app.services.skills_registry.workspace_skills import workspace_skill_purposes
 
     config = node.config or {}
     merged = dict(upstream or {})
+    # These are authored, published settings, never model/provider values
+    # borrowed from business inputs or the mutable System after publication.
+    planner_model = validate_agent_model(config)
     goal = dict(config.get("goal") or merged.get("goal") or {})
     if not goal.get("objective"):
         goal["objective"] = str(merged.get("objective") or goal.get("objective") or "")
@@ -3590,6 +3634,15 @@ async def _run_agent_loop(
 
     loops = dict(state.ctx.get("_agent_loop") or {})
     resume = dict(loops.get(node.id) or {})
+    stored_context = resume.get("decision_context")
+    context_inputs = stored_context.get("values") if isinstance(stored_context, dict) else merged
+    if not isinstance(context_inputs, dict):
+        raise ValueError("AGENT_CONTEXT_SNAPSHOT_INVALID")
+    decision_context = build_decision_context(config, context_inputs)
+    if isinstance(stored_context, dict) and (
+        decision_context is None or stored_context.get("evidence") != decision_context[1]
+    ):
+        raise ValueError("AGENT_CONTEXT_SNAPSHOT_INVALID")
     observations: list[dict[str, Any]] = list(resume.get("observations") or [])
     if steer_raw.get("note"):
         observations.append(
@@ -3706,6 +3759,16 @@ async def _run_agent_loop(
             "next_turn": next_turn,
             "goal": goal,
             "pending_write": pending_write,
+            **(
+                {
+                    "decision_context": {
+                        "values": decision_context[0],
+                        "evidence": decision_context[1],
+                    }
+                }
+                if decision_context is not None
+                else {}
+            ),
             **(extra or {}),
         }
         state.ctx["_agent_loop"] = loops
@@ -3799,6 +3862,12 @@ async def _run_agent_loop(
             "budget": remaining,
             "confidence_floor": floor,
             "agent_loop_node_id": node.id,
+            **({"model": planner_model} if planner_model is not None else {}),
+            **(
+                {"context": decision_context[0], "context_evidence": decision_context[1]}
+                if decision_context is not None
+                else {}
+            ),
         }
         invocation = await _invoke(
             str(decide_slug),
@@ -4957,7 +5026,13 @@ def _summarise_node_execution(
     if not isinstance(result, dict):
         return summary
     if result:
-        summary["status"] = "failed" if result.get("terminal_error") else "unknown" if result.get("membrane_blocked") else "completed"
+        summary["status"] = (
+            "failed"
+            if result.get("terminal_error")
+            else "unknown"
+            if result.get("membrane_blocked")
+            else "completed"
+        )
     badge = _node_data_badge(node_input, result)
     if badge is not None:
         summary["data"] = badge

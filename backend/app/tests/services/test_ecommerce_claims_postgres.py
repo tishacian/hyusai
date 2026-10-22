@@ -6,6 +6,7 @@ remove a uniquely named schema; no external source or model is contacted.
 
 import os
 from datetime import datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -17,11 +18,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.base import Base
 from app.models.audit import AuditLog
 from app.models.claim_action import ClaimAction
+from app.models.claim_trial import ClaimTrial
 from app.models.decision import Decision
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import audit_logger
+from app.services import audit_logger, claims_benchmark
 from app.services.ecommerce import claims
 from app.tests.services.test_ecommerce_claims import case
 
@@ -46,7 +48,21 @@ def pg(monkeypatch):
         Base.metadata.create_all(engine)
         monkeypatch.setattr(audit_logger, "SessionLocal", sessionmaker(engine))
         with Session(engine) as db:
-            db.add(Workspace(id="claims-ws", slug="claims-ws", name="Action lock"))
+            db.add(
+                Workspace(
+                    id="claims-ws",
+                    slug="claims-ws",
+                    name="Action lock",
+                    settings={
+                        "features": {"ecommerce_claims_v1": True},
+                        "ecommerce_claims": {
+                            **case(1043)[2],
+                            "allowed_claim_ids": ["RC-1043"],
+                            "allowed_collection_slugs": ["rules"],
+                        },
+                    },
+                )
+            )
             db.add(User(id="claims-user", username="claims-user"))
             db.flush()
             db.add(
@@ -121,3 +137,74 @@ def test_action_lock_allows_audit_but_still_serializes_action_writers(pg, monkey
     with Session(pg) as db:
         assert db.query(ClaimAction).count() == 1
         assert db.query(AuditLog).count() == 1
+
+
+@pytest.mark.parametrize("transition", ["start", "finish"])
+def test_benchmark_transition_allows_audit_and_preserves_serialization(pg, monkeypatch, transition):
+    snapshot = {
+        "provenance": {"snapshot_sha256": "benchmark-snapshot"},
+        "data": {"documents": [{"document_key": "loss", "knowledge_source_id": "proof"}]},
+    }
+    expected = {"action": "refund", "amount": "49.90", "references": ["loss"]}
+
+    def audited_snapshot(*_args):
+        assert audit_credential_resolution() is not None
+        return snapshot
+
+    monkeypatch.setattr(claims_benchmark.pg, "snapshot", audited_snapshot)
+    monkeypatch.setattr(
+        claims, "_sources", lambda *_args: [(None, SimpleNamespace(id="proof"), None)]
+    )
+    with Session(pg) as db:
+        workspace = db.get(Workspace, "claims-ws")
+        workspace.settings = {
+            "features": {"ecommerce_claims_v1": True},
+            "ecommerce_claims": {
+                "allowed_claim_ids": ["RC-1043"],
+                "allowed_collection_slugs": ["rules"],
+                "policy_sha256": "a" * 64,
+                "benchmark": {
+                    "version": "lock-test-v1",
+                    "hourly_eur": "40.00",
+                    "snapshot_sha256": {"RC-1043": "benchmark-snapshot"},
+                    "pairs": [
+                        {
+                            "pair_id": "pair-1",
+                            "first_condition": "manual",
+                            "manual_claim_id": "RC-1043",
+                            "manual_expected": expected,
+                        }
+                    ],
+                },
+            },
+        }
+        db.commit()
+        if transition == "finish":
+            row = claims_benchmark.start(
+                db, workspace, db.get(User, "claims-user"), "pair-1", "manual"
+            )
+            trial_id = row.id
+            db.commit()
+
+    with Session(pg) as holder:
+        workspace, user = holder.get(Workspace, "claims-ws"), holder.get(User, "claims-user")
+        if transition == "start":
+            row = claims_benchmark.start(holder, workspace, user, "pair-1", "manual")
+        else:
+            row = claims_benchmark.event(holder, workspace, user, trial_id, "finish", 1, expected)
+        with Session(pg) as observer:
+            # The independent audit has committed; the benchmark transition has not.
+            assert observer.query(AuditLog).count() == (1 if transition == "start" else 2)
+            visible = observer.query(ClaimTrial).one_or_none()
+            assert visible is None if transition == "start" else visible.state == "active"
+            with pytest.raises(OperationalError) as blocked:
+                claims_benchmark._lock(observer, observer.get(Workspace, workspace.id))
+            assert blocked.value.orig.pgcode == "55P03"
+        holder.commit()
+        assert row.state == ("active" if transition == "start" else "finished")
+        # Serialization still protects both concurrent sessions and sequential replay.
+        reason = "SESSION_ALREADY_ACTIVE" if transition == "start" else "CASE_ALREADY_USED"
+        with pytest.raises(ValueError, match=reason):
+            claims_benchmark.start(holder, workspace, user, "pair-1", "manual")
+    with Session(pg) as db:
+        assert db.query(ClaimTrial).count() == 1

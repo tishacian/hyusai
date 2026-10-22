@@ -311,6 +311,79 @@
   gap: 8px;
 }
 
+.ck-flow-agent-loop .ck-flow-field__label {
+  font: 600 12px / 1.4 var(--ck-font-sans, sans-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ck-fg-2);
+}
+
+.ck-flow-agent-group {
+  display: grid;
+  gap: 10px;
+  padding-block: 14px;
+  border-block: 1px solid var(--ck-stroke-2);
+  min-width: 0;
+
+  + .ck-flow-agent-group { border-top: 0; padding-top: 0; }
+  > button {
+    justify-self: start;
+    min-height: 32px;
+    font: 500 12px / 1.4 var(--ck-font-sans, sans-serif);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+}
+
+.ck-flow-agent-group__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ck-flow-agent-count {
+  color: var(--ck-fg-3);
+  white-space: nowrap;
+  font: 12px / 1.4 var(--ck-font-mono);
+}
+
+.ck-flow-agent-options {
+  display: grid;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-width: 0;
+}
+
+.ck-flow-agent-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm);
+  cursor: pointer;
+  min-width: 0;
+
+  &:hover { background: var(--ck-bg-panel-hi); }
+  &.is-selected { background: var(--ck-bg-inset); border-color: var(--ck-stroke-2); }
+  &:focus-within { outline: 2px solid var(--ck-signal-cool); outline-offset: -2px; }
+  input { margin: 3px 0 0; flex: 0 0 auto; accent-color: var(--ck-signal-cool); }
+  > span { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+  strong { font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--ck-fg-1); }
+  small { font-size: 12px; line-height: 1.45; color: var(--ck-fg-3); }
+  small.ck-flow-hint--warn { color: var(--ck-signal-warn); }
+}
+
+.ck-flow-agent-details {
+  font-size: 12px;
+  color: var(--ck-fg-3);
+  summary { cursor: pointer; padding-block: 4px; }
+  &[open] summary { margin-bottom: 8px; }
+}
+
 .ck-flow-hint--mono {
   font-family: var(--ck-font-mono, monospace);
   font-size: 11px;

@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints import work
@@ -12,8 +13,10 @@ from app.models.claim_action import ClaimAction
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.ecommerce import claims as claims
 from app.services.connectors.generic import postgresql_claims as pg
+from app.services.ecommerce import claims as claims
+from app.services.ecommerce import policy_settings
+from app.services.ecommerce.resolution_policy import ResolutionPolicy
 from app.services.experience import lifecycle
 
 router = APIRouter()
@@ -55,6 +58,52 @@ def triage(
 
     _access(db, workspace, user)
     return read_triage(db, workspace)
+
+
+class PolicyUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    policy: ResolutionPolicy
+
+
+@router.get("/policy")
+def resolution_policy(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _access(db, workspace, user)
+    return policy_settings.read(db, workspace, user)
+
+
+@router.put("/policy")
+def update_resolution_policy(
+    body: PolicyUpdateBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _access(db, workspace, user)
+    try:
+        result = policy_settings.update(db, workspace, user, body.policy, body.expected_sha256)
+        db.commit()
+        return result
+    except policy_settings.PolicySettingsError as exc:
+        db.rollback()
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    except pg.ClaimReadError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail={"code": exc.code}) from None
+    except HTTPException as exc:
+        db.rollback()
+        # Collection ACLs intentionally hide unreadable sources with a 404.
+        # Keep that detail private and present the policy as unverifiable.
+        if exc.status_code == 404:
+            raise HTTPException(409, detail={"code": "CLAIM_POLICY_DOCUMENT_UNAVAILABLE"}) from None
+        raise
+    except ValueError:
+        db.rollback()
+        raise HTTPException(409, detail={"code": "CLAIM_POLICY_DOCUMENT_UNAVAILABLE"}) from None
 
 
 @router.get("/{claim_id}")

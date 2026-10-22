@@ -3,6 +3,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   type Type,
   computed,
   effect,
@@ -1258,16 +1260,20 @@ export class EvidenceBlock {
   template: `
     <form
       class="xp-rt-block"
+      [class.xp-rt-form-action]="compactAction()"
       novalidate
+      tabindex="-1"
       (submit)="$event.preventDefault(); submit()"
       [attr.aria-busy]="busy()"
       [attr.aria-label]="ariaName() || null"
     >
-      @if (title()) {
-        <h3>{{ title() }}</h3>
-      }
-      @if (description()) {
-        <p class="xp-rt-sub">{{ description() }}</p>
+      @if (title() || description() || compactAction()) {
+        <div class="xp-rt-form-copy">
+          @if (title()) { <h3>{{ title() }}</h3> }
+          @if (description() || compactAction()) {
+            <p class="xp-rt-sub">{{ description() || emptyText() || i18n.t('experience.runtime.form.no_input.title') }}</p>
+          }
+        </div>
       }
       @if (context().mode === 'preview') {
         <p class="xp-rt-preview-note" role="status">{{ i18n.t('experience.runtime.preview.read_only') }}</p>
@@ -1288,7 +1294,7 @@ export class EvidenceBlock {
           [description]="i18n.t('experience.runtime.form.no_link.body')"
         />
       } @else {
-        <xp-rt-slot
+        @if (!compactAction()) { <xp-rt-slot
           [state]="slot()"
           [emptyTitle]="i18n.t('experience.runtime.form.no_input.title')"
           [empty]="emptyText() || i18n.t('experience.runtime.form.no_input.body')"
@@ -1375,14 +1381,14 @@ export class EvidenceBlock {
               }
             </div>
           }
-        </xp-rt-slot>
+        </xp-rt-slot> }
         @if (confirming()) {
           <div
             class="xp-rt-confirm"
             role="group"
             data-confirm
             [attr.aria-labelledby]="confirmTitleId()"
-            (keydown.escape)="cancelConfirmation()"
+            (keydown.escape)="$event.preventDefault(); $event.stopPropagation(); cancelConfirmation()"
           >
             <h3 [id]="confirmTitleId()">{{ i18n.t('experience.runtime.form.confirm_title') }}</h3>
             <p class="xp-rt-sub">{{ i18n.t('experience.runtime.form.confirm_body') }}</p>
@@ -1418,6 +1424,7 @@ export class EvidenceBlock {
 })
 export class FormBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly injector = inject(Injector);
   private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
@@ -1427,6 +1434,7 @@ export class FormBlock {
   readonly values = signal<Record<string, unknown>>({});
   readonly errors = signal<Record<string, 'required' | 'invalid'>>({});
   readonly confirming = signal(false);
+  private readonly pendingFocus = signal<string | null>(null);
   readonly uploading = signal<Record<string, boolean>>({});
   readonly fileNames = signal<Record<string, string>>({});
   readonly resolveStatus = signal<string | null>(null);
@@ -1459,6 +1467,8 @@ export class FormBlock {
   });
   readonly resolving = computed(() => this.resolveStatus() === 'loading');
   readonly slot = computed<Slot>(() => slotOf(this.node(), this.fields().length === 0));
+  readonly compactAction = computed(() => this.fields().length === 0 && !this.blocked() && !this.unlinked()
+    && (this.slot() === 'empty' || this.slot() === 'ready'));
   readonly unavailableTitle = computed(() => {
     if (this.policy() === 'admin-repair') return this.i18n.t('experience.runtime.unavailable.repair.title');
     if (this.policy() === 'empty') return this.i18n.t('experience.runtime.unavailable.empty.title');
@@ -1475,6 +1485,21 @@ export class FormBlock {
   });
 
   constructor() {
+    effect(() => {
+      const selector = this.pendingFocus();
+      const disabled = this.busy() || this.resolving() || this.blocked() || this.context().mode === 'preview' || this.hasUpload();
+      if (!selector || (selector === '[data-action-trigger]' && disabled)) return;
+      afterNextRender(() => {
+        if (this.pendingFocus() !== selector) return;
+        const control = this.element.nativeElement.querySelector<HTMLButtonElement>(selector);
+        // A context refresh may still be resolving at this render. Keep the
+        // focus request until the reactive state enables the control again.
+        if (control?.isConnected && !control.disabled) {
+          control.focus();
+          this.pendingFocus.set(null);
+        }
+      }, { injector: this.injector });
+    });
     let seeded = false;
     effect(() => {
       if (seeded) return;
@@ -1596,7 +1621,7 @@ export class FormBlock {
     ) return;
     if (this.confirmation) {
       this.confirming.set(true);
-      queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
+      this.focusAfterRender('[data-confirm-accept]');
       return;
     }
     this.invoke(false);
@@ -1604,7 +1629,8 @@ export class FormBlock {
 
   invoke(confirmed: boolean): void {
     this.confirming.set(false);
-    if (confirmed) queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
+    this.pendingFocus.set(null);
+    if (confirmed) afterNextRender(() => this.element.nativeElement.querySelector('form')?.focus(), { injector: this.injector });
     const payload = valuesToPayload(this.fields(), this.values());
     const context = this.context();
     this.runtime.invoke(context, this.bindingKey(), payload, confirmed || undefined).subscribe((started) => {
@@ -1627,7 +1653,11 @@ export class FormBlock {
 
   cancelConfirmation(): void {
     this.confirming.set(false);
-    queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
+    this.focusAfterRender('[data-action-trigger]');
+  }
+
+  private focusAfterRender(selector: string): void {
+    this.pendingFocus.set(selector);
   }
 
   private domPrefix(): string {

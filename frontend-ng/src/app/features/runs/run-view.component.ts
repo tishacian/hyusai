@@ -37,6 +37,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
 import { recordedModelExecution } from '@app/core/model-catalog';
+import { AgentDecisionTrailComponent } from '@app/shared/work-records/agent-decision-trail.component';
 import { RunMandateComponent } from '../mandate/run-mandate.component';
 import { RunInvestigationComponent } from './run-investigation.component';
 import { RunTraceComponent } from './run-trace.component';
@@ -71,6 +72,7 @@ import { observabilityNumber } from '../observability/observability-labels';
     ModelExecutionComponent,
     RunInvestigationComponent,
     RunMandateComponent,
+    AgentDecisionTrailComponent,
     RunTraceComponent,
     RetrainingRunApprovalComponent,
   ],
@@ -127,6 +129,7 @@ import { observabilityNumber } from '../observability/observability-labels';
           <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
           <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
         </button>
+        <app-agent-decision-trail [run]="currentRun" [compact]="true" [showLinks]="true" />
         <app-run-investigation [run]="currentRun" />
 
       <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
@@ -272,6 +275,7 @@ import { observabilityNumber } from '../observability/observability-labels';
           <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
           <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
         </button>
+        <app-agent-decision-trail [run]="run()!" [compact]="true" [showLinks]="true" />
         <app-run-investigation [run]="run()!" />
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
         <div class="mb-6">

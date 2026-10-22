@@ -21,6 +21,20 @@
  */
 
 export const SKILLS_FR = {
+  "skills.prompt_history.title": "Historique des consignes publiées",
+  "skills.prompt_history.description": "Retrouvez les consignes figées par les versions publiées des systèmes. Les modifications non publiées ne figurent pas dans cet historique.",
+  "skills.prompt_history.open": "Consulter les versions",
+  "skills.prompt_history.empty": "Aucune version publiée ne conserve encore ces consignes.",
+  "skills.prompt_history.source": "Version publiée",
+  "skills.prompt_history.current": "Consignes actuelles du catalogue",
+  "skills.prompt_history.previous": "Consignes de cette version",
+  "skills.prompt_history.matches": "Identiques aux consignes actuelles",
+  "skills.prompt_history.restore": "Reprendre ces consignes",
+  "skills.prompt_history.reach": "Seules les consignes du catalogue seront remplacées. Le modèle reste inchangé. Republiez le Flow pour appliquer ces consignes à un système.",
+  "skills.prompt_history.restored": "Consignes restaurées dans le catalogue. Les versions publiées restent inchangées.",
+  "skills.prompt_history.error": "Impossible de charger ou de restaurer les consignes. Actualisez avant de réessayer.",
+  "skills.prompt_history.refresh": "Actualiser l’historique",
+
   // -- Catalog ------------------------------------------------------------
   'skills.title': 'Registre des skills',
   'skills.list.eyebrow': 'Créer · Skills',
@@ -102,6 +116,7 @@ export const SKILLS_FR = {
   'skills.models.source.system': 'Défaut du système',
   'skills.models.source.executor': 'Réglage de la Skill',
   'skills.models.source.input': 'Entrée de cette exécution',
+  'skills.models.source.route': 'Route de modèles · {route}',
   'skills.models.source.legacy': 'Défaut historique conservé',
   'skills.models.source.unknown': 'Origine non renseignée',
   'skills.models.source.none': 'Connexion locale sans clé',
@@ -352,6 +367,20 @@ export const SKILLS_FR = {
  * other, before the guard even runs.
  */
 export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
+  "skills.prompt_history.title": "Published instruction history",
+  "skills.prompt_history.description": "Find instructions frozen by published system versions. Unpublished edits are not part of this history.",
+  "skills.prompt_history.open": "View versions",
+  "skills.prompt_history.empty": "No published version has retained these instructions yet.",
+  "skills.prompt_history.source": "Published version",
+  "skills.prompt_history.current": "Current catalog instructions",
+  "skills.prompt_history.previous": "Instructions in this version",
+  "skills.prompt_history.matches": "Matches current instructions",
+  "skills.prompt_history.restore": "Restore these instructions",
+  "skills.prompt_history.reach": "Only catalog instructions will be replaced. The model stays unchanged. Republish the Flow to apply these instructions to a system.",
+  "skills.prompt_history.restored": "Catalog instructions restored. Published versions remain unchanged.",
+  "skills.prompt_history.error": "Could not load or restore instructions. Refresh before retrying.",
+  "skills.prompt_history.refresh": "Refresh history",
+
   // -- Catalog ------------------------------------------------------------
   'skills.title': 'Skill registry',
   'skills.list.eyebrow': 'Create · Skills',
@@ -432,6 +461,7 @@ export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
   'skills.models.source.system': 'System default',
   'skills.models.source.executor': 'Skill setting',
   'skills.models.source.input': 'Execution input',
+  'skills.models.source.route': 'Model route · {route}',
   'skills.models.source.legacy': 'Preserved historical default',
   'skills.models.source.unknown': 'Source not recorded',
   'skills.models.source.none': 'Local connection without a key',

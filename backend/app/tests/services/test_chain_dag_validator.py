@@ -3,6 +3,7 @@
 Exercise every issue code on both positive (should fire) and negative
 (should stay silent) cases. No DB, no FastAPI — just the validator.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -20,6 +21,95 @@ def _codes(issues):
 def test_empty_flow_returns_no_issues() -> None:
     assert validate_flow({}) == []
     assert validate_flow({"nodes": [], "edges": []}) == []
+
+
+def _queue_result_flow(sink_config: dict | None = None) -> dict:
+    return {
+        "schema_version": 3,
+        "io_mode": "overlay",
+        "nodes": [
+            {"id": "source.queue", "kind": "source"},
+            {"id": "sav.score", "kind": "task", "config": {"skill_slug": "ml_batch_score_v1"}},
+            {
+                "id": "decision.operation",
+                "kind": "decision",
+                "config": {
+                    "inputs_map": {"dataset_id": {"node_id": "sav.score", "path": ["dataset_id"]}},
+                    "branches": [
+                        {"label": "queue", "condition": "operation == 'queue'"},
+                        {"label": "case", "condition": "operation == 'case'"},
+                    ],
+                    "default_branch": "case",
+                },
+            },
+            {
+                "id": "sink.queue",
+                "kind": "sink",
+                "label": "Prioritized queue",
+                "config": sink_config or {},
+            },
+            {
+                "id": "sink.case",
+                "kind": "sink",
+                "config": {
+                    "inputs_map": {
+                        "route": {"node_id": "decision.operation", "path": ["chosen_branch"]},
+                    }
+                },
+            },
+        ],
+        "edges": [
+            {"from": "source.queue", "to": "sav.score"},
+            {"from": "sav.score", "to": "decision.operation"},
+            {
+                "from": "decision.operation",
+                "to": "sink.queue",
+                "kind": "branch",
+                "branch_label": "queue",
+            },
+            {
+                "from": "decision.operation",
+                "to": "sink.case",
+                "kind": "branch",
+                "branch_label": "case",
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize("sink_config", [{}, {"inputs_map": {}}])
+def test_queue_sink_after_decision_warns_without_blocking(sink_config):
+    issues = validate_flow(_queue_result_flow(sink_config))
+    hints = [issue for issue in issues if issue.code == "sink_returns_routing_fields"]
+    assert len(hints) == 1
+    assert hints[0].node_id == "sink.queue"
+    assert hints[0].level == "warn"
+    assert "inputs_map" in hints[0].message
+    assert not has_errors(issues)
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    [
+        {"case_count": {"node_id": "sav.score", "path": ["scored_rows"], "required": True}},
+        {"route": {"node_id": "decision.operation", "path": ["chosen_branch"]}},
+    ],
+)
+def test_explicit_business_or_routing_output_mapping_needs_no_hint(mapping):
+    issues = validate_flow(_queue_result_flow({"inputs_map": mapping}))
+    assert "sink_returns_routing_fields" not in _codes(issues)
+    assert not has_errors(issues)
+
+
+def test_sink_collecting_task_output_needs_no_routing_hint():
+    flow = {
+        "nodes": [
+            {"id": "task", "kind": "task", "config": {"skill_slug": "ml_batch_score_v1"}},
+            {"id": "result", "kind": "sink"},
+        ],
+        "edges": [{"from": "task", "to": "result"}],
+    }
+    assert validate_flow(flow) == []
 
 
 @pytest.mark.parametrize(
@@ -368,7 +458,10 @@ def test_decision_with_two_branches_is_valid() -> None:
             {"from": "d1", "to": "b", "kind": "branch", "branch_label": "b"},
         ],
     }
-    assert validate_flow(flow) == []
+    issues = validate_flow(flow)
+    assert not has_errors(issues)
+    assert _codes(issues) == {"sink_returns_routing_fields"}
+    assert {issue.node_id for issue in issues} == {"a", "b"}
 
 
 @pytest.mark.parametrize(
@@ -1065,6 +1158,4 @@ def test_overlay_decisions_are_not_second_guessed_at_design_time() -> None:
     """Overlay merges the whole accumulated ctx, so the name set is not
     decidable from the graph — the runtime check owns that case."""
 
-    assert "decision_condition_unbound" not in _codes(
-        validate_flow(_decision_flow("overlay"))
-    )
+    assert "decision_condition_unbound" not in _codes(validate_flow(_decision_flow("overlay")))

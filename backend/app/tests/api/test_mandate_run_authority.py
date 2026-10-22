@@ -1,4 +1,5 @@
 """HTTP admission and runtime select the same immutable mandate."""
+
 from copy import deepcopy
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ from fastapi import HTTPException
 
 from app.api.v1.endpoints import systems
 from app.models.policy import ControlPolicy
+from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.user import User
@@ -17,43 +19,117 @@ from app.services.systems import flow_publication
 from app.tests.iam_baseline import OPEN_IAM_FEATURES
 
 
-def _fixture(db, *, published_model="model-approved", live_model="model-denied"):
+def _fixture(db, *, published_model="model-approved", live_model="model-denied", hybrid=False):
     suffix = uuid4().hex[:10]
-    workspace = Workspace(id=f"mandate-http-ws-{suffix}", slug=f"mandate-http-{suffix}", name="Mandate HTTP",
-                          settings={"features": {"flow_publication_v1": True, **OPEN_IAM_FEATURES},
-                                    "llm_portal": {"routing": {"default_model": published_model}}})
+    workspace = Workspace(
+        id=f"mandate-http-ws-{suffix}",
+        slug=f"mandate-http-{suffix}",
+        name="Mandate HTTP",
+        settings={
+            "features": {"flow_publication_v1": True, **OPEN_IAM_FEATURES},
+            "llm_portal": {"routing": {"default_model": published_model}},
+        },
+    )
     user = User(id=f"mandate-http-admin-{suffix}", username=f"mandate-admin-{suffix}", role="admin")
-    flow = {"schema_version": 3, "nodes": [
-        {"id": "input", "kind": "source"}, {"id": "result", "kind": "sink"}],
-        "edges": [{"from": "input", "to": "result", "kind": "data"}]}
-    system = System(id=f"mandate-http-system-{suffix}", workspace_id=workspace.id, name="Mandate",
-                    objective="test", status="active", default_model="model-approved",
-                    flow_definition=flow, settings={})
-    policy = ControlPolicy(id=f"mandate-http-policy-{suffix}", workspace_id=workspace.id,
-                           scope="system", target_id=system.id, name="Mandate policy",
-                           extra={"membrane_spec": {"version": 2, "enforcement_mode": "enforce",
-                                  "capabilities": {"allowed_models": [published_model]}}})
+    flow = {
+        "schema_version": 3,
+        "nodes": [{"id": "input", "kind": "source"}, {"id": "result", "kind": "sink"}],
+        "edges": [{"from": "input", "to": "result", "kind": "data"}],
+    }
+    if hybrid:
+        flow = {
+            "schema_version": 3,
+            "nodes": [
+                {"id": "input", "kind": "source"},
+                {"id": "retrieval", "kind": "task", "config": {"skill_slug": "semantic_search_v1"}},
+                {"id": "model", "kind": "task", "config": {"skill_slug": "workspace_llm_v1"}},
+                {"id": "result", "kind": "sink"},
+            ],
+            "edges": [
+                {"from": a, "to": b, "kind": "data"}
+                for a, b in [("input", "retrieval"), ("retrieval", "model"), ("model", "result")]
+            ],
+        }
+        for slug in ("semantic_search_v1", "workspace_llm_v1"):
+            if db.query(Skill).filter_by(slug=slug).first() is None:
+                db.add(
+                    Skill(
+                        id=str(uuid4()),
+                        slug=slug,
+                        name=slug,
+                        version="v1",
+                        input_schema={},
+                        output_schema={},
+                        execution={},
+                    )
+                )
+        db.flush()
+    system = System(
+        id=f"mandate-http-system-{suffix}",
+        workspace_id=workspace.id,
+        name="Mandate",
+        objective="test",
+        status="active",
+        default_model="model-approved",
+        flow_definition=flow,
+        settings={},
+        skill_ids=[
+            row.id
+            for row in db.query(Skill)
+            .filter(Skill.slug.in_(["semantic_search_v1", "workspace_llm_v1"]))
+            .all()
+        ]
+        if hybrid
+        else [],
+    )
+    policy = ControlPolicy(
+        id=f"mandate-http-policy-{suffix}",
+        workspace_id=workspace.id,
+        scope="system",
+        target_id=system.id,
+        name="Mandate policy",
+        extra={
+            "membrane_spec": {
+                "version": 2,
+                "enforcement_mode": "enforce",
+                "capabilities": {"allowed_models": [published_model]},
+            }
+        },
+    )
     system.control_policy_id = policy.id
     db.add_all([workspace, user, system, policy])
     db.flush()
     contract = flow_publication.compile_execution_contract(db, flow, workspace, system=system)
-    version = SystemVersion(id=f"mandate-http-version-{suffix}", workspace_id=workspace.id,
-                            system_id=system.id, version_number=1, flow_definition=flow,
-                            flow_sha256=canonical_flow_sha256(flow), execution_contract=contract,
-                            release_kind="publish", draft_revision=1)
+    version = SystemVersion(
+        id=f"mandate-http-version-{suffix}",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        version_number=1,
+        flow_definition=flow,
+        flow_sha256=canonical_flow_sha256(flow),
+        execution_contract=contract,
+        release_kind="publish",
+        draft_revision=1,
+    )
     db.add(version)
     db.flush()
     system.published_flow_version_id = version.id
-    policy.extra = {"membrane_spec": {"version": 2, "enforcement_mode": "enforce",
-                    "capabilities": {"allowed_models": [live_model]}}}
+    policy.extra = {
+        "membrane_spec": {
+            "version": 2,
+            "enforcement_mode": "enforce",
+            "capabilities": {"allowed_models": [live_model]},
+        }
+    }
     db.commit()
     return workspace, user, system, contract
 
 
 def _admit(db, fixture, **kwargs):
     workspace, user, system, _ = fixture
-    systems._enforce_system_run_authority(db, user=user, workspace=workspace, system=system,
-                                         execution_source="test", **kwargs)
+    systems._enforce_system_run_authority(
+        db, user=user, workspace=workspace, system=system, execution_source="test", **kwargs
+    )
 
 
 def test_http_new_run_uses_published_policy_despite_live_edit(db_session):
@@ -79,8 +155,10 @@ def test_live_policy_cannot_relax_frozen_run_mandate(db_session):
 
 def test_frozen_mandate_does_not_bypass_current_iam(db_session, monkeypatch):
     fixture = _fixture(db_session)
+
     def revoked(*args, **kwargs):
         raise HTTPException(403, "IAM permission revoked")
+
     monkeypatch.setattr(systems, "enforce_action", revoked)
     with pytest.raises(HTTPException) as denied:
         _admit(db_session, fixture, execution_contract=fixture[3])
@@ -97,3 +175,22 @@ def test_frozen_mandate_tampering_fails_before_queueing(db_session):
         _admit(db_session, fixture, execution_contract=invalid)
     assert denied.value.status_code == 409
     assert denied.value.detail["code"] == "CONTROL_POLICY_SNAPSHOT_INVALID"
+
+
+def test_http_hybrid_uses_frozen_runtime_guards_not_system_default(db_session):
+    fixture = _fixture(db_session, hybrid=True)
+    workspace, user, system, contract = fixture
+    accepted_flow = deepcopy(system.flow_definition)
+    system.default_model = None
+    db_session.commit()
+    _admit(db_session, fixture)
+    # Replay keeps the accepted graph even after the live publication changes.
+    system.flow_definition = {"nodes": [{"id": "other", "kind": "subflow"}], "edges": []}
+    db_session.commit()
+    _admit(db_session, fixture, execution_contract=contract, flow_snapshot=accepted_flow)
+    with pytest.raises(HTTPException) as denied:
+        _admit(
+            db_session, fixture, execution_contract=contract, flow_snapshot=system.flow_definition
+        )
+    assert denied.value.status_code == 403
+    assert "model_not_allowed:missing" in denied.value.detail["violations"]

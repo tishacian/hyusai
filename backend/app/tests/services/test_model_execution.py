@@ -1,4 +1,5 @@
 """Hermetic resolution, credential isolation, routing and dispatch contracts."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -95,6 +96,90 @@ def test_typed_judge_uses_real_system_or_workspace_model_resolution(system, expe
         source,
     )
     assert "model" not in payload
+
+
+@pytest.mark.parametrize(
+    "provider,model,chosen,expected_provider,expected_model",
+    [
+        ("openai", "gpt-workspace", "ollama:qwen3:8b", "ollama", "qwen3:8b"),
+        ("ollama", "qwen3:8b", "openai:gpt-frozen", "openai", "gpt-frozen"),
+        ("ollama", "qwen3:8b", "gpt-legacy", "openai", "gpt-legacy"),
+    ],
+)
+def test_agent_planner_model_is_resolved_before_policy(
+    provider, model, chosen, expected_provider, expected_model
+):
+    execution = runtime.resolve_skill_model_execution(
+        workspace(provider, model),
+        slug="decide_next_v1",
+        executor=None,
+        input_ref={"model": chosen},
+        published=True,
+    )
+    assert (execution.provider, execution.model, execution.model_source) == (
+        expected_provider,
+        expected_model,
+        "input",
+    )
+    assert (
+        execution.policy_model([f"{expected_provider}:{expected_model}"])
+        == f"{expected_provider}:{expected_model}"
+    )
+    assert execution._fallbacks == ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_workspace", [True, False])
+async def test_native_planner_reuses_checked_connection_and_rechecks_policy(
+    monkeypatch, with_workspace
+):
+    from app.services.skills_registry import wrappers
+
+    ws = workspace() if with_workspace else None
+    pinned = runtime.resolve_skill_model_execution(
+        ws, slug="decide_next_v1", executor=None, input_ref={"model": "openai:gpt-frozen"}
+    )
+    # A concurrent workspace routing edit must not swap the authorized target.
+    if ws is not None:
+        ws.settings["llm_portal"]["routing"]["default_provider"] = "ollama"
+        ws.settings["llm_portal"]["routing"]["default_model"] = "qwen3:changed"
+    checks, clients = [], []
+
+    class Client:
+        async def generate(self, **kwargs):
+            assert kwargs["model"] == "gpt-frozen"
+            return {
+                "content": '{"next_skill": null, "done": true, "exit": "complete", "confidence": 0.9}'
+            }
+
+    monkeypatch.setattr(
+        runtime, "build_model_client", lambda execution: clients.append(execution) or Client()
+    )
+    ctx = {
+        "_model_workspace": ws,
+        "_model_execution": pinned,
+        "_model_policy_check": lambda execution: checks.append(execution),
+    }
+    output = await wrappers._decide_next_v1(
+        {"model": "openai:gpt-frozen", "visible_skills": []}, ctx
+    )
+    assert output["exit"] == "complete"
+    assert clients == [pinned] and checks == [pinned]
+    assert ctx["_model_execution_evidence"]["model"] == "gpt-frozen"
+    assert ctx["_model_execution_evidence"]["provider"] == "openai"
+    assert "_use_prechecked_model" not in ctx
+
+    def deny(execution):
+        raise RuntimeError("model authorization revoked")
+
+    ctx["_model_policy_check"] = deny
+    blocked = await wrappers._decide_next_v1(
+        {"model": "openai:gpt-frozen", "visible_skills": []}, ctx
+    )
+    assert blocked["next_skill"] is None and blocked["done"] is False
+    assert blocked["needs_human"] is True
+    assert clients == [pinned]  # Policy denial never dispatches a second call.
+    assert ctx["_model_resolution_evidence"]["attempts"][0]["status"] == "blocked"
 
 
 def test_workspace_credentials_are_isolated_and_never_serialized(monkeypatch):

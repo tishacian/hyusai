@@ -15,6 +15,7 @@ import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { PG_ERROR_CODES, pgFailure, type PgFailure } from '@app/features/connectors/postgresql/postgresql.types';
 import { WorkActionReceiptComponent, type WorkActionReceipt } from '@app/shared/work-records/work-action-receipt.component';
+import { AgentDecisionTrailComponent } from '@app/shared/work-records/agent-decision-trail.component';
 import { RunQualityReviewComponent } from '@app/shared/work-records/run-quality-review.component';
 import { typedJudgeOutcome, typedResult } from '@app/features/data/dataops.models';
 import { WorkSourcePanelComponent } from '@app/shared/work-sources/work-source-panel.component';
@@ -24,13 +25,14 @@ import { WorkBarComponent } from './work-bar.component';
 import { WorkAppHeaderComponent } from './work-app-header.component';
 import { WorkReleasePagesNavComponent } from './work-release-pages-nav.component';
 import { ClaimsBenchmarkComponent } from './claims-benchmark.component';
+import { ClaimsResolutionPolicyComponent } from './claims-resolution-policy.component';
 import { WorkApiService } from './work-api.service';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, NavLinkDirective, ClaimsBenchmarkComponent, IconComponent, DecisionRightComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app">
@@ -113,6 +115,8 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
                 } @empty { <p>{{ i18n.t('experience.claims.no_sources') }}</p> }</div>
                 @if (sourceIndex(); as n) { <app-work-source-panel [sources]="sources()" [selected]="n" (selectedChange)="selectSource($event)" (closed)="sourceDocumentId.set(null)" /> }
               </article>
+              <app-claims-resolution-policy [applied]="projection().proposal?.resolution_policy ?? null" />
+              @if (machineAidsAllowed()) { <app-agent-decision-trail [run]="run()" [toolLabels]="agentToolLabels" [compact]="true" /> }
               <article class="claims-panel claims-panel-progress"><h3>{{ i18n.t('experience.claims.inquiry') }}</h3>
                 <ol class="claims-steps" aria-live="polite">@for (step of projection().steps; track step.id) {
                   @let outcome = stepOutcome(step);
@@ -188,6 +192,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 })
 export class ClaimsStudioComponent {
   readonly i18n = inject(I18nService);
+  readonly agentToolLabels = CLAIM_TOOL_LABELS;
   private readonly api = inject(ApiService);
   private readonly work = inject(WorkApiService);
   private readonly canonical = inject(CanonicalApiService);
