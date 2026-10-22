@@ -289,6 +289,9 @@ export function publishedNodeExecutor(
         away, in the same place, and none was removed.
       -->
       <fieldset class="ck-flow-inspector__body" [disabled]="publishedReading()">
+        @if (publishedReading()) {
+          <p class="ck-flow-inspector__read-only" role="note" data-testid="flow-inspector-read-only">{{ i18n.t('flow.inspector.read_only') }}</p>
+        }
         @if (node(); as n) {
           <section class="ck-flow-section">
             <label class="ck-flow-field">

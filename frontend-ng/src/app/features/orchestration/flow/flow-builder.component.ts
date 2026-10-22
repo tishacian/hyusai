@@ -270,6 +270,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         @if (persistence.readOnly()) {
           <div class="flow-builder__publication-boundary" role="status" data-testid="flow-published-reading">
             <strong>{{ i18n.t('flow.builder.published.reading', { version: persistence.publishedVersionNumber() ?? '' }) }}</strong>
+            <span data-testid="flow-published-reading-hint">{{ i18n.t('flow.builder.published.hint') }}</span>
             <button type="button" (click)="editDraft()">{{ i18n.t('flow.builder.published.edit') }}</button>
           </div>
         } @else if (persistence.publicationMode() && !automationMode()) {
