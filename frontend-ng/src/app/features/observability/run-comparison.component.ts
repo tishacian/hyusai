@@ -24,12 +24,13 @@ interface CollectionOption {id:string;name:string;status:string;}
 @Component({selector:'app-run-comparison',standalone:true,imports:[FormsModule,JsonPipe,NavLinkDirective],changeDetection:ChangeDetectionStrategy.OnPush,
  template:`<section class="comparison">
  <h2>{{t('campaign')}}</h2>
+ <details><summary>{{t('campaigns')}} · {{campaigns().length}}</summary>@for(row of campaigns();track row.id){<button type="button" (click)="selectCampaign(row.id)">{{row.created_at ? date(row.created_at) : row.id}} · {{state(row.status)}}</button>}@empty{<p>{{t('no_campaign')}}</p>}</details>
+  <details class="launch" data-testid="comparison-launch" [open]="!campaignId()"><summary>{{t('new_comparison')}}</summary>
  <div class="controls">
   <label>{{t('baseline')}}<select [(ngModel)]="selectedBaseline" [disabled]="!!baselineRunId()"><option value="">{{t('choose')}}</option>@for(run of baselineRuns();track run.id){<option [value]="run.id">{{run.started_at ? date(run.started_at) : run.id}} · {{run.id.slice(0,8)}}</option>}</select></label>
   <span>{{t('candidate')}} · {{t('draft')}} {{effectiveRevision() || '—'}}</span>
  </div>
  @if(!baselineRunId() && !baselineRuns().length){<p>{{t('no_baseline')}}</p>}
- <details><summary>{{t('campaigns')}} · {{campaigns().length}}</summary>@for(row of campaigns();track row.id){<button type="button" (click)="selectCampaign(row.id)">{{row.created_at ? date(row.created_at) : row.id}} · {{state(row.status)}}</button>}@empty{<p>{{t('no_campaign')}}</p>}</details>
  <p>{{i18n.t('runs.comparison.scope')}}</p>
  <div class="controls"><label>{{i18n.t('runs.comparison.suite')}}<select [(ngModel)]="suiteId">@for(suite of suites();track suite.id){<option [value]="suite.id">{{suite.name}} · {{suite.revision}}</option>}</select></label>
  </div>
@@ -82,6 +83,7 @@ interface CollectionOption {id:string;name:string;status:string;}
   <div class="controls"><button type="button" (click)="addCase()" [disabled]="caseDrafts.length>=20">{{t('add_case')}}</button><button type="button" (click)="saveSuite()" [disabled]="busy() || !suiteReady()">{{t('save')}}</button></div>
   <details><summary>{{t('advanced')}}</summary><textarea rows="6" [(ngModel)]="casesText" [attr.aria-label]="t('advanced')"></textarea><button type="button" (click)="importCases()">{{t('import_json')}}</button><button type="button" (click)="exportCases()">{{t('export_json')}}</button></details>
  </details>
+  </details>
  @if(campaign();as comparison){
   <h3>{{i18n.t('runs.comparison.status')}}: {{code('status',comparison.status)}}</h3>
   @if(comparison.retry_pending){<p role="status" class="scope-note">{{i18n.t('observability.assurance.retry_pending')}}</p>}

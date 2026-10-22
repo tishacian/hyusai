@@ -840,7 +840,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
   /** Only a finished run has something to replay. */
   protected readonly rerunnable = computed(() => {
     const status = this.run()?.status;
-    return !!status && status !== 'pending' && status !== 'running';
+    // A Run waiting on a person is decided first, not duplicated from here.
+    return !!status && !['pending', 'running', 'hitl_pending', 'debug_pending'].includes(status);
   });
   protected readonly rerunning = signal(false);
   /** Outcome of the last rerun or override, so a failure or a lost answer is said, never silent. */
