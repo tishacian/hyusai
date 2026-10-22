@@ -50,7 +50,7 @@ from app.services.iam.legacy_authority import (
     legacy_run_approval_allowed,
 )
 from app.services.llm_label_review import LabelReviewInput
-from app.services.run_follow_up import run_follow_up
+from app.services.run_follow_up import run_follow_up, run_follow_up_detail
 from app.services.object_perspective import (
     build_run_perspective,
     build_skill_invocation_perspective,
@@ -728,6 +728,45 @@ async def get_run(
                 "payload_unavailable_reason": "evidence_unavailable",
             }
     return payload
+
+
+@router.get("/{run_id}/follow-up")
+def get_run_follow_up(
+    run_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """RunFollowUp read model: state, cause, attempt, object, proposal and
+    human decision of one Run, under exactly the Run's own read rights."""
+    r = _visible_run_or_404(db, run_id=run_id, user=user, workspace=workspace)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(r),
+    )
+    payload_visible = runtime_judgment_payload_visible(db, r, workspace=workspace, user=user)
+    decision: Optional[Decision] = None
+    pause = next(
+        (
+            cp
+            for cp in reversed(list(r.checkpoints or []))
+            if isinstance(cp, dict) and cp.get("kind") == "hitl_pause"
+        ),
+        None,
+    )
+    decision_id = (pause or {}).get("decision_id")
+    if decision_id:
+        candidate = db.query(Decision).filter(Decision.id == decision_id).first()
+        if candidate and _decision_target_run(
+            db, decision=candidate, paused_run=r, workspace_id=workspace.id
+        ):
+            decision = candidate
+    return run_follow_up_detail(r, payload_visible=payload_visible, decision=decision)
 
 
 @router.get("/{run_id}/execution-view")
