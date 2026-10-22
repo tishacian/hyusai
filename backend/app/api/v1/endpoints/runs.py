@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -2119,6 +2119,44 @@ class ReplayRequest(BaseModel):
     )
 
 
+def _replay_claim(workspace_id: str, parent_id: str, user_id: Optional[str], key: str) -> str:
+    """Opaque replay idempotency claim: one key means one replay, per reader."""
+    digest = hashlib.sha256(
+        json.dumps([workspace_id, parent_id, user_id, key], separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"replay:{digest}"
+
+
+def _replay_by_claim(db: DBSession, *, workspace_id: str, parent_id: str, claim: str) -> Optional[Run]:
+    return (
+        db.query(Run)
+        .filter(
+            Run.workspace_id == workspace_id,
+            Run.parent_run_id == parent_id,
+            Run.trigger == "replay",
+            Run.trigger_dedup_key == claim,
+        )
+        .order_by(Run.started_at.desc())
+        .first()
+    )
+
+
+def _replay_response(new_run: Run, parent_id: str, response_text: str, *, replayed: bool) -> dict:
+    return {
+        "run_id": new_run.id,
+        "parent_run_id": parent_id,
+        "status": new_run.status,
+        "trigger": new_run.trigger,
+        "started_at": new_run.started_at.isoformat() if new_run.started_at else None,
+        "completed_at": (new_run.completed_at.isoformat() if new_run.completed_at else None),
+        "duration_ms": new_run.duration_ms,
+        "replay_overrides": new_run.replay_overrides or {},
+        "response_preview": (response_text[:500] if response_text else ""),
+        "eval_pending": not replayed,
+        "replayed": replayed,
+    }
+
+
 @router.post("/{run_id}/replay")
 async def replay_run(
     run_id: str,
@@ -2126,6 +2164,9 @@ async def replay_run(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
+    idempotency_key: Optional[str] = Header(
+        None, alias="Idempotency-Key", min_length=16, max_length=160
+    ),
 ):
     """Re-run a settled chat-style Run with operator overrides applied.
 
@@ -2164,6 +2205,28 @@ async def replay_run(
         },
     )
 
+    # Optional and backward compatible: without the header every call is a
+    # new replay, as before. With it, a lost response is answered from the
+    # Run the first call created instead of driving the model again.
+    claim = (
+        _replay_claim(workspace.id, parent.id, getattr(user, "id", None), idempotency_key)
+        if idempotency_key
+        else None
+    )
+    if claim:
+        existing = _replay_by_claim(db, workspace_id=workspace.id, parent_id=parent.id, claim=claim)
+        if existing is not None:
+            if (existing.replay_overrides or {}) != (body.overrides or {}):
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "REPLAY_IDEMPOTENCY_KEY_REUSED",
+                        "message": "This idempotency key already started a replay with other overrides.",
+                        "run_id": existing.id,
+                    },
+                )
+            return _replay_response(existing, parent.id, "", replayed=True)
+
     try:
         new_run, response_text = await replay_run_async(
             db=db,
@@ -2173,6 +2236,7 @@ async def replay_run(
             actor=_actor_label(user),
             source_decision_id=body.source_decision_id,
             source_feedback_id=body.source_feedback_id,
+            dedup_key=claim,
         )
     except ReplayError as exc:
         raise HTTPException(400, str(exc))
@@ -2185,18 +2249,7 @@ async def replay_run(
     new_run.initiated_by_user_id = user.id
     db.commit()
 
-    return {
-        "run_id": new_run.id,
-        "parent_run_id": parent.id,
-        "status": new_run.status,
-        "trigger": new_run.trigger,
-        "started_at": new_run.started_at.isoformat() if new_run.started_at else None,
-        "completed_at": (new_run.completed_at.isoformat() if new_run.completed_at else None),
-        "duration_ms": new_run.duration_ms,
-        "replay_overrides": new_run.replay_overrides or {},
-        "response_preview": (response_text[:500] if response_text else ""),
-        "eval_pending": True,
-    }
+    return _replay_response(new_run, parent.id, response_text, replayed=False)
 
 
 @router.get("/{run_id}/replays")
@@ -2205,6 +2258,7 @@ async def list_run_replays(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
+    idempotency_key: Optional[str] = Query(None, min_length=16, max_length=160),
 ):
     """List runs that were replayed from this run as parent.
 
@@ -2236,6 +2290,15 @@ async def list_run_replays(
             Run.workspace_id == workspace.id,
             Run.delegation_key.is_(None),
             Run.trigger.in_(("replay", "rerun")),
+            # Reconciliation read: the replay a given key started, if any.
+            *(
+                [
+                    Run.trigger_dedup_key
+                    == _replay_claim(workspace.id, run_id, getattr(user, "id", None), idempotency_key)
+                ]
+                if idempotency_key
+                else []
+            ),
         )
         .order_by(Run.started_at.desc())
         .all()

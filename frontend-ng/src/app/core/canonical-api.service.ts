@@ -2944,9 +2944,15 @@ export class CanonicalApiService {
       source_feedback_id?: string;
     } = {},
     _policy?: ErrorPolicy,
+    /** Optional: the same key answers a lost response with the first replay. */
+    idempotencyKey?: string,
   ): Observable<RunReplayResult | null> {
     return this.api
-      .post<RunReplayResult>(`/runs/${runId}/replay`, body);
+      .post<RunReplayResult>(
+        `/runs/${runId}/replay`,
+        body,
+        idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+      );
   }
 
   listRunReplays(runId: string, policy?: ErrorPolicy): Observable<RunReplayListResponse | null> {
