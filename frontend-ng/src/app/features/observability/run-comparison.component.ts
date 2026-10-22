@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { formatSkillCost } from '../skills/skill-cost';
 import { observabilityText, observabilityNumber } from './observability-labels';
@@ -24,11 +25,11 @@ interface CollectionOption {id:string;name:string;status:string;}
  template:`<section class="comparison">
  <h2>{{t('campaign')}}</h2>
  <div class="controls">
-  <label>{{t('baseline')}}<select [(ngModel)]="selectedBaseline" [disabled]="!!baselineRunId()"><option value="">{{t('choose')}}</option>@for(run of baselineRuns();track run.id){<option [value]="run.id">{{run.started_at || run.id}} · {{run.id.slice(0,8)}}</option>}</select></label>
+  <label>{{t('baseline')}}<select [(ngModel)]="selectedBaseline" [disabled]="!!baselineRunId()"><option value="">{{t('choose')}}</option>@for(run of baselineRuns();track run.id){<option [value]="run.id">{{run.started_at ? date(run.started_at) : run.id}} · {{run.id.slice(0,8)}}</option>}</select></label>
   <span>{{t('candidate')}} · {{t('draft')}} {{effectiveRevision() || '—'}}</span>
  </div>
  @if(!baselineRunId() && !baselineRuns().length){<p>{{t('no_baseline')}}</p>}
- <details><summary>{{t('campaigns')}} · {{campaigns().length}}</summary>@for(row of campaigns();track row.id){<button type="button" (click)="selectCampaign(row.id)">{{row.created_at || row.id}} · {{state(row.status)}}</button>}@empty{<p>{{t('no_campaign')}}</p>}</details>
+ <details><summary>{{t('campaigns')}} · {{campaigns().length}}</summary>@for(row of campaigns();track row.id){<button type="button" (click)="selectCampaign(row.id)">{{row.created_at ? date(row.created_at) : row.id}} · {{state(row.status)}}</button>}@empty{<p>{{t('no_campaign')}}</p>}</details>
  <p>{{i18n.t('runs.comparison.scope')}}</p>
  <div class="controls"><label>{{i18n.t('runs.comparison.suite')}}<select [(ngModel)]="suiteId">@for(suite of suites();track suite.id){<option [value]="suite.id">{{suite.name}} · {{suite.revision}}</option>}</select></label>
  </div>
@@ -146,7 +147,7 @@ export class RunComparisonComponent {
  code(category:string,value:unknown):string{return observabilityText(this.i18n,category,value);}
  number(value:number|null|undefined,digits=0):string{return observabilityNumber(value,this.i18n.locale(),digits);}
  cost(value:number|null|undefined):string{return formatSkillCost(value,'USD',this.i18n.locale());}
- date(value:string):string {const time=new Date(value);return Number.isNaN(time.valueOf())?'—':new Intl.DateTimeFormat(this.i18n.locale(),{dateStyle:'medium',timeStyle:'short'}).format(time);}
+ date(value:string|null|undefined):string {return formatInstant(value,this.i18n.locale())??'—';}
  readonly systemId=input.required<string>();readonly baselineRunId=input<string>('');readonly draftRevision=input<number|null>(null);
  readonly i18n=inject(I18nService);private readonly canonical=inject(CanonicalApiService);
  t(key:QualityMessage){return qualityMessage(this.i18n,key);}state(value:unknown){return qualityState(this.i18n,value);}qualityStatus(value:unknown,execution=false){return qualityState(this.i18n,value,execution);}readonly output=readableOutput;
