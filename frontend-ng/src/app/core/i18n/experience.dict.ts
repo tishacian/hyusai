@@ -479,6 +479,8 @@ export const EXPERIENCE_FR = {
   'experience.runtime.error.model_dependency':
     'Ce résultat est indisponible tant que le problème du modèle n’est pas résolu. Contactez le responsable de l’application.',
   'experience.runtime.status.idle': 'Pas encore démarré',
+  'experience.runtime.status.idle_none_for_you': 'Aucun résultat lancé par vous sur cette version de l’application',
+  'experience.runtime.status.idle_not_resumed': 'Aucun résultat affiché : les résultats précédents ne sont pas repris ici',
   'experience.runtime.status.restoring': 'Chargement du dernier résultat',
   'experience.runtime.status.running': 'En cours',
   'experience.runtime.status.pending_validation': 'En attente de validation',
@@ -2191,6 +2193,8 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.runtime.error.model_dependency':
     'This result is unavailable until the model issue is resolved. Contact the application owner.',
   'experience.runtime.status.idle': 'Not started yet',
+  'experience.runtime.status.idle_none_for_you': 'No result started by you on this version of the app',
+  'experience.runtime.status.idle_not_resumed': 'No result shown: earlier results are not resumed here',
   'experience.runtime.status.restoring': 'Loading the last result',
   'experience.runtime.status.running': 'In progress',
   'experience.runtime.status.pending_validation': 'Awaiting validation',

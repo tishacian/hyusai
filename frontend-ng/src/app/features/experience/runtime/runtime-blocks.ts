@@ -1079,7 +1079,10 @@ export class RuntimeStatusBlock {
       return this.i18n.t('experience.runtime.status.restoring');
     }
     const vocab = this.vocab();
-    if (!vocab) return this.i18n.t('experience.runtime.status.idle');
+    if (!vocab) return this.i18n.t(idleStatusKey(
+      this.context().mode,
+      this.runtime.previousResult?.(this.context().sourceStateKey) ?? 'unchecked',
+    ));
     if (vocab === 'error' && runtimeFailureKind(this.error()) === 'status_unknown') {
       return this.i18n.t('experience.runtime.failure.status_unknown_label');
     }
@@ -2066,3 +2069,15 @@ export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   intelligence_feed: FeedBlock,
   decision_queue: FeedBlock,
 };
+
+/**
+ * Label of a status with no Run to show. A live reader is told why: the
+ * server only resumes their own result on this release, or this component
+ * does not resume earlier results at all. "Not started yet" stays for
+ * previews, where nothing is ever resumed.
+ */
+export function idleStatusKey(mode: string | undefined, previous: string): string {
+  if (mode !== 'live') return 'experience.runtime.status.idle';
+  if (previous === 'none_for_you') return 'experience.runtime.status.idle_none_for_you';
+  return 'experience.runtime.status.idle_not_resumed';
+}
