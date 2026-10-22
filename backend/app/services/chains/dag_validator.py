@@ -28,6 +28,8 @@ also declared on the frontend and emitted here in lockstep:
 - ``decision_condition_unbound``: a strict Decision branch predicate reads a
   name no named input binds, so it would silently evaluate as null. Emitted
   for ``io_mode: strict`` only, where the readable name set is decidable.
+- ``sink_returns_routing_fields``: a sink directly after a Decision has no
+  explicit input mapping and therefore returns routing fields to its consumer.
 
 The result is a list of ``ValidationIssue`` dicts, shaped identically
 to the frontend ``FlowValidationIssue`` so the editor can display
@@ -1037,6 +1039,22 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
         cfg = node.get("config") or {}
         if not isinstance(cfg, Mapping):
             cfg = {}
+        if (
+            kind == "sink"
+            and not cfg.get("inputs_map")
+            and any(_node_kind(nodes_by_id[parent]) == "decision" for parent in rev.get(nid, []))
+        ):
+            issues.append(
+                ValidationIssue(
+                    level="warn",
+                    code="sink_returns_routing_fields",
+                    message=(
+                        f"Output {node.get('label') or nid!r} receives Decision routing fields. "
+                        "Map the business fields you want to return using inputs_map."
+                    ),
+                    node_id=nid,
+                )
+            )
         if kind in {"task", "retry"}:
             on_error = cfg.get("on_error", "continue")
             if on_error not in {"continue", "fail", "route"}:
@@ -1241,6 +1259,23 @@ def validate_flow(flow: Mapping[str, Any]) -> list[ValidationIssue]:
                     )
                 )
         elif kind == "agent_loop":
+            from app.services.run_engine.agent_loop import (
+                decision_context_settings,
+                validate_agent_model,
+            )
+
+            try:
+                decision_context_settings(cfg)
+                validate_agent_model(cfg)
+            except ValueError as exc:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="agent_loop_configuration",
+                        message=str(exc),
+                        node_id=nid,
+                    )
+                )
             budget = (cfg.get("budget") or {}) if isinstance(cfg.get("budget"), dict) else {}
             max_turns = budget.get("max_turns", cfg.get("max_turns"))
             if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns <= 0:

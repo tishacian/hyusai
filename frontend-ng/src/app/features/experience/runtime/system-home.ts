@@ -127,13 +127,8 @@ export function compileSystemHome(input: {
   labels: SystemHomeLabels;
 }): ExperienceDocument {
   const title = input.systemName.trim();
-  const components: ExperienceNode[] = [
-    {
-      type: 'header',
-      id: 'home-head',
-      props: { title, subtitle: input.labels.subtitle },
-    },
-  ];
+  // The runtime supplies the page heading; generation must not duplicate it.
+  const components: ExperienceNode[] = [];
   if (input.ingress) {
     components.push({
       type: 'form',
@@ -172,6 +167,7 @@ export function compileSystemHome(input: {
       {
         id: 'form_result',
         title,
+        props: { description: input.labels.subtitle },
         components,
       },
     ],

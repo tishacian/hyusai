@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { Observable, forkJoin, map } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import type { Run } from '@app/core/canonical-api.service';
@@ -29,7 +28,7 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
   selector: 'app-studio-test-preview',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe],
+  imports: [],
   template: `
     <section class="tp" aria-labelledby="tp-title" data-testid="test-preview">
       <h3 id="tp-title">{{ i18n.t('experience.editor.test_preview.title') }}</h3>
@@ -72,7 +71,7 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
                 <dt>{{ i18n.t('experience.editor.test_preview.automation') }}</dt>
                 <dd>{{ systemNames()[r.system_id] || i18n.t('experience.editor.test_preview.unnamed_system') }}</dd>
                 <dt>{{ i18n.t('experience.editor.test_preview.date') }}</dt>
-                <dd>{{ r.started_at | date: 'short' }}</dd>
+                <dd>{{ displayDate(r.started_at) }}</dd>
                 <dt>{{ i18n.t('experience.editor.test_preview.surface') }}</dt>
                 <dd>{{ i18n.t(r.execution_surface === 'draft_test' ? 'experience.editor.test_preview.surface.draft' : 'experience.editor.test_preview.surface.published') }}</dd>
                 <dt>{{ i18n.t('experience.editor.test_preview.state') }}</dt>
@@ -220,6 +219,13 @@ export class StudioTestPreviewComponent {
 
   value(event: Event): string {
     return (event.target as HTMLSelectElement).value;
+  }
+
+  displayDate(value: string | null | undefined): string {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'short', timeStyle: 'short' }).format(date)
+      : this.i18n.t('experience.editor.test_preview.date_unknown');
   }
 
   runLabel(run: Run): string {

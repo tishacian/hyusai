@@ -27,6 +27,7 @@ import { type ModelCatalogEntry, type ModelResolution, catalogModelName, selecta
 import { valueFieldsFromSchema, valuesToObject, objectToValues } from '@app/shared/schema-builder/schema-builder.vm';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 import { formatSkillCost } from '../skills/skill-cost';
+import { DecisionComparisonComponent } from './decision-comparison.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { BrandIconComponent } from '@app/shared/ui/brand-icon.component';
 import { CATALOG_BRANDS } from '@app/features/connectors/connector-catalog.vm';
@@ -105,6 +106,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
   imports: [
     FormsModule,
     ModelExecutionComponent,
+    DecisionComparisonComponent,
     RouterLink,
     NgClass,
     KeyValuePipe,
@@ -344,6 +346,10 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         }
         </section>
       }
+    }
+
+    @if (tab() === 'models' && showPortalTabs()) {
+      <app-decision-comparison [models]="models()" />
     }
 
     <!-- Providers tab -->

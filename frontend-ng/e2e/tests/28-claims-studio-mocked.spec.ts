@@ -26,7 +26,7 @@ function judgeOutput(locale: string, truncated: boolean) {
  };
 }
 
-async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'|'truncated'; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean } = {}) {
+async function setup(page: Page, theme: string, locale: string, unavailable = false, priority: 'ready' | 'stale' | 'manual' | null = null, options: { volume?: boolean; receipt?: boolean; benchmarkUnavailable?: boolean; judge?: 'abstained'|'failed'|'truncated'; dataFailure?: string; detailFailure?: string; consumer?: boolean; canConfigure?: boolean; accessUnavailable?: boolean; agentChoices?: boolean } = {}) {
  const posts: unknown[] = []; let run: Record<string, unknown> | null = null;
  const activeWorkspace = options.consumer ? { ...workspace, role: 'member', role_template: 'workspace_member' } : workspace;
  const queue = options.volume ? [...rows, ...Array.from({ length: 20 }, (_, index) => ({ ...rows[index % rows.length], claim_id: `RC-${5001 + index}`, order_id: `LM-${5001 + index}`, display_name: `Client synthétique ${index + 1}`, state: index % 2 ? 'waiting_information' : 'resolved' }))] : rows;
@@ -43,6 +43,7 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
    if (path === '/work/reclamations') return json(route, { experience: { id: 'qa-experience', slug: 'reclamations', name: 'Réclamations' }, release: { id: 'qa-release' }, channel: 'live' });
    if (path === '/ecommerce-claims' && options.dataFailure) return json(route, { detail: { code: options.dataFailure, message: 'PRIVATE_DATABASE_DIAGNOSTIC' } }, options.dataFailure === 'PG_AUTH_FAILED' ? 403 : 503);
    if (path === '/ecommerce-claims') return json(route, unavailable ? { detail: { code: 'POSTGRESQL_SCHEMA_NOT_LOADED' } } : { data: { queue } }, unavailable ? 503 : 200);
+   if (path === '/ecommerce-claims/policy') return json(route, { policy: { schema_version: 1, document_key: 'returns', document_version: '1', document_sha256: 'a'.repeat(64), currency: 'EUR', manager_approval_above: '250.00' }, sha256: 'b'.repeat(64), source: 'workspace', revision: 1, updated_at: null, can_configure: false, invariants: { human_approval_required: true, financial_execution: 'simulated', duplicate_action_guard: true, live_evidence_recheck: true } });
    if (path === '/ecommerce-claims/triage') return json(route, priority ? {
      status: priority === 'stale' ? 'stale' : 'ready', captured_at: new Date().toISOString(), max_age_minutes: 60,
      model: { id: 'qa-sla-model', name: 'Luma SLA', version: 1 },
@@ -88,6 +89,28 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
      const context = { claim_id: id, served: { model_id: 'qa-sla-model', version: 1 }, target: 'resolution_over_72h', positive_label: '1', score: id === 'RC-1043' ? 0.16 : 0.82,
        prepared_dataset: { id: 'qa-case-prepared', name: 'Case data', version: 1, rows: 1 }, scored_dataset: { id: 'qa-case-scored', name: 'Case prediction', version: 1, rows: 1 } };
      run = { id: 'qa-native-run', system_id: 'qa-system', input_ref: { claim_id: id }, status: 'hitl_pending', hitl: { decision_id: 'qa-decision', node_id: 'hitl.review' }, skill_invocations: ['ecommerce_sav_dataset_v1', 'sql_transform_v1', 'ml_batch_score_v1', 'ecommerce_sav_context_v1', 'postgresql_claim_snapshot_v1', 'ecommerce_policy_evidence_v1', tool, 'ecommerce_resolution_propose_v1'].map((slug, i) => ({ id: 'qa-inv-' + i, skill_slug: slug, status: 'completed', completed_at: new Date().toISOString(), output_ref: slug === 'ecommerce_resolution_propose_v1' ? proposal : slug === 'ecommerce_sav_context_v1' ? context : {} })) };
+     if (options.agentChoices) {
+       const calls = run['skill_invocations'] as Array<Record<string, unknown>>;
+       const loop = { node_id: 'investigate', passage_id: 'passage-' + id };
+       for (const [index, selected] of ['postgresql_claim_snapshot_v1', tool].entries()) {
+         const turn = { ...loop, membrane_attempt_index: index + 1 };
+         const executed = calls.find(call => call['skill_slug'] === selected)!;
+         executed['trace'] = { ...turn, membrane_attempt_kind: 'agent_loop_act' };
+         const rationale = index === 0 ? 'Verify the order before choosing the relevant evidence.' : id === 'RC-1044'
+           ? 'Check the earlier refund before proposing another payment.'
+           : 'Check the carrier evidence to confirm whether the parcel was lost.';
+         calls.splice(calls.indexOf(executed), 0, {
+           id: `qa-choice-${id}-${index}`, skill_slug: 'decide_next_v1', status: 'completed',
+           input_ref: { visible_skills: [{ slug: selected, purpose: 'Collect the relevant evidence.' }] },
+           output_ref: { next_skill: selected, rationale, confidence: .99 },
+           trace: { ...turn, membrane_attempt_kind: 'agent_loop_decide',
+             agent_loop_decision: { effective: { next_skill: selected }, normalization_reasons: [] },
+             model_execution: { provider: 'openai', model: 'gpt-5', returned_model: 'gpt-5-2025-08-07', credential_source: 'env', model_source: 'input', fallback: false },
+             agent_loop_context: { schema_version: 1, keys: ['case_risk', 'prior_receipt'], present_keys: ['case_risk'], missing_keys: ['prior_receipt'], bytes: 180, sha256: 'c'.repeat(64), sources: { case_risk: { node_id: 'risk', path: ['score'] } }, values: 'PRIVATE_CONTEXT' },
+           },
+         });
+       }
+     }
      if (options.judge) (run['skill_invocations'] as unknown[]).push({
        id: 'qa-judge', skill_slug: 'evaluate_v2', status: options.judge === 'failed' ? 'failed' : 'completed',
        error: options.judge === 'failed' ? 'PRIVATE_PROVIDER_DIAGNOSTIC' : null,
@@ -107,6 +130,92 @@ async function setup(page: Page, theme: string, locale: string, unavailable = fa
 
 test.describe('Claims studio — isolated end-user QA', () => {
  test.skip(!enabled, 'Enable E2E_CHROME_V2_MOCKED for isolated QA');
+ for (const [locale, width] of [['fr', 1440], ['en', 390]] as const) {
+  test(`resolution policy: compact admin settings and confirmed recovery in ${locale} at ${width}px`, async ({ page }, testInfo) => {
+   const posts = await setup(page, locale === 'fr' ? 'dark' : 'light', locale);
+   let reads = 0; const writes: Record<string, unknown>[] = [];
+   let current = { policy: { schema_version: 1, document_key: 'returns', document_version: '1', document_sha256: 'a'.repeat(64), currency: 'EUR', manager_approval_above: '250.00' }, sha256: 'b'.repeat(64), source: 'workspace', revision: 1, updated_at: null, can_configure: true,
+     invariants: { human_approval_required: true, financial_execution: 'simulated', duplicate_action_guard: true, live_evidence_recheck: true } };
+   await page.route('**/api/v1/ecommerce-claims/policy', async route => {
+    if (route.request().method() === 'PUT') {
+     const body = route.request().postDataJSON(); writes.push(body);
+     current = { ...current, policy: body.policy, sha256: 'c'.repeat(64), revision: 2 };
+     return route.fulfill({ status: locale === 'en' ? 504 : 200, contentType: 'application/json', body: JSON.stringify(locale === 'en' ? { detail: 'RESPONSE_UNKNOWN' } : current) });
+    }
+    reads++;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) });
+   });
+   await page.setViewportSize({ width, height: 900 });
+   await page.goto('/work/reclamations/studio?record=RC-1043');
+   const section = page.getByTestId('claims-resolution-policy');
+   await expect(section).toBeVisible();
+   await expect(section).not.toHaveAttribute('open');
+   expect(reads).toBe(0);
+   await section.locator(':scope > summary').focus(); await page.keyboard.press('Enter');
+   await expect(section).toContainText('returns');
+   await section.getByRole('button', { name: locale === 'fr' ? 'Modifier les règles' : 'Edit rules', exact: true }).click();
+   await section.getByLabel(locale === 'fr' ? 'Validation responsable au-delà de' : 'Manager approval above', { exact: true }).fill('25,50');
+   const save = section.getByRole('button', { name: locale === 'fr' ? 'Enregistrer' : 'Save', exact: true });
+   expect((await save.boundingBox())!.height).toBeLessThanOrEqual(36);
+   expect((await new AxeBuilder({ page }).include('[data-testid="claims-resolution-policy"]').analyze()).violations).toEqual([]);
+   await section.screenshot({ path: testInfo.outputPath(`resolution-policy-edit-${locale}-${width}.png`) });
+   await save.click();
+   if (locale === 'en') {
+    await expect(section.getByRole('alert')).toContainText('The save response was not confirmed.');
+    await expect(save).toBeDisabled();
+    await section.getByRole('button', { name: 'Check current rules', exact: true }).click();
+    await expect(section.getByRole('status')).toContainText('The requested rules are currently in effect.');
+   } else {
+    await expect(section.getByRole('status')).toContainText('Règles enregistrées.');
+   }
+   expect(writes).toHaveLength(1);
+   expect(writes[0]['expected_sha256']).toBe('b'.repeat(64));
+   expect((writes[0]['policy'] as Record<string, unknown>)['manager_approval_above']).toBe('25.50');
+   expect(posts).toHaveLength(0);
+   await expect(section).toContainText(locale === 'fr' ? 'Les remboursements restent simulés.' : 'Refunds remain simulated.');
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+   await section.screenshot({ path: testInfo.outputPath(`resolution-policy-${locale}-${width}.png`) });
+  });
+ }
+ for (const [locale, width] of [['fr', 1440], ['en', 390]] as const) {
+  test(`agent choices: adaptive evidence, provenance and case isolation in ${locale} at ${width}px`, async ({ page }, testInfo) => {
+   const posts = await setup(page, locale === 'fr' ? 'dark' : 'light', locale, false, null, { agentChoices: true });
+   await page.setViewportSize({ width, height: 900 });
+   await page.goto('/work/reclamations/studio?record=RC-1043');
+   await page.getByRole('button', { name: locale === 'fr' ? 'Lancer l’enquête' : 'Start investigation', exact: true }).click();
+   const trail = page.getByTestId('agent-decision-trail');
+   await expect(trail.getByRole('heading', { name: locale === 'fr' ? 'Choix de l’assistant' : 'Assistant choices', exact: true })).toBeVisible();
+   await expect(trail.locator('.agent-choice').first()).toHaveAttribute('data-state', 'completed');
+   await expect(trail).toContainText('Check the carrier evidence to confirm whether the parcel was lost.');
+   await expect(trail.getByText('Verify the order before choosing the relevant evidence.', { exact: true })).not.toBeVisible();
+   const history = trail.locator('.agent-choices-history');
+   await history.locator(':scope > summary').focus(); await page.keyboard.press('Enter');
+   await expect(history).toHaveAttribute('open', '');
+   await expect(history).toContainText('Verify the order before choosing the relevant evidence.');
+   await history.locator(':scope > summary').press('Enter');
+   const evidence = trail.locator('.agent-choice-evidence').first();
+   await expect(evidence).not.toHaveAttribute('open');
+   await evidence.locator(':scope > summary').press('Enter');
+   await expect(evidence.getByTestId('model-execution')).toContainText('openai');
+   await expect(evidence.getByTestId('model-execution')).toContainText('gpt-5-2025-08-07');
+   await expect(evidence).toContainText('case_risk');
+   await expect(evidence).toContainText('risk › score');
+   await expect(evidence).toContainText(locale === 'fr' ? 'Absent' : 'Missing');
+   await expect(trail).not.toContainText('PRIVATE_CONTEXT');
+   await expect(trail).not.toContainText('0.99');
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+   expect((await new AxeBuilder({ page }).include('.claims-app').analyze()).violations).toEqual([]);
+   await trail.screenshot({ path: testInfo.outputPath(`agent-choices-${locale}-${width}.png`) });
+   if (width < 600) await page.getByRole('button', { name: /LM-1043.*Change/ }).click();
+   await page.locator('.work-record-item').filter({ hasText: 'LM-1044' }).click();
+   await expect(trail).toHaveCount(0);
+   await page.getByRole('button', { name: locale === 'fr' ? 'Lancer l’enquête' : 'Start investigation', exact: true }).click();
+   await expect(trail).toContainText('Check the earlier refund before proposing another payment.');
+   await expect(trail).not.toContainText('Check the carrier evidence');
+   await expect(trail.locator('.agent-choice-evidence').first()).not.toHaveAttribute('open');
+   expect(posts).toHaveLength(2);
+  });
+ }
  for (const consumer of [false, true]) {
   test(`PostgreSQL: TLS failure gives proportionate recovery for ${consumer ? 'a consumer' : 'an administrator'}`, async ({ page }, testInfo) => {
    const requests: string[] = [];

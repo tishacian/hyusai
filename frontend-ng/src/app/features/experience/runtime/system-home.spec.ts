@@ -83,9 +83,10 @@ test('compileSystemHome builds form_result from the manual contract', () => {
   assert.equal(doc.pages.length, 1);
   assert.equal(doc.pages[0]?.id, 'form_result');
   assert.equal(doc.pages[0]?.title, 'Password reset');
+  assert.equal(doc.pages[0]?.props?.['description'], LABELS.subtitle);
   assert.deepEqual(
     doc.pages[0]?.components.map((node) => node.type),
-    ['header', 'form', 'runtime_status', 'result', 'evidence', 'history'],
+    ['form', 'runtime_status', 'result', 'evidence', 'history'],
   );
   const form = doc.pages[0]?.components.find((node) => node.type === 'form');
   assert.equal(form?.props?.['bindingKey'], 'home.password-reset.start.x');
@@ -128,7 +129,7 @@ test('compileSystemHome adds approval_card when a hitl hint is present', () => {
   });
   assert.deepEqual(
     noIngress.pages[0]?.components.map((node) => node.type),
-    ['header', 'callout', 'runtime_status', 'result', 'evidence', 'history'],
+    ['callout', 'runtime_status', 'result', 'evidence', 'history'],
   );
 });
 

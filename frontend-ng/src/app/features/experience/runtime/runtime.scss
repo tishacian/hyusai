@@ -194,6 +194,22 @@
   gap: 8px;
 }
 
+/* An action with no fields is a compact command row, not an empty form. */
+.xp-rt-form-copy { display: grid; gap: 6px; min-width: 0; }
+.xp-rt-form-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+}
+.xp-rt-form-action > .xp-rt-actions { justify-content: flex-end; }
+.xp-rt-form-action > .xp-rt-confirm,
+.xp-rt-form-action > .xp-rt-preview-note { grid-column: 1 / -1; }
+@media (max-width: 560px) {
+  .xp-rt-form-action { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .xp-rt-form-action > .xp-rt-actions { justify-content: flex-start; }
+}
+
 .xp-rt-btn {
   min-height: 32px;
   padding: 0 12px;

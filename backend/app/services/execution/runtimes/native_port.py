@@ -82,6 +82,7 @@ def authorize(db, request, *, allow_terminal=False, enforce_revision=True):
         system=system,
         execution_source="native_temporal",
         execution_contract=run.execution_contract,
+        flow_snapshot=run.flow_snapshot,
     )
     bindings = resolve_run_system_catalog_bindings(db, workspace=workspace, system=system, run=run)
     graph = DagGraph.from_flow_definition(run.flow_snapshot)

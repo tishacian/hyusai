@@ -38,6 +38,9 @@ export class ModelExecutionComponent {
   readonly resolution = input<ModelResolution | null>(null);
 
   source(value: string): string {
+    if (value.startsWith('route:') && value.slice(6).trim()) {
+      return this.i18n.t('skills.models.source.route', { route: value.slice(6).trim().slice(0, 160) });
+    }
     const normalized = value === 'legacy_default' || value === 'published_legacy_default' ? 'legacy' : value;
     const key = `skills.models.source.${normalized}` as I18nKey;
     const translated = this.i18n.t(key);

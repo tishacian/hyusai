@@ -25,6 +25,8 @@ const stub = join(here, 'ng-core.stub.mjs');
 // Pure specs: engine-agnostic logic. `@angular/core` is aliased to a
 // metadata-only stub (the serializer uses it only for `@Injectable`).
 const pureSpecs = [
+  'src/app/features/resources/decision-comparison.vm.spec.ts',
+  'src/app/shared/work-records/agent-decision-trail.spec.ts',
   'src/app/shared/ui/run-decision-notice.spec.ts',
   'src/app/shared/ui/specialized-app-version.spec.ts',
   'src/app/features/deposit/deposit-receipt.spec.ts',
@@ -217,6 +219,7 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/experience/work/claims-resolution-policy.component.spec.ts',
   'src/app/shared/cockpit/impact-preview.component.spec.ts',
   'src/app/features/connectors/rpa/rpa-connector.component.spec.ts',
   'src/app/features/account/account-read-state.spec.ts',
@@ -273,6 +276,7 @@ const storeSpecs = [
   'src/app/core/navigation-profile.guard.spec.ts',
   'src/app/core/object-perspective.store.spec.ts',
   'src/app/core/zoom-context.service.spec.ts',
+  'src/app/shared/cockpit/model-execution.component.spec.ts',
   'src/app/shared/cockpit/run-outcome-card.component.spec.ts',
   'src/app/shared/cockpit/charts/chart-declared.spec.ts',
   'src/app/core/workspace-experience-shadow.service.spec.ts',

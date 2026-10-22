@@ -1,4 +1,4 @@
-import { DOCUMENT, DatePipe } from '@angular/common';
+import { DOCUMENT } from '@angular/common';
 import { A11yModule } from '@angular/cdk/a11y';
 import {
   ChangeDetectionStrategy,
@@ -51,7 +51,7 @@ export interface PublishSummary {
   selector: 'app-experience-publish-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, DatePipe, HelpTooltipComponent, RouterLink],
+  imports: [A11yModule, HelpTooltipComponent, RouterLink],
   styleUrl: './studio.scss',
   template: `
     @if (open()) {
@@ -94,7 +94,7 @@ export interface PublishSummary {
                 <dt>{{ i18n.t('experience.publish.receipt.author') }}</dt>
                 <dd>{{ r.author || i18n.t('experience.publish.receipt.unknown') }}</dd>
                 <dt>{{ i18n.t('experience.publish.receipt.at') }}</dt>
-                <dd>{{ r.at ? (r.at | date: 'medium') : i18n.t('experience.publish.receipt.unknown') }}</dd>
+                <dd>{{ receiptDate(r.at) }}</dd>
               </dl>
               <div class="xp-foot">
                 <button type="button" class="xp-btn" (click)="close()">{{ i18n.t('experience.publish.close') }}</button>
@@ -351,6 +351,13 @@ export interface PublishSummary {
   `,
 })
 export class ExperiencePublishDialogComponent {
+  receiptDate(value: string | null | undefined): string {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'medium', timeStyle: 'medium' }).format(date)
+      : this.i18n.t('experience.publish.receipt.unknown');
+  }
+
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
   private readonly document = inject(DOCUMENT);

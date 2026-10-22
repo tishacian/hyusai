@@ -1,0 +1,64 @@
+{
+  "qualification": "offline_product_contracts_only",
+  "applied": false,
+  "live_qualified": false,
+  "target_flow_sha256": "8446493fc823bad5697c8ff3e85a37a5c3531d14c4d9bd7eb8c965169183f94d",
+  "checks_passed": [
+    "published_candidate_has_no_validation_errors",
+    "canonical_flow_hash_matches",
+    "only_explicit_context_keys_reach_model",
+    "context_has_complete_coverage_and_digest",
+    "scope_accepts_data_prep_v1",
+    "scope_accepts_decide_next_v1",
+    "scope_accepts_ecommerce_delivery_evidence_v1",
+    "scope_accepts_ecommerce_policy_evidence_v1",
+    "scope_accepts_ecommerce_refund_evidence_v1",
+    "scope_accepts_ecommerce_resolution_propose_v1",
+    "scope_accepts_ecommerce_resolution_simulate_v1",
+    "scope_accepts_ecommerce_sav_context_v1",
+    "scope_accepts_ecommerce_sav_dataset_v1",
+    "scope_accepts_evaluate_v2",
+    "scope_accepts_ml_batch_score_v1",
+    "scope_accepts_ml_forecast_v1",
+    "scope_accepts_postgresql_claim_snapshot_v1",
+    "scope_accepts_sql_transform_v1",
+    "forbidden_skill_is_blocked",
+    "wrong_model_is_blocked",
+    "missing_model_identity_is_blocked",
+    "foreign_collection_is_blocked_in_enforce",
+    "shadow_observes_without_claiming_enforcement",
+    "unset_numeric_valves_do_not_invent_coverage",
+    "sink_exposes_business_result",
+    "missing_exclusion_measurement_stays_unknown"
+  ],
+  "runtime_classification": {
+    "data_prep_v1": "server_verified_non_text",
+    "decide_next_v1": "model_identity_required",
+    "ecommerce_delivery_evidence_v1": "server_verified_non_text",
+    "ecommerce_policy_evidence_v1": "server_verified_non_text",
+    "ecommerce_refund_evidence_v1": "server_verified_non_text",
+    "ecommerce_resolution_propose_v1": "server_verified_non_text",
+    "ecommerce_resolution_simulate_v1": "server_verified_non_text",
+    "ecommerce_sav_context_v1": "server_verified_non_text",
+    "ecommerce_sav_dataset_v1": "server_verified_non_text",
+    "evaluate_v2": "model_identity_required",
+    "ml_batch_score_v1": "server_verified_non_text",
+    "ml_forecast_v1": "server_verified_non_text",
+    "postgresql_claim_snapshot_v1": "server_verified_non_text",
+    "sql_transform_v1": "server_verified_non_text"
+  },
+  "warnings": [
+    {
+      "level": "warn",
+      "code": "sink_returns_routing_fields",
+      "node_id": "sink.blocked"
+    }
+  ],
+  "remaining": [
+    "Fresh read CAS and model catalogue options",
+    "Deployed worker revision verification",
+    "Real shadow runs on all three business entries",
+    "Negative boundary tests through the deployed dispatcher",
+    "Coordinated Work bindings, triage and immutable releases"
+  ]
+}

@@ -6,23 +6,21 @@ The seeded registry is read-only from the UI: it comes from the in-process
 under `skill.admin` and inside its own slug namespace, binding them to the
 verified executor set rather than to code of its own.
 """
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
-from fastapi.responses import Response
 import hashlib
+from dataclasses import dataclass
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import load_only
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
-from app.models.capability import Capability
 from app.models.brd_document import BrdDocument
-from app.services.object_store import ObjectStore
-from app.services.skills_registry.brd_documents import retain_brd, document_payload
-from app.services.skills_registry.brd_generation import BrdGenerationRequest
+from app.models.capability import Capability
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.user import User
@@ -43,9 +41,12 @@ from app.services.iam.legacy_authority import (
     legacy_object_action_allowed,
     legacy_workspace_admin,
 )
-from app.services.run_access import readable_runs, readable_skill_invocations_for_runs
+from app.services.object_store import ObjectStore
 from app.services.projection_integrity import invocation_cost_is_measured
+from app.services.run_access import readable_runs, readable_skill_invocations_for_runs
 from app.services.skills_registry.binding import SkillBindingError, workspace_skill_slug
+from app.services.skills_registry.brd_documents import document_payload, retain_brd
+from app.services.skills_registry.brd_generation import BrdGenerationRequest
 from app.services.skills_registry.brd_import import (
     BrdUnreadableError,
     parse_business_requirements,
@@ -85,12 +86,14 @@ class SkillCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
     type: str = Field(default="generic", max_length=60)
-    category: Optional[str] = Field(default=None, json_schema_extra={"enum": [*AUTHORABLE_CATEGORIES, None]})
-    input_schema: Dict[str, Any] = {}
-    output_schema: Dict[str, Any] = {}
-    executor: Dict[str, Any]
-    execution: Optional[Dict[str, Any]] = None
-    pricing: Optional[Dict[str, Any]] = None
+    category: Optional[str] = Field(
+        default=None, json_schema_extra={"enum": [*AUTHORABLE_CATEGORIES, None]}
+    )
+    input_schema: dict[str, Any] = {}
+    output_schema: dict[str, Any] = {}
+    executor: dict[str, Any]
+    execution: Optional[dict[str, Any]] = None
+    pricing: Optional[dict[str, Any]] = None
     # Optional: a Skill nobody claims is still catalogued, it simply sits in
     # the palette with no Capability behind it. Naming one at creation is what
     # spares the author a second trip through the Capability screen.
@@ -103,14 +106,24 @@ class SkillUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = None
     type: Optional[str] = Field(default=None, max_length=60)
-    category: Optional[str] = Field(default=None, json_schema_extra={"enum": [*AUTHORABLE_CATEGORIES, None]})
-    input_schema: Optional[Dict[str, Any]] = None
-    output_schema: Optional[Dict[str, Any]] = None
-    executor: Optional[Dict[str, Any]] = None
-    execution: Optional[Dict[str, Any]] = None
-    pricing: Optional[Dict[str, Any]] = None
+    category: Optional[str] = Field(
+        default=None, json_schema_extra={"enum": [*AUTHORABLE_CATEGORIES, None]}
+    )
+    input_schema: Optional[dict[str, Any]] = None
+    output_schema: Optional[dict[str, Any]] = None
+    executor: Optional[dict[str, Any]] = None
+    execution: Optional[dict[str, Any]] = None
+    pricing: Optional[dict[str, Any]] = None
 
     _category = field_validator("category")(_known_category)
+
+
+class PromptRestoreBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version_id: str = Field(min_length=1, max_length=36)
+    node_id: str = Field(min_length=1, max_length=256)
+    template_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_current_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def _runtime_status(s: Skill) -> str:
@@ -145,10 +158,10 @@ def _authored_runtime_status(executor: Any) -> str:
 
 def _serialize(
     s: Skill,
-    metrics: Optional[Dict[str, Any]] = None,
+    metrics: Optional[dict[str, Any]] = None,
     visibility: Optional[SkillVisibility] = None,
-    provenance: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    provenance: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     payload = {
         "id": s.id,
         "slug": s.slug,
@@ -195,8 +208,8 @@ class _CatalogView:
     filtered: list[Skill]
     visibility_by_id: dict[str, SkillVisibility]
 
-    def summary(self) -> Dict[str, Any]:
-        reasons: Dict[str, int] = {}
+    def summary(self) -> dict[str, Any]:
+        reasons: dict[str, int] = {}
         for skill in self.filtered:
             reason = self.visibility_by_id[str(skill.id)].reason
             reasons[reason] = reasons.get(reason, 0) + 1
@@ -259,7 +272,7 @@ def _enforce_catalog_read(
     *,
     user: User,
     workspace: Workspace,
-    resource_attrs: Optional[Dict[str, Any]] = None,
+    resource_attrs: Optional[dict[str, Any]] = None,
 ) -> None:
     """Resolve the catalog read boundary; `skill.read` is role-scoped."""
 
@@ -281,7 +294,7 @@ def _enforce_catalog_admin(
     *,
     user: User,
     workspace: Workspace,
-    resource_attrs: Optional[Dict[str, Any]] = None,
+    resource_attrs: Optional[dict[str, Any]] = None,
 ) -> None:
     """Resolve the authoring boundary.
 
@@ -332,7 +345,7 @@ def _contract_error(exc: FlowContractError | SkillBindingError) -> HTTPException
     return HTTPException(400, detail)
 
 
-def _validated_schemas(body: SkillCreate | SkillUpdate) -> Dict[str, Any]:
+def _validated_schemas(body: SkillCreate | SkillUpdate) -> dict[str, Any]:
     """Compile both contracts with the executable-schema rules Flows enforce.
 
     Reusing ``validate_schema_definition`` rather than a bare ``check_schema``
@@ -342,7 +355,7 @@ def _validated_schemas(body: SkillCreate | SkillUpdate) -> Dict[str, Any]:
     """
 
     fields = body.model_dump(exclude_unset=True)
-    validated: Dict[str, Any] = {}
+    validated: dict[str, Any] = {}
     for field in ("input_schema", "output_schema"):
         if fields.get(field) is None:
             continue
@@ -442,11 +455,7 @@ async def runtime_health(
     snapshot = registry_snapshot()
     visible_rows = _visible_skill_rows(db, workspace)
     visible_slugs = {s.slug for s in visible_rows}
-    snapshot = {
-        slug: entry
-        for slug, entry in snapshot.items()
-        if slug in visible_slugs
-    }
+    snapshot = {slug: entry for slug, entry in snapshot.items() if slug in visible_slugs}
     # An authored row has a runtime of its own, so reporting it as awaiting a
     # wrapper would misdirect the operator reading this surface.
     for row in visible_rows:
@@ -649,8 +658,12 @@ async def import_business_requirements(
         extraction = parse_business_requirements(data)
         if retain is True:
             row = retain_brd(
-                db, workspace_id=workspace.id, user_id=user.id,
-                filename=file.filename, data=data, extraction=extraction,
+                db,
+                workspace_id=workspace.id,
+                user_id=user.id,
+                filename=file.filename,
+                data=data,
+                extraction=extraction,
             )
             return document_payload(row)
         return extraction
@@ -696,8 +709,10 @@ async def get_business_requirements_original(
     return Response(
         data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": 'attachment; filename="business-requirements.docx"',
-                 "Cache-Control": "no-store"},
+        headers={
+            "Content-Disposition": 'attachment; filename="business-requirements.docx"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -729,24 +744,48 @@ async def save_business_requirements_proposal(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    return _save_business_requirements_proposal(document_id, body, workspace=workspace, user=user, db=db)
+    return _save_business_requirements_proposal(
+        document_id, body, workspace=workspace, user=user, db=db
+    )
 
 
-def _save_business_requirements_proposal(document_id, body, *, workspace, user, db, generation=None):
+def _save_business_requirements_proposal(
+    document_id, body, *, workspace, user, db, generation=None
+):
     import json
+
     from app.api.v1.endpoints.evaluation_campaigns import CaseBody
     from app.services.chains import dag_validator
-    from app.services.skills_registry.brd_proposals import coverage, retain_proposal, proposal_payload, validate_case_output_paths
+    from app.services.skills_registry.brd_proposals import (
+        coverage,
+        proposal_payload,
+        retain_proposal,
+        validate_case_output_paths,
+    )
+
     document = _retained_brd(db, workspace, user, document_id)
-    enforce_action(db, user=user, workspace=workspace, resource_kind="system", action="admin",
-        legacy_allowed=legacy_object_action_allowed(db, user=user, workspace=workspace,
-                                                   resource_kind="system", action="admin"))
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="system",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db, user=user, workspace=workspace, resource_kind="system", action="admin"
+        ),
+    )
     payload = body.model_dump(exclude={"request_key"})
     if len(json.dumps(payload).encode("utf-8")) > 256 * 1024:
         raise HTTPException(413, "The BRD proposal exceeds 256 KiB")
     issues = dag_validator.validate_flow(body.flow_definition)
     if dag_validator.has_errors(issues):
-        raise HTTPException(422, {"code": "brd_proposal_flow_invalid", "issues": dag_validator.issues_to_payload(issues)})
+        raise HTTPException(
+            422,
+            {
+                "code": "brd_proposal_flow_invalid",
+                "issues": dag_validator.issues_to_payload(issues),
+            },
+        )
     try:
         cases = [CaseBody.model_validate(case) for case in body.cases]
         for skill in body.skills:
@@ -763,15 +802,21 @@ def _save_business_requirements_proposal(document_id, body, *, workspace, user, 
     if len({skill.local_name for skill in body.skills}) != len(body.skills):
         raise HTTPException(422, "Proposed Skill names must be unique")
     payload["cases"] = [case.model_dump() for case in cases]
-    payload["coverage"] = coverage(document.extraction, payload["mappings"],
+    payload["coverage"] = coverage(
+        document.extraction,
+        payload["mappings"],
         node_ids={node["id"] for node in body.flow_definition.get("nodes", [])},
-        case_ids={case.id for case in cases})
+        case_ids={case.id for case in cases},
+    )
     payload["problems"] = list(document.extraction.get("problems", []))
     payload["execution_readiness"] = "not_validated"
     if generation is not None:
         payload["generation"] = generation
-    return proposal_payload(retain_proposal(db, document=document, user=user,
-                                           request_key=body.request_key, proposal=payload))
+    return proposal_payload(
+        retain_proposal(
+            db, document=document, user=user, request_key=body.request_key, proposal=payload
+        )
+    )
 
 
 @router.get("/imports/business-requirements/{document_id}/proposals/{proposal_id}")
@@ -784,9 +829,13 @@ async def get_business_requirements_proposal(
 ):
     from app.models.brd_proposal import BrdProposal
     from app.services.skills_registry.brd_proposals import proposal_payload
+
     _retained_brd(db, workspace, user, document_id)
-    row = db.query(BrdProposal).filter_by(id=proposal_id, document_id=document_id,
-                                        workspace_id=workspace.id).first()
+    row = (
+        db.query(BrdProposal)
+        .filter_by(id=proposal_id, document_id=document_id, workspace_id=workspace.id)
+        .first()
+    )
     if row is None:
         raise HTTPException(404, "BRD proposal not found")
     return proposal_payload(row)
@@ -816,10 +865,17 @@ async def apply_business_requirements_proposal(
 ):
     from app.services.skills_registry.brd_proposals import apply_proposal
     from app.services.systems.flow_publication import FlowPublicationError
+
     document = _retained_brd(db, workspace, user, document_id)
     try:
-        result = apply_proposal(db, document=document, proposal_id=proposal_id,
-            expected_sha256=body.expected_sha256, user=user, workspace=workspace)
+        result = apply_proposal(
+            db,
+            document=document,
+            proposal_id=proposal_id,
+            expected_sha256=body.expected_sha256,
+            user=user,
+            workspace=workspace,
+        )
         db.commit()
         return result
     except FlowPublicationError as exc:
@@ -841,25 +897,44 @@ async def generate_business_requirements_proposal(
     from app.models.workspace_job import WorkspaceJob
     from app.services.flow_contracts import canonical_sha256
     from app.services.skills_registry.brd_generation import authorized_catalog
-    from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
+    from app.services.workspace_jobs import (
+        create_workspace_job,
+        dispatch_workspace_job,
+        serialize_job,
+    )
+
     _retained_brd(db, workspace, user, document_id)
     authorized_catalog(db, workspace, user, body.skill_slugs)
     # Serialize enqueue requests on the document, including concurrent retries.
-    db.query(BrdDocument).filter_by(id=document_id, workspace_id=workspace.id).with_for_update().one()
+    db.query(BrdDocument).filter_by(
+        id=document_id, workspace_id=workspace.id
+    ).with_for_update().one()
     request = {"document_id": document_id, "request": body.model_dump()}
     digest = canonical_sha256(request)
-    previous = db.query(WorkspaceJob).filter(
-        WorkspaceJob.workspace_id == workspace.id, WorkspaceJob.created_by_user_id == user.id,
-        WorkspaceJob.kind == "brd_generation",
-        WorkspaceJob.input_ref["document_id"].as_string() == document_id,
-        WorkspaceJob.input_ref["request"]["request_key"].as_string() == body.request_key,
-    ).first()
+    previous = (
+        db.query(WorkspaceJob)
+        .filter(
+            WorkspaceJob.workspace_id == workspace.id,
+            WorkspaceJob.created_by_user_id == user.id,
+            WorkspaceJob.kind == "brd_generation",
+            WorkspaceJob.input_ref["document_id"].as_string() == document_id,
+            WorkspaceJob.input_ref["request"]["request_key"].as_string() == body.request_key,
+        )
+        .first()
+    )
     if previous:
         if previous.input_ref.get("request_sha256") != digest:
             raise HTTPException(409, "Generation request key already used")
         return serialize_job(previous)
-    job = create_workspace_job(db, workspace, user, kind="brd_generation", title=body.name,
-        input_ref={**request, "request_sha256": digest}, status="queued")
+    job = create_workspace_job(
+        db,
+        workspace,
+        user,
+        kind="brd_generation",
+        title=body.name,
+        input_ref={**request, "request_sha256": digest},
+        status="queued",
+    )
     db.commit()
     task_id = dispatch_workspace_job(db, workspace, job, allow_inline_fallback=False)
     if task_id is None and job.status in {"created", "queued"}:
@@ -878,16 +953,26 @@ async def get_business_requirements_generation(
     db: DBSession = Depends(get_db),
 ):
     from datetime import datetime
+
     from app.models.workspace_job import WorkspaceJob
     from app.services.skills_registry.brd_generation import authorized_catalog
     from app.services.workspace_jobs import serialize_job
+
     _retained_brd(db, workspace, user, document_id)
-    job = db.query(WorkspaceJob).filter_by(id=job_id, workspace_id=workspace.id,
-        created_by_user_id=user.id, kind="brd_generation").first()
+    job = (
+        db.query(WorkspaceJob)
+        .filter_by(
+            id=job_id, workspace_id=workspace.id, created_by_user_id=user.id, kind="brd_generation"
+        )
+        .first()
+    )
     if job is None or job.input_ref.get("document_id") != document_id:
         raise HTTPException(404, "BRD generation not found")
     authorized_catalog(db, workspace, user, job.input_ref["request"].get("skill_slugs", []))
-    if job.status in {"created", "queued", "running"} and (datetime.utcnow() - job.updated_at).total_seconds() > 600:
+    if (
+        job.status in {"created", "queued", "running"}
+        and (datetime.utcnow() - job.updated_at).total_seconds() > 600
+    ):
         job.status, job.stage = "failed", "worker_interrupted"
         job.error = "The generation worker stopped reporting progress. Start a new attempt."
         job.completed_at = datetime.utcnow()
@@ -924,6 +1009,64 @@ async def get_skill(
         view.visibility_by_id.get(str(s.id)),
         skill_provenance(db, [s]).get(s.slug),
     )
+
+
+@router.get("/{slug}/prompt-history")
+async def prompt_history(
+    slug: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.api.v1.endpoints.systems import _enforce_system_read
+    from app.services.skills_registry.prompt_history import entries
+
+    skill = _authored_skill(db, workspace, slug)
+    _enforce_catalog_read(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_attrs={"skill_id": skill.id, "skill_slug": slug},
+    )
+    return entries(
+        db, workspace=workspace, user=user, skill=skill, authorize_read=_enforce_system_read
+    )
+
+
+@router.post("/{slug}/prompt-history/restore")
+async def restore_prompt_history(
+    slug: str,
+    body: PromptRestoreBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.api.v1.endpoints.systems import _enforce_system_read
+    from app.services.skills_registry.prompt_history import restore
+
+    skill = _authored_skill(db, workspace, slug)
+    _enforce_catalog_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_attrs={"skill_id": skill.id, "skill_slug": slug},
+    )
+    try:
+        restore(
+            db,
+            workspace=workspace,
+            user=user,
+            skill=skill,
+            body=body,
+            authorize_read=_enforce_system_read,
+        )
+    except SkillBindingError as exc:
+        db.rollback()
+        raise _contract_error(exc) from exc
+    except Exception:
+        db.rollback()
+        raise
+    return {**_serialize(skill), "published_contracts_unchanged": True}
 
 
 @router.patch("/{slug}")
@@ -1032,9 +1175,7 @@ async def delete_skill(
         )
     carriers = [
         cap.slug
-        for cap in db.query(Capability)
-        .filter(Capability.workspace_id == workspace.id)
-        .all()
+        for cap in db.query(Capability).filter(Capability.workspace_id == workspace.id).all()
         if row.id in (cap.skill_ids or [])
     ]
     if carriers:
@@ -1057,7 +1198,7 @@ def _aggregate_metrics(
     workspace: Workspace,
     user: User,
     slugs: list[str],
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Aggregate runtime metrics only from readable invocation objects."""
     if not slugs:
         return {}
@@ -1085,9 +1226,7 @@ def _aggregate_metrics(
     )
     run_ids = {row.run_id for row in invocations}
     runs = (
-        db.query(Run)
-        .filter(Run.workspace_id == workspace.id, Run.id.in_(run_ids))
-        .all()
+        db.query(Run).filter(Run.workspace_id == workspace.id, Run.id.in_(run_ids)).all()
         if run_ids
         else []
     )
@@ -1108,7 +1247,7 @@ def _aggregate_metrics(
     for invocation in invocations:
         grouped.setdefault(invocation.skill_slug, []).append(invocation)
 
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for slug, rows in grouped.items():
         count = len(rows)
         latencies = [float(row.latency_ms) for row in rows if row.latency_ms is not None]

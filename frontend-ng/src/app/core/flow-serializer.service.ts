@@ -220,6 +220,10 @@ export interface AgentLoopNodeConfig {
     status?: 'active' | 'blocked' | 'needs_approval' | 'complete';
   };
   decide_skill?: 'decide_next_v1';
+  /** Explicit provider-qualified decision model; absent inherits existing routing. */
+  model?: string;
+  /** Only these declared inputs may enter the decision prompt. */
+  decision_context?: { keys: string[]; max_bytes?: number };
   skill_allowlist: string[];
   confidence_floor?: number;
   budget: { max_turns: number; max_cost?: number; deadline_ms?: number };

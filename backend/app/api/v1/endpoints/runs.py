@@ -4,18 +4,19 @@ A Run carries the Outcome block. Detail view exposes the SkillInvocation
 ledger so the cockpit can drill from the Run timeline down to individual
 skill calls.
 """
+
 import asyncio
 import copy
 import hashlib
 import json
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, List, Literal, Optional
+from typing import Any, AsyncIterator, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session as DBSession
@@ -40,16 +41,17 @@ from app.services.decisions import (
     reject as reject_decision,
 )
 from app.services.iam.decision_plane import enforce_action
-from app.services.llm_label_review import LabelReviewInput
 from app.services.iam.legacy_authority import (
     legacy_object_action_allowed,
     legacy_run_approval_allowed,
 )
+from app.services.llm_label_review import LabelReviewInput
 from app.services.object_perspective import (
     build_run_perspective,
     build_skill_invocation_perspective,
     projection_feature_enabled,
 )
+from app.services.object_store import get_object_store
 from app.services.outcome.derive import apply_operator_override
 from app.services.run_access import (
     PRIVATE_CHAT_TRIGGER as _PRIVATE_CHAT_TRIGGER,
@@ -88,7 +90,6 @@ from app.services.run_outcome_provenance import (
     record_operator_outcome_override,
     run_measurement_provenance,
 )
-from app.services.object_store import get_object_store
 from app.services.workspace_secrets import public_checkpoint
 
 logger = get_logger(__name__)
@@ -156,8 +157,10 @@ def _utc_naive_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
     try:
-        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(
-            str(value).replace("Z", "+00:00")
+        parsed = (
+            value
+            if isinstance(value, datetime)
+            else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         )
     except (TypeError, ValueError):
         return None
@@ -171,7 +174,7 @@ def _delegated_hitl_deadline(run: Run) -> Optional[datetime]:
 
     value: Any = run.delegation_deadline_at
     if value is None and isinstance(run.input_ref, dict):
-        delegation = (run.input_ref.get("_delegation") or {})
+        delegation = run.input_ref.get("_delegation") or {}
         value = delegation.get("deadline_at") if isinstance(delegation, dict) else None
     return _utc_naive_datetime(value)
 
@@ -197,7 +200,7 @@ def _visible_run_or_404(
     return run
 
 
-def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
+def _row(r: Run, *, db: DBSession) -> dict[str, Any]:
     from app.services.run_engine.execution_principal import public_run_principal
 
     membrane_held = _membrane_egress_held(r)
@@ -209,6 +212,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
         and baseline_exclusion is None
     )
     from app.services.evaluation.campaigns import suite_run_result
+
     checkpoints = []
     for checkpoint in list(r.checkpoints or []):
         if (
@@ -249,11 +253,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
             "baseline_eligible": baseline_eligible,
             "baseline_ineligible_reason": (
                 baseline_exclusion
-                or (
-                    "baseline_runtime_provenance_unavailable"
-                    if not baseline_eligible
-                    else None
-                )
+                or ("baseline_runtime_provenance_unavailable" if not baseline_eligible else None)
             ),
         },
         "retries": r.retries,
@@ -270,14 +270,12 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
             "flow_snapshot_sha256": _projection_evidence_sha256(r.flow_snapshot),
             "execution_snapshot_at": (
                 r.input_ref.get("execution", {}).get("snapshot_at")
-                if isinstance(r.input_ref, dict)
-                and isinstance(r.input_ref.get("execution"), dict)
+                if isinstance(r.input_ref, dict) and isinstance(r.input_ref.get("execution"), dict)
                 else None
             ),
             "runtime_revision": (
                 r.input_ref.get("execution", {}).get("runtime_revision")
-                if isinstance(r.input_ref, dict)
-                and isinstance(r.input_ref.get("execution"), dict)
+                if isinstance(r.input_ref, dict) and isinstance(r.input_ref.get("execution"), dict)
                 else None
             ),
         },
@@ -295,7 +293,7 @@ def _membrane_egress_held(r: Run) -> bool:
     )
 
 
-def _pending_hitl_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
+def _pending_hitl_checkpoint(r: Run) -> Optional[dict[str, Any]]:
     """Return the last ``hitl_pause`` checkpoint when the Run is awaiting
     operator input, ``None`` otherwise."""
     if (r.status or "") != "hitl_pending":
@@ -306,7 +304,7 @@ def _pending_hitl_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _pending_debug_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
+def _pending_debug_checkpoint(r: Run) -> Optional[dict[str, Any]]:
     """Return the last ``debug_pause`` checkpoint when the Run is paused
     in the step debugger."""
     if (r.status or "") != "debug_pending":
@@ -322,7 +320,7 @@ def _invocation(
     *,
     redact_io: bool = False,
     include_projection_evidence: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     payload = {
         "id": i.id,
         "skill_slug": i.skill_slug,
@@ -333,11 +331,7 @@ def _invocation(
         "cost": i.cost,
         "provider_cost_usd": i.provider_cost_usd,
         "input_ref": {} if redact_io else i.input_ref or {},
-        "output_ref": (
-            {}
-            if redact_io
-            else (i.output_ref if i.output_ref is not None else {})
-        ),
+        "output_ref": ({} if redact_io else (i.output_ref if i.output_ref is not None else {})),
         "metrics": i.metrics or {},
         "trace": i.trace or {},
         "error": i.error,
@@ -347,9 +341,7 @@ def _invocation(
                 if isinstance(i.execution_snapshot, dict)
                 else None
             ),
-            "execution_snapshot_sha256": _projection_evidence_sha256(
-                i.execution_snapshot
-            ),
+            "execution_snapshot_sha256": _projection_evidence_sha256(i.execution_snapshot),
         },
     }
     if include_projection_evidence:
@@ -376,8 +368,10 @@ async def list_runs(
 ):
     q = db.query(Run).filter(Run.workspace_id == workspace.id)
     if golden_batch_id:
-        q = q.filter(Run.execution_surface == "golden_preview",
-            Run.input_ref["execution"]["golden_batch_id"].as_string() == golden_batch_id)
+        q = q.filter(
+            Run.execution_surface == "golden_preview",
+            Run.input_ref["execution"]["golden_batch_id"].as_string() == golden_batch_id,
+        )
     if not _can_view_private_chat_runs(db, user=user, workspace=workspace):
         q = q.filter(
             or_(
@@ -541,7 +535,6 @@ async def get_run(
         workspace=workspace,
     )
 
-
     enforce_action(
         db,
         user=user,
@@ -569,7 +562,7 @@ async def get_run(
         workspace,
         "skill_invocation",
     )
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         **_row(r, db=db),
         "invocations": [
             _invocation(
@@ -661,7 +654,8 @@ async def get_run(
         # Read-only hint for every pause, so a reader sees "consultation only"
         # and why before acting; POST /hitl rechecks the same authority.
         can_decide, decide_reason = _hitl_decision_right(
-            db, run=r, decision=decision, workspace=workspace, user=user)
+            db, run=r, decision=decision, workspace=workspace, user=user
+        )
         payload["hitl"]["can_decide"] = can_decide
         payload["hitl"]["decide_reason"] = decide_reason
     debug_cp = _pending_debug_checkpoint(r)
@@ -689,8 +683,16 @@ def get_execution_view(
 ):
     from app.services.execution_view import execution_view
 
-    return execution_view(db, workspace, user, run_id, node_id=node_id,
-                          activity_id_filter=activity_id, limit=limit, offset=offset)
+    return execution_view(
+        db,
+        workspace,
+        user,
+        run_id,
+        node_id=node_id,
+        activity_id_filter=activity_id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{run_id}/files")
@@ -793,10 +795,14 @@ async def get_skill_invocation(
         legacy_allowed=True,
         resource_attrs=_run_read_attrs(run),
     )
-    invocation = db.query(SkillInvocation).filter(
-        SkillInvocation.id == invocation_id,
-        SkillInvocation.run_id == run.id,
-    ).first()
+    invocation = (
+        db.query(SkillInvocation)
+        .filter(
+            SkillInvocation.id == invocation_id,
+            SkillInvocation.run_id == run.id,
+        )
+        .first()
+    )
     if invocation is None:
         raise HTTPException(404, "Skill invocation not found")
     enforce_action(
@@ -853,10 +859,14 @@ async def get_skill_invocation_perspective(
         legacy_allowed=True,
         resource_attrs=_run_read_attrs(run),
     )
-    invocation = db.query(SkillInvocation).filter(
-        SkillInvocation.id == invocation_id,
-        SkillInvocation.run_id == run.id,
-    ).first()
+    invocation = (
+        db.query(SkillInvocation)
+        .filter(
+            SkillInvocation.id == invocation_id,
+            SkillInvocation.run_id == run.id,
+        )
+        .first()
+    )
     if invocation is None:
         raise HTTPException(404, "Skill invocation perspective not found")
     enforce_action(
@@ -884,7 +894,8 @@ async def get_skill_invocation_perspective(
 class HitlResolve(BaseModel):
     label_review: Optional[LabelReviewInput] = None
     expected_decision_id: Optional[str] = Field(
-        default=None, min_length=1,
+        default=None,
+        min_length=1,
         description="Decision observed by the caller; mismatches are refused. Optional for legacy clients.",
     )
     action: Literal["accept", "reject"]
@@ -898,7 +909,7 @@ class HitlResolve(BaseModel):
 class SteerBody(BaseModel):
     op: Literal["set_tier", "set_allowlist", "inject_note", "escalate"]
     privilege_tier: Optional[str] = None
-    skill_allowlist: Optional[List[str]] = None
+    skill_allowlist: Optional[list[str]] = None
     note: Optional[str] = None
     escalate_to: Optional[str] = None
 
@@ -918,9 +929,9 @@ def _run_lineage(
     *,
     run: Run,
     workspace_id: str,
-) -> Optional[List[Run]]:
+) -> Optional[list[Run]]:
     """Return ``run`` and its ancestors, failing closed on corrupt edges."""
-    lineage: List[Run] = []
+    lineage: list[Run] = []
     current: Optional[Run] = run
     visited: set[str] = set()
     while current is not None:
@@ -1037,7 +1048,7 @@ def _legacy_hitl_authorized(
     Authorization v2; this legacy result is therefore only the role/action
     decision inside that structural boundary.
     """
-    affected_runs: Dict[str, Run] = {}
+    affected_runs: dict[str, Run] = {}
     for candidate in (paused_run, decision_target):
         lineage = _run_lineage(db, run=candidate, workspace_id=workspace.id)
         if lineage is None:
@@ -1062,6 +1073,7 @@ def _hitl_decision_right(db, *, run, decision, workspace, user):
     authority.
     """
     from datetime import datetime
+
     from app.services.iam.decision_plane import resolve_action
 
     if decision is None:
@@ -1073,17 +1085,34 @@ def _hitl_decision_right(db, *, run, decision, workspace, user):
     target = _decision_target_run(db, decision=decision, paused_run=run, workspace_id=workspace.id)
     if target is None:
         return False, "missing"
-    if any(_managed_agentic_run_requires_admin(db, run=item, workspace=workspace)
-           for item in (run, target)) and not _has_private_chat_admin_access(db, user=user, workspace=workspace):
+    if any(
+        _managed_agentic_run_requires_admin(db, run=item, workspace=workspace)
+        for item in (run, target)
+    ) and not _has_private_chat_admin_access(db, user=user, workspace=workspace):
         return False, "admin_required"
     try:
-        legacy = _legacy_hitl_authorized(db, user=user, workspace=workspace, paused_run=run, decision_target=target)
+        legacy = _legacy_hitl_authorized(
+            db, user=user, workspace=workspace, paused_run=run, decision_target=target
+        )
     except HTTPException:
         return False, "not_authorized"
-    allowed = resolve_action(db, user=user, workspace=workspace, resource_kind="run", action="approve",
-        legacy_allowed=legacy, resource_attrs={"run_id": run.id, "system_id": run.system_id,
-            "capability_id": run.capability_id, "decision_id": decision.id, "owner_user_id": target.initiated_by_user_id},
-        audit_shadow_diff=False, audit_shadow_evidence=False).effective_allowed
+    allowed = resolve_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="approve",
+        legacy_allowed=legacy,
+        resource_attrs={
+            "run_id": run.id,
+            "system_id": run.system_id,
+            "capability_id": run.capability_id,
+            "decision_id": decision.id,
+            "owner_user_id": target.initiated_by_user_id,
+        },
+        audit_shadow_diff=False,
+        audit_shadow_evidence=False,
+    ).effective_allowed
     return (True, None) if allowed else (False, "not_authorized")
 
 
@@ -1101,13 +1130,20 @@ async def get_run_label_review(
     from app.services.llm_label_review import review_page
     from app.services.tabular_datasets import TabularError
 
-    run = _visible_run_or_404(db, run_id=run_id, user=user, workspace=workspace,
-                             allow_managed_hitl_for_resolution=True)
+    run = _visible_run_or_404(
+        db, run_id=run_id, user=user, workspace=workspace, allow_managed_hitl_for_resolution=True
+    )
     checkpoint = _pending_hitl_checkpoint(run)
     if not checkpoint or checkpoint.get("decision_id") != expected_decision_id:
         raise HTTPException(409, "Run is no longer awaiting the observed label review")
-    decision = db.query(Decision).filter_by(id=expected_decision_id, workspace_id=workspace.id).first()
-    if decision is None or _decision_target_run(db, decision=decision, paused_run=run, workspace_id=workspace.id) is None:
+    decision = (
+        db.query(Decision).filter_by(id=expected_decision_id, workspace_id=workspace.id).first()
+    )
+    if (
+        decision is None
+        or _decision_target_run(db, decision=decision, paused_run=run, workspace_id=workspace.id)
+        is None
+    ):
         raise HTTPException(404, "HITL decision not found")
     try:
         return await run_in_threadpool(review_page, db, decision, offset=offset, limit=limit)
@@ -1372,7 +1408,9 @@ async def resolve_run_hitl(
             raise HTTPException(409, "This HITL decision is not a dataset label review")
         if body.action == "accept" and is_label_review:
             try:
-                await run_in_threadpool(apply_review, db, decision, reviewer_id=user.id, body=body.label_review)
+                await run_in_threadpool(
+                    apply_review, db, decision, reviewer_id=user.id, body=body.label_review
+                )
             except TabularError as exc:
                 db.rollback()
                 raise HTTPException(exc.status_code, detail=exc.payload()) from exc
@@ -1405,9 +1443,7 @@ async def resolve_run_hitl(
         dispatch_event = enqueue_dispatch(
             db,
             event_type=(
-                SUBFLOW_HITL_RESUME
-                if dispatch_plane == "subflow_celery"
-                else RUN_HITL_RESUME
+                SUBFLOW_HITL_RESUME if dispatch_plane == "subflow_celery" else RUN_HITL_RESUME
             ),
             workspace_id=str(workspace.id),
             run_id=r.id,
@@ -1468,20 +1504,18 @@ class DebugStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["step", "continue", "stop"]
-    breakpoints: Optional[List[str]] = Field(
+    breakpoints: Optional[list[str]] = Field(
         default=None,
         description="Optional replacement breakpoint set applied before resume.",
     )
 
     @field_validator("breakpoints")
     @classmethod
-    def _validate_breakpoints(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+    def _validate_breakpoints(cls, value: Optional[list[str]]) -> Optional[list[str]]:
         if value is None:
             return None
         try:
-            normalized = normalize_debug_config(
-                {"mode": "step", "breakpoints": value}
-            )
+            normalized = normalize_debug_config({"mode": "step", "breakpoints": value})
         except DebugContractError as exc:
             raise ValueError(exc.message) from exc
         return list(normalized["breakpoints"])
@@ -1576,6 +1610,7 @@ async def step_run(
         system=system,
         execution_source="run_debug_resume_api",
         execution_contract=r.execution_contract or {},
+        flow_snapshot=r.flow_snapshot,
     )
     if r.status != "debug_pending":
         raise HTTPException(409, f"Run is not in debugger pause (status={r.status!r})")
@@ -1584,7 +1619,7 @@ async def step_run(
     return {"id": r.id, "status": r.status, "action": body.action}
 
 
-def _step_wrapper(run_id: str, action: str, breakpoints: Optional[List[str]]) -> None:
+def _step_wrapper(run_id: str, action: str, breakpoints: Optional[list[str]]) -> None:
     """Background shim mirroring :func:`_resume_wrapper` for step resume."""
     import asyncio
 
@@ -1607,7 +1642,7 @@ def _step_wrapper(run_id: str, action: str, breakpoints: Optional[List[str]]) ->
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
-def _sse_format(event: str, payload: Dict[str, Any]) -> str:
+def _sse_format(event: str, payload: dict[str, Any]) -> str:
     """Serialize one payload as a single SSE frame."""
     return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
 
@@ -1626,6 +1661,7 @@ async def _run_event_stream(
     4. Forward live events until the bus closes, the Run reaches a
        terminal state, or the HTTP client disconnects.
     """
+
     def still_authorized():
         if not user_id:
             return True  # Internal consumers; the HTTP route always supplies identity.
@@ -1643,7 +1679,9 @@ async def _run_event_stream(
                 member, scope = current.get(User, user_id), current.get(Workspace, workspace_id)
                 require_membership(current, scope, member)
                 row = current.query(Run).filter_by(id=run_id, workspace_id=workspace_id).first()
-                return bool(row and readable_runs(current, runs=[row], user=member, workspace=scope))
+                return bool(
+                    row and readable_runs(current, runs=[row], user=member, workspace=scope)
+                )
         except HTTPException:
             return False
 
@@ -1744,13 +1782,25 @@ async def _run_event_stream(
                 #      walker that doesn't publish events).
                 db = SessionLocal()
                 try:
-                    current = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace_id).first()
+                    current = (
+                        db.query(Run)
+                        .filter(Run.id == run_id, Run.workspace_id == workspace_id)
+                        .first()
+                    )
                     if current is None:
                         return
                     if user_id:
                         current_user = db.query(User).filter(User.id == user_id).first()
-                        current_workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-                        if current_user is None or current_workspace is None or not readable_runs(db, runs=[current], user=current_user, workspace=current_workspace):
+                        current_workspace = (
+                            db.query(Workspace).filter(Workspace.id == workspace_id).first()
+                        )
+                        if (
+                            current_user is None
+                            or current_workspace is None
+                            or not readable_runs(
+                                db, runs=[current], user=current_user, workspace=current_workspace
+                            )
+                        ):
                             yield _sse_format("close", {"reason": "access_unavailable"})
                             return
                     status = current.status
@@ -1762,7 +1812,11 @@ async def _run_event_stream(
                         if isinstance(ts, str):
                             replayed_ts.add(ts)
                         public_cp = public_checkpoint(cp)
-                        if status == "hitl_pending" and cp.get("kind") == "hitl_pause" and cp.get("membrane_egress") is True:
+                        if (
+                            status == "hitl_pending"
+                            and cp.get("kind") == "hitl_pause"
+                            and cp.get("membrane_egress") is True
+                        ):
                             public_cp = {key: value for key, value in cp.items() if key != "state"}
                             public_cp["result_held"] = True
                         yield _sse_format(public_cp.get("kind", "checkpoint"), public_cp)
@@ -1946,7 +2000,7 @@ async def override_run_outcome(
 
 
 class ReplayRequest(BaseModel):
-    overrides: Dict[str, Any] = Field(
+    overrides: dict[str, Any] = Field(
         default_factory=dict,
         description=(
             "Override fields for the replay. Recognised keys: "
@@ -2112,7 +2166,11 @@ async def list_run_replays(
             {
                 **_row(r, db=db),
                 "replay_overrides": r.replay_overrides or {},
-                "evaluation_scores": {k: v for k, v in (r.evaluation_scores or {}).items() if k not in {"metadata", "claim_audit"}},
+                "evaluation_scores": {
+                    k: v
+                    for k, v in (r.evaluation_scores or {}).items()
+                    if k not in {"metadata", "claim_audit"}
+                },
             }
             for r in children
         ],
@@ -2162,6 +2220,7 @@ async def rerun_run(
         system=system,
         execution_source="run_rerun_api",
         execution_contract=parent.execution_contract or {},
+        flow_snapshot=parent.flow_snapshot,
     )
 
     new_run = Run(
@@ -2184,6 +2243,7 @@ async def rerun_run(
     )
     db.add(new_run)
     from app.services.execution.submission import stage_run
+
     durable = stage_run(db, new_run, system)
     db.commit()
     db.refresh(new_run)

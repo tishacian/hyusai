@@ -25,7 +25,6 @@ import math
 import time
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -91,9 +90,13 @@ from .streaming import flush_token_sink, make_token_sink
 logger = get_logger(__name__)
 
 
-def _provider_cost_usd(cost_evidence) -> float | None:
+def _provider_cost_usd(cost_evidence, *, model_backed: bool = False) -> float | None:
     evidence = cost_evidence.evidence if hasattr(cost_evidence, "evidence") else {}
     if not cost_evidence.cost_measured or evidence.get("currency") != "USD":
+        return None
+    if model_backed and evidence.get("method") == "catalog_unit_price":
+        # The price of a Skill is not the provider tariff of its LLM calls.
+        # Keep that declared price in cost, but never label it provider spend.
         return None
     return float(cost_evidence.cost)
 
@@ -573,6 +576,7 @@ def _build_initial_ctx(
     max_runtime_s = max(1.0, min(44.0, max_runtime_s))
     if run.execution_policy is not None:
         from app.services.execution.contracts import ExecutionPolicy
+
         max_runtime_s = ExecutionPolicy.model_validate(run.execution_policy).remaining_seconds()
     run_deadline_monotonic = time.monotonic() + max_runtime_s
     workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
@@ -907,23 +911,9 @@ def _frozen_node_executor(
     have always done.
     """
 
-    if not node_id:
-        return None
-    contract = run.execution_contract if isinstance(run.execution_contract, dict) else None
-    nodes = contract.get("nodes") if contract is not None else None
-    node = nodes.get(node_id) if isinstance(nodes, dict) else None
-    if isinstance(node, dict) and slug is not None and node.get("skill_slug") != slug:
-        tools = node.get("tool_contract")
-        if isinstance(tools, dict):
-            node = (tools.get("nodes") or {}).get(slug)
-            if not isinstance(node, dict):
-                raise ValueError("execution_contract:agent_loop_tool_not_frozen")
-        else:
-            # Historical AgentLoops did not freeze tools. Never bind their
-            # planner executor to a different Skill dispatched by that node.
-            return None
-    executor = node.get("executor") if isinstance(node, dict) else None
-    return executor if isinstance(executor, dict) else None
+    from app.services.model_plane.skill_capabilities import frozen_skill_executor
+
+    return frozen_skill_executor(run.execution_contract, node_id, slug)
 
 
 async def _execute_task_node(
@@ -968,6 +958,7 @@ async def _execute_task_node(
         ModelExecutionError,
         resolve_skill_model_execution,
     )
+    from app.services.model_plane.skill_capabilities import is_verified_non_text_skill
 
     skill_input = redact_secrets(
         dict(resolved_input)
@@ -1010,9 +1001,23 @@ async def _execute_task_node(
         resolved_input if resolved_input is not None else last_output,
     )
     membrane_spec = _safe_membrane(control)
+    verified_non_text = (
+        model_execution is None
+        and model_resolution_error is None
+        and is_verified_non_text_skill(slug, executor_binding)
+    )
     if model_execution is not None:
         model = model_execution.policy_model(membrane_spec.capabilities.allowed_models)
-    capability_gate = evaluate_capability(membrane_spec, skill=slug, model=model)
+    elif membrane_spec.capabilities.allowed_models or verified_non_text:
+        # Unresolved native/composite models fail closed: caller input and the
+        # System default do not prove their actual runtime model identity.
+        # A dataset's model envelope or the System's LLM default is not a text
+        # model used by this deterministic operation. This decision comes from
+        # reviewed server code/frozen executors, never from an input flag.
+        model = None
+    capability_gate = evaluate_capability(
+        membrane_spec, skill=slug, model=model, model_required=not verified_non_text
+    )
     legacy_shadow_block = bool(
         membrane_spec.shadow_active
         and control is not None
@@ -1078,13 +1083,21 @@ async def _execute_task_node(
         from app.services.flow_contracts import canonical_sha256
 
         request_for_run(db, run)  # Frozen candidate only, never a caller-context flag.
-        native_binding = canonical_sha256({
-            "run_id": run.id, "node_id": node_id, "slug": slug,
-            "profile": run.execution_policy["native_profile_digest"], "input": skill_input,
-        })
+        native_binding = canonical_sha256(
+            {
+                "run_id": run.id,
+                "node_id": node_id,
+                "slug": slug,
+                "profile": run.execution_policy["native_profile_digest"],
+                "input": skill_input,
+            }
+        )
         existing = db.get(SkillInvocation, native_invocation_id, populate_existing=True)
         if existing is not None:
-            if existing.run_id != run.id or (existing.trace or {}).get("native_binding") != native_binding:
+            if (
+                existing.run_id != run.id
+                or (existing.trace or {}).get("native_binding") != native_binding
+            ):
                 raise ValueError("NATIVE_INVOCATION_BINDING_MISMATCH")
             # Even an uncertain running invocation is never executed twice.
             return existing
@@ -1103,7 +1116,9 @@ async def _execute_task_node(
     from app.services.ml_inference_cost import InferenceCostCollector, install_collector
 
     inference_cost = InferenceCostCollector.create(
-        db, workspace_id=run.workspace_id, skill_id=execution_evidence.skill_id,
+        db,
+        workspace_id=run.workspace_id,
+        skill_id=execution_evidence.skill_id,
         skill_slug=execution_evidence.skill_slug,
     )
     from app.services.run_engine.execution_correlation import current_passage
@@ -1117,7 +1132,7 @@ async def _execute_task_node(
         status="running",
         started_at=datetime.utcnow(),
         cost_measured=False,
-        provider_cost_usd=_provider_cost_usd(cost_evidence),
+        provider_cost_usd=None,  # No dispatch or settlement has occurred yet.
         metrics={"cost_evidence": cost_evidence.evidence},
         input_ref=skill_input,
         trace={
@@ -1143,11 +1158,16 @@ async def _execute_task_node(
         db.commit()
     except Exception as exc:
         from sqlalchemy.exc import IntegrityError
+
         if native_invocation_id is None or not isinstance(exc, IntegrityError):
             raise
         db.rollback()
         existing = db.get(SkillInvocation, native_invocation_id, populate_existing=True)
-        if existing is None or existing.run_id != run.id or (existing.trace or {}).get("native_binding") != native_binding:
+        if (
+            existing is None
+            or existing.run_id != run.id
+            or (existing.trace or {}).get("native_binding") != native_binding
+        ):
             raise ValueError("NATIVE_INVOCATION_BINDING_MISMATCH") from exc
         return existing
 
@@ -1173,7 +1193,30 @@ async def _execute_task_node(
     skill_ctx.pop("_provider_usage_v1", None)
     skill_ctx.pop("_model_response_usage", None)
     skill_ctx.pop("_agent_loop_decision_evidence", None)
+    skill_ctx.pop("_agent_loop_context_evidence", None)
     skill_ctx.pop(SECRETS_CTX_KEY, None)
+
+    def record_cost(evidence):
+        usage = skill_ctx.get("_provider_usage_v1")
+        model_backed = (
+            model_execution is not None
+            or model_resolution_error is not None
+            or (isinstance(usage, dict) and bool(usage.get("calls")))
+        )
+        invocation.cost = evidence.cost
+        invocation.cost_measured = evidence.cost_measured
+        invocation.provider_cost_usd = _provider_cost_usd(evidence, model_backed=model_backed)
+        invocation.metrics = {**(invocation.metrics or {}), "cost_evidence": evidence.evidence}
+        if model_backed and invocation.provider_cost_usd is None:
+            invocation.metrics["provider_cost_evidence"] = {
+                "state": "not_measured",
+                "reason": (
+                    "llm_provider_tariff_not_configured"
+                    if evidence.evidence.get("method") == "catalog_unit_price"
+                    else evidence.evidence.get("reason") or "provider_cost_usd_unavailable"
+                ),
+                "declared_skill_cost_preserved": evidence.cost_measured,
+            }
 
     def check_model_attempt(execution):
         # A prior dispatch may have spent tokens even when it timed out. Put
@@ -1184,9 +1227,7 @@ async def _execute_task_node(
             invocation.metrics = _model_runtime_metrics(invocation.metrics, skill_ctx)
             invocation.trace = _model_runtime_trace(invocation.trace, skill_ctx)
             invocation.latency_ms = (time.monotonic() - t0) * 1000
-            invocation.cost = cost_evidence.cost
-            invocation.cost_measured = cost_evidence.cost_measured
-            invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
+            record_cost(cost_evidence)
             db.commit()
             if _runtime_valves_blocked(db, run, control):
                 raise MembraneEnforcementError(run.error or "membrane_valve_breach")
@@ -1221,6 +1262,7 @@ async def _execute_task_node(
         skill_ctx["token_sink"] = token_sink
 
     t0 = time.monotonic()
+
     def native_publication_owned():
         if native_invocation_id is None:
             return True
@@ -1228,13 +1270,25 @@ async def _execute_task_node(
         # A late provider response may add usage evidence but cannot overwrite
         # a lost/cancelled result or publish after the parent stopped.
         with db.no_autoflush:
-            current_run = db.query(Run).filter_by(id=run.id).with_for_update().populate_existing().one()
-            current = db.query(SkillInvocation).filter_by(id=invocation.id).with_for_update().populate_existing().one()
-        owned = (current.status == "running"
-                 and (current.trace or {}).get("native_binding") == native_binding
-                 and current_run.status == "running" and not current_run.cancel_requested)
+            current_run = (
+                db.query(Run).filter_by(id=run.id).with_for_update().populate_existing().one()
+            )
+            current = (
+                db.query(SkillInvocation)
+                .filter_by(id=invocation.id)
+                .with_for_update()
+                .populate_existing()
+                .one()
+            )
+        owned = (
+            current.status == "running"
+            and (current.trace or {}).get("native_binding") == native_binding
+            and current_run.status == "running"
+            and not current_run.cancel_requested
+        )
         if owned:
             from app.services.execution.runtimes.native_port import authorize
+
             try:
                 authorize(db, request_for_run(db, current_run))
             except Exception:
@@ -1244,7 +1298,10 @@ async def _execute_task_node(
                 current.completed_at = datetime.utcnow()
         if not owned:
             current.metrics = _model_runtime_metrics(current.metrics, skill_ctx)
-            current.trace = {**_model_runtime_trace(current.trace, skill_ctx), "native_late_response": True}
+            current.trace = {
+                **_model_runtime_trace(current.trace, skill_ctx),
+                "native_late_response": True,
+            }
             db.commit()
         return owned
 
@@ -1257,10 +1314,14 @@ async def _execute_task_node(
         # dispatching a provider; an invalid principal never borrows ctx.user_id.
         from app.services.run_engine.execution_principal import execution_user_id
 
-        skill_ctx.update({
-            "run_id": run.id, "workspace_id": run.workspace_id,
-            "system_id": run.system_id, "user_id": execution_user_id(db, run),
-        })
+        skill_ctx.update(
+            {
+                "run_id": run.id,
+                "workspace_id": run.workspace_id,
+                "system_id": run.system_id,
+                "user_id": execution_user_id(db, run),
+            }
+        )
         # Server-owned context: caller input cannot forge a source binding.
         skill_ctx["_flow_data_sources"] = bound_data_sources(run.flow_snapshot, node_id)
         skill_ctx[SECRETS_CTX_KEY] = build_secret_grants(
@@ -1293,19 +1354,27 @@ async def _execute_task_node(
                 subject="AgentLoop tool input",
             )
         from app.services.execution.rollout import enabled_for
-        if run.execution_policy is not None or enabled_for(db, run.workspace_id, "execution_control_enabled"):
+
+        if run.execution_policy is not None or enabled_for(
+            db, run.workspace_id, "execution_control_enabled"
+        ):
             from app.services.execution.control import invoke_controlled
+
             output = await invoke_controlled(run.id, lambda: fn(invocation.input_ref, skill_ctx))
         else:
             output = await fn(invocation.input_ref, skill_ctx)
         if not native_publication_owned():
             return invocation
         from app.services.execution.runtimes.deferred import DeferredNativeExecution
+
         if isinstance(output, DeferredNativeExecution):
             if native_invocation_id is None:
                 raise ValueError("NATIVE_DEFERRED_EXECUTION_UNEXPECTED")
             invocation.status = "waiting"
-            invocation.trace = {**invocation.trace, "native_reference": {"kind": output.kind, "id": output.id}}
+            invocation.trace = {
+                **invocation.trace,
+                "native_reference": {"kind": output.kind, "id": output.id},
+            }
             invocation.latency_ms = (time.monotonic() - t0) * 1000
             db.commit()
             return invocation
@@ -1325,16 +1394,17 @@ async def _execute_task_node(
         if not native_publication_owned():
             raise
         invocation.status = "lost" if native_invocation_id else "cancelled"
-        invocation.error = "NATIVE_OUTCOME_REQUIRES_RECONCILIATION" if native_invocation_id else "execution_cancelled"
+        invocation.error = (
+            "NATIVE_OUTCOME_REQUIRES_RECONCILIATION"
+            if native_invocation_id
+            else "execution_cancelled"
+        )
         invocation.metrics = _model_runtime_metrics(invocation.metrics, skill_ctx)
         invocation.trace = _model_runtime_trace(invocation.trace, skill_ctx)
         invocation.latency_ms = (time.monotonic() - t0) * 1000
         invocation.completed_at = datetime.utcnow()
         cost_evidence = inference_cost.settle(cost_evidence)
-        invocation.metrics = {**(invocation.metrics or {}), "cost_evidence": cost_evidence.evidence}
-        invocation.cost = cost_evidence.cost
-        invocation.cost_measured = cost_evidence.cost_measured
-        invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
+        record_cost(cost_evidence)
         db.commit()
         raise
     except NotImplementedError as nie:
@@ -1361,10 +1431,7 @@ async def _execute_task_node(
     invocation.latency_ms = (time.monotonic() - t0) * 1000
     invocation.completed_at = datetime.utcnow()
     cost_evidence = inference_cost.settle(cost_evidence)
-    invocation.metrics = {**(invocation.metrics or {}), "cost_evidence": cost_evidence.evidence}
-    invocation.cost = cost_evidence.cost
-    invocation.cost_measured = cost_evidence.cost_measured
-    invocation.provider_cost_usd = _provider_cost_usd(cost_evidence)
+    record_cost(cost_evidence)
     metrics = dict(invocation.metrics or {})
     output_tokens, output_tokens_reported = token_measurement_from_payload(
         invocation.output_ref or {}
@@ -1425,6 +1492,9 @@ def _model_runtime_trace(trace, ctx):
     decision = ctx.get("_agent_loop_decision_evidence")
     if isinstance(decision, dict):
         trace["agent_loop_decision"] = decision
+    context = ctx.get("_agent_loop_context_evidence")
+    if isinstance(context, dict):
+        trace["agent_loop_context"] = context
     planned = ctx.get("_model_resolution_evidence")
     if isinstance(planned, dict):
         trace["model_resolution"] = planned
@@ -1542,7 +1612,16 @@ def _finalize_run(
         for invocation in invocations
         if invocation.provider_cost_usd is not None
     ]
-    run.provider_cost_usd = sum(provider_costs) if provider_costs else None
+    unmeasured_model_cost = any(
+        ((invocation.metrics or {}).get("provider_cost_evidence") or {}).get("state")
+        == "not_measured"
+        for invocation in invocations
+    )
+    # A known subtotal (including genuine zero-cost tools) cannot make an
+    # explicitly unpriced model call into a complete provider cost for the Run.
+    run.provider_cost_usd = (
+        sum(provider_costs) if provider_costs and not unmeasured_model_cost else None
+    )
     run.efficiency = derived.efficiency
     run.value_source = derived.value_source.value
     # Preserve the exact JSON value accepted by the frozen execution
@@ -1775,36 +1854,18 @@ def _effective_invocation_model(ctx: dict[str, Any], payload: Any) -> Optional[s
 def _evaluate_run_capability(
     control: Optional[ControlPolicy], system: System, *, db=None, run=None
 ):
-    spec = _safe_membrane(control)
-    if spec.capabilities.allowed_models and db is not None and run is not None:
-        flow = run.flow_snapshot if isinstance(run.flow_snapshot, dict) else system.flow_definition
-        nodes = flow.get("nodes", []) if isinstance(flow, dict) else []
-        tasks = [node for node in nodes if node.get("kind") == "task"]
-        guarded = bool(tasks) and all(
-            node.get("kind") in {"source", "task", "sink"} for node in nodes
-        )
-        if guarded:
-            from app.services.model_plane.execution import skill_model_request
+    from app.services.model_plane.skill_capabilities import evaluate_flow_model_capability
 
-            for node in tasks:
-                slug = (node.get("config") or {}).get("skill_slug", "")
-                executor = _frozen_node_executor(run, node.get("id"))
-                if executor is None and slug.startswith("ws."):
-                    row = (
-                        db.query(Skill)
-                        .filter(Skill.workspace_id == run.workspace_id, Skill.slug == slug)
-                        .first()
-                    )
-                    executor = row.executor if row is not None else None
-                if skill_model_request(slug, executor, {}, None) is None:
-                    guarded = False
-                    break
-        if guarded:
-            # Every LLM task resolves its effective model before dispatch.
-            # AgentLoop, subflows and unknown wrappers retain the old gate.
-            spec = replace(spec, capabilities=replace(spec.capabilities, allowed_models=[]))
-    return evaluate_capability(
-        spec, model=getattr(system, "default_model", None), action="system.engine.run"
+    flow = None
+    if db is not None and run is not None:
+        flow = run.flow_snapshot if isinstance(run.flow_snapshot, dict) else system.flow_definition
+    return evaluate_flow_model_capability(
+        _safe_membrane(control),
+        system_model=getattr(system, "default_model", None),
+        flow=flow,
+        contract=getattr(run, "execution_contract", None),
+        db=db,
+        workspace_id=getattr(run, "workspace_id", None),
     )
 
 

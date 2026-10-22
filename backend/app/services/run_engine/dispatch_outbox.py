@@ -6,6 +6,7 @@ identifier-only Celery messages.  Delivery is deliberately at-least-once: a
 crash after the broker ACK expires the lease and republishes the same
 deterministic task id, while Run coordination leases make execution idempotent.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -67,6 +68,48 @@ def durable_initial_dispatch_source(run: Run) -> str | None:
     """Return the server-owned claim that authorises initial Run recovery."""
     if run.trigger == "webhook" and run.trigger_dedup_key:
         return str(run.trigger_dedup_key)
+    if run.trigger == "node_preview":
+        execution = (run.input_ref or {}).get("execution")
+        comparison = execution.get("decision_comparison") if isinstance(execution, dict) else None
+        if not isinstance(comparison, dict):
+            return None
+        batch_id, index = comparison.get("batch_id"), comparison.get("candidate_index")
+        source = f"decision-comparison:{batch_id}:{index}"
+        flow = run.flow_snapshot if isinstance(run.flow_snapshot, dict) else {}
+        nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
+        tasks = [node for node in nodes if isinstance(node, dict) and node.get("kind") == "task"]
+        config = tasks[0].get("config") if len(tasks) == 1 else None
+
+        def valid_digest(value):
+            return (
+                isinstance(value, str)
+                and len(value) == 64
+                and all(char in "0123456789abcdef" for char in value)
+            )
+
+        if (
+            run.execution_surface != "node_preview"
+            or execution.get("execution_surface") != "node_preview"
+            or execution.get("initial_dispatch_plane") != "celery"
+            or execution.get("real_side_effects_acknowledged") is not True
+            or comparison.get("generation_only") is not True
+            or not isinstance(batch_id, str)
+            or not batch_id.strip()
+            or type(index) is not int
+            or not 0 <= index < 3
+            or not valid_digest(comparison.get("request_sha256"))
+            or not valid_digest(comparison.get("input_sha256"))
+            or not comparison.get("source_invocation_id")
+            or not isinstance(config, dict)
+            or config.get("skill_slug") != "decide_next_v1"
+            or any(
+                not isinstance(node, dict) or node.get("kind") not in {"source", "task", "sink"}
+                for node in nodes
+            )
+            or run.trigger_dedup_key != source
+        ):
+            return None
+        return source
     if run.trigger == "golden_preview":
         execution = (run.input_ref or {}).get("execution")
         if not isinstance(execution, dict):
@@ -80,8 +123,10 @@ def durable_initial_dispatch_source(run: Run) -> str | None:
             or execution.get("execution_surface") != "golden_preview"
             or execution.get("initial_dispatch_plane") != "celery"
             or execution.get("real_side_effects_acknowledged") is not True
-            or not isinstance(batch_id, str) or not batch_id.strip()
-            or not isinstance(case_id, str) or not case_id.strip()
+            or not isinstance(batch_id, str)
+            or not batch_id.strip()
+            or not isinstance(case_id, str)
+            or not case_id.strip()
             or not isinstance(request_sha256, str)
             or len(request_sha256) != 64
             or any(character not in "0123456789abcdef" for character in request_sha256)
@@ -227,18 +272,12 @@ def enqueue_dispatch(
         db.execute(statement)
     else:
         existing = (
-            db.query(RunDispatchOutbox)
-            .filter(RunDispatchOutbox.dedupe_key == logical_key)
-            .first()
+            db.query(RunDispatchOutbox).filter(RunDispatchOutbox.dedupe_key == logical_key).first()
         )
         if existing is None:
             db.add(RunDispatchOutbox(**values))
             db.flush()
-    row = (
-        db.query(RunDispatchOutbox)
-        .filter(RunDispatchOutbox.dedupe_key == logical_key)
-        .one()
-    )
+    row = db.query(RunDispatchOutbox).filter(RunDispatchOutbox.dedupe_key == logical_key).one()
     expected = (
         workspace_id,
         run_id,
@@ -338,17 +377,13 @@ def mark_dispatch_published(
     row.lease_expires_at = None
     if row.event_type == TRIGGER_RUN:
         run = (
-            db.query(Run)
-            .filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id)
-            .first()
+            db.query(Run).filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id).first()
         )
         if run is not None:
             run.celery_task_id = row.task_id
     elif row.event_type == SUBFLOW_RUN:
         child = (
-            db.query(Run)
-            .filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id)
-            .first()
+            db.query(Run).filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id).first()
         )
         if child is not None:
             child.celery_task_id = row.task_id
@@ -363,11 +398,7 @@ def mark_dispatch_published(
                 )
                 if parent is not None and isinstance(parent.waiting_subflows, dict):
                     waiting = dict(parent.waiting_subflows)
-                    meta = (
-                        waiting.get("_meta")
-                        if isinstance(waiting.get("_meta"), dict)
-                        else {}
-                    )
+                    meta = waiting.get("_meta") if isinstance(waiting.get("_meta"), dict) else {}
                     entry = dict(waiting.get(child.delegation_key) or {})
                     if (
                         entry.get("child_run_id") == child.id
@@ -474,11 +505,7 @@ def _active_parent_claim_envelope(
 ) -> tuple[Run, dict[str, Any], dict[str, Any]]:
     """Validate the active parent-owned half of a delegation contract."""
 
-    if (
-        child.workspace_id != workspace_id
-        or not child.parent_run_id
-        or not child.delegation_key
-    ):
+    if child.workspace_id != workspace_id or not child.parent_run_id or not child.delegation_key:
         raise PermanentDispatchError("delegated Run has no stable parent claim")
     parent = (
         db.query(Run)
@@ -561,11 +588,7 @@ def _task_envelope(
     else:
         args = [row.run_id]
     options: dict[str, Any] = {"task_id": row.task_id}
-    run = (
-        db.query(Run)
-        .filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id)
-        .first()
-    )
+    run = db.query(Run).filter(Run.id == row.run_id, Run.workspace_id == row.workspace_id).first()
     if run is None:
         raise PermanentDispatchError("dispatch Run no longer exists")
     if row.event_type == TRIGGER_RUN:
@@ -643,9 +666,7 @@ def _task_envelope(
             ),
             None,
         )
-        expected_plane = (
-            "subflow_celery" if row.event_type == SUBFLOW_HITL_RESUME else "run_celery"
-        )
+        expected_plane = "subflow_celery" if row.event_type == SUBFLOW_HITL_RESUME else "run_celery"
         if plane != expected_plane:
             raise PermanentDispatchError("HITL dispatch plane does not match the event")
         if row.event_type == SUBFLOW_HITL_RESUME and run.delegation_deadline_at is not None:
@@ -841,15 +862,19 @@ def repair_dispatch_gaps(
                     Run.started_at <= experience_recovery_before,
                     Run.experience_idempotency_key.isnot(None),
                     Run.trigger_dedup_key.isnot(None),
-                    Run.input_ref["_ingress"]["adapter"]["surface"].as_string()
-                    == "experience",
+                    Run.input_ref["_ingress"]["adapter"]["surface"].as_string() == "experience",
                 ),
                 and_(
                     Run.trigger == "golden_preview",
                     Run.execution_surface == "golden_preview",
                     Run.trigger_dedup_key.isnot(None),
-                    Run.input_ref["execution"]["initial_dispatch_plane"].as_string()
-                    == "celery",
+                    Run.input_ref["execution"]["initial_dispatch_plane"].as_string() == "celery",
+                ),
+                and_(
+                    Run.trigger == "node_preview",
+                    Run.execution_surface == "node_preview",
+                    Run.trigger_dedup_key.isnot(None),
+                    Run.input_ref["execution"]["initial_dispatch_plane"].as_string() == "celery",
                 ),
             ),
             Run.status.in_(("pending", "running")),
@@ -898,16 +923,10 @@ def repair_dispatch_gaps(
     )
     dialect = db.get_bind().dialect.name
     if dialect not in {"postgresql", "sqlite"}:
-        raise RuntimeError(
-            f"dispatch gap repair does not support database dialect {dialect!r}"
-        )
-    parent_wave_json = repair_parent.waiting_subflows["_meta"].op("->")(
-        "wave_id"
-    )
+        raise RuntimeError(f"dispatch gap repair does not support database dialect {dialect!r}")
+    parent_wave_json = repair_parent.waiting_subflows["_meta"].op("->")("wave_id")
     entry_wave_json = repair_parent_entry.op("->")("wave_id")
-    parent_wave_scalar = repair_parent.waiting_subflows["_meta"].op("->>")(
-        "wave_id"
-    )
+    parent_wave_scalar = repair_parent.waiting_subflows["_meta"].op("->>")("wave_id")
     entry_wave_scalar = repair_parent_entry.op("->>")("wave_id")
     # ``->>`` alone erases JSON scalar types (1 and "1" both become text
     # "1").  Cast the ``->`` JSON representation so the SQL candidate set is
@@ -938,17 +957,13 @@ def repair_dispatch_gaps(
             func.json_type(entry_wave_json) == "integer",
             cast(entry_wave_scalar, Integer) >= 0,
         )
-    child_celery_claim = (
-        Run.input_ref["_delegation"]["execution_plane"].as_string() == "celery"
-    )
+    child_celery_claim = Run.input_ref["_delegation"]["execution_plane"].as_string() == "celery"
     child_parent_claim = (
-        Run.input_ref["_delegation"]["parent_run_id"].as_string()
-        == Run.parent_run_id
+        Run.input_ref["_delegation"]["parent_run_id"].as_string() == Run.parent_run_id
     )
     parent_celery_claim = and_(
         repair_parent.id.isnot(None),
-        repair_parent.waiting_subflows["_meta"]["execution_plane"].as_string()
-        == "celery",
+        repair_parent.waiting_subflows["_meta"]["execution_plane"].as_string() == "celery",
         repair_parent_entry.op("->>")("child_run_id") == Run.id,
         or_(
             parent_wave_scalar.is_(None),
@@ -1026,11 +1041,7 @@ def repair_dispatch_gaps(
                     ),
                 )
             )
-        candidates = (
-            page_query.order_by(Run.started_at, Run.id)
-            .limit(scan_batch_size)
-            .all()
-        )
+        candidates = page_query.order_by(Run.started_at, Run.id).limit(scan_batch_size).all()
         if not candidates:
             break
         for child in candidates:
@@ -1044,9 +1055,7 @@ def repair_dispatch_gaps(
             if not child.workspace_id:
                 continue
             try:
-                if child.status in _TERMINAL_RUN_STATUSES and _watchdog_quarantine_attested(
-                    child
-                ):
+                if child.status in _TERMINAL_RUN_STATUSES and _watchdog_quarantine_attested(child):
                     parent, _entry, parent_meta = _active_parent_claim_envelope(
                         db,
                         child=child,
@@ -1079,10 +1088,7 @@ def repair_dispatch_gaps(
                 )
                 ensured[SUBFLOW_RUN] += 1
                 repaired_subflow_gaps += 1
-            elif (
-                child.status in _TERMINAL_RUN_STATUSES
-                and parent.status == "waiting_subflows"
-            ):
+            elif child.status in _TERMINAL_RUN_STATUSES and parent.status == "waiting_subflows":
                 enqueue_dispatch(
                     db,
                     event_type=SUBFLOW_PARENT_RESUME,

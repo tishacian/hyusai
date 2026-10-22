@@ -5176,7 +5176,8 @@ async def _route_llm_complete(
 
     chosen = model or (ctx or {}).get("default_model")
     prefs = _resolve_model_preferences(chosen)
-    if (ctx or {}).get("_model_workspace") is not None:
+    execution = ctx.get("_model_execution") if ctx.get("_use_prechecked_model") else None
+    if execution is not None or (ctx or {}).get("_model_workspace") is not None:
         from app.services.model_plane.execution import (
             ModelExecutionError,
             complete_model,
@@ -5184,20 +5185,23 @@ async def _route_llm_complete(
             routable_runtime_providers,
         )
 
-        if prefs["provider"] not in routable_runtime_providers(ctx["_model_workspace"]) | {
-            "anthropic"
-        }:
-            raise ModelExecutionError(
-                "This provider has no workspace-scoped text runtime. Choose a supported provider."
-            )
-
         # Only the server supplies this workspace object and the policy guard.
-        execution = resolve_model_execution(
-            ctx["_model_workspace"],
-            provider=prefs["provider"] if chosen else "workspace",
-            model=prefs["model"] if chosen else None,
-            model_source="input" if model else "system",
-        )
+        # The invocation engine may already have resolved this exact model
+        # before checking its policy. Reuse that connection snapshot so a
+        # concurrent route edit cannot change the target after authorization.
+        if execution is None:
+            if prefs["provider"] not in routable_runtime_providers(ctx["_model_workspace"]) | {
+                "anthropic"
+            }:
+                raise ModelExecutionError(
+                    "This provider has no workspace-scoped text runtime. Choose a supported provider."
+                )
+            execution = resolve_model_execution(
+                ctx["_model_workspace"],
+                provider=prefs["provider"] if chosen else "workspace",
+                model=prefs["model"] if chosen else None,
+                model_source="input" if model else "system",
+            )
         output = await complete_model(
             execution, prompt, ctx, generation_options=generation_options, stream=False
         )
@@ -6590,6 +6594,7 @@ async def _decide_next_v1(
         DEFAULT_CONFIDENCE_FLOOR,
         build_decide_prompt,
         coerce_decide_output,
+        verify_decision_context_payload,
     )
 
     ctx = ctx if ctx is not None else {}
@@ -6610,19 +6615,27 @@ async def _decide_next_v1(
         ctx["_agent_loop_decision_evidence"] = evidence
         return output
 
+    decision_context = verify_decision_context_payload(payload)
     prompt = build_decide_prompt(
         goal=payload.get("goal") or ctx.get("goal") or {},
         observations=list(payload.get("observations") or ctx.get("observations") or []),
         visible_skills=list(visible),
         budget=payload.get("budget") or ctx.get("budget") or {},
+        context=decision_context[0] if decision_context is not None else None,
+        context_evidence=decision_context[1] if decision_context is not None else None,
     )
+    if decision_context is not None:
+        ctx["_agent_loop_context_evidence"] = decision_context[1]
     model = _model_name(payload.get("model"), ctx.get("default_model"))
     completion = ""
     try:
+        ctx["_use_prechecked_model"] = True
         completion = await _route_llm_complete(prompt, model, ctx)
     except Exception as exc:  # noqa: BLE001 — fail-closed, never raise into the walker
         logger.warning("decide_next_v1: model call failed, blocking", error=str(exc))
         return normalize({}, "llm_failure")
+    finally:
+        ctx.pop("_use_prechecked_model", None)
     parsed = _loads_lenient_json(completion)
     if parsed is None:
         return normalize({}, "json_parse_failure")

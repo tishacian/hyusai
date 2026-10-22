@@ -1,5 +1,30 @@
 # Luma — conduite de la démonstration COMEX du 22 octobre 2026
 
+## Mise à jour de recette — 22 octobre
+
+La révision `550807bf` est confirmée en service. La file a été recalculée depuis
+l’application **Pilotage SAV — équipe**, désormais publiée en **pilote R2** :
+`https://agentium.papai.ai/work/pilotage-sav-equipe/home`. Son Run
+`19263298-c5fa-4698-b174-f9afcb7db692` est terminé avec **23 dossiers scorés,
+0 exclu, champion v5**. Le bouton, la publication et l’exécution ont été utilisés
+dans l’UI. La sélection fine des résultats de l’étape `sav.score` a été
+configurée par API avec le contrat générique de data binding ; cette étape
+n’est pas une preuve d’autonomie d’un auteur non technique. Le générateur et
+le Flow doivent exposer des sorties métier lisibles pour simplifier ce geste.
+
+L’enquête RC-1044 du 22 octobre, Run `47b52fd5-ea6b-404a-b640-f837ed6d6e33`,
+a consulté le remboursement antérieur et propose de clore sans second paiement.
+Elle attend la revue humaine ; Judge a refusé une citation avec des positions
+invalides. Ce défaut est corrigé dans la nouvelle livraison produit par des
+citations exactes résolues côté serveur, mais reste à qualifier avec le
+fournisseur après déploiement. Le Run RC-1043 interrompu lors du déploiement
+n’a pas été réexécuté ni déclaré terminé artificiellement.
+
+Les sections de répétition du 21 octobre ci-dessous restent l’historique de
+leurs preuves. Pour l’état de la nouvelle livraison, ses contrôles agentiques,
+le protocole de citation et la reprise opérateur, consulter
+[la qualification agentique du 22 octobre](luma-agentic-qualification-2026-10-22.md).
+
 ## Ce que l'on veut faire comprendre
 
 **« Nous vendons des applications métier qui exécutent un traitement de bout en bout : elles réunissent les informations utiles, préparent le travail, demandent une décision quand elle est nécessaire et rendent le résultat vérifiable. »**

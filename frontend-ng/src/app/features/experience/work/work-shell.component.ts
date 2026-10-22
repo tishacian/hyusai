@@ -108,7 +108,7 @@ const POLL_MS = 8000;
         [returnTo]="cockpitReturnTo()"
         [returnLabel]="cockpitReturnLabel()"
       >
-        @if (state() === 'ready') {
+        @if (state() === 'ready' && (document().pages.length > 1 || showValidations())) {
           <nav class="xp-work-nav" [attr.aria-label]="i18n.t('experience.work.pages')">
             @for (page of document().pages; track page.id) {
               <a

@@ -154,8 +154,6 @@ async def predict(
                 else [
                     {
                         "evidence_id": "text",
-                        "start": 0,
-                        "end": len(source["text"]),
                         "quote": source["text"],
                     }
                 ],
@@ -285,8 +283,7 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
     # protocol. The concrete prompt hash must never become a calibration gate.
     assert len({output["generation_contract"]["prompt_sha256"] for output in outputs}) == 4
     assert all(
-        calibration._generation_basis(output) == qualified["generation_basis"]
-        for output in outputs
+        calibration._generation_basis(output) == qualified["generation_basis"] for output in outputs
     )
     result = copy.deepcopy(outputs[0])
     calibration.bind_confidence(s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], result)
@@ -318,9 +315,7 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
         assert all(answer["confidence"] is None for answer in changed["answers"].values())
     missing = copy.deepcopy(result)
     missing.pop("generation_contract")
-    calibration.bind_confidence(
-        s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], missing
-    )
+    calibration.bind_confidence(s.db, s.workspace.id, s.owner.id, qualified["profile_ref"], missing)
     assert missing["confidence"] is None and "calibration" not in missing
 
     # A genuine older qualified profile lacks a generation basis. Do not
@@ -334,7 +329,10 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
     )
     legacy_ref = assets.asset_ref(legacy)
     assets.record_qualification(
-        s.db, s.workspace.id, legacy_ref, status="qualified",
+        s.db,
+        s.workspace.id,
+        legacy_ref,
+        status="qualified",
         policy={"type": calibration.PREFIX + "profile"},
         evidence={"report_sha256": assets.content_digest(old_manifest["report"])},
     )
@@ -354,9 +352,7 @@ async def test_real_predictions_and_human_labels_qualify_only_matching_context_a
     assert result["confidence"] is None and "calibration" not in result
 
 
-async def test_calibration_refuses_mixed_generation_protocols(
-    setup, corpus_data, monkeypatch
-):
+async def test_calibration_refuses_mixed_generation_protocols(setup, corpus_data, monkeypatch):
     s = setup
     spec, evidence = corpus_data
     cid = make_corpus(s, spec)

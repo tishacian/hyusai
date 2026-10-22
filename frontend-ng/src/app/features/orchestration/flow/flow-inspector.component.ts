@@ -56,10 +56,15 @@ import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
 import { FlowIngressEditorComponent } from './flow-ingress-editor.component';
 import { FlowDecisionBindingsComponent } from './flow-decision-bindings.component';
 import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
+import { FlowCatalogService } from './flow-catalog.service';
+import type { ModelCatalogEntry } from '@app/core/model-catalog';
 import {
   PRIVILEGE_TIERS,
   availableHitlPromptKinds,
   agentLoopEnvelopeParts,
+  agentContextOptions,
+  agentModelOptions,
+  agentToolOptions,
   clampConfidence,
   clampTurns,
   deadlineMinutes,
@@ -73,6 +78,8 @@ import {
   parseSlugList,
   readAgentLoopConfig,
   readHitlConfig,
+  readDecisionContext,
+  toggleAgentSelection,
   type OnBudget,
   type PrivilegeTier,
   type PromptKind,
@@ -392,7 +399,7 @@ export function publishedNodeExecutor(
                     objective: line.objective || '—',
                     turns: line.turns,
                     skills: line.skills,
-                    privilege: line.privilege,
+                    privilege: i18n.t('flow.inspector.agent_loop.privilege.' + line.privilege),
                   })
                 }}</p>
               }
@@ -416,21 +423,74 @@ export function publishedNodeExecutor(
                   [attr.placeholder]="i18n.t('flow.inspector.agent_loop.done_when.placeholder')"
                 ></textarea>
               </label>
-              <label class="ck-flow-field">
-                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.allowlist') }}</span>
-                <textarea
-                  class="ck-flow-input ck-flow-input--area"
-                  rows="4"
-                  [value]="formatSlugList(agentLoopConfig(n).skill_allowlist)"
-                  (input)="onAgentLoopAllowlist($event)"
-                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.allowlist.placeholder')"
-                ></textarea>
-                <p class="ck-flow-hint">{{
-                  i18n.t('flow.inspector.agent_loop.allowlist.count', {
-                    count: agentLoopConfig(n).skill_allowlist.length,
-                  })
-                }}</p>
-              </label>
+              <section class="ck-flow-agent-group" aria-labelledby="agent-model-label">
+                <label class="ck-flow-field">
+                  <span id="agent-model-label" class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.model') }}</span>
+                  <select class="ck-flow-input" data-testid="agent-decision-model" [value]="agentLoopConfig(n).model ?? ''" (change)="onAgentLoopModel($event)">
+                    <option value="" [selected]="!agentLoopConfig(n).model">{{ i18n.t('flow.inspector.agent_loop.model.inherit') }}</option>
+                    @for (model of agentModels(n); track model.value) {
+                      <option [value]="model.value" [selected]="agentLoopConfig(n).model === model.value" [disabled]="!model.available">{{ model.label }}{{ model.available ? '' : ' · ' + i18n.t('flow.inspector.agent_loop.saved_unavailable') }}</option>
+                    }
+                  </select>
+                </label>
+                <p class="ck-flow-hint">{{ i18n.t(agentLoopConfig(n).model ? 'flow.inspector.agent_loop.model.explicit' : 'flow.inspector.agent_loop.model.inherited') }}</p>
+                @if (agentModelsLoading()) { <p class="ck-flow-hint" role="status">{{ i18n.t('common.loading') }}</p> }
+                @if (agentModelsError()) { <p class="ck-flow-hint ck-flow-hint--warn" role="status">{{ i18n.t('flow.inspector.agent_loop.model.unavailable') }}</p> }
+                <button type="button" class="ck-flow-mini-action" [disabled]="agentModelsLoading()" (click)="loadAgentModels()">{{ i18n.t('flow.inspector.agent_loop.catalog.refresh') }}</button>
+              </section>
+              <section class="ck-flow-agent-group" aria-labelledby="agent-tools-label">
+                <div class="ck-flow-agent-group__head">
+                  <span id="agent-tools-label" class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.allowlist') }}</span>
+                  <span class="ck-flow-agent-count">{{ agentLoopConfig(n).skill_allowlist.length }} / 8</span>
+                </div>
+                <input class="ck-flow-input" type="search" [value]="agentToolFilter()" (input)="onAgentToolFilter($event)" [attr.aria-label]="i18n.t('flow.inspector.agent_loop.tools.search')" [attr.placeholder]="i18n.t('flow.inspector.agent_loop.tools.search')" />
+                @if (agentCatalog.state() === 'loading') { <p class="ck-flow-hint" role="status">{{ i18n.t('common.loading') }}</p> }
+                @if (agentCatalog.state() === 'error') {
+                  <p class="ck-flow-hint ck-flow-hint--warn" role="status">{{ i18n.t('flow.inspector.agent_loop.tools.unavailable') }}</p>
+                  <button type="button" class="ck-flow-mini-action" (click)="agentCatalog.retry()">{{ i18n.t('common.retry') }}</button>
+                }
+                <div class="ck-flow-agent-options" role="group" [attr.aria-labelledby]="'agent-tools-label'">
+                  @for (tool of agentTools(n); track tool.slug) {
+                    <label class="ck-flow-agent-option" [class.is-selected]="tool.selected">
+                      <input type="checkbox" [checked]="tool.selected" [disabled]="!tool.selected && (!tool.available || agentLoopConfig(n).skill_allowlist.length >= 8)" (change)="onAgentToolToggle(tool.slug, $event)" />
+                      <span><strong>{{ tool.label }}</strong>@if (tool.description) { <small>{{ tool.description }}</small> }
+                        @if (!tool.available) { <small class="ck-flow-hint--warn">{{ i18n.t('flow.inspector.agent_loop.saved_unavailable') }}</small> }
+                      </span>
+                    </label>
+                  } @empty { <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.tools.empty') }}</p> }
+                </div>
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.tools.hint') }}</p>
+                <details class="ck-flow-agent-details">
+                  <summary>{{ i18n.t('flow.inspector.agent_loop.tools.identifiers') }}</summary>
+                  <label class="ck-flow-field">
+                    <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.allowlist') }}</span>
+                    <textarea class="ck-flow-input ck-flow-input--area" rows="3" [value]="formatSlugList(agentLoopConfig(n).skill_allowlist)" (input)="onAgentLoopAllowlist($event)"></textarea>
+                  </label>
+                </details>
+              </section>
+              <section class="ck-flow-agent-group" aria-labelledby="agent-context-label">
+                <div class="ck-flow-agent-group__head">
+                  <span id="agent-context-label" class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.context') }}</span>
+                  <span class="ck-flow-agent-count">{{ decisionContext(n).keys.length }} / 16</span>
+                </div>
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.context.hint') }}</p>
+                <div class="ck-flow-agent-options" role="group" [attr.aria-labelledby]="'agent-context-label'">
+                  @for (entry of agentContext(n); track entry.key) {
+                    <label class="ck-flow-agent-option" [class.is-selected]="entry.selected">
+                      <input type="checkbox" [checked]="entry.selected" [disabled]="!entry.selected && (!entry.available || decisionContext(n).keys.length >= 16)" (change)="onAgentContextToggle(entry.key, $event)" />
+                      <span><strong>{{ entry.label }}</strong>@if (entry.source) { <small>{{ entry.source }}</small> }
+                        @if (!entry.available) { <small class="ck-flow-hint--warn">{{ i18n.t('flow.inspector.agent_loop.context.unmapped') }}</small> }
+                      </span>
+                    </label>
+                  } @empty { <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.context.empty') }}</p> }
+                </div>
+                @if (!decisionContext(n).keys.length) { <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.context.none') }}</p> }
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.context.limit') }}</span>
+                  <input class="ck-flow-input" type="number" min="256" max="32768" step="256" [value]="decisionContext(n).max_bytes" (change)="onAgentContextLimit($event)" />
+                </label>
+              </section>
+              <div class="ck-flow-agent-group__head"><span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.limits') }}</span></div>
               <div class="ck-flow-agent-loop__row">
                 <label class="ck-flow-field">
                   <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.turns') }}</span>
@@ -438,7 +498,7 @@ export function publishedNodeExecutor(
                     class="ck-flow-input"
                     type="number"
                     min="1"
-                    max="32"
+                    max="20"
                     [value]="agentLoopConfig(n).budget.max_turns"
                     (input)="onAgentLoopTurns($event)"
                   />
@@ -503,14 +563,10 @@ export function publishedNodeExecutor(
                   />
                 </label>
               </div>
-              <div class="ck-flow-agent-loop__actions">
-                <button type="button" class="ck-flow-mini-action" (click)="applyItsdLoopDefaults()">
-                  {{ i18n.t('flow.inspector.agent_loop.apply_itsd') }}
-                </button>
-                <button type="button" class="ck-flow-mini-action" (click)="loadItsdStarter()">
-                  {{ i18n.t('flow.inspector.agent_loop.load_starter') }}
-                </button>
-              </div>
+              @if (agentLoopConfig(n).budget.max_cost == null || agentLoopConfig(n).budget.deadline_ms == null) {
+                <p class="ck-flow-hint ck-flow-hint--warn" role="status">{{ i18n.t('flow.inspector.agent_loop.limits.incomplete') }}</p>
+              }
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.limits.hint') }}</p>
             </section>
           }
 
@@ -1280,6 +1336,14 @@ export class FlowInspectorComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
+  readonly agentCatalog = inject(FlowCatalogService);
+  readonly agentToolFilter = signal('');
+  readonly agentModelsLoading = signal(false);
+  readonly agentModelsError = signal(false);
+  private readonly agentModelCatalog = signal<ModelCatalogEntry[]>([]);
+  private agentModelsRequest: Subscription | null = null;
+  private agentModelsGeneration = 0;
+  private readonly agentLoopSelected = computed(() => this.node()?.kind === 'agent_loop');
   /** Optional: present whenever the inspector renders inside the builder shell. */
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: the builder provides it; the summary then shows the live env. */
@@ -1402,6 +1466,16 @@ export class FlowInspectorComponent {
       if (selectedId === this.lastRetrievalScopeNodeId) return;
       this.lastRetrievalScopeNodeId = selectedId;
       this.retrievalScopeError.set(null);
+      this.agentToolFilter.set('');
+    });
+    effect((onCleanup) => {
+      const selected = this.agentLoopSelected();
+      this.workspace.contextEpoch();
+      this.agentModelCatalog.set([]);
+      this.agentModelsError.set(false);
+      this.agentModelsLoading.set(false);
+      if (selected) untracked(() => this.loadAgentModels());
+      onCleanup(() => { this.agentModelsGeneration++; this.agentModelsRequest?.unsubscribe(); });
     });
     // Lazy, cached fetch: only hit the collections endpoint once an asset node
     // is actually inspected (keeps the fetch off the builder's hot path).
@@ -1793,6 +1867,68 @@ export class FlowInspectorComponent {
 
   agentLoopLine(node: CanonicalFlowNode) {
     return agentLoopEnvelopeParts(node);
+  }
+
+  readonly decisionContext = readDecisionContext;
+
+  agentTools(node: CanonicalFlowNode) {
+    return agentToolOptions([...this.agentCatalog.skillItems(), ...this.agentCatalog.filteredItems()], this.agentLoopConfig(node).skill_allowlist, this.agentToolFilter());
+  }
+
+  agentContext(node: CanonicalFlowNode) { return agentContextOptions(node, this.store.nodes()); }
+
+  agentModels(node: CanonicalFlowNode) { return agentModelOptions(this.agentModelCatalog(), this.agentLoopConfig(node).model); }
+
+  onAgentToolFilter(event: Event): void { this.agentToolFilter.set((event.target as HTMLInputElement).value); }
+
+  onAgentToolToggle(slug: string, event: Event): void {
+    const node = this.node(); if (!node) return;
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked && !this.agentTools(node).some(item => item.slug === slug && item.available)) return;
+    this.store.updateNodeConfig(node.id, 'skill_allowlist', toggleAgentSelection(this.agentLoopConfig(node).skill_allowlist, slug, checked, 8));
+  }
+
+  onAgentContextToggle(key: string, event: Event): void {
+    const node = this.node(); if (!node) return;
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked && !this.agentContext(node).some(item => item.key === key && item.available)) return;
+    const current = readDecisionContext(node);
+    this.store.updateNodeConfig(node.id, 'decision_context', { ...current, keys: toggleAgentSelection(current.keys, key, checked, 16) });
+  }
+
+  onAgentContextLimit(event: Event): void {
+    const node = this.node(); if (!node) return;
+    const value = Number((event.target as HTMLInputElement).value);
+    if (!Number.isSafeInteger(value) || value < 256 || value > 32768) return;
+    this.store.updateNodeConfig(node.id, 'decision_context', { ...readDecisionContext(node), max_bytes: value });
+  }
+
+  onAgentLoopModel(event: Event): void {
+    const node = this.node(); if (!node) return;
+    const value = (event.target as HTMLSelectElement).value;
+    if (value && !this.agentModels(node).some(item => item.value === value && item.available)) return;
+    this.store.updateNodeConfig(node.id, 'model', value || undefined);
+  }
+
+  loadAgentModels(): void {
+    this.agentModelsRequest?.unsubscribe();
+    const generation = ++this.agentModelsGeneration;
+    const scope = this.workspace.captureRequestScope();
+    this.agentModelsLoading.set(true);
+    this.agentModelsError.set(false);
+    this.agentModelsRequest = this.canonical.listModelCatalog().subscribe({
+      next: models => {
+        if (generation !== this.agentModelsGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.agentModelCatalog.set(models);
+        this.agentModelsLoading.set(false);
+      },
+      error: () => {
+        if (generation !== this.agentModelsGeneration || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.agentModelCatalog.set([]);
+        this.agentModelsLoading.set(false);
+        this.agentModelsError.set(true);
+      },
+    });
   }
 
   hitlConfig(node: CanonicalFlowNode) {

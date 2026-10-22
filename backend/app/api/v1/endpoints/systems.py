@@ -58,7 +58,6 @@ from app.services.context_bindings import ContextBindingError, validate_context_
 from app.services.iam.config_service import is_iam_enforced_for_workspace
 from app.services.iam.decision_plane import enforce_action
 from app.services.iam.legacy_authority import legacy_object_action_allowed
-from app.services.membrane.enforcement import evaluate_capability
 from app.services.membrane.spec import resolve_membrane_spec
 from app.services.run_access import readable_run_page
 from app.services.run_engine import schedule_run, triggers
@@ -441,6 +440,7 @@ def _enforce_system_run_authority(
     system: System,
     execution_source: str,
     execution_contract: dict[str, Any] | None = None,
+    flow_snapshot: dict[str, Any] | None = None,
 ) -> None:
     """Apply the complete operator Run boundary shared by every HTTP surface."""
 
@@ -504,7 +504,7 @@ def _enforce_system_run_authority(
             raise HTTPException(404, "System not found")
         system = locked
         try:
-            _, _, _, execution_contract = flow_publication.published_run_evidence(
+            _, flow_snapshot, _, execution_contract = flow_publication.published_run_evidence(
                 db,
                 system=system,
                 workspace=workspace,
@@ -556,10 +556,17 @@ def _enforce_system_run_authority(
                 .first()
             )
     spec = resolve_membrane_spec(control=control)
-    membrane_decision = evaluate_capability(
+    from app.services.model_plane.skill_capabilities import evaluate_flow_model_capability
+
+    membrane_decision = evaluate_flow_model_capability(
         spec,
-        model=system.default_model,
-        action="system.engine.run",
+        system_model=system.default_model,
+        flow=flow_snapshot
+        if flow_snapshot is not None
+        else (system.flow_definition if execution_contract is None else None),
+        contract=execution_contract,
+        db=db,
+        workspace_id=workspace.id,
     )
     if not membrane_decision.allowed:
         raise HTTPException(

@@ -1082,6 +1082,20 @@ def compile_execution_contract(
                     }
                 )
             if str(node.get("kind") or "") == "agent_loop":
+                from app.services.run_engine.agent_loop import (
+                    decision_context_settings,
+                    validate_agent_model,
+                )
+
+                try:
+                    decision_context_settings(config)
+                    validate_agent_model(config)
+                except ValueError as exc:
+                    raise FlowContractError(
+                        code="agent_loop_configuration",
+                        message=str(exc),
+                        path=f"nodes/{node_id}/config",
+                    ) from exc
                 raw_allowlist = config.get("skill_allowlist") or []
                 allowlist = [
                     str(item).strip()

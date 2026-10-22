@@ -1097,7 +1097,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  flex: 0 0 56px;
+  flex: 0 0 auto;
   min-height: 56px;
   padding: 0 16px;
   border-bottom: 1px solid var(--ck-stroke-2);

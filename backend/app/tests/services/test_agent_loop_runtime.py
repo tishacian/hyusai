@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 
 import pytest
 
@@ -34,10 +34,10 @@ ARTIFACT = json.loads(
     ).read_text(encoding="utf-8")
 )
 
-SkillFn = Callable[[Dict[str, Any], Dict[str, Any]], Any]
+SkillFn = Callable[[dict[str, Any], dict[str, Any]], Any]
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, skills: Dict[str, SkillFn]) -> None:
+def _install(monkeypatch: pytest.MonkeyPatch, skills: dict[str, SkillFn]) -> None:
     def _resolve(slug: str) -> SkillFn:
         fn = skills.get(slug)
         if fn is None:
@@ -65,7 +65,7 @@ def _mk_skill(db, slug: str) -> Skill:
     return row
 
 
-def _mk_system(db, flow: Dict[str, Any], slugs: List[str]) -> System:
+def _mk_system(db, flow: dict[str, Any], slugs: list[str]) -> System:
     skills = [_mk_skill(db, slug) for slug in slugs]
     row = System(
         id=str(uuid.uuid4()),
@@ -98,7 +98,7 @@ def _reload(db, run: Run) -> Run:
     return db.query(Run).filter(Run.id == run.id).one()
 
 
-def _slugs(db, run: Run) -> List[str]:
+def _slugs(db, run: Run) -> list[str]:
     rows = (
         db.query(SkillInvocation)
         .filter(SkillInvocation.run_id == run.id)
@@ -108,7 +108,7 @@ def _slugs(db, run: Run) -> List[str]:
     return [row.skill_slug for row in rows]
 
 
-def _turns(run: Run) -> List[Dict[str, Any]]:
+def _turns(run: Run) -> list[dict[str, Any]]:
     return [cp for cp in (run.checkpoints or []) if cp.get("kind") == "agent_loop_turn"]
 
 
@@ -165,9 +165,16 @@ async def test_happy_recommend_only_completes(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_native_planner_normalization_is_retained_in_invocation_trace(db_session, monkeypatch):
-    raw = {"next_skill": "azure_llm_v1", "confidence": 0.54,
-           "needs_human": False, "exit": None, "done": False}
+async def test_native_planner_normalization_is_retained_in_invocation_trace(
+    db_session, monkeypatch
+):
+    raw = {
+        "next_skill": "azure_llm_v1",
+        "confidence": 0.54,
+        "needs_human": False,
+        "exit": None,
+        "done": False,
+    }
 
     async def complete(prompt, model, ctx):
         return json.dumps({**raw, "rationale": "Read the permitted source"})
@@ -495,11 +502,15 @@ async def test_fanout_worker_write_is_isolated(db_session, monkeypatch):
             return await decide_read(inp, ctx)
         return await decide_write(inp, ctx)
 
-    monkeypatch.setattr(engine_module, "resolve_skill", lambda slug: {
-        "decide_next_v1": decide,
-        "azure_llm_v1": classify,
-        "audit_log_v1": audit,
-    }[slug])
+    monkeypatch.setattr(
+        engine_module,
+        "resolve_skill",
+        lambda slug: {
+            "decide_next_v1": decide,
+            "azure_llm_v1": classify,
+            "audit_log_v1": audit,
+        }[slug],
+    )
 
     flow = {
         "schema_version": 3,
@@ -529,7 +540,11 @@ async def test_fanout_worker_write_is_isolated(db_session, monkeypatch):
                     "privilege_tier": "recommend",
                     "worker_read_only": True,
                     "budget": {"max_turns": 2},
-                    "goal": {"objective": "read B", "done_when": ["azure_llm_v1"], "status": "active"},
+                    "goal": {
+                        "objective": "read B",
+                        "done_when": ["azure_llm_v1"],
+                        "status": "active",
+                    },
                 },
             },
             {"id": "join.bus", "kind": "join", "type": "join", "config": {"strategy": "all"}},
@@ -544,9 +559,7 @@ async def test_fanout_worker_write_is_isolated(db_session, monkeypatch):
             {"from": "join.bus", "to": "sink.result", "kind": "data"},
         ],
     }
-    system = _mk_system(
-        db_session, flow, ["decide_next_v1", "azure_llm_v1", "audit_log_v1"]
-    )
+    system = _mk_system(db_session, flow, ["decide_next_v1", "azure_llm_v1", "audit_log_v1"])
     run = _mk_run(db_session, system)
     summary = await execute_run_dag(run.id)
     run = _reload(db_session, run)
@@ -564,9 +577,17 @@ def test_join_merge_is_deterministic():
 
 
 @pytest.mark.asyncio
-async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_session, monkeypatch):
-    evidence = {"results": [{"content": "Continuous pressure: 700 bar.",
-                            "metadata": {"document_id": "notice-700", "page": 2}}]}
+async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(
+    db_session, monkeypatch
+):
+    evidence = {
+        "results": [
+            {
+                "content": "Continuous pressure: 700 bar.",
+                "metadata": {"document_id": "notice-700", "page": 2},
+            }
+        ]
+    }
     seen = []
     instructions = "Read-only investigation; report evidence gaps without inventing facts."
 
@@ -608,7 +629,9 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
 
 
 @pytest.mark.asyncio
-async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db_session, monkeypatch):
+async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(
+    db_session, monkeypatch
+):
     from app.models.workspace import Workspace
 
     workspace = Workspace(id=str(uuid.uuid4()), slug="loop-evidence", name="Evidence", settings={})
@@ -616,9 +639,19 @@ async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db
     db_session.commit()
     slug = f"ws.{workspace.id}.read_notices"
     passage = "Continuous pressure: 700 bar. " * 100
-    evidence = {"results": [{"content": passage, "metadata": {
-        "document_id": "notice-700", "page": 2, "content": passage,
-    }}], "retrieval_decision_trace": {"diagnostics": "verbose " * 1000}}
+    evidence = {
+        "results": [
+            {
+                "content": passage,
+                "metadata": {
+                    "document_id": "notice-700",
+                    "page": 2,
+                    "content": passage,
+                },
+            }
+        ],
+        "retrieval_decision_trace": {"diagnostics": "verbose " * 1000},
+    }
     seen = []
 
     async def decide(inp, ctx):
@@ -638,24 +671,41 @@ async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db
     flow = json.loads(json.dumps(LOOP_FLOW))
     config = flow["nodes"][1]["config"]
     config.pop("skill_slug", None)
-    config.update(decide_skill=" decide_next_v1 ", skill_allowlist=[slug], privilege_tier="recommend")
+    config.update(
+        decide_skill=" decide_next_v1 ", skill_allowlist=[slug], privilege_tier="recommend"
+    )
     config["goal"] = {"done_when": []}
     system = _mk_system(db_session, flow, ["decide_next_v1", slug])
     system.workspace_id = workspace.id
     skill = db_session.query(Skill).filter_by(slug=slug).one()
     skill.workspace_id = workspace.id
-    skill.input_schema = {"type": "object", "properties": {"query": {"type": "string"}},
-                          "required": ["query"], "additionalProperties": False}
-    skill.executor = {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
-                      "frozen_input": {"context_collection": "notices"}}}
+    skill.input_schema = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+        "additionalProperties": False,
+    }
+    skill.executor = {
+        "kind": "registry_call",
+        "params": {
+            "skill_slug": "semantic_search_v1",
+            "frozen_input": {"context_collection": "notices"},
+        },
+    }
     db_session.commit()
     run = _mk_run(db_session, system, query="pressure limit")
     run.workspace_id = workspace.id
     run.execution_contract = compile_execution_contract(
-        db_session, flow=flow, workspace_id=workspace.id, runtime_mode="dag_overlay")
+        db_session, flow=flow, workspace_id=workspace.id, runtime_mode="dag_overlay"
+    )
     # An edit to the catalogue must not change this Run's tool or its scope.
-    skill.executor = {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
-                      "frozen_input": {"context_collection": "other"}}}
+    skill.executor = {
+        "kind": "registry_call",
+        "params": {
+            "skill_slug": "semantic_search_v1",
+            "frozen_input": {"context_collection": "other"},
+        },
+    }
     db_session.commit()
 
     result = await execute_run_dag(run.id)
@@ -664,9 +714,15 @@ async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db
     run = _reload(db_session, run)
     observation = run.output_ref["observations"][0]
     assert seen == [observation]
-    assert observation["output"]["results"] == [{"content": passage, "metadata": {
-        "document_id": "notice-700", "page": 2,
-    }}]
+    assert observation["output"]["results"] == [
+        {
+            "content": passage,
+            "metadata": {
+                "document_id": "notice-700",
+                "page": 2,
+            },
+        }
+    ]
     assert observation["output"]["evidence_view"]["passages_omitted"] == 0
     assert "retrieval_decision_trace" not in observation["output"]
     invocation = db_session.get(SkillInvocation, observation["invocation_id"])
@@ -674,25 +730,46 @@ async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db
     assert invocation.output_ref == evidence
 
     from app.services.evaluation.campaigns import assertion_results
-    verdict = assertion_results(run.output_ref, [
-        {"id": "notice-tool", "operator": "invocation_succeeded", "value": slug},
-    ], run=run)
+
+    verdict = assertion_results(
+        run.output_ref,
+        [
+            {"id": "notice-tool", "operator": "invocation_succeeded", "value": slug},
+        ],
+        run=run,
+    )
     assert verdict["verdict"] == "passed"
     assert verdict["assertions"][0]["invocation_ids"] == [invocation.id]
     # The wrapper's internal executor name is not the authored Skill invoked.
-    assert assertion_results(run.output_ref, [
-        {"id": "wrong-tool", "operator": "invocation_succeeded", "value": "semantic_search_v1"},
-    ], run=run)["verdict"] == "failed"
+    assert (
+        assertion_results(
+            run.output_ref,
+            [
+                {
+                    "id": "wrong-tool",
+                    "operator": "invocation_succeeded",
+                    "value": "semantic_search_v1",
+                },
+            ],
+            run=run,
+        )["verdict"]
+        == "failed"
+    )
 
 
 @pytest.mark.asyncio
-async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(db_session, monkeypatch):
+async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(
+    db_session, monkeypatch
+):
     async def decide(inp, ctx):
         return {"next_skill": "azure_llm_v1", "confidence": 0.9, "done": False}
+
     seen = []
+
     async def tool(inp, ctx):
         seen.append(inp)
         return {"completion": "read"}
+
     _install(monkeypatch, {"decide_next_v1": decide, "azure_llm_v1": tool})
     flow = json.loads(json.dumps(LOOP_FLOW))
     flow["nodes"][1]["config"]["skill_allowlist"] = ["azure_llm_v1"]
@@ -700,29 +777,175 @@ async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(db_
     flow["nodes"][1]["config"]["goal"]["done_when"] = ["azure_llm_v1"]
     system = _mk_system(db_session, flow, ["decide_next_v1", "azure_llm_v1"])
     row = db_session.query(Skill).filter_by(slug="azure_llm_v1").one()
-    row.input_schema = {"type": "object", "properties": {"query": {"type": "string"}},
-                        "required": ["query"], "additionalProperties": False}
+    row.input_schema = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+        "additionalProperties": False,
+    }
     db_session.commit()
     run = _mk_run(db_session, system, query="operating limit")
-    run.execution_contract = compile_execution_contract(db_session, flow=flow,
-        workspace_id=None, runtime_mode="dag_overlay")
+    run.execution_contract = compile_execution_contract(
+        db_session, flow=flow, workspace_id=None, runtime_mode="dag_overlay"
+    )
     db_session.commit()
     result = await execute_run_dag(run.id)
     assert result["status"] == "completed"
     assert seen == [{"query": "operating limit"}]
 
 
+@pytest.mark.asyncio
+async def test_first_decision_uses_only_selected_context_and_snapshot_model(
+    db_session, monkeypatch
+):
+    calls = []
+
+    async def complete(prompt, model, ctx):
+        calls.append((prompt, model))
+        return json.dumps({"next_skill": None, "done": True, "exit": "complete", "confidence": 0.9})
+
+    monkeypatch.setattr(wrappers.skills, "_route_llm_complete", complete)
+    _install(monkeypatch, {"decide_next_v1": wrappers._decide_next_v1})
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    config = flow["nodes"][1]["config"]
+    config.update(
+        model="openai:gpt-frozen",
+        goal={"objective": "Prioritize the evidence checks", "done_when": []},
+        inputs_map={"risk": {"node_id": "source.request", "path": ["risk"], "required": True}},
+        decision_context={"keys": ["risk"], "max_bytes": 4096},
+    )
+    system = _mk_system(db_session, flow, LOOP_SLUGS)
+    run = _mk_run(
+        db_session,
+        system,
+        risk={"probability": 0.82, "secret": "not-for-the-model"},
+        model="ollama:untrusted",
+        unrelated="private unrelated data",
+    )
+    # The accepted snapshot remains authoritative despite a new editable Flow.
+    changed = json.loads(json.dumps(flow))
+    changed["nodes"][1]["config"]["model"] = "ollama:changed-later"
+    system.flow_definition = changed
+    db_session.commit()
+
+    result = await execute_run_dag(run.id)
+
+    assert result["status"] == "completed"
+    assert len(calls) == 1 and calls[0][1] == "openai:gpt-frozen"
+    assert "0.82" in calls[0][0]
+    assert "not-for-the-model" not in calls[0][0]
+    assert "private unrelated data" not in calls[0][0]
+    invocation = db_session.query(SkillInvocation).filter_by(run_id=run.id).one()
+    assert invocation.input_ref["context"] == {"risk": {"probability": 0.82}}
+    assert invocation.trace["agent_loop_context"]["present_keys"] == ["risk"]
+    assert "probability" not in json.dumps(invocation.trace["agent_loop_context"])
+
+
+@pytest.mark.asyncio
+async def test_oversize_context_blocks_before_any_planner_call(db_session, monkeypatch):
+    async def decide(inp, ctx):
+        pytest.fail("No model call may use a silently truncated context")
+
+    _install(monkeypatch, {"decide_next_v1": decide})
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    flow["nodes"][1]["config"].update(
+        inputs_map={"facts": {"node_id": "source.request", "path": ["facts"]}},
+        decision_context={"keys": ["facts"], "max_bytes": 256},
+    )
+    system = _mk_system(db_session, flow, LOOP_SLUGS)
+    run = _mk_run(db_session, system, facts="full source " * 100)
+    result = await execute_run_dag(run.id)
+    assert result["status"] == "failed"
+    assert "AGENT_CONTEXT_TOO_LARGE" in (_reload(db_session, run).error or "")
+    assert _slugs(db_session, run) == []
+
+
+@pytest.mark.asyncio
+async def test_human_resume_preserves_selected_context_and_published_model(db_session, monkeypatch):
+    seen = []
+
+    async def decide(payload, ctx):
+        seen.append(json.loads(json.dumps(payload)))
+        if len(seen) == 1:
+            return {"next_skill": None, "needs_human": True, "exit": "ask_human", "confidence": 0.9}
+        return {"next_skill": None, "done": True, "exit": "complete", "confidence": 0.9}
+
+    _install(monkeypatch, {"decide_next_v1": decide})
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    node = flow["nodes"][1]
+    node["config"].update(
+        model="openai:gpt-frozen",
+        goal={"objective": "Review the case", "done_when": []},
+        inputs_map={"facts": {"node_id": "source.request", "path": ["facts"]}},
+        decision_context={"keys": ["facts"]},
+    )
+    system = _mk_system(db_session, flow, LOOP_SLUGS)
+    run = _mk_run(db_session, system, facts={"priority": "high", "api_key": "private-key"})
+    result = await execute_run_dag(run.id)
+    assert result["status"] == "hitl_pending"
+    run = _reload(db_session, run)
+    # Even if a waiting Run's mutable input or the System draft changes, the
+    # context already presented to the approver remains the planning basis.
+    run.input_ref = {"facts": {"priority": "low"}}
+    draft = json.loads(json.dumps(flow))
+    draft["nodes"][1]["config"]["model"] = "ollama:new-draft"
+    system = db_session.get(System, system.id)
+    system.flow_definition = draft
+    decision = db_session.get(Decision, result["awaiting_decision"])
+    decision.status = "accepted"
+    db_session.commit()
+    result = await resume_run_dag(run.id, decision_id=decision.id)
+    assert result["status"] == "completed"
+    assert len(seen) == 2
+    assert seen[0]["context"] == seen[1]["context"] == {"facts": {"priority": "high"}}
+    assert seen[0]["context_evidence"] == seen[1]["context_evidence"]
+    assert seen[0]["model"] == seen[1]["model"] == "openai:gpt-frozen"
+
+
+def test_publication_rejects_unmapped_context_selection(db_session):
+    from app.services.flow_contracts import FlowContractError
+
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    flow["nodes"][1]["config"]["decision_context"] = {"keys": ["not_mapped"]}
+    _mk_system(db_session, flow, LOOP_SLUGS)
+    assert "agent_loop_configuration" in [issue.code for issue in validate_flow(flow)]
+    with pytest.raises(FlowContractError, match="mapped inputs"):
+        compile_execution_contract(
+            db_session, flow=flow, workspace_id=None, runtime_mode="dag_overlay"
+        )
+
+
 def test_retrieval_evidence_view_preserves_sources_and_raw_output():
     from copy import deepcopy
+
     from app.services.run_engine.agent_loop import retrieval_evidence_view
-    output = {"results": [{"content": "full passage " * 1000, "metadata": {
-        "document_id": "doc", "chunk_id": "chunk", "page": 2, "sheet": "Orders",
-        "cell": "B4", "start_char": 0, "end_char": 13000, "custom_source_ref": "ref",
-        "retrieval_role": "advisory_context", "retrieval_evidence_coverage": 0.5,
-        "retrieval_evidence_terms_missing": ["cause"], "retrieval_terms": ["debug"],
-        "content": "stored duplicate", "dense_elapsed_ms": 5,
-    }}], "retrieval_scope": {"collection": "restricted"},
-        "fallback_reason": "missing_index", "retrieval_decision_trace": {"verbose": "debug"}}
+
+    output = {
+        "results": [
+            {
+                "content": "full passage " * 1000,
+                "metadata": {
+                    "document_id": "doc",
+                    "chunk_id": "chunk",
+                    "page": 2,
+                    "sheet": "Orders",
+                    "cell": "B4",
+                    "start_char": 0,
+                    "end_char": 13000,
+                    "custom_source_ref": "ref",
+                    "retrieval_role": "advisory_context",
+                    "retrieval_evidence_coverage": 0.5,
+                    "retrieval_evidence_terms_missing": ["cause"],
+                    "retrieval_terms": ["debug"],
+                    "content": "stored duplicate",
+                    "dense_elapsed_ms": 5,
+                },
+            }
+        ],
+        "retrieval_scope": {"collection": "restricted"},
+        "fallback_reason": "missing_index",
+        "retrieval_decision_trace": {"verbose": "debug"},
+    }
     original = deepcopy(output)
     view = retrieval_evidence_view(output)
     assert output == original
@@ -730,9 +953,19 @@ def test_retrieval_evidence_view_preserves_sources_and_raw_output():
     assert view["retrieval_scope"] == output["retrieval_scope"]
     assert view["fallback_reason"] == "missing_index"
     metadata = view["results"][0]["metadata"]
-    for key in ("document_id", "chunk_id", "page", "sheet", "cell", "start_char",
-                "end_char", "custom_source_ref", "retrieval_role", "retrieval_evidence_coverage",
-                "retrieval_evidence_terms_missing"):
+    for key in (
+        "document_id",
+        "chunk_id",
+        "page",
+        "sheet",
+        "cell",
+        "start_char",
+        "end_char",
+        "custom_source_ref",
+        "retrieval_role",
+        "retrieval_evidence_coverage",
+        "retrieval_evidence_terms_missing",
+    ):
         assert metadata[key] == original["results"][0]["metadata"][key]
     assert "content" not in metadata and "dense_elapsed_ms" not in metadata
     assert view["evidence_view"]["passages_retained"] == 1

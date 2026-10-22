@@ -1,4 +1,5 @@
 import type { Run, SkillInvocation } from '@app/core/canonical-api.service';
+import type { ResolutionPolicyEvidence } from './claims-resolution-policy.model';
 
 export interface ClaimRow { claim_id: string; order_id: string; reason: string; state: string; opened_at: string; paid_amount: string; currency: string; display_name: string; }
 export interface ClaimContext extends ClaimRow { shipping_postcode: string; payment_status: string; }
@@ -14,6 +15,7 @@ export interface ClaimProposal {
   evidence_kind: string; receipt_id?: string; status?: string; executed_at?: string;
   idempotent_replay?: boolean; reused_for_run_id?: string;
   citations: Array<Record<string, unknown>>;
+  resolution_policy?: ResolutionPolicyEvidence;
 }
 
 export const CLAIM_TOOL_LABELS: Record<string, string> = {

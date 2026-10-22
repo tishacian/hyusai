@@ -117,6 +117,21 @@ async function install(page: Page, options: Options = {}, locale: 'fr' | 'en' = 
 test.describe('Lot 4 — Studio contract, test preview and receipt', () => {
   test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked lot 4 checks');
 
+  test('the publish action stays clickable when the editor toolbar wraps', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await install(page);
+    await page.goto('/create/apps/exp-1');
+    const publish = page.getByRole('button', { name: 'Publier', exact: true });
+    await expect(publish).toBeEnabled();
+    const facets = await page.locator('.xp-ed-facets').boundingBox();
+    const action = await publish.boundingBox();
+    expect(facets).not.toBeNull();
+    expect(action).not.toBeNull();
+    expect(action!.y + action!.height).toBeLessThanOrEqual(facets!.y + 1);
+    await publish.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
   test('an action names its System, version and expected inputs', async ({ page }) => {
     await install(page);
     await page.goto('/create/apps/exp-1');

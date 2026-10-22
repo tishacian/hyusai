@@ -9,6 +9,8 @@ import type {
   CanonicalFlowNode,
   HitlNodeConfig,
 } from '@app/core/flow-serializer.service';
+import type { PaletteItem } from './flow.types';
+import { catalogModelName, selectableTextModel, type ModelCatalogEntry } from '@app/core/model-catalog';
 
 export type PrivilegeTier = NonNullable<AgentLoopNodeConfig['privilege_tier']>;
 export type PromptKind = NonNullable<HitlNodeConfig['prompt_kind']>;
@@ -67,7 +69,7 @@ export function formatDoneWhen(items: readonly string[]): string {
 export function clampTurns(value: unknown, fallback = 6): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isSafeInteger(n) || n < 1) return fallback;
-  return Math.min(n, 32);
+  return Math.min(n, 20);
 }
 
 export function clampConfidence(value: unknown, fallback = 0.55): number {
@@ -109,6 +111,8 @@ export function readAgentLoopConfig(node: CanonicalFlowNode): AgentLoopNodeConfi
   const onBudget = cfg['on_budget'];
   return {
     decide_skill: 'decide_next_v1',
+    ...(typeof cfg['model'] === 'string' && cfg['model'].trim() ? { model: cfg['model'].trim() } : {}),
+    decision_context: readDecisionContext(node),
     skill_allowlist: allowlist.slice(0, 8),
     confidence_floor: clampConfidence(cfg['confidence_floor']),
     privilege_tier: PRIVILEGE_TIERS.includes(privilege as PrivilegeTier)
@@ -127,6 +131,94 @@ export function readAgentLoopConfig(node: CanonicalFlowNode): AgentLoopNodeConfi
       status: 'active',
     },
   };
+}
+
+const RESERVED_CONTEXT_KEYS = new Set([
+  'goal', 'observations', 'visible_skills', 'budget', 'model', 'confidence_floor',
+  'agent_loop_node_id', 'context', 'context_evidence',
+]);
+
+const SECRET_CONTEXT_KEYS = new Set([
+  'password', 'passwd', 'secret', 'api_key', 'apikey', 'access_token', 'refresh_token',
+  'session_token', 'private_key', 'authorization', 'bearer', 'credential', 'credentials', 'dsn', 'token',
+]);
+
+export function authorizedContextKey(key: string): boolean {
+  const name = key.trim().toLowerCase();
+  return !!key && key === key.trim() && key.length <= 128 && !name.startsWith('_')
+    && !RESERVED_CONTEXT_KEYS.has(key) && !SECRET_CONTEXT_KEYS.has(name)
+    && ![...SECRET_CONTEXT_KEYS].some(suffix => name.endsWith(`_${suffix}`));
+}
+
+export function readDecisionContext(node: CanonicalFlowNode): { keys: string[]; max_bytes: number } {
+  const cfg = node.config as Record<string, unknown> | undefined;
+  const raw = cfg?.['decision_context'];
+  const context = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return {
+    // Keep invalid persisted selections visible. Reading must never silently repair a draft.
+    keys: Array.isArray(context['keys']) ? [...new Set(context['keys'].filter((v): v is string => typeof v === 'string'))] : [],
+    max_bytes: typeof context['max_bytes'] === 'number' ? context['max_bytes'] : 16_384,
+  };
+}
+
+export interface AgentContextOption { key: string; label: string; source: string; available: boolean; selected: boolean; }
+
+export function agentContextOptions(node: CanonicalFlowNode, nodes: readonly CanonicalFlowNode[]): AgentContextOption[] {
+  const cfg = node.config as Record<string, unknown> | undefined;
+  const raw = cfg?.['inputs_map'];
+  const mappings = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const selected = new Set(readDecisionContext(node).keys);
+  return [...new Set([...selected, ...Object.keys(mappings).filter(authorizedContextKey)])].map(key => {
+    const binding = mappings[key];
+    let source = '';
+    if (typeof binding === 'string') source = binding;
+    else if (binding && typeof binding === 'object' && !Array.isArray(binding)) {
+      const ref = binding as Record<string, unknown>;
+      const id = typeof ref['node_id'] === 'string' ? ref['node_id'] : '';
+      const path = Array.isArray(ref['path']) ? ref['path'].join(' · ') : '';
+      source = [nodes.find(item => item.id === id)?.label || id, path].filter(Boolean).join(' → ');
+    }
+    return { key, label: readableIdentifier(key), source, available: Object.hasOwn(mappings, key) && authorizedContextKey(key), selected: selected.has(key) };
+  });
+}
+
+function readableIdentifier(value: string): string {
+  const words = value.replace(/[_-]+/g, ' ').trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : value;
+}
+
+export interface AgentToolOption { slug: string; label: string; description: string; available: boolean; selected: boolean; }
+
+/** The workspace catalogue supplies names and purposes; saved unavailable tools stay removable. */
+export function agentToolOptions(items: readonly PaletteItem[], saved: readonly string[], query = ''): AgentToolOption[] {
+  const selected = new Set(saved);
+  const bySlug = new Map<string, AgentToolOption>();
+  for (const item of items) {
+    const slug = item.config?.['skill_slug'];
+    if (typeof slug !== 'string' || !slug || ['decide_next_v1', 'skill_search_v1'].includes(slug)) continue;
+    if (!bySlug.has(slug)) bySlug.set(slug, { slug, label: item.label || readableIdentifier(slug), description: item.description || '', available: !item.unavailableReason && item.runtimeStatus === 'bound', selected: selected.has(slug) });
+  }
+  for (const slug of saved) if (!bySlug.has(slug)) bySlug.set(slug, { slug, label: readableIdentifier(slug), description: '', available: false, selected: true });
+  const needle = query.trim().toLocaleLowerCase();
+  return [...bySlug.values()].filter(item => item.selected || !needle || `${item.label} ${item.description} ${item.slug}`.toLocaleLowerCase().includes(needle))
+    .sort((a, b) => Number(b.selected) - Number(a.selected) || a.label.localeCompare(b.label));
+}
+
+export function toggleAgentSelection(saved: readonly string[], key: string, selected: boolean, limit: number): string[] {
+  const existing = [...new Set(saved)];
+  if (!selected) return existing.filter(item => item !== key);
+  if (existing.includes(key) || existing.length >= limit) return existing;
+  return [...existing, key];
+}
+
+export function agentModelOptions(models: readonly ModelCatalogEntry[], saved = ''): Array<{ value: string; label: string; available: boolean }> {
+  const options = new Map<string, { value: string; label: string; available: boolean }>();
+  for (const model of models.filter(selectableTextModel)) {
+    const value = `${model.provider}:${catalogModelName(model)}`;
+    options.set(value, { value, label: `${model.provider} · ${catalogModelName(model)}`, available: true });
+  }
+  if (saved && !options.has(saved)) options.set(saved, { value: saved, label: saved, available: false });
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 export function readHitlConfig(node: CanonicalFlowNode): HitlNodeConfig {

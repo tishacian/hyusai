@@ -1,4 +1,5 @@
 """Behavioral proof for authoritative MembraneSpec v2 in the DAG runtime."""
+
 from __future__ import annotations
 
 import uuid
@@ -34,9 +35,9 @@ def _install_skill(monkeypatch: pytest.MonkeyPatch, slug: str, fn) -> None:
     monkeypatch.setattr(
         engine_module,
         "resolve_skill",
-        lambda requested: fn
-        if requested == slug
-        else (_ for _ in ()).throw(NotImplementedError(requested)),
+        lambda requested: (
+            fn if requested == slug else (_ for _ in ()).throw(NotImplementedError(requested))
+        ),
     )
 
 
@@ -117,7 +118,7 @@ def _spec(**overrides: Any) -> dict[str, Any]:
         "enforcement_mode": "enforce",
         "outbound": {"expert_review_required": False},
         "capabilities": {
-            "allowed_skills": ["answer_v1"],
+            "allowed_skills": ["workspace_llm_v1"],
             "allowed_models": ["gpt-test"],
             "allowed_actions": ["system.engine.run"],
         },
@@ -187,16 +188,14 @@ async def test_invalid_explicit_v2_fails_closed_before_first_invocation(
         raise AssertionError("an invalid v2 membrane must block before invocation")
 
     invalid_spec = _spec(capabilities=["not-an-object"])
-    _install_skill(monkeypatch, "answer_v1", answer)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
     system, run = _create_contract(
         db_session,
-        slug="answer_v1",
+        slug="workspace_llm_v1",
         membrane_spec=invalid_spec,
     )
     control = (
-        db_session.query(ControlPolicy)
-        .filter(ControlPolicy.id == system.control_policy_id)
-        .one()
+        db_session.query(ControlPolicy).filter(ControlPolicy.id == system.control_policy_id).one()
     )
 
     with pytest.raises(MembraneEnforcementError, match="^membrane_spec_invalid:"):
@@ -205,12 +204,7 @@ async def test_invalid_explicit_v2_fails_closed_before_first_invocation(
     summary = await execute_run_dag(run.id)
     assert summary["status"] == "failed"
     assert "membrane_spec_invalid:" in summary["error"]
-    assert (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .count()
-        == 0
-    )
+    assert db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count() == 0
 
 
 async def test_citations_from_typed_pool_are_persisted_as_provenance(
@@ -226,9 +220,9 @@ async def test_citations_from_typed_pool_are_persisted_as_provenance(
             "usage": {"total_tokens": 21},
         }
 
-    _install_skill(monkeypatch, "answer_v1", answer)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
     monkeypatch.setattr(dag_module, "persist_provenance_artifact", _fake_artifact)
-    system, run = _create_contract(db_session, slug="answer_v1", membrane_spec=_spec())
+    system, run = _create_contract(db_session, slug="workspace_llm_v1", membrane_spec=_spec())
     closed_schema = {
         "type": "object",
         "properties": {
@@ -255,11 +249,7 @@ async def test_citations_from_typed_pool_are_persisted_as_provenance(
     stored = db_session.query(Run).filter(Run.id == run.id).one()
     assert stored.output_ref["answer"] == "risk found"
     assert "_membrane_provenance" not in stored.output_ref
-    invocation = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .one()
-    )
+    invocation = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).one()
     assert invocation.metrics["total_tokens"] == 21
     assert invocation.trace["membrane_provenance"]["uri"].startswith("object://")
     provenance = canonical_run_provenance(stored, [invocation])
@@ -285,9 +275,9 @@ async def test_low_confidence_egress_holds_without_publishing_then_resumes_once(
         }
 
     spec = _spec(outbound={"expert_review_required": False, "gate_if_confidence_below": 0.8})
-    _install_skill(monkeypatch, "answer_v1", answer)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
     monkeypatch.setattr(dag_module, "persist_provenance_artifact", _fake_artifact)
-    _, run = _create_contract(db_session, slug="answer_v1", membrane_spec=spec)
+    _, run = _create_contract(db_session, slug="workspace_llm_v1", membrane_spec=spec)
 
     paused = await execute_run_dag(run.id)
     assert paused["status"] == "hitl_pending"
@@ -303,9 +293,7 @@ async def test_low_confidence_egress_holds_without_publishing_then_resumes_once(
 
     public_run = _row(stored, db=db_session)
     public_pause = next(
-        cp
-        for cp in reversed(public_run["checkpoints"])
-        if cp.get("kind") == "hitl_pause"
+        cp for cp in reversed(public_run["checkpoints"]) if cp.get("kind") == "hitl_pause"
     )
     assert public_run["result_held"] is True
     assert "state" not in public_pause
@@ -314,20 +302,13 @@ async def test_low_confidence_egress_holds_without_publishing_then_resumes_once(
     )
     assert _invocation(held_invocation, redact_io=True)["output_ref"] == {}
 
-    decision = (
-        db_session.query(Decision)
-        .filter(Decision.id == paused["awaiting_decision"])
-        .one()
-    )
+    decision = db_session.query(Decision).filter(Decision.id == paused["awaiting_decision"]).one()
     decision.status = "accepted"
     db_session.commit()
     resumed = await resume_run_dag(run.id, decision_id=decision.id)
     assert resumed["status"] == "completed"
     assert calls["count"] == 1
-    assert (
-        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count()
-        == 1
-    )
+    assert db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count() == 1
 
 
 async def test_rejected_egress_never_publishes_result(
@@ -338,8 +319,8 @@ async def test_rejected_egress_never_publishes_result(
         return {"answer": "private", "confidence": 0.3, "citations": [{"id": "c"}]}
 
     spec = _spec(outbound={"expert_review_required": True})
-    _install_skill(monkeypatch, "answer_v1", answer)
-    _, run = _create_contract(db_session, slug="answer_v1", membrane_spec=spec)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
+    _, run = _create_contract(db_session, slug="workspace_llm_v1", membrane_spec=spec)
     paused = await execute_run_dag(run.id)
     decision = db_session.query(Decision).filter(Decision.id == paused["awaiting_decision"]).one()
     decision.status = "rejected"
@@ -360,8 +341,8 @@ async def test_required_citations_block_terminal_output(
     async def answer(_payload, _ctx):
         return {"answer": "unsupported", "confidence": 0.9}
 
-    _install_skill(monkeypatch, "answer_v1", answer)
-    _, run = _create_contract(db_session, slug="answer_v1", membrane_spec=_spec())
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
+    _, run = _create_contract(db_session, slug="workspace_llm_v1", membrane_spec=_spec())
     summary = await execute_run_dag(run.id)
     assert summary["status"] == "failed"
     assert "citations_required" in summary["error"]
@@ -380,16 +361,16 @@ async def test_usage_priced_invocation_without_quantity_blocks_cost_budget(
             "usage": {"total_tokens": 0},
         }
 
-    _install_skill(monkeypatch, "answer_v1", answer)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
     _, run = _create_contract(
         db_session,
-        slug="answer_v1",
+        slug="workspace_llm_v1",
         membrane_spec=_spec(
             provenance={"require_citations": False},
             valves={"max_cost_per_decision": 1},
         ),
     )
-    skill = db_session.query(Skill).filter(Skill.slug == "answer_v1").one()
+    skill = db_session.query(Skill).filter(Skill.slug == "workspace_llm_v1").one()
     skill.pricing = {
         "currency": "USD",
         "unit": "per_1k_tokens",
@@ -401,11 +382,7 @@ async def test_usage_priced_invocation_without_quantity_blocks_cost_budget(
 
     assert summary["status"] == "failed"
     assert "cost_measurement_unavailable" in summary["error"]
-    invocation = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == run.id)
-        .one()
-    )
+    invocation = db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).one()
     assert invocation.cost == 0
     assert invocation.cost_measured is False
     assert invocation.metrics["cost_evidence"]["reason"] == "pricing_quantity_not_measured"
@@ -418,10 +395,10 @@ async def test_missing_token_measurement_blocks(
     async def missing(_payload, _ctx):
         return {"answer": "missing usage", "citations": [{"id": "c"}]}
 
-    _install_skill(monkeypatch, "answer_v1", missing)
+    _install_skill(monkeypatch, "workspace_llm_v1", missing)
     _, missing_run = _create_contract(
         db_session,
-        slug="answer_v1",
+        slug="workspace_llm_v1",
         membrane_spec=_spec(
             provenance={"require_citations": False},
             valves={"token_budget": 1},
@@ -443,10 +420,10 @@ async def test_explicit_zero_token_measurement_completes(
             "usage": {"total_tokens": 0},
         }
 
-    _install_skill(monkeypatch, "answer_v1", zero)
+    _install_skill(monkeypatch, "workspace_llm_v1", zero)
     _, zero_run = _create_contract(
         db_session,
-        slug="answer_v1",
+        slug="workspace_llm_v1",
         membrane_spec=_spec(
             provenance={"require_citations": False},
             valves={"token_budget": 1},
@@ -455,9 +432,7 @@ async def test_explicit_zero_token_measurement_completes(
     zero_summary = await execute_run_dag(zero_run.id)
     assert zero_summary["status"] == "completed"
     zero_invocation = (
-        db_session.query(SkillInvocation)
-        .filter(SkillInvocation.run_id == zero_run.id)
-        .one()
+        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == zero_run.id).one()
     )
     assert zero_invocation.metrics["total_tokens"] == 0
 
@@ -469,10 +444,10 @@ async def test_shadow_records_missing_token_measurement_without_blocking(
     async def answer(_payload, _ctx):
         return {"answer": "shadow", "citations": [{"id": "c"}]}
 
-    _install_skill(monkeypatch, "answer_v1", answer)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
     _, run = _create_contract(
         db_session,
-        slug="answer_v1",
+        slug="workspace_llm_v1",
         membrane_spec=_spec(
             enforcement_mode="shadow",
             provenance={"require_citations": False},
@@ -507,20 +482,17 @@ async def test_disallowed_model_blocks_before_first_invocation(
 
     spec = _spec(
         capabilities={
-            "allowed_skills": ["answer_v1"],
+            "allowed_skills": ["workspace_llm_v1"],
             "allowed_models": ["gpt-allowed"],
             "allowed_actions": ["system.engine.run"],
         }
     )
-    _install_skill(monkeypatch, "answer_v1", answer)
-    _, run = _create_contract(db_session, slug="answer_v1", membrane_spec=spec)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
+    _, run = _create_contract(db_session, slug="workspace_llm_v1", membrane_spec=spec)
     summary = await execute_run_dag(run.id)
     assert summary["status"] == "failed"
-    assert summary["error"] == "membrane_capability_block:system.engine.run"
-    assert (
-        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count()
-        == 0
-    )
+    assert summary["error"].startswith("membrane_capability_block:model_not_allowed:")
+    assert db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count() == 0
 
 
 async def test_debug_resume_rechecks_revoked_membrane_capability(
@@ -532,15 +504,15 @@ async def test_debug_resume_rechecks_revoked_membrane_capability(
 
     allowed = _spec(
         capabilities={
-            "allowed_skills": ["answer_v1"],
+            "allowed_skills": ["workspace_llm_v1"],
             "allowed_models": ["gpt-test"],
             "allowed_actions": ["system.engine.run"],
         }
     )
-    _install_skill(monkeypatch, "answer_v1", answer)
+    _install_skill(monkeypatch, "workspace_llm_v1", answer)
     system, run = _create_contract(
         db_session,
-        slug="answer_v1",
+        slug="workspace_llm_v1",
         membrane_spec=allowed,
     )
     run.status = "debug_pending"
@@ -558,7 +530,7 @@ async def test_debug_resume_rechecks_revoked_membrane_capability(
     policy.extra = {
         "membrane_spec": _spec(
             capabilities={
-                "allowed_skills": ["answer_v1"],
+                "allowed_skills": ["workspace_llm_v1"],
                 "allowed_models": ["gpt-revoked"],
                 "allowed_actions": ["system.engine.run"],
             }
@@ -569,11 +541,8 @@ async def test_debug_resume_rechecks_revoked_membrane_capability(
     summary = await dag_module.resume_run_dag_debug(run.id, action="continue")
 
     assert summary["status"] == "failed"
-    assert summary["error"] == "membrane_capability_block:system.engine.run"
-    assert (
-        db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count()
-        == 0
-    )
+    assert summary["error"].startswith("membrane_capability_block:model_not_allowed:")
+    assert db_session.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).count() == 0
 
 
 async def test_retry_failures_trip_circuit_breaker_without_extra_attempt(
@@ -588,17 +557,17 @@ async def test_retry_failures_trip_circuit_breaker_without_extra_attempt(
 
     spec = _spec(
         capabilities={
-            "allowed_skills": ["broken_v1"],
+            "allowed_skills": ["workspace_llm_v1"],
             "allowed_models": ["gpt-test"],
             "allowed_actions": ["system.engine.run"],
         },
         provenance={"require_citations": False},
         valves={"circuit_breaker": {"failure_threshold": 2, "max_attempts": 5}},
     )
-    _install_skill(monkeypatch, "broken_v1", broken)
+    _install_skill(monkeypatch, "workspace_llm_v1", broken)
     _, run = _create_contract(
         db_session,
-        slug="broken_v1",
+        slug="workspace_llm_v1",
         membrane_spec=spec,
         retry=True,
     )

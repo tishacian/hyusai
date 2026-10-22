@@ -7,11 +7,12 @@ serving-node attach).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
 import copy
+from typing import Any, Literal, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
@@ -19,19 +20,19 @@ from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
-from app.models.system import System
 from app.models.skill import Skill
+from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.flow_skill_binding import FlowSkillBindingError, resolve_flow_skill_binding
 from app.services.model_plane import distribution as distribution_service
 from app.services.model_plane import providers as providers_service
 from app.services.model_plane import serving_nodes as serving_nodes_service
 from app.services.model_plane import workspace_config as ws_config
-from app.services.workspace_features import feature_enabled
 from app.services.run_engine.execution_contract import canonical_flow_sha256
-from app.services.flow_skill_binding import resolve_flow_skill_binding, FlowSkillBindingError
 from app.services.systems import flow_workbench
+from app.services.workspace_features import feature_enabled
 
 router = APIRouter()
 
@@ -42,7 +43,10 @@ def _require_enabled(workspace: Workspace) -> None:
     if not feature_enabled(workspace, FEATURE_FLAG):
         raise HTTPException(
             status_code=403,
-            detail={"code": "MODEL_PORTAL_DISABLED", "message": "Model portal is not enabled for this workspace"},
+            detail={
+                "code": "MODEL_PORTAL_DISABLED",
+                "message": "Model portal is not enabled for this workspace",
+            },
         )
 
 
@@ -62,19 +66,30 @@ def _can_configure(
         )
         .first()
     )
-    return bool(membership and is_admin_template(
-        getattr(membership, "role_template", None), membership.role,
-    ))
+    return bool(
+        membership
+        and is_admin_template(
+            getattr(membership, "role_template", None),
+            membership.role,
+        )
+    )
 
 
 def _require_workspace_admin(db: DBSession, *, user: User, workspace: Workspace) -> None:
     if not _can_configure(db, user=user, workspace=workspace):
-        raise HTTPException(403, detail={"code": "MODEL_PORTAL_ADMIN_REQUIRED", "message": "Admin access required"})
+        raise HTTPException(
+            403, detail={"code": "MODEL_PORTAL_ADMIN_REQUIRED", "message": "Admin access required"}
+        )
 
 
 def _test_blockers(db: DBSession, *, user: User, workspace: Workspace) -> list[dict[str, str]]:
     if not _can_configure(db, user=user, workspace=workspace):
-        return [{"code": "MODEL_PORTAL_ADMIN_REQUIRED", "message": "An administrator can run a model test in a System."}]
+        return [
+            {
+                "code": "MODEL_PORTAL_ADMIN_REQUIRED",
+                "message": "An administrator can run a model test in a System.",
+            }
+        ]
     try:
         flow_workbench.require_flow_workbench(workspace)
     except flow_workbench.FlowWorkbenchError as exc:
@@ -92,8 +107,8 @@ class CreateInstanceBody(BaseModel):
     port: int = Field(..., ge=1, le=65535)
     name: Optional[str] = None
     image: Optional[str] = None
-    gpu_devices: Optional[List[str]] = None
-    environment: Optional[Dict[str, str]] = None
+    gpu_devices: Optional[list[str]] = None
+    environment: Optional[dict[str, str]] = None
     memory_limit: Optional[str] = "16g"
     shm_size: Optional[str] = "16g"
     auto_start: Optional[bool] = True
@@ -103,14 +118,14 @@ class CreateInstanceBody(BaseModel):
 class RoutingUpdateBody(BaseModel):
     default_provider: str = Field(..., min_length=1, max_length=80)
     default_model: str = Field(..., min_length=1, max_length=256)
-    fallback_chain: Optional[List[str]] = Field(default=None, max_length=10)
-    named_routes: Dict[str, "RoutingRouteBody"] = Field(default_factory=dict)
+    fallback_chain: Optional[list[str]] = Field(default=None, max_length=10)
+    named_routes: dict[str, "RoutingRouteBody"] = Field(default_factory=dict)
 
 
 class RoutingRouteBody(BaseModel):
     provider: str = Field(..., min_length=1, max_length=80)
     model: str = Field(..., min_length=1, max_length=256)
-    fallback_chain: List[str] = Field(default_factory=list, max_length=10)
+    fallback_chain: list[str] = Field(default_factory=list, max_length=10)
 
 
 class CredentialUpdateBody(BaseModel):
@@ -137,9 +152,13 @@ async def list_model_providers(
     nodes = await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     providers = await providers_service.list_providers(
         include_local_serving=True,
-        workspace=workspace, node_snapshots=nodes.get("nodes", []),
+        workspace=workspace,
+        node_snapshots=nodes.get("nodes", []),
     )
-    return {"providers": providers, "can_configure": _can_configure(db, user=user, workspace=workspace)}
+    return {
+        "providers": providers,
+        "can_configure": _can_configure(db, user=user, workspace=workspace),
+    }
 
 
 @router.get("/routing")
@@ -151,7 +170,9 @@ async def get_model_routing(
     _require_enabled(workspace)
     nodes = await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     local_serving = providers_service.scoped_serving_providers(nodes.get("nodes", []))
-    provider_catalog = await providers_service.list_providers(include_local_serving=False, workspace=workspace)
+    provider_catalog = await providers_service.list_providers(
+        include_local_serving=False, workspace=workspace
+    )
     ws_routing = ws_config.get_routing(workspace)
     systems = (
         db.query(System)
@@ -161,6 +182,7 @@ async def get_model_routing(
     )
     from app.api.v1.endpoints.systems import _enforce_system_read
     from app.services.model_plane.execution import ModelExecutionError
+
     readable = []
     model_usage = []
     for system in systems:
@@ -181,12 +203,18 @@ async def get_model_routing(
             except ModelExecutionError:
                 continue
             if resolved is not None:
-                model_usage.append({
-                    "system_id": system.id, "system_name": system.name,
-                    "node_id": node.get("id"), "node_label": node.get("label") or node.get("id"),
-                    "skill_slug": skill.slug, "configuration_source": "current_flow", "source": "current_flow",
-                    **resolved.public(),
-                })
+                model_usage.append(
+                    {
+                        "system_id": system.id,
+                        "system_name": system.name,
+                        "node_id": node.get("id"),
+                        "node_label": node.get("label") or node.get("id"),
+                        "skill_slug": skill.slug,
+                        "configuration_source": "current_flow",
+                        "source": "current_flow",
+                        **resolved.public(),
+                    }
+                )
     return {
         "model_usage": model_usage,
         "default_provider": ws_routing["default_provider"],
@@ -199,8 +227,14 @@ async def get_model_routing(
         "fallback_chain": ws_routing["fallback_chain"],
         "source": ws_routing["source"],
         "runtime_providers": sorted(providers_service.RUNTIME_PROVIDERS),
-        "compatibility": providers_service.model_compatibility(ws_routing["default_provider"], ws_routing["default_model"]),
-        "registered_clients": sorted(row["key"] for row in provider_catalog if row.get("configured") and row.get("runtime_available")),
+        "compatibility": providers_service.model_compatibility(
+            ws_routing["default_provider"], ws_routing["default_model"]
+        ),
+        "registered_clients": sorted(
+            row["key"]
+            for row in provider_catalog
+            if row.get("configured") and row.get("runtime_available")
+        ),
         "registered_clients_source": "workspace_configuration",
         "local_serving": local_serving,
         "systems": [
@@ -241,7 +275,9 @@ async def put_model_routing(
             },
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}
+        ) from exc
     return config["routing"]
 
 
@@ -284,7 +320,9 @@ async def put_provider_credential(
             deployment=body.deployment,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}
+        ) from exc
     providers_service.clear_health_cache(workspace=workspace)
     return {
         "cloud_credentials": config["cloud_credentials"],
@@ -313,7 +351,9 @@ async def upsert_serving_node(
             token=body.token,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}
+        ) from exc
     return {"serving_nodes": config["serving_nodes"]}
 
 
@@ -329,7 +369,9 @@ async def detach_serving_node(
     try:
         config = ws_config.delete_serving_node(db, workspace, node_name)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}
+        ) from exc
     return {"serving_nodes": config["serving_nodes"]}
 
 
@@ -345,10 +387,14 @@ async def get_model_distribution(
         return distribution_service.get_distribution(
             db,
             workspace_id=workspace.id,
-            window=window, workspace=workspace, user=user,
+            window=window,
+            workspace=workspace,
+            user=user,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}
+        ) from exc
 
 
 @router.get("/nodes")
@@ -357,9 +403,7 @@ async def list_serving_nodes(
     user: User = Depends(get_current_user),
 ):
     _require_enabled(workspace)
-    return await serving_nodes_service.list_nodes(
-        sync_registry=True, workspace=workspace
-    )
+    return await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
 
 
 @router.post("/nodes/{node_name}/instances")
@@ -450,9 +494,13 @@ async def test_provider_connection(
     _require_enabled(workspace)
     _require_workspace_admin(db, user=user, workspace=workspace)
     if provider not in (*ws_config.CLOUD_PROVIDERS, "ollama"):
-        raise HTTPException(404, detail={"code": "MODEL_PROVIDER_NOT_FOUND", "message": "Provider not found"})
+        raise HTTPException(
+            404, detail={"code": "MODEL_PROVIDER_NOT_FOUND", "message": "Provider not found"}
+        )
     providers_service.clear_health_cache(workspace=workspace)
-    rows = await providers_service.list_providers(workspace=workspace, include_local_serving=False, provider_key=provider)
+    rows = await providers_service.list_providers(
+        workspace=workspace, include_local_serving=False, provider_key=provider
+    )
     result = next(row for row in rows if row["key"] == provider)
     return {"provider": result, "test_kind": "connection", "generation_verified": False}
 
@@ -466,25 +514,42 @@ async def resolve_model_preview(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    from app.services.model_plane.execution import ModelExecutionError, resolve_skill_model_execution
     from app.api.v1.endpoints.systems import _enforce_system_read
+    from app.services.model_plane.execution import (
+        ModelExecutionError,
+        resolve_skill_model_execution,
+    )
 
     _require_enabled(workspace)
     system_default = None
     if system_id:
-        system = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+        system = (
+            db.query(System)
+            .filter(System.id == system_id, System.workspace_id == workspace.id)
+            .first()
+        )
         if system is None:
-            raise HTTPException(404, detail={"code": "SYSTEM_NOT_FOUND", "message": "System not found"})
+            raise HTTPException(
+                404, detail={"code": "SYSTEM_NOT_FOUND", "message": "System not found"}
+            )
         _enforce_system_read(db, user=user, workspace=workspace, system=system)
         system_default = system.default_model
     try:
         resolution = resolve_skill_model_execution(
-            workspace, executor={"kind": "prompt_template", "params": {"provider": provider, **({"model": model} if model else {})}},
-            input_ref={}, system_default_model=system_default,
+            workspace,
+            executor={
+                "kind": "prompt_template",
+                "params": {"provider": provider, **({"model": model} if model else {})},
+            },
+            input_ref={},
+            system_default_model=system_default,
         )
         return resolution.public()
     except ModelExecutionError as exc:
-        raise HTTPException(400, detail={"code": getattr(exc, "code", "MODEL_EXECUTION_INVALID"), "message": str(exc)}) from exc
+        raise HTTPException(
+            400,
+            detail={"code": getattr(exc, "code", "MODEL_EXECUTION_INVALID"), "message": str(exc)},
+        ) from exc
 
 
 class ModelTestBody(BaseModel):
@@ -505,14 +570,114 @@ class ModelTestBody(BaseModel):
         return value
 
 
+class DecisionCandidateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["openai", "azure_openai", "ollama", "huggingface"]
+    model: str = Field(min_length=1, max_length=256)
+
+    @field_validator("model")
+    @classmethod
+    def plain_model_name(cls, value: str) -> str:
+        if value != value.strip() or any(
+            value.startswith(prefix + ":")
+            for prefix in ("openai", "azure_openai", "azure", "ollama", "huggingface", "anthropic")
+        ):
+            raise ValueError("Select the provider separately from the model name")
+        return value
+
+
+class DecisionComparisonBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    invocation_id: str = Field(min_length=1, max_length=36)
+    expected_input_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    request_key: UUID
+    candidates: list[DecisionCandidateBody] = Field(min_length=2, max_length=3)
+    acknowledge_generation_cost: Literal[True]
+
+    @field_validator("acknowledge_generation_cost", mode="before")
+    @classmethod
+    def explicit_generation(cls, value: Any) -> Any:
+        if value is not True:
+            raise ValueError("acknowledge_generation_cost must be the boolean true")
+        return value
+
+    @model_validator(mode="after")
+    def distinct_candidates(self):
+        if len({(item.provider, item.model) for item in self.candidates}) != len(self.candidates):
+            raise ValueError("Choose distinct model candidates")
+        return self
+
+
+@router.get("/decision-samples")
+async def decision_samples(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.model_plane import decision_comparison
+
+    _require_enabled(workspace)
+    blockers = _test_blockers(db, user=user, workspace=workspace)
+    return {
+        "can_compare": not blockers,
+        "blockers": blockers,
+        "samples": []
+        if blockers
+        else decision_comparison.list_samples(db, workspace=workspace, user=user),
+    }
+
+
+@router.post("/decision-comparisons", status_code=201)
+async def compare_agent_decisions(
+    body: DecisionComparisonBody,
+    background_tasks: BackgroundTasks,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.api.v1.endpoints.flow_workbench import _authorize, _raise_workbench, _run_payload
+    from app.services.model_plane import decision_comparison
+    from app.services.run_engine.dispatch_outbox import reconcile_dispatch_outbox
+
+    _require_enabled(workspace)
+    _require_workspace_admin(db, user=user, workspace=workspace)
+    try:
+        runs = decision_comparison.create_comparison(
+            db, workspace=workspace, user=user, body=body, authorize=_authorize
+        )
+    except flow_workbench.FlowWorkbenchError as exc:
+        _raise_workbench(db, exc)
+    except Exception:
+        db.rollback()
+        raise
+    background_tasks.add_task(reconcile_dispatch_outbox)
+    metadata = runs[0].input_ref["execution"]["decision_comparison"]
+    return {
+        "batch_id": metadata["batch_id"],
+        "input_sha256": metadata["input_sha256"],
+        "generation_only": True,
+        "quality_qualified": False,
+        "runs": [_run_payload(run) for run in runs],
+    }
+
+
 def _test_flow(db: DBSession, *, system: System, workspace: Workspace) -> dict[str, Any]:
-    draft = db.query(SystemFlowDraft).filter(
-        SystemFlowDraft.system_id == system.id, SystemFlowDraft.workspace_id == workspace.id,
-    ).first()
-    return copy.deepcopy(draft.flow_definition if draft is not None else system.flow_definition or {})
+    draft = (
+        db.query(SystemFlowDraft)
+        .filter(
+            SystemFlowDraft.system_id == system.id,
+            SystemFlowDraft.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    return copy.deepcopy(
+        draft.flow_definition if draft is not None else system.flow_definition or {}
+    )
 
 
-def _test_skill(db: DBSession, *, system: System, workspace: Workspace, node: dict[str, Any], lock: bool = False) -> Skill | None:
+def _test_skill(
+    db: DBSession, *, system: System, workspace: Workspace, node: dict[str, Any], lock: bool = False
+) -> Skill | None:
     if node.get("kind", "task") != "task":
         return None
     try:
@@ -527,23 +692,35 @@ def _test_skill(db: DBSession, *, system: System, workspace: Workspace, node: di
     if not clauses:
         return None
     query = db.query(Skill).filter(
-        or_(*clauses), or_(Skill.workspace_id == workspace.id, Skill.workspace_id.is_(None)),
+        or_(*clauses),
+        or_(Skill.workspace_id == workspace.id, Skill.workspace_id.is_(None)),
     )
     skill = (query.with_for_update(of=Skill) if lock else query).first()
     if skill is None or skill.id not in (system.skill_ids or []):
         return None
-    if binding.skill_id and skill.id != binding.skill_id or binding.skill_slug and skill.slug != binding.skill_slug:
+    if (
+        binding.skill_id
+        and skill.id != binding.skill_id
+        or binding.skill_slug
+        and skill.slug != binding.skill_slug
+    ):
         return None
     return skill
 
 
-def _node_model(workspace: Workspace, system: System, skill: Skill, node: dict[str, Any], inputs: dict[str, Any]):
+def _node_model(
+    workspace: Workspace, system: System, skill: Skill, node: dict[str, Any], inputs: dict[str, Any]
+):
     from app.services.model_plane.execution import resolve_skill_model_execution
+
     config = node.get("config") if isinstance(node.get("config"), dict) else {}
     params = config.get("params") if isinstance(config.get("params"), dict) else {}
     return resolve_skill_model_execution(
-        workspace, executor=skill.executor, slug=skill.slug,
-        input_ref={**params, **inputs}, system_default_model=system.default_model,
+        workspace,
+        executor=skill.executor,
+        slug=skill.slug,
+        input_ref={**params, **inputs},
+        system_default_model=system.default_model,
     )
 
 
@@ -563,7 +740,13 @@ async def model_test_targets(
     if blockers:
         return {"can_test": False, "blockers": blockers, "targets": []}
     targets = []
-    systems = db.query(System).filter(System.workspace_id == workspace.id).order_by(System.name).limit(100).all()
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id)
+        .order_by(System.name)
+        .limit(100)
+        .all()
+    )
     for system in systems:
         try:
             _authorize(db, system_id=system.id, workspace=workspace, user=user)
@@ -577,10 +760,16 @@ async def model_test_targets(
             if skill is None:
                 continue
             schema = skill.input_schema or {}
-            defaults = {key: value["default"] for key, value in schema.get("properties", {}).items()
-                        if isinstance(value, dict) and "default" in value}
+            defaults = {
+                key: value["default"]
+                for key, value in schema.get("properties", {}).items()
+                if isinstance(value, dict) and "default" in value
+            }
             defaults.update((node.get("config") or {}).get("params") or {})
-            if "model" in schema.get("properties", {}) or schema.get("additionalProperties") is True:
+            if (
+                "model" in schema.get("properties", {})
+                or schema.get("additionalProperties") is True
+            ):
                 defaults["model"] = model
             try:
                 resolution = _node_model(workspace, system, skill, node, defaults)
@@ -588,14 +777,21 @@ async def model_test_targets(
                 continue
             if resolution is None or (resolution.provider, resolution.model) != (provider, model):
                 continue
-            targets.append({
-                "system_id": system.id, "system_name": system.name,
-                "node_id": node["id"], "node_label": node.get("label") or node["id"],
-                "skill_slug": skill.slug, "skill_name": skill.name,
-                "provider": resolution.provider, "model": resolution.model,
-                "input_schema": schema, "input_defaults": defaults,
-                "expected_flow_sha256": canonical_flow_sha256(flow),
-            })
+            targets.append(
+                {
+                    "system_id": system.id,
+                    "system_name": system.name,
+                    "node_id": node["id"],
+                    "node_label": node.get("label") or node["id"],
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "provider": resolution.provider,
+                    "model": resolution.model,
+                    "input_schema": schema,
+                    "input_defaults": defaults,
+                    "expected_flow_sha256": canonical_flow_sha256(flow),
+                }
+            )
             if len(targets) >= 50:
                 return {"can_test": True, "blockers": [], "targets": targets, "truncated": True}
     return {"can_test": True, "blockers": [], "targets": targets, "truncated": len(systems) == 100}
@@ -609,30 +805,80 @@ async def test_model_in_system(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    from app.api.v1.endpoints.flow_workbench import _authorize, WorkbenchNodeBody, create_node_preview_run
+    from app.api.v1.endpoints.flow_workbench import (
+        WorkbenchNodeBody,
+        _authorize,
+        create_node_preview_run,
+    )
     from app.services.model_plane.execution import ModelExecutionError
 
     _require_enabled(workspace)
     system = _authorize(db, system_id=body.system_id, workspace=workspace, user=user)
-    system = db.query(System).filter(System.id == system.id, System.workspace_id == workspace.id).populate_existing().with_for_update(of=System).one()
+    system = (
+        db.query(System)
+        .filter(System.id == system.id, System.workspace_id == workspace.id)
+        .populate_existing()
+        .with_for_update(of=System)
+        .one()
+    )
     flow = _test_flow(db, system=system, workspace=workspace)
     if canonical_flow_sha256(flow) != body.expected_flow_sha256:
-        raise HTTPException(409, detail={"code": "MODEL_TEST_FLOW_CHANGED", "message": "Reload the test target: its Flow has changed."})
-    nodes = [node for node in flow.get("nodes", []) if isinstance(node, dict) and node.get("id") == body.node_id]
-    skill = _test_skill(db, system=system, workspace=workspace, node=nodes[0], lock=True) if len(nodes) == 1 else None
+        raise HTTPException(
+            409,
+            detail={
+                "code": "MODEL_TEST_FLOW_CHANGED",
+                "message": "Reload the test target: its Flow has changed.",
+            },
+        )
+    nodes = [
+        node
+        for node in flow.get("nodes", [])
+        if isinstance(node, dict) and node.get("id") == body.node_id
+    ]
+    skill = (
+        _test_skill(db, system=system, workspace=workspace, node=nodes[0], lock=True)
+        if len(nodes) == 1
+        else None
+    )
     if skill is None:
-        raise HTTPException(404, detail={"code": "MODEL_TEST_TARGET_NOT_FOUND", "message": "Choose an authorized LLM node in this System."})
+        raise HTTPException(
+            404,
+            detail={
+                "code": "MODEL_TEST_TARGET_NOT_FOUND",
+                "message": "Choose an authorized LLM node in this System.",
+            },
+        )
     try:
         resolution = _node_model(workspace, system, skill, nodes[0], body.input_ref)
     except ModelExecutionError as exc:
-        raise HTTPException(400, detail={"code": getattr(exc, "code", "MODEL_EXECUTION_INVALID"), "message": str(exc)}) from exc
+        raise HTTPException(
+            400,
+            detail={"code": getattr(exc, "code", "MODEL_EXECUTION_INVALID"), "message": str(exc)},
+        ) from exc
     if resolution is None or (resolution.provider, resolution.model) != (body.provider, body.model):
-        raise HTTPException(409, detail={"code": "MODEL_TEST_BINDING_MISMATCH", "message": "The selected node does not resolve to this provider and model. Reload its definition."})
+        raise HTTPException(
+            409,
+            detail={
+                "code": "MODEL_TEST_BINDING_MISMATCH",
+                "message": "The selected node does not resolve to this provider and model. Reload its definition.",
+            },
+        )
     payload = await create_node_preview_run(
-        system_id=system.id, body=WorkbenchNodeBody(
+        system_id=system.id,
+        body=WorkbenchNodeBody(
             acknowledge_real_side_effects=body.acknowledge_real_side_effects,
-            flow_definition=flow, expected_flow_sha256=body.expected_flow_sha256,
-            node_id=body.node_id, input_ref=body.input_ref,
-        ), background_tasks=background_tasks, workspace=workspace, user=user, db=db,
+            flow_definition=flow,
+            expected_flow_sha256=body.expected_flow_sha256,
+            node_id=body.node_id,
+            input_ref=body.input_ref,
+        ),
+        background_tasks=background_tasks,
+        workspace=workspace,
+        user=user,
+        db=db,
     )
-    return {**payload, "run_url": f"/runs/{payload['id']}", "requested": {"provider": body.provider, "model": body.model}}
+    return {
+        **payload,
+        "run_url": f"/runs/{payload['id']}",
+        "requested": {"provider": body.provider, "model": body.model},
+    }

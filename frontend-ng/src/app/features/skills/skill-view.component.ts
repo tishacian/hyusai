@@ -25,6 +25,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
 import { formatSkillCost, observedSkillCost } from './skill-cost';
 import { NewSkillDialogComponent, type SkillUpdateResult } from './new-skill-dialog.component';
 import { SkillExecutionComponent } from './skill-execution.component';
+import { SkillPromptHistoryComponent } from './skill-prompt-history.component';
 
 /**
  * `SkillViewComponent` — detail page for a single Skill.
@@ -47,6 +48,7 @@ import { SkillExecutionComponent } from './skill-execution.component';
     CkPanelComponent,
     NewSkillDialogComponent,
     SkillExecutionComponent,
+    SkillPromptHistoryComponent,
   ],
   template: `
     <ck-object-header
@@ -104,6 +106,9 @@ import { SkillExecutionComponent } from './skill-execution.component';
           </div>
           <app-skill-execution [executor]="skill()?.executor" [systemId]="navigation.systemId() || undefined" />
         </section>
+        @if (skill()?.executor?.kind === 'prompt_template' && skill()?.workspace_scope === 'workspace') {
+          <app-skill-prompt-history [slug]="skill()!.slug" [canRestore]="canEdit()" (restored)="onPromptRestored()" />
+        }
       </ck-tab>
 
       <ck-tab id="invocations" label="Invocations">
@@ -309,6 +314,8 @@ export class SkillViewComponent implements OnInit, OnDestroy {
       : notice);
     this.reloadCurrentSkill();
   }
+
+  onPromptRestored(): void { this.reloadCurrentSkill(); }
 
   private reloadCurrentSkill(): void {
     this.requestSubscription?.unsubscribe();
