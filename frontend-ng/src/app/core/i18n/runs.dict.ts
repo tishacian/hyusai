@@ -6,6 +6,16 @@
  */
 
 export const RUNS_FR = {
+  "runs.detail.audit_short": "Journal",
+  "runs.sections.result": "Résultat",
+  "runs.sections.execution": "Exécution",
+  "runs.sections.quality": "Qualité",
+  "runs.sections.usage": "Usage et coûts",
+  "runs.sections.technical": "Détails techniques",
+  "runs.sections.mandate": "Instructions et mandat",
+  "runs.sections.flow": "Flow exécuté",
+  "runs.sections.timeline": "Chronologie",
+  "runs.sections.value": "Valeur déclarée et hypothèses",
   'runs.investigation.evidence_scope': 'Extraits figés lus par cette évaluation. Une source référencée ou configurée ne prouve pas sa lecture dans cette exécution ; un résultat doit être confirmé séparément.',
   'runs.investigation.source_version': 'Version de la source évaluée',
   'runs.investigation.version_not_preserved': 'Version non conservée par cette évaluation',
@@ -277,6 +287,16 @@ export const RUNS_FR = {
  * other, before the guard even runs.
  */
 export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
+  "runs.detail.audit_short": "Audit log",
+  "runs.sections.result": "Result",
+  "runs.sections.execution": "Execution",
+  "runs.sections.quality": "Quality",
+  "runs.sections.usage": "Usage and costs",
+  "runs.sections.technical": "Technical details",
+  "runs.sections.mandate": "Instructions and mandate",
+  "runs.sections.flow": "Executed Flow",
+  "runs.sections.timeline": "Timeline",
+  "runs.sections.value": "Declared value and assumptions",
   "runs.investigation.evidence_scope": "Frozen excerpts read by this evaluation. A referenced or configured source does not establish that this run read it; a result requires separate confirmation.",
   "runs.investigation.source_version": "Evaluated source version",
   "runs.investigation.version_not_preserved": "Version not retained by this evaluation",

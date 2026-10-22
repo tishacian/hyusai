@@ -3,6 +3,8 @@ import type { Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import { AgentDecisionTrailComponent } from '@app/shared/work-records/agent-decision-trail.component';
+import { TypedJudgeResultComponent } from '../../data/typed-judge-result.component';
+import { typedResult } from '../../data/dataops.models';
 import { ForecastChartComponent } from '../../data/viz/forecast-chart.component';
 import {
   flowNodeDecisionRun, flowResultSupports, projectFlowResult,
@@ -15,7 +17,7 @@ import {
 @Component({
   selector: 'app-flow-result-viewer', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ForecastChartComponent, DataTableComponent, AgentDecisionTrailComponent],
+  imports: [ForecastChartComponent, DataTableComponent, AgentDecisionTrailComponent, TypedJudgeResultComponent],
   styleUrl: './flow-result-viewer.component.scss',
   template: `
     <section class="flow-result" data-testid="flow-result-viewer" [attr.aria-label]="title() || i18n.t('flow.results.viewer.title')">
@@ -23,6 +25,8 @@ import {
         <p class="flow-result__empty" role="status">{{ i18n.t('flow.results.viewer.loading') }}</p>
       } @else if (error()) {
         <p class="flow-result__error" role="alert">{{ error() }}</p>
+      } @else if (judge()) {
+        <app-typed-judge-result [value]="judge()" [compact]="true" [runId]="run()?.id || null" [invocationId]="invocationId()" />
       } @else if (!supported()) {
         <p class="flow-result__empty" role="status">{{ i18n.t(presentation() === 'auto' ? 'flow.results.viewer.empty' : 'flow.results.viewer.incompatible') }}</p>
         @if (view().structured && !view().empty) {
@@ -123,6 +127,7 @@ export class FlowResultViewerComponent {
   /** A view preference, so a pin/expanded window can preserve the visible series. */
   readonly selectedSeriesName = model<string | null>(null);
   readonly view = computed(() => projectFlowResult(this.value(), this.datasetPreview(), this.mapping()));
+  readonly judge = computed(() => ['auto', 'quality'].includes(this.presentation()) ? typedResult(this.value()) : null);
   readonly decisionRun = computed(() => flowNodeDecisionRun(this.run(), this.nodeId(), this.invocationId()));
   readonly supported = computed(() => flowResultSupports(this.view(), this.presentation(), !!this.decisionRun()));
   readonly showDecisions = computed(() => !!this.decisionRun() && ['auto', 'decisions'].includes(this.presentation()));

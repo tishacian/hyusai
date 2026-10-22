@@ -169,6 +169,11 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "model_usage_reservations",
+        "model_usage_budget_buckets",
+        "model_usage_budget_policies",
+        "model_usage_calls",
+        "model_usage_tariffs",
         "task_executions",
         "tasks",
         "ml_runtime_attestations",

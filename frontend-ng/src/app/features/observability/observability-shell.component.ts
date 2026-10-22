@@ -12,8 +12,9 @@ import { ActivitiesComponent } from './activities/activities.component';
 import { QualityDashboardComponent } from './quality-dashboard.component';
 import { PerformanceDashboardComponent } from './performance-dashboard.component';
 import { TracesFacetComponent } from './traces-facet.component';
+import { UsageDashboardComponent } from './usage/usage-dashboard.component';
 import {
-  resolveObservabilityFacet, observabilityPeriod, observabilityAnchor,
+  resolveObservabilityFacet, observabilityPeriod, observabilityAnchor, formatObservabilityAnchor,
   type ObservabilityFacet,
 } from './observability-facets';
 
@@ -38,6 +39,7 @@ interface Tab {
     QualityDashboardComponent,
     PerformanceDashboardComponent,
     TracesFacetComponent,
+    UsageDashboardComponent,
   ],
   template: `
     <div
@@ -86,21 +88,22 @@ interface Tab {
       </div>
     </div>
 
-    @if (facet() === 'operations' || facet() === 'activities' || facet() === 'quality') {
+    @if (facet() === 'operations' || facet() === 'activities' || facet() === 'quality' || (facet() === 'usage' && !usageBudgets())) {
       <div class="observation-window" data-testid="observation-window">
         <label>{{ i18n.t('observability.charts.period') }}
           <select [ngModel]="period()" (ngModelChange)="setPeriod($event)">
-            @for (period of ['24h','7d','30d']; track period) { <option [value]="period">{{ period }}</option> }
+            @for (period of periods(); track period) { <option [value]="period">{{ period }}</option> }
           </select>
         </label>
-        <span>{{ i18n.t('observability.window.as_of') }} <time>{{ anchor() }}</time></span>
+        <span>{{ i18n.t('observability.window.as_of') }} <time [attr.datetime]="anchor()">{{ anchorLabel() }}</time></span>
         <button type="button" (click)="refreshAnchor()">{{ i18n.t('common.refresh') }}</button>
       </div>
-    } @else { <p class="observation-window">{{ i18n.t('observability.window.not_applied') }}</p> }
+    } @else { <p class="observation-window">{{ i18n.t(usageBudgets() ? 'observability.usage.budget_window' : 'observability.window.not_applied') }}</p> }
     @switch (facet()) {
       @case ('quality') {
         <app-quality-dashboard />
       }
+      @case ('usage') { <app-usage-dashboard /> }
       @case ('performance') {
         <app-performance-dashboard />
       }
@@ -134,11 +137,15 @@ export class ObservabilityShellComponent implements OnDestroy {
   readonly activitiesEnabled = signal(false);
   private readonly initialAnchor = new Date().toISOString();
   readonly anchor = computed(() => observabilityAnchor(this.router.parseUrl(this.url()).queryParams['as_of'] ?? null, this.initialAnchor));
+  readonly anchorLabel = computed(() => formatObservabilityAnchor(this.anchor(), this.i18n.locale()));
   readonly period = computed(() => observabilityPeriod(this.router.parseUrl(this.url()).queryParams['since'] ?? null));
+  readonly usageBudgets = computed(() => this.facet() === 'usage' && this.router.parseUrl(this.url()).queryParams['usageView'] === 'budgets');
+  readonly periods = computed(() => this.facet() === 'quality' || this.facet() === 'usage' ? ['24h','7d','30d','90d'] : ['24h','7d','30d']);
   readonly tabs = computed(() => ([
     { label: 'observability.tabs.operations', glyph: 'telemetry', facet: 'operations' },
     ...(this.activitiesEnabled() ? [{ label: 'observability.tabs.activities', glyph: 'ledger' as CkGlyphName, facet: 'activities' as ObservabilityFacet }] : []),
     { label: 'observability.charts.page_title', glyph: 'pulse', facet: 'quality' },
+    { label: 'observability.usage.title', glyph: 'ledger', facet: 'usage' },
     { label: 'observability.tabs.performance', glyph: 'telemetry', facet: 'performance' },
     { label: 'observability.tabs.traces', glyph: 'ledger', facet: 'traces' },
   ] as Tab[]));
@@ -160,7 +167,7 @@ export class ObservabilityShellComponent implements OnDestroy {
   selectFacet(facet: ObservabilityFacet): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { facet, activityId: facet === 'activities' ? this.router.parseUrl(this.url()).queryParams['activityId'] || null : null, as_of: this.anchor(), since: this.period() },
+      queryParams: { facet, activityId: facet === 'activities' ? this.router.parseUrl(this.url()).queryParams['activityId'] || null : null, as_of: this.anchor(), since: this.period() === '90d' && !['quality','usage'].includes(facet) ? '30d' : this.period() },
       queryParamsHandling: 'merge',
     });
   }
@@ -172,8 +179,9 @@ export class ObservabilityShellComponent implements OnDestroy {
   private normalizeUrl(): void {
     if (this.destroyed) return;
     const q = this.router.parseUrl(this.url()).queryParams;
-    if (q['facet'] === this.facet() && q['since'] === this.period() && q['as_of'] === this.anchor() && !q['system_id']) return;
-    void this.router.navigate([], { relativeTo: this.route, queryParams: { facet: this.facet(), since: this.period(), as_of: this.anchor(), systemId: q['systemId'] || q['system_id'] || null, system_id: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    const since = this.period() === '90d' && !['quality','usage'].includes(this.facet()) ? '30d' : this.period();
+    if (q['facet'] === this.facet() && q['since'] === since && q['as_of'] === this.anchor() && !q['system_id']) return;
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { facet: this.facet(), since, as_of: this.anchor(), systemId: q['systemId'] || q['system_id'] || null, system_id: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
   setPeriod(since: string): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { since: observabilityPeriod(since), offset: null }, queryParamsHandling: 'merge' }); }
   refreshAnchor(): void { void this.router.navigate([], { relativeTo: this.route, queryParams: { as_of: new Date().toISOString(), offset: null }, queryParamsHandling: 'merge' }); }

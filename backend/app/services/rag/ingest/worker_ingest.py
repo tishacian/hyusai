@@ -28,7 +28,6 @@ from app.services.collection_source_backing import (
     source_locator,
 )
 from app.services.document_intelligence import clear_collection_document_facts
-from app.services.rag.ingest.parser.factory import DocumentParserFactory
 from app.services.knowledge_collections import (
     create_worker_job,
     document_manifest_key,
@@ -48,6 +47,7 @@ from app.services.object_store import get_object_store
 from app.services.ocr import resolve_ocr_config_for_workspace
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
+from app.services.rag.ingest.parser.factory import DocumentParserFactory
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.table_intelligence import clear_collection_table_facts
 
@@ -1260,4 +1260,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
 
 def run_document_ingest_index(job_id: str) -> dict:
     """Synchronous entrypoint used by Celery and eager-mode tests."""
-    return asyncio.run(_run_document_ingest_index_async(job_id))
+    from app.services.model_usage_jobs import job_usage_scope
+
+    with job_usage_scope(job_id, kind="worker", purpose="embedding", traffic="ingestion"):
+        return asyncio.run(_run_document_ingest_index_async(job_id))

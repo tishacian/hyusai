@@ -792,6 +792,8 @@ export type NavLinkInput =
       runId?: string;
       lens?: CockpitLens | null;
       facet?: string | null;
+      /** Exact evidence selection (evaluationId, invocationId, etc.). */
+      params?: Record<string, string | null | undefined>;
     }
   | {
       surface: string;
@@ -1532,13 +1534,14 @@ export function resolveNavLink(
   const lens = 'lens' in input && input.lens !== undefined ? input.lens : context.lens;
 
   if ('type' in input) {
+    const url = navigationObjectUrl(input.type, input.ref, {
+      ...context.ancestry,
+      runId: input.runId ?? context.ancestry.runId,
+      lens,
+      facet: input.facet,
+    });
     return {
-      url: navigationObjectUrl(input.type, input.ref, {
-        ...context.ancestry,
-        runId: input.runId ?? context.ancestry.runId,
-        lens,
-        facet: input.facet,
-      }),
+      url: input.params ? appendExtraQuery(url, input.params) : url,
       replaceUrl: false,
     };
   }

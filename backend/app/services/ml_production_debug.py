@@ -95,6 +95,7 @@ def _legacy_label():
 def _served_by(model: MLModel, since=None, until=None) -> list[Any]:
     return [
         MLPrediction.workspace_id == model.workspace_id,
+        MLPrediction.evaluation_campaign_id.is_(None),
         MLPrediction.served_id == model.id,
         *_window_filters(since, until),
     ]

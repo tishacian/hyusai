@@ -1,9 +1,10 @@
 """
 OpenAI LLM provider implementation.
 """
+
+import logging
 import os
 import time
-import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -13,15 +14,17 @@ except ImportError:  # pragma: no cover - exercised in minimal local envs
     AsyncOpenAI = None  # type: ignore[assignment]
 
 from app.core.config import settings
+from app.services.model_usage_transport import response_usage
+
 from ..base import LLMProvider
 from ..models import (
+    Choice,
     CompletionRequest,
     CompletionResponse,
-    Choice,
     Message,
     MessageRole,
-    StreamingResponse,
     StreamChoice,
+    StreamingResponse,
     TokenUsage,
 )
 
@@ -36,12 +39,21 @@ class OpenAIProvider(LLMProvider):
 
     # Default base URL for OpenAI API
     DEFAULT_BASE_URL = "https://api.openai.com/v1"
-    
+
     # Models that require special handling (thinking models)
-    THINKING_MODELS = ["o3-mini", "o1-mini", "o1", "o4-mini", "o3", "gpt-5", "gpt-5-mini", "gpt-5-nano"]
-    
+    THINKING_MODELS = [
+        "o3-mini",
+        "o1-mini",
+        "o1",
+        "o4-mini",
+        "o3",
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
+    ]
+
     DEFAULT_MODEL = "gpt-5"
-    
+
     # Model pricing per 1000 tokens
     MODEL_PRICING = {
         "gpt-4": {"input": 0.03, "output": 0.06},
@@ -64,15 +76,12 @@ class OpenAIProvider(LLMProvider):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OpenAI API key is required")
-            
+
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL", self.DEFAULT_BASE_URL)
         if AsyncOpenAI is None:
             raise RuntimeError("OpenAI package not installed. Install with: pip install openai")
 
-        self.client = AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+        self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _is_thinking_model(self, model: str) -> bool:
         """Check if the model is a thinking model."""
@@ -80,31 +89,31 @@ class OpenAIProvider(LLMProvider):
 
     def _uses_responses_api(self) -> bool:
         return bool(settings.openai_responses_api_enabled)
-    
+
     def _prepare_api_params(self, request: CompletionRequest, streaming: bool = False) -> dict:
         """
         Prepare parameters for OpenAI API call.
-        
+
         Args:
             request: Validated CompletionRequest
             streaming: Whether this is for streaming
-            
+
         Returns:
             Dictionary of parameters for OpenAI API
         """
         # Use default model if not specified
         model = request.model or os.getenv("OPENAI_DEFAULT_MODEL", self.DEFAULT_MODEL)
-        
+
         params = {
             "model": model,
             "messages": request.messages_as_dicts(),
         }
-        
+
         if streaming:
             params["stream"] = True
-        
+
         is_thinking = self._is_thinking_model(model)
-        
+
         # For thinking models (o1, o3, etc.)
         if is_thinking:
             logging.debug(f"Using thinking model: {model}")
@@ -115,7 +124,7 @@ class OpenAIProvider(LLMProvider):
             effort = request.reasoning_effort or getattr(settings, "openai_reasoning_effort", None)
             if effort:
                 params["reasoning_effort"] = effort
-            
+
             if request.max_completion_tokens is not None:
                 params["max_completion_tokens"] = request.max_completion_tokens
             elif request.max_tokens is not None:
@@ -124,10 +133,10 @@ class OpenAIProvider(LLMProvider):
             # For standard models
             if request.temperature is not None:
                 params["temperature"] = request.temperature
-            
+
             if request.max_tokens is not None:
                 params["max_tokens"] = request.max_tokens
-        
+
         # Add other common parameters
         if request.top_p is not None:
             params["top_p"] = request.top_p
@@ -151,7 +160,7 @@ class OpenAIProvider(LLMProvider):
             params["top_logprobs"] = request.top_logprobs
         if request.user:
             params["user"] = request.user
-        
+
         return params
 
     def _prepare_responses_params(self, request: CompletionRequest) -> dict:
@@ -197,10 +206,7 @@ class OpenAIProvider(LLMProvider):
             params["top_p"] = request.top_p
         if request.user:
             params["user"] = request.user
-        if (
-            is_thinking
-            and settings.openai_responses_include_reasoning_encrypted_content
-        ):
+        if is_thinking and settings.openai_responses_include_reasoning_encrypted_content:
             params["include"] = ["reasoning.encrypted_content"]
         return params
 
@@ -219,26 +225,21 @@ class OpenAIProvider(LLMProvider):
 
     @staticmethod
     def _responses_usage(response: Any) -> TokenUsage | None:
-        usage = getattr(response, "usage", None)
-        if not usage:
+        counters = response_usage(response, provider="openai")
+        if counters is None or not all(
+            key in counters for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        ):
             return None
-        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
-        total_tokens = int(getattr(usage, "total_tokens", input_tokens + output_tokens) or 0)
-        return TokenUsage(
-            prompt_tokens=input_tokens,
-            completion_tokens=output_tokens,
-            total_tokens=total_tokens,
-        )
-    
+        return TokenUsage(**counters)
+
     def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
         """
         Calculate costs based on model pricing.
-        
+
         Args:
             usage: Token usage object
             model: Model name
-            
+
         Returns:
             Updated usage with costs
         """
@@ -249,13 +250,10 @@ class OpenAIProvider(LLMProvider):
                 usage.completion_cost = usage.completion_tokens * pricing["output"] / 1000
                 usage.total_cost = usage.prompt_cost + usage.completion_cost
                 break
-        
+
         return usage
 
-    async def generate(
-        self,
-        request: CompletionRequest
-    ) -> CompletionResponse:
+    async def generate(self, request: CompletionRequest) -> CompletionResponse:
         """
         Generate a response using OpenAI's API.
 
@@ -296,13 +294,13 @@ class OpenAIProvider(LLMProvider):
 
         # Prepare API parameters
         params = self._prepare_api_params(request)
-        
+
         # Make the API call
         response = await self.client.chat.completions.create(**params)
-        
+
         # Calculate response time
         response_ms = (time.time() - start_time) * 1000
-        
+
         # Convert OpenAI response to our typed response
         choices = []
         for choice in response.choices:
@@ -310,47 +308,40 @@ class OpenAIProvider(LLMProvider):
                 role=MessageRole.ASSISTANT,
                 content=choice.message.content,
             )
-            
+
             # Tool/function calls are not supported in this repo
-            
+
             choices.append(
                 Choice(
                     index=choice.index,
                     message=message,
                     finish_reason=choice.finish_reason,
-                    logprobs=choice.logprobs if hasattr(choice, 'logprobs') else None
+                    logprobs=choice.logprobs if hasattr(choice, "logprobs") else None,
                 )
             )
-        
+
         # Build usage info
         usage = None
         if response.usage:
-            usage = TokenUsage(
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens
-            )
-            
-            # Add reasoning tokens if present (for thinking models)
-            if hasattr(response.usage, 'reasoning_tokens'):
-                usage.reasoning_tokens = response.usage.reasoning_tokens
-            
+            usage = self._responses_usage(response)
+
             # Calculate costs
-            usage = self._calculate_costs(usage, response.model)
-        
+            usage = self._calculate_costs(usage, response.model) if usage else None
+
         return CompletionResponse(
             id=response.id,
             model=response.model,
             created=response.created,
             choices=choices,
             usage=usage,
-            system_fingerprint=response.system_fingerprint if hasattr(response, 'system_fingerprint') else None,
-            response_ms=response_ms
+            system_fingerprint=response.system_fingerprint
+            if hasattr(response, "system_fingerprint")
+            else None,
+            response_ms=response_ms,
         )
 
     async def stream_generate(
-        self,
-        request: CompletionRequest
+        self, request: CompletionRequest
     ) -> AsyncGenerator[StreamingResponse, None]:
         """
         Stream a response using OpenAI's API.
@@ -368,6 +359,16 @@ class OpenAIProvider(LLMProvider):
             chunk_count = 0
             async with self.client.responses.stream(**params) as stream:
                 async for event in stream:
+                    if getattr(event, "type", None) == "response.completed":
+                        final = getattr(event, "response", None)
+                        yield StreamingResponse(
+                            id=getattr(final, "id", request.request_id),
+                            model=getattr(final, "model", model),
+                            created=created,
+                            choices=[],
+                            usage=self._responses_usage(final),
+                        )
+                        continue
                     if getattr(event, "type", None) != "response.output_text.delta":
                         continue
                     delta = getattr(event, "delta", "") or ""
@@ -391,65 +392,54 @@ class OpenAIProvider(LLMProvider):
 
         # Prepare API parameters
         params = self._prepare_api_params(request, streaming=True)
-        
+        params["stream_options"] = {"include_usage": True}
+
         # Make the streaming API call
         stream = await self.client.chat.completions.create(**params)
-        
+
         chunk_count = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
-        
+
         # Process each chunk
         async for chunk in stream:
             chunk_count += 1
-            
+
             # Convert OpenAI chunk to our typed streaming response
             choices = []
             for choice in chunk.choices:
                 delta_dict = {}
-                
+
                 if choice.delta.content is not None:
                     delta_dict["content"] = choice.delta.content
-                
-                if hasattr(choice.delta, 'role') and choice.delta.role:
+
+                if hasattr(choice.delta, "role") and choice.delta.role:
                     delta_dict["role"] = choice.delta.role
-                
+
                 # Tool/function deltas are not supported
-                
+
                 choices.append(
                     StreamChoice(
-                        index=choice.index,
-                        delta=delta_dict,
-                        finish_reason=choice.finish_reason
+                        index=choice.index, delta=delta_dict, finish_reason=choice.finish_reason
                     )
                 )
-            
+
             # Build usage info if present (usually in the last chunk)
             usage = None
-            if hasattr(chunk, 'usage') and chunk.usage:
-                total_prompt_tokens = chunk.usage.prompt_tokens
-                total_completion_tokens = chunk.usage.completion_tokens
-                
-                usage = TokenUsage(
-                    prompt_tokens=total_prompt_tokens,
-                    completion_tokens=total_completion_tokens,
-                    total_tokens=total_prompt_tokens + total_completion_tokens
-                )
-                
-                # Add reasoning tokens if present
-                if hasattr(chunk.usage, 'reasoning_tokens'):
-                    usage.reasoning_tokens = chunk.usage.reasoning_tokens
-                
-                # Calculate costs
-                usage = self._calculate_costs(usage, chunk.model)
-            
+            if hasattr(chunk, "usage") and chunk.usage:
+                usage = self._responses_usage(chunk)
+                if usage:
+                    usage = self._calculate_costs(usage, chunk.model)
+
             yield StreamingResponse(
                 id=chunk.id,
                 model=chunk.model,
                 created=chunk.created,
                 choices=choices,
                 usage=usage,
-                system_fingerprint=chunk.system_fingerprint if hasattr(chunk, 'system_fingerprint') else None
+                system_fingerprint=chunk.system_fingerprint
+                if hasattr(chunk, "system_fingerprint")
+                else None,
             )
-        
+
         logging.debug(f"Streaming complete: {chunk_count} chunks")

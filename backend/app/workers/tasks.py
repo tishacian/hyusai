@@ -1001,29 +1001,37 @@ def scheduler_tick_task() -> dict:
 @celery_app.task(name="agentium.run_evaluation", acks_late=True, reject_on_worker_lost=True)
 def run_evaluation(job_id: str) -> dict:
     from app.services.evaluation.lifecycle import run_evaluation_job
+    from app.services.model_usage_jobs import job_usage_scope
 
-    return run_evaluation_job(job_id)
+    with job_usage_scope(job_id, purpose="judge"):
+        return run_evaluation_job(job_id)
 
 
 @celery_app.task(name="agentium.evaluation_campaign", acks_late=True, reject_on_worker_lost=True)
 def evaluation_campaign(job_id: str) -> dict:
     from app.services.evaluation.campaigns import run_campaign_job
+    from app.services.model_usage_jobs import job_usage_scope
 
-    return run_campaign_job(job_id)
+    with job_usage_scope(job_id, purpose="offline_evaluation", traffic="evaluation"):
+        return run_campaign_job(job_id)
 
 
 @celery_app.task(name="agentium.evaluation_generation", acks_late=True, reject_on_worker_lost=True)
 def evaluation_generation(job_id: str) -> dict:
     from app.services.evaluation.campaigns import run_generation_job
+    from app.services.model_usage_jobs import job_usage_scope
 
-    return run_generation_job(job_id)
+    with job_usage_scope(job_id, purpose="test_generation", traffic="evaluation"):
+        return run_generation_job(job_id)
 
 
 @celery_app.task(name="agentium.brd_generation", acks_late=True, reject_on_worker_lost=True)
 def brd_generation(job_id: str) -> dict:
+    from app.services.model_usage_jobs import job_usage_scope
     from app.services.skills_registry.brd_generation import run_generation_job
 
-    return run_generation_job(job_id)
+    with job_usage_scope(job_id, traffic="preview"):
+        return run_generation_job(job_id)
 
 
 @celery_app.task(
@@ -1053,7 +1061,9 @@ def dataops_score_task(execution_id: str):
 
 
 @celery_app.task(
-    name="agentium.dataops_build_sample", acks_late=True, reject_on_worker_lost=True,
+    name="agentium.dataops_build_sample",
+    acks_late=True,
+    reject_on_worker_lost=True,
     time_limit=runtime_settings.dataops_t0_max_timeout_s + 60,
     soft_time_limit=runtime_settings.dataops_t0_max_timeout_s + 30,
 )
@@ -1063,7 +1073,9 @@ def dataops_build_sample_task(job_id: str):
     return run_sample(job_id)
 
 
-@celery_app.task(name="agentium.dataops_sample_recovery", acks_late=True, reject_on_worker_lost=True)
+@celery_app.task(
+    name="agentium.dataops_sample_recovery", acks_late=True, reject_on_worker_lost=True
+)
 def dataops_sample_recovery_task():
     from app.services.dataops.samples import recover_samples
 
@@ -1073,4 +1085,5 @@ def dataops_sample_recovery_task():
 @celery_app.task(name="agentium.execution_run", acks_late=True, reject_on_worker_lost=True)
 def execution_run_task(run_id: str):
     from app.services.execution.run_worker import execute
+
     return execute(run_id)

@@ -9,7 +9,7 @@ an ingest is still running.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -71,6 +71,7 @@ async def list_datasets(
     status: Optional[str] = Query(default=None, max_length=16),
     system_id: Optional[str] = Query(default=None, max_length=36),
     limit: int = Query(default=100, ge=1, le=500),
+    traffic: Literal["business", "evaluation", "all"] = "business",
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -79,6 +80,10 @@ async def list_datasets(
         TabularDataset.workspace_id == workspace.id,
         TabularDataset.status != "deleted",
     )
+    if traffic == "business":
+        query = query.filter(TabularDataset.evaluation_campaign_id.is_(None))
+    elif traffic == "evaluation":
+        query = query.filter(TabularDataset.evaluation_campaign_id.is_not(None))
     if source:
         query = query.filter(TabularDataset.source == source)
     if status:
@@ -364,6 +369,7 @@ async def get_dataset_detail(
         db.query(TabularDataset)
         .filter(
             TabularDataset.workspace_id == workspace.id,
+            TabularDataset.evaluation_campaign_id.is_(None),
             TabularDataset.status != "deleted",
             TabularDataset.parent_ids.isnot(None),
         )
@@ -378,6 +384,7 @@ async def get_dataset_detail(
         db.query(TabularDataset)
         .filter(
             TabularDataset.workspace_id == workspace.id,
+            TabularDataset.evaluation_campaign_id.is_(None),
             TabularDataset.slug == dataset.slug,
             TabularDataset.status != "deleted",
         )
@@ -452,8 +459,14 @@ async def reingest_dataset(
         dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
     except TabularError as exc:
         _raise_tabular(exc)
-    if dataset.status not in {"failed","pending"}:
-        raise HTTPException(409,detail={"code":"DATASET_IMMUTABLE_VERSION","message":"Upload a new version to change a ready dataset."})
+    if dataset.status not in {"failed", "pending"}:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "DATASET_IMMUTABLE_VERSION",
+                "message": "Upload a new version to change a ready dataset.",
+            },
+        )
     if not dataset.upload_key:
         raise HTTPException(
             status_code=409,
@@ -487,7 +500,7 @@ async def delete_dataset(
     except TabularError as exc:
         _raise_tabular(exc)
     try:
-        dataset = soft_delete(db,dataset)
+        dataset = soft_delete(db, dataset)
     except TabularError as exc:
         _raise_tabular(exc)
     return {"dataset": serialize_dataset(dataset)}
@@ -495,9 +508,11 @@ async def delete_dataset(
 
 @router.get("/{dataset_id}/download")
 async def download_dataset(
-    dataset_id: str, format: str = Query(default="parquet", pattern="^(parquet|csv)$"),
+    dataset_id: str,
+    format: str = Query(default="parquet", pattern="^(parquet|csv)$"),
     workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     from fastapi.responses import StreamingResponse
 
@@ -507,23 +522,38 @@ async def download_dataset(
     try:
         dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
         if dataset.status != "ready":
-            raise TabularError(code="DATASET_NOT_READY", message="Only ready datasets can be downloaded.", status_code=409)
+            raise TabularError(
+                code="DATASET_NOT_READY",
+                message="Only ready datasets can be downloaded.",
+                status_code=409,
+            )
         arrow = await run_in_threadpool(open_dataset_arrow, dataset)
     except TabularError as exc:
         _raise_tabular(exc)
     except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(409, detail={"code": "DATASET_EXPORT_UNAVAILABLE", "message": "The committed dataset cannot be read."}) from exc
-    return StreamingResponse(stream_dataset(dataset, format=format, arrow=arrow),
-                             media_type="text/csv" if format == "csv" else "application/vnd.apache.parquet",
-                             headers={"Content-Disposition": f'attachment; filename="dataset.{format}"'})
+        raise HTTPException(
+            409,
+            detail={
+                "code": "DATASET_EXPORT_UNAVAILABLE",
+                "message": "The committed dataset cannot be read.",
+            },
+        ) from exc
+    return StreamingResponse(
+        stream_dataset(dataset, format=format, arrow=arrow),
+        media_type="text/csv" if format == "csv" else "application/vnd.apache.parquet",
+        headers={"Content-Disposition": f'attachment; filename="dataset.{format}"'},
+    )
 
 
 @router.post("/{dataset_id}/purge", status_code=202)
 async def request_dataset_purge(
-    dataset_id: str, workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+    dataset_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     from app.services.dataops.purge import request_purge
+
     try:
         job = request_purge(db, workspace=workspace, user=user, dataset_id=dataset_id)
         db.commit()

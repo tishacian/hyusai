@@ -220,6 +220,11 @@ class ActivityBlockSettings(BaseModel):
     )
 
 
+class AssuranceBlockSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    traffic: Literal["business", "evaluation", "all"] = "business"
+
+
 class FinancialScenarioSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     manual_minutes: Optional[float] = Field(None, ge=0, le=1440, allow_inf_nan=False, strict=True)
@@ -246,6 +251,8 @@ class HypervisorBlockRef(BaseModel):
             self.settings = ActivityBlockSettings.model_validate(self.settings).model_dump()
         elif self.type == "financial_scenario":
             self.settings = FinancialScenarioSettings.model_validate(self.settings).model_dump()
+        elif self.type in {"quality", "ai_usage"}:
+            self.settings = AssuranceBlockSettings.model_validate(self.settings).model_dump()
         return self
 
 
@@ -276,12 +283,12 @@ class HypervisorView(BaseModel):
                 item if isinstance(item, str) else item.type
                 for item in getattr(self.strata, name)
                 if (item if isinstance(item, str) else item.type)
-                in {"activity", "financial_scenario"}
+                in {"activity", "financial_scenario", "quality", "ai_usage"}
             ]
             if products and name != "comprendre":
-                raise ValueError("Activity and scenario blocks belong in Comprendre")
+                raise ValueError("Product measurement blocks belong in Comprendre")
             if len(products) != len(set(products)):
-                raise ValueError("Use one activity and one scenario block per view")
+                raise ValueError("Use each product measurement block at most once per view")
         return self
 
 
@@ -1176,8 +1183,14 @@ def _format_roi(ratio: float) -> str:
 
 
 def _model_monitor_signal(r: Run):
-    return next((item for item in reversed(r.checkpoints or [])
-                 if isinstance(item, dict) and item.get("kind") == "ml_monitoring_snapshot"), None)
+    return next(
+        (
+            item
+            for item in reversed(r.checkpoints or [])
+            if isinstance(item, dict) and item.get("kind") == "ml_monitoring_snapshot"
+        ),
+        None,
+    )
 
 
 def _signal_label(r: Run) -> str:
@@ -1602,14 +1615,22 @@ def _maybe_record_eval_feedback(
             f"unknown feedback_label {label!r}; expected one of {list(FEEDBACK_LABELS)}",
         )
 
+    # A later Judge/retry must not steal feedback for the reviewed decision.
+    # Historical decisions without an identity retain an explicitly unlinked
+    # review instead of guessing from the newest score on the Run.
+    evaluation_id = (decision.rationale or {}).get("evaluation_id")
     score = (
-        db.query(EvaluationScore)
-        .filter(
-            EvaluationScore.run_id == run_id,
-            EvaluationScore.workspace_id == decision.workspace_id,
+        (
+            db.query(EvaluationScore)
+            .filter(
+                EvaluationScore.id == evaluation_id,
+                EvaluationScore.run_id == run_id,
+                EvaluationScore.workspace_id == decision.workspace_id,
+            )
+            .first()
         )
-        .order_by(EvaluationScore.created_at.desc())
-        .first()
+        if evaluation_id
+        else None
     )
 
     try:

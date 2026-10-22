@@ -16,6 +16,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import error_handler_middleware
+from app.core.model_usage_middleware import ModelUsageContextMiddleware
 from app.core.monitoring import metrics_collector
 from app.core.settings_manager import get_settings_manager
 from app.db.base import Base, SessionLocal, engine
@@ -112,13 +113,13 @@ async def lifespan(app: FastAPI):
     if startup_reconciliation_enabled:
         try:
             from app.db.base import SessionLocal
+            from app.services.mission_room import ensure_sentinel_ci_workspace
             from app.services.systems.bootstrap import (
                 ensure_client360_pdr_system_for_all_workspaces,
                 ensure_expert_capture_system_for_all_workspaces,
                 ensure_fse_report_system_for_andritz,
                 ensure_workspace_chat_system_for_all_workspaces,
             )
-            from app.services.mission_room import ensure_sentinel_ci_workspace
 
             with SessionLocal() as _db:
                 sentinel_report = ensure_sentinel_ci_workspace(_db)
@@ -171,6 +172,7 @@ async def lifespan(app: FastAPI):
 
     try:
         from app.services.intelligence.scheduler import stop_scheduler
+
         stop_scheduler()
     except Exception:
         pass
@@ -189,6 +191,7 @@ app = FastAPI(
 )
 
 app.middleware("http")(error_handler_middleware)
+app.add_middleware(ModelUsageContextMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

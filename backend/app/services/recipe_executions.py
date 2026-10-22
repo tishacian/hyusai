@@ -139,7 +139,9 @@ def dispatch_execution(db: DBSession, execution: RecipeExecution, *, code: str) 
     return async_result.id
 
 
-def request_cancel(db: DBSession, execution: RecipeExecution, *, commit: bool = True) -> RecipeExecution:
+def request_cancel(
+    db: DBSession, execution: RecipeExecution, *, commit: bool = True
+) -> RecipeExecution:
     """Cooperative cancel; a still-queued task is also revoked best-effort."""
 
     execution = (
@@ -207,6 +209,7 @@ def finalize_execution(
             execution.finished_at - execution.started_at
         ).total_seconds() * 1000
     from app.services.dataops.compute_registry import finalize as finalize_compute
+
     finalize_compute(execution)
 
 
@@ -214,6 +217,7 @@ def serialize_execution(execution: RecipeExecution) -> dict[str, Any]:
     return {
         "id": execution.id,
         "run_id": execution.run_id,
+        "evaluation_campaign_id": execution.evaluation_campaign_id,
         "node_id": execution.node_id,
         "invocation_id": execution.invocation_id,
         "env_id": execution.env_id,
@@ -347,6 +351,7 @@ def cancel_requested(db: DBSession, execution_id: str) -> bool:
     if value:
         return True
     from app.services.dataops.compute_registry import poll as poll_compute
+
     return poll_compute(db, execution_id)
 
 

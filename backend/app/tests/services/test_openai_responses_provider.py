@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.llm.providers.openai_provider as openai_provider
 from app.core.config import settings
 from app.llm.models import CompletionRequest
-import app.llm.providers.openai_provider as openai_provider
 from app.llm.providers.openai_provider import OpenAIProvider
 
 
@@ -42,7 +42,21 @@ class FakeResponsesStream:
         async def _events():
             yield SimpleNamespace(type="response.output_text.delta", delta="hel")
             yield SimpleNamespace(type="response.output_text.delta", delta="lo")
-            yield SimpleNamespace(type="response.completed", delta="")
+            yield SimpleNamespace(
+                type="response.completed",
+                delta="",
+                response=SimpleNamespace(
+                    id="resp-stream",
+                    model="gpt-5",
+                    usage=SimpleNamespace(
+                        input_tokens=4,
+                        output_tokens=2,
+                        total_tokens=6,
+                        input_tokens_details=SimpleNamespace(cached_tokens=2),
+                        output_tokens_details=SimpleNamespace(reasoning_tokens=1),
+                    ),
+                ),
+            )
 
         return _events()
 
@@ -100,4 +114,8 @@ async def test_openai_stream_uses_responses_api_deltas():
 
     kwargs = FakeAsyncOpenAI.last_instance.responses.stream_kwargs
     assert kwargs["store"] is False
-    assert [c.choices[0].delta["content"] for c in chunks] == ["hel", "lo"]
+    assert [c.choices[0].delta["content"] for c in chunks if c.choices] == ["hel", "lo"]
+    assert len([c for c in chunks if c.usage]) == 1
+    assert chunks[-1].usage.total_tokens == 6
+    assert chunks[-1].usage.cached_tokens == 2
+    assert chunks[-1].usage.reasoning_tokens == 1

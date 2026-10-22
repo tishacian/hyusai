@@ -80,7 +80,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
       this.systemId = params.get('systemId') || params.get('system_id') || '';
       this.scope.set(requestedScope === 'platform' ? 'platform' : this.systemId || requestedScope === 'system' ? 'system' : 'workspace');
       this.kind = params.get('kind') || ''; this.status = params.get('status') || '';
-      this.since = ['24h', '7d', '30d'].includes(params.get('since') || '') ? params.get('since')! : '7d';
+      this.since = params.get('since') === '90d' ? '30d' : ['24h', '7d', '30d'].includes(params.get('since') || '') ? params.get('since')! : '7d';
       this.asOf = observabilityAnchor(params.get('as_of'), this.asOf);
       this.appliedFilters.set({ systemId: this.systemId, kind: this.kind, status: this.status, since: this.since, asOf: this.asOf });
       this.offset.set(Math.max(0, Number(params.get('offset')) || 0));

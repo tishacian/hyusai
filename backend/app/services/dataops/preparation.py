@@ -93,14 +93,27 @@ def submit_preparation(
     existing = db.get(RecipeExecution, identity)
     if existing:
         return existing
+    from app.services.evaluation.isolation import dataset_slug, validate_inputs
+
+    evaluation_campaign_id = validate_inputs(
+        db, run_id=run_id, workspace_id=workspace_id, datasets=datasets.values()
+    )
     outputs = {}
     for output in spec.outputs:
-        slug = slugify(output.name)
+        slug, _ = dataset_slug(
+            db, workspace_id=workspace_id, name=output.name, run_id=run_id, node_id=node_id
+        )
         if db.bind.dialect.name == "postgresql":
             lock = int.from_bytes(
                 hashlib.sha256(f"{workspace_id}/{slug}".encode()).digest()[:8], "big", signed=True
             )
             db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+        if output.append_version_of:
+            pinned = resolve_dataset_ref(
+                db, workspace_id=workspace_id, ref={"dataset_id": output.append_version_of}
+            )
+            if pinned.evaluation_campaign_id != evaluation_campaign_id or pinned.slug != slug:
+                raise ValueError("DATAPREP_APPEND_SLUG_MISMATCH")
         previous = (
             db.query(TabularDataset)
             .filter_by(workspace_id=workspace_id, slug=slug)
@@ -120,13 +133,7 @@ def submit_preparation(
                 and producer_run.workspace_id == workspace_id
                 and previous.system_id == producer_run.system_id
             )
-            if output.append_version_of:
-                pinned = resolve_dataset_ref(
-                    db, workspace_id=workspace_id, ref={"dataset_id": output.append_version_of}
-                )
-                if pinned.slug != slug:
-                    raise ValueError("DATAPREP_APPEND_SLUG_MISMATCH")
-            elif not same_producer:
+            if not output.append_version_of and not same_producer:
                 raise ValueError("DATAPREP_OUTPUT_SLUG_TAKEN")
         row = reserve_frame(
             db,
@@ -164,6 +171,7 @@ def submit_preparation(
     execution = RecipeExecution(
         id=identity,
         workspace_id=workspace_id,
+        evaluation_campaign_id=evaluation_campaign_id,
         run_id=run_id,
         node_id=node_id,
         status="queued",
@@ -183,6 +191,7 @@ def submit_preparation(
     )
     db.add(execution)
     from app.services.dataops.compute_registry import register as register_compute
+
     register_compute(db, execution)
     db.commit()
     if settings.worker_eager_mode:
@@ -211,6 +220,8 @@ def run_preparation(execution_id: str):
         if row is None or row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
             return {"id": execution_id, "status": row.status if row else "missing"}
         from app.services.dataops.compute_registry import start as start_compute
+        from app.services.evaluation.isolation import campaign_for_run
+
         if not start_compute(db, row):
             return {"id": execution_id, "status": row.status}
         claimed = db.execute(
@@ -224,6 +235,8 @@ def run_preparation(execution_id: str):
         db.refresh(row)
         config = dict(row.input_json)
         try:
+            if campaign_for_run(db, row.run_id, row.workspace_id) != row.evaluation_campaign_id:
+                raise ValueError("EVALUATION_RECIPE_SCOPE_INVALID")
             with tempfile.TemporaryDirectory(prefix="data-prep-") as tmp:
                 root = Path(tmp)
                 views = []
@@ -234,7 +247,13 @@ def run_preparation(execution_id: str):
                     if not dataset_digest_matches(dataset, config["input_digests"][port]):
                         raise ValueError("DATAPREP_INPUT_CHANGED")
                     from app.services.execution.io_lease import maintain
-                    with maintain(RecipeExecution, row.id, getattr(row, "_native_lease_token", None), status="running"):
+
+                    with maintain(
+                        RecipeExecution,
+                        row.id,
+                        getattr(row, "_native_lease_token", None),
+                        status="running",
+                    ):
                         paths = [str(p) for p in materialize_files(dataset, root / port)]
                     views.append({"name": port, "paths": paths})
                 for reference in config.get("asset_inputs", {}).values():
@@ -320,6 +339,8 @@ def run_preparation(execution_id: str):
                 )
                 if row.status != "running" or row.cancel_requested:
                     raise ValueError("DATAPREP_FENCE_LOST")
+                if campaign_for_run(db, row.run_id, row.workspace_id) != row.evaluation_campaign_id:
+                    raise ValueError("EVALUATION_RECIPE_SCOPE_INVALID")
                 summary = json.loads((root / "result.json").read_text())
                 envelope = {}
                 for port, identifier in config["outputs"].items():
@@ -362,7 +383,9 @@ def run_preparation(execution_id: str):
         except Exception as exc:
             db.rollback()
             row = db.get(RecipeExecution, execution_id)
-            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES or getattr(row, "_native_lease_token", None):
+            if row.status not in RECIPE_EXECUTION_TERMINAL_STATUSES or getattr(
+                row, "_native_lease_token", None
+            ):
                 finalize_execution(
                     row,
                     status="cancelled" if row.cancel_requested else "failed",

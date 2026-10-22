@@ -254,6 +254,11 @@ def build_run_perspective(
         audit_shadow_diff=False,
         audit_shadow_evidence=False,
     ).effective_allowed
+    from app.services.evaluation.read_model import runtime_judgment_payload_visible
+
+    payload_visible = payload_visible and runtime_judgment_payload_visible(
+        db, run, workspace=workspace, user=user
+    )
     invocations = (
         db.query(SkillInvocation)
         .filter(SkillInvocation.run_id == run.id)
@@ -306,11 +311,11 @@ def build_run_perspective(
         "capability": capability,
         "system_version": system_version,
         "invocations": invocations,
-        "decisions": decisions,
-        "decisions_restricted": decisions_restricted,
+        "decisions": decisions if payload_visible else [],
+        "decisions_restricted": decisions_restricted or not payload_visible,
         "evaluations": evaluations,
-        "audits": audits,
-        "audits_restricted": audits_restricted,
+        "audits": audits if payload_visible else [],
+        "audits_restricted": audits_restricted or not payload_visible,
         "membrane": membrane,
         "payload_visible": payload_visible,
     }
@@ -394,6 +399,11 @@ def build_skill_invocation_perspective(
             audit_shadow_evidence=False,
         ).effective_allowed
     )
+    from app.services.evaluation.read_model import runtime_judgment_payload_visible
+
+    payload_visible = payload_visible and runtime_judgment_payload_visible(
+        db, run, workspace=workspace, user=user
+    )
     generated_at = _iso(datetime.utcnow())
     common = {
         "db": db,
@@ -404,8 +414,8 @@ def build_skill_invocation_perspective(
         "system": system,
         "capability": capability,
         "membrane": membrane,
-        "audits": audits,
-        "audits_restricted": audits_restricted,
+        "audits": audits if payload_visible else [],
+        "audits_restricted": audits_restricted or not payload_visible,
         "payload_visible": payload_visible,
     }
     all_facets = {
@@ -1628,6 +1638,7 @@ def _invocation_operate(**data: Any) -> dict[str, Any]:
                         "metrics",
                         "Metrics",
                         _safe_mapping(invocation.metrics),
+                        restricted=not payload_visible,
                         measured=bool(invocation.metrics),
                         source="skill_invocations.metrics",
                     ),
@@ -2531,11 +2542,13 @@ def _adaptive_value(policy: AdaptivePolicy) -> dict[str, Any]:
 
 
 def _evaluation_value(value: EvaluationScore) -> dict[str, Any]:
+    from app.services.evaluation.read_model import scalar_metric
+
     return {
         "id": value.id,
-        "composite_score": value.composite_score,
-        "hallucination_rate": value.hallucination_rate,
-        "drift_rate": value.drift_rate,
+        "composite_score": scalar_metric(value, "composite_score"),
+        "hallucination_rate": scalar_metric(value, "hallucination_rate"),
+        "drift_rate": scalar_metric(value, "drift_rate"),
         "created_at": _iso(value.created_at),
     }
 

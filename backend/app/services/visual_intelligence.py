@@ -28,6 +28,8 @@ from app.services.iam.app_entitlements import (
     WorkspaceEntitlementMutationConflictError,
     lock_workspace_for_app_entitlement_mutation,
 )
+from app.services.model_usage_jobs import tracked_job
+from app.services.model_usage_sdk import openai_chat
 from app.services.object_store import get_object_store
 from app.services.workspace_jobs import create_workspace_job, serialize_job, transition_job
 
@@ -987,6 +989,7 @@ def dispatch_visual_capture_job(
     return result.id
 
 
+@tracked_job()
 def run_visual_capture_job(job_id: str) -> dict[str, Any]:
     """Worker entrypoint for ``agentium.visual_snapshot_capture``."""
     with SessionLocal() as db:
@@ -1760,7 +1763,8 @@ def _run_openai_visual_analysis(
     )
     image_b64 = base64.b64encode(content).decode("ascii")
     prompt = _visual_analysis_prompt(source, capture)
-    response = client.chat.completions.create(
+    response = openai_chat(
+        client,
         model=settings.visual_analysis_model,
         temperature=0,
         max_tokens=360,

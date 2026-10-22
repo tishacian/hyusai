@@ -1,13 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { I18nService } from '@app/core/i18n.service';
-import { typedJudgeFailure, typedResult } from './dataops.models';
+import { NavLinkDirective } from '@app/shared/cockpit';
+import { qualityMessage, type QualityMessage } from '../observability/quality-messages';
+import { typedJudgeFailure, typedResult, type TypedAnswer } from './dataops.models';
 @Component({
-  selector: 'app-typed-judge-result', standalone: true, imports: [NgTemplateOutlet], changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
+  selector: 'app-typed-judge-result', standalone: true, imports: [NgTemplateOutlet, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush, styleUrl: './dataops-editor.scss',
   template: `@if (result(); as evaluation) {
     <section class="dp-section" data-testid="typed-judge-result"><h2>{{ i18n.t('dataops.judge.result') }}</h2>
-      @if (compact()) { <p class="dp-note">{{ i18n.t('dataops.judge.quality') }}: {{ i18n.t(qualityLabel()) }}</p> }
-      @else { <div class="dp-row"><span>{{ i18n.t('dataops.judge.evaluation') }}: {{ i18n.t('dataops.status.' + evaluation.status) }}</span><span>{{ i18n.t('dataops.judge.quality') }}: {{ i18n.t(qualityLabel()) }}</span></div> }
+      <div class="dp-row judge-statuses"><span>{{ t('execution') }}: {{ evaluation.status === 'failed' ? t('technical') : i18n.t('dataops.status.' + evaluation.status) }}</span><span>{{ t('verdict') }}: {{ i18n.t(qualityLabel()) }}</span></div>
       @if (failure(); as failure) {
         <div class="judge-failure" role="status" data-testid="judge-failure">
           <h3>{{ i18n.t('dataops.judge.failure.title') }}</h3>
@@ -36,12 +37,18 @@ import { typedJudgeFailure, typedResult } from './dataops.models';
           <h3>{{ entry.question }}</h3><p class="dp-note">{{ i18n.t('dataops.status.' + entry.answer.status) }}@if (entry.answer.value != null) { · {{ display(entry.answer.value) }} }@if (entry.answer.reason) { · {{ reason(entry.answer.reason) }} }</p>
           <p class="dp-note">{{ entry.answer.explanation }}</p>
           @if (entry.answer.evidence.length) { <details><summary>{{ i18n.t('dataops.judge.proofs') }} · {{ entry.answer.evidence.length }}</summary>
-            @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} · {{ proof.kind === 'image' ? proof.image_sha256 : i18n.t('dataops.judge.source_version_unknown') }}</small></blockquote> }
+            @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} · {{ proof.kind === 'image' ? proof.image_sha256 : sourceVersion(proof.evidence_id) }}</small>
+              @if (sourcePreview(proof); as source) {<details><summary>{{i18n.t('observability.assurance.source_context')}}</summary><p>{{source.before}}<mark>{{source.quote}}</mark>{{source.after}}</p></details>}
+              @if (sourceInvocation(proof.evidence_id); as sourceId) { @if(runId()) { <p><a [navLink]="{type:'skill_invocation',runId:runId() || undefined,ref:sourceId}">{{t('invocation')}}</a></p> } }
+            </blockquote> }
           </details> }
         </div> }
         @else { <details class="dp-section"><summary>{{ entry.question }} · {{ i18n.t('dataops.status.' + entry.answer.status) }} · {{ display(entry.answer.value) }}</summary>
         <p class="dp-note">{{ entry.answer.explanation }}</p>@if (entry.answer.reason) { <p class="dp-note">{{ reason(entry.answer.reason) }}</p> }
-        @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} · {{ i18n.t('dataops.judge.source_version_unknown') }} }</small></blockquote> }
+        @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} · {{ sourceVersion(proof.evidence_id) }} }</small>
+          @if (sourcePreview(proof); as source) {<details><summary>{{i18n.t('observability.assurance.source_context')}}</summary><p>{{source.before}}<mark>{{source.quote}}</mark>{{source.after}}</p></details>}
+              @if (sourceInvocation(proof.evidence_id); as sourceId) { @if(runId()) { <p><a [navLink]="{type:'skill_invocation',runId:runId() || undefined,ref:sourceId}">{{t('invocation')}}</a></p> } }
+        </blockquote> }
       </details> }
       }
       @if (compact()) { <details data-testid="judge-technical-details"><summary>{{ i18n.t('dataops.judge.technical_details') }}</summary><ng-container [ngTemplateOutlet]="technical" /></details> }
@@ -51,6 +58,12 @@ import { typedJudgeFailure, typedResult } from './dataops.models';
 })
 export class TypedJudgeResultComponent {
   readonly i18n = inject(I18nService); readonly value = input<unknown>(null); readonly result = computed(() => typedResult(this.value()));
+  readonly runId = input<string|null>(null); readonly invocationId = input<string|null>(null);
+  readonly evidenceSources = input<Array<{evidence_id:string;text?:string;sha256?:string;asset_ref?:{version?:number|string;digest?:string};invocation_id?:string|null}>>([]);
+  t(key:QualityMessage):string{return qualityMessage(this.i18n,key);}
+  sourceVersion(id:string):string{const source=this.evidenceSources().find(item=>item.evidence_id===id);return source?.asset_ref?.version!=null ? String(source.asset_ref.version) : source?.asset_ref?.digest || source?.sha256 || this.i18n.t('dataops.judge.source_version_unknown');}
+  sourcePreview(proof:TypedAnswer['evidence'][number]):{before:string;quote:string;after:string}|null{const text=this.evidenceSources().find(item=>item.evidence_id===proof.evidence_id)?.text;const start=proof.start,end=proof.end;if(typeof text!=='string'||start==null||end==null||text.slice(start,end)!==proof.quote)return null;return {before:text.slice(Math.max(0,start-280),start),quote:proof.quote || '',after:text.slice(end,end+280)};}
+  sourceInvocation(id:string):string|null{return this.evidenceSources().find(item=>item.evidence_id===id)?.invocation_id || this.invocationId();}
   readonly failure = computed(() => typedJudgeFailure(this.result()));
   readonly qualityLabel = computed(() => this.result()?.quality_status === 'failed' ? 'dataops.judge.criteria_failed' : 'dataops.status.' + this.result()?.quality_status);
   readonly failedQuestions = computed(() => {

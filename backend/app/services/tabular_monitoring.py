@@ -193,6 +193,7 @@ def _recent(
         .populate_existing()
         .filter(
             MLPrediction.workspace_id == model.workspace_id,
+            MLPrediction.evaluation_campaign_id.is_(None),
             MLPrediction.slug == model.slug if lineage else MLPrediction.served_id == model.id,
         )
         .order_by(MLPrediction.created_at.desc(), MLPrediction.id.desc())
@@ -676,6 +677,7 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
         .filter(
             MLPrediction.served_id.in_(list(model_ids)),
             MLPrediction.workspace_id.in_({model.workspace_id for model in models}),
+            MLPrediction.evaluation_campaign_id.is_(None),
         )
         .subquery()
     )
@@ -745,6 +747,7 @@ def get_prediction(db: DBSession, *, prediction_id: str, workspace_id: str) -> M
         .filter(
             MLPrediction.id == prediction_id,
             MLPrediction.workspace_id == workspace_id,
+            MLPrediction.evaluation_campaign_id.is_(None),
         )
         .first()
     )

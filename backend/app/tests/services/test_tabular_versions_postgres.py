@@ -43,6 +43,9 @@ def pg(tmp_path, monkeypatch):
         with engine.begin() as connection:
             connection.execute(text("CREATE TABLE workspaces (id varchar(36) PRIMARY KEY)"))
             connection.execute(text("CREATE TABLE systems (id varchar(36) PRIMARY KEY)"))
+            connection.execute(
+                text("CREATE TABLE evaluation_campaigns (id varchar(36) PRIMARY KEY)")
+            )
             connection.execute(text("INSERT INTO workspaces VALUES ('first'), ('other')"))
         TabularDataset.__table__.create(engine)
         monkeypatch.setattr(settings, "object_store_backend", "local")

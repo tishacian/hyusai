@@ -74,6 +74,7 @@ from app.api.v1.endpoints import (
     ml_operations,
     ml_runtime,
     model_portal,
+    model_usage,
     models,
     navigation_search,
     observability,
@@ -151,6 +152,7 @@ api_router.include_router(
 api_router.include_router(evaluation.router, prefix="/evaluation", tags=["evaluation"])
 api_router.include_router(evaluation_campaigns.router, prefix="/evaluation", tags=["evaluation"])
 api_router.include_router(observability.router, prefix="/observability", tags=["observability"])
+api_router.include_router(model_usage.router)
 api_router.include_router(activities.router, prefix="/observability", tags=["observability"])
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])
 api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharepoint"])

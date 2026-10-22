@@ -519,7 +519,19 @@ def _provider_generation_options(execution, generation_options):
 async def _complete_once(
     execution, prompt, ctx, usage_accumulator, generation_options, stream, images=()
 ):
+    from app.services.model_usage_transport import context_from_execution
+
+    with context_from_execution(ctx, execution):
+        return await _complete_once_scoped(
+            execution, prompt, ctx, usage_accumulator, generation_options, stream, images
+        )
+
+
+async def _complete_once_scoped(
+    execution, prompt, ctx, usage_accumulator, generation_options, stream, images=()
+):
     from app.services.evaluation.judge import normalize_provider_usage, record_provider_usage
+    from app.services.model_usage_transport import ProviderCall, output_limit, tracking_active
 
     try:
         options = _provider_generation_options(execution, generation_options)
@@ -538,7 +550,7 @@ async def _complete_once(
         raise _DispatchRefused(exc) from exc
     client = (
         build_model_client(execution, no_retries=True)
-        if ctx.get("_model_no_retries") is True
+        if ctx.get("_model_no_retries") is True or tracking_active()
         else build_model_client(execution)
     )
     sink = ctx.get("token_sink") if stream else None
@@ -553,13 +565,34 @@ async def _complete_once(
         except Exception as exc:
             raise _DispatchRefused(exc) from exc
     before_dispatch = ctx.get("_model_before_dispatch")
-    if callable(before_dispatch):
-        try:
-            # Keep neutral options (notably max_tokens) available to the budget
-            # reservation. A callback cannot change the prepared provider call.
-            before_dispatch(execution, prompt, copy.deepcopy(dict(generation_options or {})))
-        except Exception as exc:
-            raise _DispatchRefused(exc) from exc
+    atomic_admission = ctx.get("_model_admission_hook")
+    neutral_options = copy.deepcopy(dict(generation_options or {}))
+    # A legacy reservation callback is deliberately not qualified for shared
+    # hard budgets: it must first migrate to the same admission transaction.
+    call = ProviderCall(
+        execution.provider,
+        execution.model,
+        {"prompt": prompt, "options": options},
+        output_token_bound=output_limit(options),
+        qualified=not callable(before_dispatch) or callable(atomic_admission),
+        admission_hook=(
+            lambda session, record: atomic_admission(
+                session, record, execution, prompt, neutral_options
+            )
+        )
+        if callable(atomic_admission)
+        else None,
+        after_admission=ctx.get("_model_admission_committed")
+        if callable(atomic_admission)
+        else None,
+        before_dispatch=(lambda: before_dispatch(execution, prompt, neutral_options))
+        if callable(before_dispatch) and not callable(atomic_admission)
+        else None,
+    )
+    try:
+        call.__enter__()
+    except Exception as exc:
+        raise _DispatchRefused(exc) from exc
     evidence["dispatch_started"] = True
     evidence["attempts"][-1]["dispatch_started"] = True
     ctx["_model_execution_evidence"] = evidence
@@ -572,6 +605,7 @@ async def _complete_once(
                     ctx["_model_stream_started"] = True
                     parts.append(delta)
                     sink(delta)
+                call.observe(chunk)
                 counters = normalize_provider_usage(chunk)
                 if counters is not None:
                     result = {"usage": counters}
@@ -580,6 +614,7 @@ async def _complete_once(
             completion = "".join(parts)
         else:
             result = await client.generate(model=execution.model, prompt=prompt, **options)
+            call.observe(result)
             ctx["_model_response_usage"] = result.get("usage", {})
             completion = (
                 result.get("content") or result.get("response") or result.get("completion") or ""
@@ -587,6 +622,9 @@ async def _complete_once(
             returned_model = _text(result.get("model")) or returned_model
             returned_model_reported = bool(_text(result.get("model")))
     finally:
+        import sys
+
+        call.__exit__(*sys.exc_info())
         # Configuration failures before dispatch are not provider calls. A
         # failed transport after dispatch is a call with unavailable counters.
         record_provider_usage(

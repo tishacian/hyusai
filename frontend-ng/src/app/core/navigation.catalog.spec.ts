@@ -573,6 +573,21 @@ test('comparison invocation links retain their explicit Run instead of inherited
   assert.equal(context.runId, 'candidate/run');
 });
 
+test('object evidence links preserve the exact evaluation and encode extra selection without changing ancestry', () => {
+  const link = resolveNavLink({type: 'run', ref: 'candidate/run', facet: 'quality',
+    params: {evaluationId: 'judge/one&two', invocationId: 'invoke-1', omitted: null}}, {
+    lens: 'operate', ancestry: {...EMPTY_ANCESTRY, systemId: 'sys-1'}, currentUrl: '/observability?facet=quality',
+  });
+  const url = new URL(link.url, 'http://local.test');
+  assert.equal(url.pathname, '/runs/candidate%2Frun');
+  assert.equal(url.searchParams.get('facet'), 'quality');
+  assert.equal(url.searchParams.get('evaluationId'), 'judge/one&two');
+  assert.equal(url.searchParams.get('invocationId'), 'invoke-1');
+  assert.equal(url.searchParams.get('systemId'), 'sys-1');
+  assert.equal(url.searchParams.has('omitted'), false);
+  assert.equal(link.replaceUrl, false);
+});
+
 test('every literal [navLink] names a catalogue leaf or surface (a throw froze Impact)', () => {
   const root = join(process.cwd(), 'src/app');
   const leaves = new Set(AGENTIUM_SURFACE_LEAVES.map((leaf) => leaf.id));

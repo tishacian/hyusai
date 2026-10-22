@@ -791,6 +791,8 @@ async def resume_run_dag(
         run = db.query(Run).filter(Run.id == run_id).first()
         if not run:
             return {"error": "run_not_found"}
+        if getattr(run, "evaluation_campaign_id", None):
+            raise ValueError("EVALUATION_RESUME_FORBIDDEN")
         if run.status != "hitl_pending":
             return {"error": "run_not_paused", "status": run.status}
 
@@ -1960,6 +1962,12 @@ def _emit_hitl_pause(
         node_id=outcome.get("node_id"),
         decision_id=outcome.get("decision_id"),
     )
+    if getattr(run, "evaluation_campaign_id", None):
+        from app.services.evaluation.qualification import finish_at_human_gate
+
+        result = finish_at_human_gate(db, run)
+        if result is not None:
+            return result
     return {
         "id": run.id,
         "status": "hitl_pending",

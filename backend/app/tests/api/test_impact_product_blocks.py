@@ -274,3 +274,24 @@ def test_configuration_rejects_invalid_scope_assumptions_and_non_admin_writes(db
     db_session.commit()
     assert client.put("/hypervisor/views", json={"views": [view]}).status_code == 403
     assert seeded["workspace"].settings == {}
+
+
+def test_quality_and_usage_configuration_is_opt_in_and_keeps_population(db_session):
+    seeded = _seed(db_session)
+    client = _hypervisor_client(db_session, seeded["workspace"], seeded["user"])
+    view = _view(seeded["system"].id)
+    view["strata"]["comprendre"] = [
+        {"type": "quality", "settings": {}},
+        {"type": "ai_usage", "settings": {"traffic": "all"}},
+    ]
+    saved = client.put("/hypervisor/views", json={"views": [view]})
+    assert saved.status_code == 200
+    assert saved.json()["views"][0]["strata"]["comprendre"] == [
+        {"type": "quality", "settings": {"traffic": "business"}},
+        {"type": "ai_usage", "settings": {"traffic": "all"}},
+    ]
+    view["strata"]["comprendre"][1]["settings"]["traffic"] = "forged"
+    assert client.put("/hypervisor/views", json={"views": [view]}).status_code == 422
+    view["strata"]["comprendre"][1]["settings"] = {}
+    view["strata"]["comprendre"].append({"type": "quality", "settings": {}})
+    assert client.put("/hypervisor/views", json={"views": [view]}).status_code == 422

@@ -1,6 +1,7 @@
 """Embedding generation service -- OpenAI-first for demo."""
 
 import asyncio
+import contextvars
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -196,8 +197,19 @@ class Embedder:
         loop = asyncio.get_running_loop()
 
         async def embed_openai_batch(batch: list[str]) -> np.ndarray:
+            from app.services.model_usage import UsageError
+            from app.services.model_usage_transport import ProviderCall, tracking_active
+
+            tracked = tracking_active()
+            client = self._client
+            if tracked:
+                with_options = getattr(client, "with_options", None)
+                if not callable(with_options):
+                    raise UsageError("USAGE_TRANSPORT_UNQUALIFIED")
+                client = with_options(max_retries=0)
+
             def _call() -> tuple[Any, int]:
-                embeddings = self._client.embeddings
+                embeddings = client.embeddings
                 raw_embeddings = getattr(embeddings, "with_raw_response", None)
                 raw_create = getattr(raw_embeddings, "create", None)
                 if callable(raw_create):
@@ -208,9 +220,20 @@ class Embedder:
                     0,
                 )
 
-            attempt = self._begin_openai_attempt()
+            attempt = None
             try:
-                response, retry_count = await loop.run_in_executor(None, _call)
+                with ProviderCall(
+                    "openai",
+                    self.model_name,
+                    {"input": batch},
+                    operation="embedding",
+                    purpose="embedding",
+                ) as call:
+                    attempt = self._begin_openai_attempt()
+                    response, retry_count = await loop.run_in_executor(
+                        None, contextvars.copy_context().run, _call
+                    )
+                    call.observe(response)
                 final_attempt = attempt
                 # The OpenAI SDK retries inside one ``create`` call.  Its final
                 # request carries the exact retry count.  Every preceding HTTP
@@ -221,6 +244,10 @@ class Embedder:
                 self._complete_openai_attempt(final_attempt, response)
                 ordered = sorted(response.data, key=lambda item: getattr(item, "index", 0))
                 return np.array([item.embedding for item in ordered], dtype=np.float32)
+            except UsageError:
+                # A refused budget/route is not a provider failure and must
+                # never trigger the smaller-batch fallback.
+                raise
             except Exception as e:
                 for _ in range(_openai_retry_count(e)):
                     self._begin_openai_attempt()
@@ -319,9 +346,23 @@ class Embedder:
             return vectors
 
         try:
+            from app.services.model_usage_transport import ProviderCall
+
             loop = asyncio.get_running_loop()
-            vectors = await loop.run_in_executor(None, _call)
+            with ProviderCall(
+                "ollama",
+                model,
+                {"input": texts},
+                operation="embedding",
+                qualified=False,
+                purpose="embedding",
+            ):
+                vectors = await loop.run_in_executor(None, contextvars.copy_context().run, _call)
         except Exception as exc:
+            from app.services.model_usage import UsageError
+
+            if isinstance(exc, UsageError):
+                raise
             raise EmbeddingUnavailable(
                 "The selected embedding provider failed to produce a vector."
             ) from exc
@@ -342,7 +383,17 @@ class Embedder:
         def _encode():
             return self._local_model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
 
-        return await loop.run_in_executor(None, _encode)
+        from app.services.model_usage_transport import ProviderCall
+
+        with ProviderCall(
+            "local",
+            self.model_name,
+            {"input": texts},
+            operation="embedding",
+            qualified=False,
+            purpose="embedding",
+        ):
+            return await loop.run_in_executor(None, contextvars.copy_context().run, _encode)
 
     def _fallback_embed(self, text: str) -> np.ndarray:
         raise EmbeddingUnavailable("Embedding fallback is forbidden for an existing vector space.")

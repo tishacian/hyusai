@@ -1,6 +1,6 @@
 /** Pure redirect helpers for Observability legacy child paths → `?facet=`. */
 export function observabilityFacetRedirectUrl(
-  facet: 'quality' | 'performance' | 'traces',
+  facet: 'quality' | 'usage' | 'performance' | 'traces',
   queryParams: Record<string, string | string[] | undefined | null>,
 ): { path: string; queryParams: Record<string, string> } {
   const next: Record<string, string> = { facet };

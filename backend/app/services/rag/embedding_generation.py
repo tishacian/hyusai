@@ -180,8 +180,8 @@ async def _run_embedding_reindex(job_id: str) -> dict:
     from app.core.settings_manager import get_resolved_settings
     from app.services.huggingface.adapters import ArtifactEmbedder
     from app.services.huggingface.registry import register_usage, require_artifact
-    from app.services.rag.vector_store_config import resolve_vector_db_type
     from app.services.rag.index.factory import VectorDBFactory
+    from app.services.rag.vector_store_config import resolve_vector_db_type
 
     embedder = None
     target = None
@@ -350,7 +350,10 @@ async def _run_embedding_reindex(job_id: str) -> dict:
 
 
 def run_embedding_reindex(job_id: str) -> dict:
-    return asyncio.run(_run_embedding_reindex(job_id))
+    from app.services.model_usage_jobs import job_usage_scope
+
+    with job_usage_scope(job_id, kind="worker", purpose="embedding", traffic="ingestion"):
+        return asyncio.run(_run_embedding_reindex(job_id))
 
 
 def fail_embedding_preparation(job_id: str) -> dict:

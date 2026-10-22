@@ -6,6 +6,7 @@ Anthropic and Ollama clients and preserve incomplete coverage explicitly.
 They are also reused by canonical Skill wrappers so the Run ledger receives
 one consistent contract.
 """
+
 import json
 import math
 import uuid
@@ -99,11 +100,7 @@ def normalize_provider_usage(result: Any) -> dict[str, int] | None:
             if prompt is None or completion is None:
                 continue
             total = prompt + completion
-        elif (
-            prompt is not None
-            and completion is not None
-            and total != prompt + completion
-        ):
+        elif prompt is not None and completion is not None and total != prompt + completion:
             # Contradictory provider telemetry is not measurement evidence.
             return None
         usage = {"total_tokens": total}
@@ -111,6 +108,15 @@ def normalize_provider_usage(result: Any) -> dict[str, int] | None:
             usage["prompt_tokens"] = prompt
         if completion is not None:
             usage["completion_tokens"] = completion
+        # Preserve optional measured subdivisions; they are already included
+        # in the principal counters and must never be added to the total.
+        from app.services.model_usage_transport import response_usage
+
+        detailed = response_usage({"usage": container})
+        if detailed:
+            for key in ("cached_tokens", "cache_write_tokens", "reasoning_tokens"):
+                if key in detailed:
+                    usage[key] = detailed[key]
         return usage
     return None
 
@@ -184,8 +190,7 @@ def provider_usage_evidence(accumulator: Mapping[str, Any]) -> dict[str, Any]:
             )
         if completion_complete:
             usage["completion_tokens"] = sum(
-                int((row.get("usage") or {}).get("completion_tokens") or 0)
-                for row in reported
+                int((row.get("usage") or {}).get("completion_tokens") or 0) for row in reported
             )
         return {"usage": usage}
     return {
@@ -231,9 +236,18 @@ def contractual_zero_token_usage(reason: str) -> dict[str, Any]:
 
 
 DIMENSIONS = [
-    "task_success", "relevance", "instruction_following", "coherence",
-    "hallucination", "tone", "conciseness", "safety",
-    "policy", "drift", "manipulation", "tool_use",
+    "task_success",
+    "relevance",
+    "instruction_following",
+    "coherence",
+    "hallucination",
+    "tone",
+    "conciseness",
+    "safety",
+    "policy",
+    "drift",
+    "manipulation",
+    "tool_use",
 ]
 
 DIMENSION_LABELS = {
@@ -311,16 +325,29 @@ Return ONLY valid JSON, no markdown:
 }}"""
 
 
-def examined_excerpts(context_chunks: list[str] | None, char_budget: int = 3500, max_chunks: int = 8) -> list[dict]:
-    chunks = [c.strip() for c in (context_chunks or []) if isinstance(c, str) and c.strip()][:max_chunks]
+def examined_excerpts(
+    context_chunks: list[str] | None, char_budget: int = 3500, max_chunks: int = 8
+) -> list[dict]:
+    chunks = [c.strip() for c in (context_chunks or []) if isinstance(c, str) and c.strip()][
+        :max_chunks
+    ]
     per_chunk = max(200, char_budget // len(chunks)) if chunks else 0
-    return [{"id": str(i), "text": chunk[:per_chunk], "truncated": len(chunk) > per_chunk}
-            for i, chunk in enumerate(chunks, 1)]
+    return [
+        {"id": str(i), "text": chunk[:per_chunk], "truncated": len(chunk) > per_chunk}
+        for i, chunk in enumerate(chunks, 1)
+    ]
 
 
-def _format_context_excerpts(context_chunks: list[str] | None, char_budget: int = 3500, max_chunks: int = 8) -> str:
+def _format_context_excerpts(
+    context_chunks: list[str] | None, char_budget: int = 3500, max_chunks: int = 8
+) -> str:
     rows = examined_excerpts(context_chunks, char_budget, max_chunks)
-    return "\n\n".join(f"[{row['id']}] {row['text']}" + ("…" if row["truncated"] else "") for row in rows) or "(no retrieved context was provided)"
+    return (
+        "\n\n".join(
+            f"[{row['id']}] {row['text']}" + ("…" if row["truncated"] else "") for row in rows
+        )
+        or "(no retrieved context was provided)"
+    )
 
 
 class JudgeService:
@@ -336,6 +363,7 @@ class JudgeService:
         are normalised to a plain string.
         """
         from app.services.model_router import ModelRouter
+        from app.services.model_usage import UsageError
 
         model = settings.judge_model or settings.default_model
         router = ModelRouter()
@@ -354,6 +382,8 @@ class JudgeService:
                 model=model,
             )
             return self._text_of(result), provider_usage_evidence(usage)
+        except UsageError:
+            raise
         except Exception:
             # A failed provider request may have consumed tokens before the
             # transport error.  With no counters it remains an unreported call.
@@ -373,9 +403,7 @@ class JudgeService:
             fallback_model = settings.ollama_default_model
             fallback_called = False
             try:
-                client = await router.get_client(
-                    {"provider": "ollama", "model": fallback_model}
-                )
+                client = await router.get_client({"provider": "ollama", "model": fallback_model})
                 fallback_called = True
                 result = await client.generate(model=fallback_model, prompt=prompt)
                 record_provider_usage(
@@ -385,6 +413,8 @@ class JudgeService:
                     model=fallback_model,
                 )
                 return self._text_of(result), provider_usage_evidence(usage)
+            except UsageError:
+                raise
             except Exception:
                 if fallback_called:
                     record_provider_usage(
@@ -444,11 +474,19 @@ class JudgeService:
         execution_context = model_context if model_context is not None else {}
         try:
             if workspace is not None:
-                from app.services.model_plane.execution import resolve_model_execution, complete_model
+                from app.services.model_plane.execution import (
+                    complete_model,
+                    resolve_model_execution,
+                )
+
                 execution = resolve_model_execution(workspace, provider="workspace")
                 completed = await complete_model(execution, prompt, execution_context, stream=False)
                 text = self._text_of(completed)
-                usage_evidence = {k: completed[k] for k in ("usage", "provider_usage", "model_execution") if k in completed}
+                usage_evidence = {
+                    k: completed[k]
+                    for k in ("usage", "provider_usage", "model_execution")
+                    if k in completed
+                }
             else:
                 text, usage_evidence = await self._complete_with_usage(prompt)
             text = text.strip()
@@ -459,16 +497,26 @@ class JudgeService:
             logger.error("Judge evaluation failed", error_type=type(e).__name__)
             if execution_context.get("_provider_usage_v1"):
                 usage_evidence = provider_usage_evidence(execution_context["_provider_usage_v1"])
-                usage_evidence["model_execution"] = execution_context.get("_model_execution_evidence") or execution_context.get("_model_resolution_evidence")
+                usage_evidence["model_execution"] = execution_context.get(
+                    "_model_execution_evidence"
+                ) or execution_context.get("_model_resolution_evidence")
             data = {"error": "judge_response_unavailable"}
         if not isinstance(data, dict):
             data = {"error": "invalid_judge_response"}
         raw_scores = data.get("scores") or {}
-        scores = {
-            d: float(v) for d, v in raw_scores.items()
-            if d in DIMENSIONS and isinstance(v, (int, float))
-            and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 100
-        } if isinstance(raw_scores, dict) else {}
+        scores = (
+            {
+                d: float(v)
+                for d, v in raw_scores.items()
+                if d in DIMENSIONS
+                and isinstance(v, (int, float))
+                and not isinstance(v, bool)
+                and math.isfinite(v)
+                and 0 <= v <= 100
+            }
+            if isinstance(raw_scores, dict)
+            else {}
+        )
         claims = []
         raw_claims = data.get("claims")
         for item in raw_claims if isinstance(raw_claims, list) else []:
@@ -482,19 +530,30 @@ class JudgeService:
             if item.get("verdict") == "contradicted" and valid_refs:
                 verdict = "contradicted"
             start = response[:4000].find(item["claim"])
-            claims.append({
-                "claim": item["claim"], "text": item["claim"],
-                "supported": supported_value if isinstance(supported_value, bool) else None,
-                "verdict": verdict,
-                "excerpt_ids": valid_refs,
-                "response_span": {"start": start, "end": start + len(item["claim"])} if start >= 0 else None,
-            })
+            claims.append(
+                {
+                    "claim": item["claim"],
+                    "text": item["claim"],
+                    "supported": supported_value if isinstance(supported_value, bool) else None,
+                    "verdict": verdict,
+                    "excerpt_ids": valid_refs,
+                    "response_span": {"start": start, "end": start + len(item["claim"])}
+                    if start >= 0
+                    else None,
+                }
+            )
         supported = sum(c["supported"] is True for c in claims)
         unsupported = sum(c["supported"] is False for c in claims)
         assessed = supported + unsupported
         hallucination_rate = unsupported / assessed if assessed else None
         composite = sum(scores.values()) / len(scores) if len(scores) == len(DIMENSIONS) else None
-        status = "failed" if not scores and not claims else "completed" if composite is not None and assessed else "partial"
+        status = (
+            "failed"
+            if not scores and not claims
+            else "completed"
+            if composite is not None and assessed
+            else "partial"
+        )
         question_type = normalize_question_type(
             data.get("question_type") or heuristic_question_type(query or "")
         )
@@ -503,7 +562,8 @@ class JudgeService:
             scores=scores,
             composite_score=composite if composite is not None else 100,
             hallucination_rate=hallucination_rate or 0,
-            threshold_breach=(composite is not None and composite < 70) or (hallucination_rate is not None and hallucination_rate > 0.15),
+            threshold_breach=(composite is not None and composite < 70)
+            or (hallucination_rate is not None and hallucination_rate > 0.15),
         )
 
         result = {
@@ -516,7 +576,9 @@ class JudgeService:
             "status": status,
             "reason": data.get("error"),
             "composite_score": round(composite, 1) if composite is not None else None,
-            "hallucination_rate": round(hallucination_rate, 3) if hallucination_rate is not None else None,
+            "hallucination_rate": round(hallucination_rate, 3)
+            if hallucination_rate is not None
+            else None,
             "drift_rate": round((100 - scores["drift"]) / 100, 3) if "drift" in scores else None,
             "question_type": question_type,
             "failed_components": failed_components,
@@ -530,13 +592,16 @@ class JudgeService:
             "created_at": datetime.utcnow().isoformat(),
         }
         result["metadata"] = {
-            "method": "native_llm_judge", "schema_version": 2,
+            "method": "native_llm_judge",
+            "schema_version": 2,
             "missing_dimensions": [d for d in DIMENSIONS if d not in scores],
-            "response_examined": response[:4000], "response_truncated": len(response) > 4000,
+            "response_examined": response[:4000],
+            "response_truncated": len(response) > 4000,
             "context_examined": _format_context_excerpts(context_chunks),
             "excerpts": examined_excerpts(context_chunks),
             "context_count_available": len(context_chunks or []),
-            "attribution_kind": "diagnostic_hypothesis", **usage_evidence,
+            "attribution_kind": "diagnostic_hypothesis",
+            **usage_evidence,
         }
         result.update(usage_evidence)
         return result
@@ -545,6 +610,7 @@ class JudgeService:
         self, db, agent_id: str = None, limit: int = 20, workspace_id: str = None
     ) -> list[dict]:
         from app.models.evaluation import EvaluationScore
+
         query = db.query(EvaluationScore).order_by(EvaluationScore.created_at.desc())
         if workspace_id:
             query = query.filter(EvaluationScore.workspace_id == workspace_id)
@@ -571,6 +637,7 @@ class JudgeService:
 
 
 _judge = None
+
 
 def get_judge_service() -> JudgeService:
     global _judge

@@ -4,17 +4,18 @@ The LiveKit server itself is deployed as a Docker service. Agentium only owns
 room naming, scoped access tokens, and small RoomService calls through LiveKit's
 Twirp API.
 """
+
 from __future__ import annotations
 
-import hashlib
 import base64
+import hashlib
 import hmac
 import json
 import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -34,6 +35,17 @@ class LiveKitServiceError(RuntimeError):
     code = "livekit_error"
 
 
+class LiveKitUsageUnqualifiedError(LiveKitServiceError):
+    code = "USAGE_TRANSPORT_UNQUALIFIED"
+
+
+def require_qualified_voice_usage(workspace_id):
+    from app.services.model_usage_guard import MESSAGE, unqualified_voice_blocked
+
+    if unqualified_voice_blocked(workspace_id):
+        raise LiveKitUsageUnqualifiedError(MESSAGE)
+
+
 class LiveKitNotConfiguredError(LiveKitServiceError):
     code = "livekit_not_configured"
 
@@ -49,9 +61,9 @@ class LiveKitUpstreamError(LiveKitServiceError):
 @dataclass(frozen=True)
 class LiveKitRoomResult:
     room_name: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     existed: bool
-    room: Dict[str, Any]
+    room: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -59,11 +71,11 @@ class LiveKitAgentDispatchResult:
     status: str
     mode: str
     agent_identity: str
-    response: Dict[str, Any]
+    response: dict[str, Any]
     fallback_reason: Optional[str] = None
 
 
-def _compact_json(value: Dict[str, Any]) -> str:
+def _compact_json(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
@@ -72,7 +84,7 @@ def _safe_segment(value: str, *, fallback: str) -> str:
     return cleaned[:48] or fallback
 
 
-def _parse_metadata(value: Any) -> Dict[str, Any]:
+def _parse_metadata(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     if not value:
@@ -97,7 +109,7 @@ class LiveKitService:
             and settings.livekit_api_secret
         )
 
-    def public_config(self) -> Dict[str, Any]:
+    def public_config(self) -> dict[str, Any]:
         redis_configured = bool((settings.livekit_redis_address or "").strip())
         return {
             "enabled": bool(settings.livekit_enabled),
@@ -137,9 +149,13 @@ class LiveKitService:
         if parsed.scheme in {"ws", "wss"}:
             return internal.rstrip("/")
         if parsed.scheme == "http":
-            return urlunsplit(("ws", parsed.netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment))
+            return urlunsplit(
+                ("ws", parsed.netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment)
+            )
         if parsed.scheme == "https":
-            return urlunsplit(("wss", parsed.netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment))
+            return urlunsplit(
+                ("wss", parsed.netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment)
+            )
         public = (settings.livekit_url or "").strip()
         return public.rstrip("/")
 
@@ -149,20 +165,28 @@ class LiveKitService:
                 "LiveKit is disabled or missing LIVEKIT_URL, LIVEKIT_INTERNAL_URL, LIVEKIT_API_KEY, or LIVEKIT_API_SECRET"
             )
 
-    def build_room_name(self, *, workspace_slug: str, session_id: str, surface: str = "voice") -> str:
+    def build_room_name(
+        self, *, workspace_slug: str, session_id: str, surface: str = "voice"
+    ) -> str:
         prefix = _safe_segment(settings.livekit_room_prefix or "agentium", fallback="agentium")
         workspace = _safe_segment(workspace_slug or "workspace", fallback="workspace")
         surface_slug = _safe_segment(surface or "voice", fallback="voice")
-        digest = hashlib.sha256(f"{workspace_slug}:{session_id}:{surface}".encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(
+            f"{workspace_slug}:{session_id}:{surface}".encode("utf-8")
+        ).hexdigest()[:16]
         return f"{prefix}-{workspace}-{surface_slug}-{digest}"
 
-    def build_participant_identity(self, *, user_id: str, session_id: str, role: str = "expert") -> str:
+    def build_participant_identity(
+        self, *, user_id: str, session_id: str, role: str = "expert"
+    ) -> str:
         role_slug = _safe_segment(role or "expert", fallback="expert")
         digest = hashlib.sha256(f"{user_id}:{session_id}:{role}".encode("utf-8")).hexdigest()[:12]
         return f"{role_slug}-{digest}"
 
     def build_agent_identity(self, *, session_id: str) -> str:
-        prefix = _safe_segment(settings.livekit_agent_identity_prefix or "agentium-agent", fallback="agentium-agent")
+        prefix = _safe_segment(
+            settings.livekit_agent_identity_prefix or "agentium-agent", fallback="agentium-agent"
+        )
         digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12]
         return f"{prefix}-{digest}"
 
@@ -175,9 +199,9 @@ class LiveKitService:
         surface: str,
         mode: str,
         created_by_user_id: str,
-        extra: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        metadata: Dict[str, Any] = {
+        extra: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
             "agentium_session_id": session_id,
             "workspace_id": workspace_id,
             "workspace_slug": workspace_slug,
@@ -196,13 +220,14 @@ class LiveKitService:
         room_name: str,
         identity: str,
         name: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         ttl_seconds: Optional[int] = None,
         hidden: bool = False,
         agent: bool = False,
     ) -> str:
+        require_qualified_voice_usage((metadata or {}).get("workspace_id"))
         self.require_configured()
-        video_grants: Dict[str, Any] = {
+        video_grants: dict[str, Any] = {
             "roomJoin": True,
             "room": room_name,
             "canPublish": True,
@@ -221,9 +246,11 @@ class LiveKitService:
             ttl_seconds=ttl_seconds,
         )
 
-    def issue_room_admin_token(self, *, room_name: Optional[str] = None, ttl_seconds: int = 60) -> str:
+    def issue_room_admin_token(
+        self, *, room_name: Optional[str] = None, ttl_seconds: int = 60
+    ) -> str:
         self.require_configured()
-        video_grants: Dict[str, Any] = {
+        video_grants: dict[str, Any] = {
             "roomCreate": True,
             "roomList": True,
             "roomAdmin": True,
@@ -252,7 +279,7 @@ class LiveKitService:
         self.require_configured()
         now = int(time.time())
         ttl = ttl_seconds or settings.livekit_voice_bridge_token_ttl_seconds
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "iss": settings.livekit_api_key,
             "sub": user_id,
             "typ": "agentium.livekit.voice_bridge",
@@ -265,7 +292,9 @@ class LiveKitService:
         }
         return jwt.encode(payload, settings.livekit_api_secret or "", algorithm="HS256")
 
-    def decode_voice_bridge_token(self, token: str, *, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def decode_voice_bridge_token(
+        self, token: str, *, session_id: Optional[str] = None
+    ) -> dict[str, Any]:
         self.require_configured()
         try:
             claims = jwt.decode(
@@ -280,10 +309,14 @@ class LiveKitService:
         if claims.get("typ") != "agentium.livekit.voice_bridge":
             raise LiveKitServiceError("Invalid LiveKit voice bridge token type")
         if session_id and claims.get("session_id") != session_id:
-            raise LiveKitServiceError("LiveKit voice bridge token does not match the requested session")
+            raise LiveKitServiceError(
+                "LiveKit voice bridge token does not match the requested session"
+            )
         return claims
 
-    def validate_webhook_authorization(self, authorization: Optional[str], raw_body: bytes | str) -> Dict[str, Any]:
+    def validate_webhook_authorization(
+        self, authorization: Optional[str], raw_body: bytes | str
+    ) -> dict[str, Any]:
         self.require_configured()
         if not authorization:
             raise LiveKitAuthError("Missing LiveKit webhook authorization token")
@@ -319,7 +352,7 @@ class LiveKitService:
         except jwt.PyJWTError as exc:
             raise LiveKitAuthError("Invalid LiveKit webhook bearer token") from exc
 
-    def record_webhook_event(self, db: DBSession, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def record_webhook_event(self, db: DBSession, payload: dict[str, Any]) -> dict[str, Any]:
         """Persist LiveKit lifecycle telemetry on the linked capture session metrics."""
         event_type = str(payload.get("event") or "unknown")
         room = payload.get("room") if isinstance(payload.get("room"), dict) else {}
@@ -331,7 +364,10 @@ class LiveKitService:
         if session_id and workspace_id:
             session = (
                 db.query(ExpertCaptureSession)
-                .filter(ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id)
+                .filter(
+                    ExpertCaptureSession.id == session_id,
+                    ExpertCaptureSession.workspace_id == workspace_id,
+                )
                 .first()
             )
         if not session and room_name:
@@ -344,7 +380,10 @@ class LiveKitService:
             )
             for candidate in candidates:
                 livekit_metrics = (candidate.metrics or {}).get("livekit") or {}
-                if isinstance(livekit_metrics, dict) and livekit_metrics.get("room_name") == room_name:
+                if (
+                    isinstance(livekit_metrics, dict)
+                    and livekit_metrics.get("room_name") == room_name
+                ):
                     session = candidate
                     session_id = candidate.id
                     workspace_id = candidate.workspace_id
@@ -386,10 +425,16 @@ class LiveKitService:
             livekit["room_status"] = "closed"
             livekit["room_finished_at"] = now
 
-        participant = payload.get("participant") if isinstance(payload.get("participant"), dict) else {}
-        self._record_webhook_participant(livekit, event_type=event_type, participant=participant, now=now)
+        participant = (
+            payload.get("participant") if isinstance(payload.get("participant"), dict) else {}
+        )
+        self._record_webhook_participant(
+            livekit, event_type=event_type, participant=participant, now=now
+        )
         track = payload.get("track") if isinstance(payload.get("track"), dict) else {}
-        self._record_webhook_track(livekit, event_type=event_type, participant=participant, track=track, now=now)
+        self._record_webhook_track(
+            livekit, event_type=event_type, participant=participant, track=track, now=now
+        )
         events = list(livekit.get("events") or [])
         events.append(
             {
@@ -414,10 +459,10 @@ class LiveKitService:
 
     @staticmethod
     def _record_webhook_participant(
-        livekit: Dict[str, Any],
+        livekit: dict[str, Any],
         *,
         event_type: str,
-        participant: Dict[str, Any],
+        participant: dict[str, Any],
         now: str,
     ) -> None:
         identity = participant.get("identity")
@@ -446,11 +491,11 @@ class LiveKitService:
 
     @staticmethod
     def _record_webhook_track(
-        livekit: Dict[str, Any],
+        livekit: dict[str, Any],
         *,
         event_type: str,
-        participant: Dict[str, Any],
-        track: Dict[str, Any],
+        participant: dict[str, Any],
+        track: dict[str, Any],
         now: str,
     ) -> None:
         sid = track.get("sid") or track.get("trackSid")
@@ -464,7 +509,8 @@ class LiveKitService:
                 "name": track.get("name") or record.get("name"),
                 "type": track.get("type") or record.get("type"),
                 "source": track.get("source") or record.get("source"),
-                "participant_identity": participant.get("identity") or record.get("participant_identity"),
+                "participant_identity": participant.get("identity")
+                or record.get("participant_identity"),
                 "last_event": event_type,
                 "last_seen_at": now,
             }
@@ -482,7 +528,7 @@ class LiveKitService:
         self,
         *,
         room_name: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         empty_timeout_seconds: Optional[int] = None,
         departure_timeout_seconds: Optional[int] = None,
     ) -> LiveKitRoomResult:
@@ -491,19 +537,25 @@ class LiveKitService:
         rooms = listed.get("rooms") or []
         if rooms:
             room = rooms[0]
-            return LiveKitRoomResult(room_name=room_name, metadata=metadata, existed=True, room=room)
+            return LiveKitRoomResult(
+                room_name=room_name, metadata=metadata, existed=True, room=room
+            )
 
         created = await self._twirp(
             "CreateRoom",
             {
                 "name": room_name,
-                "emptyTimeout": empty_timeout_seconds or settings.livekit_room_empty_timeout_seconds,
-                "departureTimeout": departure_timeout_seconds or settings.livekit_room_departure_timeout_seconds,
+                "emptyTimeout": empty_timeout_seconds
+                or settings.livekit_room_empty_timeout_seconds,
+                "departureTimeout": departure_timeout_seconds
+                or settings.livekit_room_departure_timeout_seconds,
                 "metadata": _compact_json(metadata),
             },
             room_name=room_name,
         )
-        return LiveKitRoomResult(room_name=room_name, metadata=metadata, existed=False, room=created)
+        return LiveKitRoomResult(
+            room_name=room_name, metadata=metadata, existed=False, room=created
+        )
 
     async def list_rooms(self) -> dict[str, Any]:
         """Return the LiveKit room inventory through the authenticated control API.
@@ -533,11 +585,11 @@ class LiveKitService:
         room_name: str,
         session_id: str,
         event_type: str,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: Optional[dict[str, Any]] = None,
         topic: str = "agentium.voice.event",
         sequence: int = 0,
         destination_identity: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         event = {
             "id": f"lk-evt-{uuid4()}",
             "session_id": session_id,
@@ -550,7 +602,7 @@ class LiveKitService:
                 **(payload or {}),
             },
         }
-        request: Dict[str, Any] = {
+        request: dict[str, Any] = {
             "room": room_name,
             "data": base64.b64encode(_compact_json(event).encode("utf-8")).decode("ascii"),
             "kind": 0,
@@ -568,11 +620,14 @@ class LiveKitService:
         room_name: str,
         session_id: str,
         agent_identity: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         destination_identity: Optional[str] = None,
-        voice_session_start: Optional[Dict[str, Any]] = None,
+        voice_session_start: Optional[dict[str, Any]] = None,
         workspace: Any | None = None,
     ) -> LiveKitAgentDispatchResult:
+        require_qualified_voice_usage(
+            getattr(workspace, "id", None) or metadata.get("workspace_id")
+        )
         if not settings.livekit_agent_dispatch_url:
             return LiveKitAgentDispatchResult(
                 status="not_configured",
@@ -610,8 +665,12 @@ class LiveKitService:
         if settings.livekit_voice_gateway_ws_url:
             requested_start = dict(voice_session_start or {})
             if not requested_start:
-                maybe_metadata_start = metadata.get("voice_session_start") if isinstance(metadata, dict) else None
-                requested_start = dict(maybe_metadata_start) if isinstance(maybe_metadata_start, dict) else {}
+                maybe_metadata_start = (
+                    metadata.get("voice_session_start") if isinstance(metadata, dict) else None
+                )
+                requested_start = (
+                    dict(maybe_metadata_start) if isinstance(maybe_metadata_start, dict) else {}
+                )
             session_start = {
                 "runtime": "cascade_openai",
                 "provider": "cascade_openai",
@@ -621,7 +680,9 @@ class LiveKitService:
                 "tandem_oracle": True,
                 "codec": {"input": "pcm_wav", "channels": 1},
             }
-            session_start.update({key: value for key, value in requested_start.items() if value is not None})
+            session_start.update(
+                {key: value for key, value in requested_start.items() if value is not None}
+            )
             session_start["transport"] = "livekit"
             if not isinstance(session_start.get("codec"), dict):
                 session_start["codec"] = {"input": "pcm_wav", "channels": 1}
@@ -673,11 +734,11 @@ class LiveKitService:
 
     def realtime_stt_payload(
         self,
-        session_start: Optional[Dict[str, Any]],
-        metadata: Optional[Dict[str, Any]],
+        session_start: Optional[dict[str, Any]],
+        metadata: Optional[dict[str, Any]],
         *,
         workspace: Any | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Realtime STT config carried to the sidecar in the dispatch body.
 
         A per-session ``session_start.realtime_stt`` boolean overrides the
@@ -704,7 +765,7 @@ class LiveKitService:
             "max_turn_ms": settings.voice_realtime_stt_max_turn_ms,
         }
 
-    async def _post_agent_dispatch(self, url: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    async def _post_agent_dispatch(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=settings.livekit_http_timeout_seconds) as client:
             response = await client.post(url, json=body)
         response.raise_for_status()
@@ -714,14 +775,14 @@ class LiveKitService:
         self,
         *,
         identity: str,
-        video_grants: Dict[str, Any],
+        video_grants: dict[str, Any],
         name: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         ttl_seconds: Optional[int] = None,
     ) -> str:
         now = int(time.time())
         ttl = ttl_seconds or settings.livekit_default_room_ttl_seconds
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "iss": settings.livekit_api_key,
             "sub": identity,
             "nbf": now - 1,
@@ -737,7 +798,9 @@ class LiveKitService:
                 payload["attributes"] = {str(key): str(value) for key, value in attributes.items()}
         return jwt.encode(payload, settings.livekit_api_secret or "", algorithm="HS256")
 
-    async def _twirp(self, method: str, body: Dict[str, Any], *, room_name: Optional[str] = None) -> Dict[str, Any]:
+    async def _twirp(
+        self, method: str, body: dict[str, Any], *, room_name: Optional[str] = None
+    ) -> dict[str, Any]:
         token = self.issue_room_admin_token(room_name=room_name)
         base_url = (settings.livekit_internal_url or "").rstrip("/")
         url = f"{base_url}/twirp/livekit.RoomService/{method}"
@@ -746,7 +809,10 @@ class LiveKitService:
                 response = await client.post(
                     url,
                     json=body,
-                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
                 )
             response.raise_for_status()
             return response.json() if response.content else {}

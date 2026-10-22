@@ -1,0 +1,199 @@
+"""Real PostgreSQL reservation races; each test owns a disposable schema."""
+
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+from app.db.base import Base
+from app.models.model_usage import ModelUsageCall, UsageBudgetBucket, UsageReservation
+from app.models.system import System
+from app.models.workspace import Workspace
+from app.services import model_usage as usage
+
+
+@pytest.fixture
+def pg_usage(monkeypatch):
+    url = os.getenv("MODEL_USAGE_POSTGRES_URL")
+    if not url:
+        pytest.skip("MODEL_USAGE_POSTGRES_URL required")
+    schema = "model_usage_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(
+        url,
+        connect_args={
+            "options": f"-csearch_path={schema} -clock_timeout=8000 -cstatement_timeout=15000"
+        },
+    )
+    try:
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(bind=engine)
+        monkeypatch.setattr(usage, "SessionLocal", factory)
+        monkeypatch.setattr(usage, "budget_readiness", lambda _: {"ready": True})
+        with factory() as db:
+            workspace = Workspace(id="usage-ws", name="Usage", slug="usage")
+            system = System(id="usage-app", workspace_id=workspace.id, name="App")
+            db.add(workspace)
+            db.flush()
+            db.add(system)
+            db.commit()
+            actor = SimpleNamespace(id="test-operator")
+            usage.create_tariff(
+                db,
+                workspace,
+                actor,
+                provider="openai",
+                model="test",
+                currency="USD",
+                input_per_million="1000",
+                output_per_million="2000",
+            )
+            usage.save_budget(
+                db,
+                workspace,
+                actor,
+                scope="workspace",
+                enabled=True,
+                max_tokens=200,
+                currency_limits={"USD": "0.3"},
+                expected_revision=0,
+            )
+            usage.save_budget(
+                db,
+                workspace,
+                actor,
+                scope="system",
+                system_id=system.id,
+                enabled=True,
+                max_tokens=200,
+                currency_limits={"USD": "0.3"},
+                expected_revision=0,
+            )
+        yield SimpleNamespace(
+            factory=factory, ctx=usage.UsageContext("usage-ws", system_id="usage-app")
+        )
+    finally:
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def _prepare(s, key):
+    return usage.prepare_call(
+        s.ctx,
+        request_key=key,
+        provider="openai",
+        model="test",
+        input_token_bound=100,
+        output_token_bound=100,
+        admission_qualified=True,
+    )
+
+
+def test_concurrent_admission_only_one_call_fits_all_shared_limits(pg_usage):
+    s = pg_usage
+    barrier = threading.Barrier(2)
+
+    def attempt(key):
+        barrier.wait(timeout=5)
+        try:
+            return _prepare(s, key)["status"]
+        except usage.UsageError as exc:
+            return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(attempt, str(i)) for i in range(2)]
+        results = [f.result(timeout=10) for f in futures]
+    assert sorted(results) == ["USAGE_BUDGET_EXHAUSTED", "prepared"]
+    with s.factory() as db:
+        assert db.query(UsageReservation).count() == 2
+        assert all(b.reserved_tokens == 200 for b in db.query(UsageBudgetBucket).all())
+
+
+def test_concurrent_duplicate_reservation_and_dispatch_are_single_owner(pg_usage):
+    s = pg_usage
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(_prepare, s, "same") for _ in range(2)]
+        calls = [future.result(timeout=10) for future in futures]
+    assert calls[0]["id"] == calls[1]["id"]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claims = list(pool.map(usage.mark_dispatched, [calls[0]["id"]] * 2))
+    assert sorted(claims) == [False, True]
+    with s.factory() as db:
+        assert db.query(ModelUsageCall).count() == 1
+        assert db.query(UsageReservation).count() == 2
+
+
+def test_concurrent_settlement_is_idempotent(pg_usage):
+    s = pg_usage
+    call = _prepare(s, "one")
+    usage.mark_dispatched(call["id"])
+
+    def settle():
+        return usage.settle_call(call["id"], usage={"input_tokens": 10, "output_tokens": 10})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(settle) for _ in range(2)]
+        for future in futures:
+            future.result(timeout=10)
+    with s.factory() as db:
+        assert all(
+            row.consumed_tokens == 20 and row.reserved_tokens == 0
+            for row in db.query(UsageBudgetBucket).all()
+        )
+
+
+def test_native_hook_failure_rolls_back_both_scopes(pg_usage):
+    s = pg_usage
+
+    def reject(db, call):
+        db.flush()
+        assert db.query(UsageReservation).count() == 2
+        raise RuntimeError("native budget denied")
+
+    with pytest.raises(RuntimeError, match="native budget denied"):
+        usage.prepare_call(
+            s.ctx,
+            request_key="hook",
+            provider="openai",
+            model="test",
+            input_token_bound=100,
+            output_token_bound=100,
+            admission_qualified=True,
+            admission_hook=reject,
+        )
+    assert _prepare(s, "after-rollback")["status"] == "prepared"
+
+
+def test_migration_creates_identical_usage_contract_and_reverses(pg_usage):
+    import importlib.util
+    from pathlib import Path
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import inspect
+
+    path = Path(__file__).resolve().parents[3] / "alembic/versions/146_model_usage_budgets.py"
+    spec = importlib.util.spec_from_file_location("usage_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with pg_usage.factory().get_bind().begin() as connection:
+        module.op = Operations(MigrationContext.configure(connection))
+        module.downgrade()
+        assert "model_usage_calls" not in inspect(connection).get_table_names()
+        module.upgrade()
+        names = {column["name"] for column in inspect(connection).get_columns("model_usage_calls")}
+        assert names == set(ModelUsageCall.__table__.columns.keys())
+        assert inspect(connection).get_unique_constraints("model_usage_reservations")[0][
+            "column_names"
+        ] == ["call_id", "bucket_id"]
+        module.downgrade()
+        assert "model_usage_calls" not in inspect(connection).get_table_names()

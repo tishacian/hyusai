@@ -11,7 +11,7 @@ graph stays the single versioned source of truth for the environment.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,9 +58,7 @@ class EnvResolveBody(BaseModel):
     extra_index_urls: list[str] = Field(default_factory=list, max_length=8)
 
 
-def _get_env_or_404(
-    db: DBSession, *, env_id: str, workspace_id: str
-) -> PythonEnv:
+def _get_env_or_404(db: DBSession, *, env_id: str, workspace_id: str) -> PythonEnv:
     env = (
         db.query(PythonEnv)
         .filter(PythonEnv.id == env_id, PythonEnv.workspace_id == workspace_id)
@@ -245,13 +243,17 @@ async def list_recipe_executions(
     run_id: Optional[str] = Query(default=None, max_length=36),
     node_id: Optional[str] = Query(default=None, max_length=160),
     limit: int = Query(default=20, ge=1, le=100),
+    traffic: Optional[Literal["business", "evaluation", "all"]] = None,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    query = db.query(RecipeExecution).filter(
-        RecipeExecution.workspace_id == workspace.id
-    )
+    query = db.query(RecipeExecution).filter(RecipeExecution.workspace_id == workspace.id)
+    scope = traffic or ("all" if run_id else "business")
+    if scope == "business":
+        query = query.filter(RecipeExecution.evaluation_campaign_id.is_(None))
+    elif scope == "evaluation":
+        query = query.filter(RecipeExecution.evaluation_campaign_id.is_not(None))
     if run_id:
         query = query.filter(RecipeExecution.run_id == run_id)
     if node_id:
@@ -267,9 +269,7 @@ async def get_recipe_execution(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    execution = _get_execution_or_404(
-        db, execution_id=execution_id, workspace_id=workspace.id
-    )
+    execution = _get_execution_or_404(db, execution_id=execution_id, workspace_id=workspace.id)
     return {"execution": serialize_execution(execution)}
 
 
@@ -280,8 +280,6 @@ async def cancel_recipe_execution(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    execution = _get_execution_or_404(
-        db, execution_id=execution_id, workspace_id=workspace.id
-    )
+    execution = _get_execution_or_404(db, execution_id=execution_id, workspace_id=workspace.id)
     execution = request_cancel(db, execution)
     return {"execution": serialize_execution(execution)}

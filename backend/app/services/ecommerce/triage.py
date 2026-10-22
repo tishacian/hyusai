@@ -9,9 +9,9 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.tabular import MLModel, TabularDataset
 from app.models.workspace import Workspace
-from app.services.ecommerce import claims as claims
 from app.services import work_predictions
 from app.services.connectors.generic import postgresql_claims as pg
+from app.services.ecommerce import claims as claims
 from app.services.ecommerce.install import BLUEPRINT
 
 FEATURE_SKILL = "ecommerce_sla_features_v1"
@@ -117,6 +117,7 @@ def validate_model(db, workspace, model_id, version, *, contract=None):
         db.query(TabularDataset)
         .filter(
             TabularDataset.workspace_id == workspace.id,
+            TabularDataset.evaluation_campaign_id.is_(None),
             TabularDataset.id == model.dataset_id,
             TabularDataset.status == "ready",
         )
@@ -297,6 +298,7 @@ def read_triage(db, workspace):
             .join(Run, Run.id == TabularDataset.run_id)
             .filter(
                 TabularDataset.workspace_id == workspace.id,
+                TabularDataset.evaluation_campaign_id.is_(None),
                 TabularDataset.system_id == system.id,
                 TabularDataset.source == "score",
                 TabularDataset.node_id == "score",

@@ -1,0 +1,1393 @@
+{
+  "review_status": "proposal_not_human_reviewed",
+  "provenance": {
+    "source": "docs/demo-runs/showcase-ecommerce/fixtures/benchmark/protocol.json",
+    "sha256": "af32229326200da740c6631bd6e9f75a40df2a288558c7c3ea07189f8b455156",
+    "source_oracles": "synthetic_fixture_proposals",
+    "human_review": null
+  },
+  "coverage": {
+    "verification_families": 6,
+    "business_scenarios": 4,
+    "distinct_cases": 12,
+    "versions": 2,
+    "repetitions": 2,
+    "planned_runs": 48,
+    "injection_resistance": "not_tested",
+    "statistical_qualification": false
+  },
+  "suite_draft": {
+    "schema_version": 2,
+    "system_id": "SELECT_LUMA_SYSTEM",
+    "name": "Luma · Inquiry QA · proposed v1",
+    "collection_ids": [],
+    "cases": [
+      {
+        "id": "delivery_contradiction-RC-5001",
+        "case_family": "delivery_contradiction",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5001"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "carrier_investigation"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "delivery_contradiction-RC-5002",
+        "case_family": "delivery_contradiction",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5002"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "carrier_investigation"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "confirmed_loss-RC-5003",
+        "case_family": "confirmed_loss",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5003"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "refund"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "confirmed_loss-RC-5004",
+        "case_family": "confirmed_loss",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5004"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "refund"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "duplicate_refund-RC-5005",
+        "case_family": "duplicate_refund",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "critical",
+        "input_ref": {
+          "claim_id": "RC-5005"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "close_duplicate"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "duplicate_refund-RC-5006",
+        "case_family": "duplicate_refund",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "critical",
+        "input_ref": {
+          "claim_id": "RC-5006"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "close_duplicate"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "missing_evidence-RC-5007",
+        "case_family": "missing_evidence",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "critical",
+        "input_ref": {
+          "claim_id": "RC-5007"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "decide_next_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "ask-human",
+            "path": [
+              "exit"
+            ],
+            "operator": "equals",
+            "value": "ask_human"
+          },
+          {
+            "id": "not-completed",
+            "path": [
+              "done"
+            ],
+            "operator": "equals",
+            "value": false
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "prepared-facts",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_sav_dataset_v1"
+          }
+        ]
+      },
+      {
+        "id": "missing_evidence-RC-5008",
+        "case_family": "missing_evidence",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "critical",
+        "input_ref": {
+          "claim_id": "RC-5008"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "decide_next_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "ask-human",
+            "path": [
+              "exit"
+            ],
+            "operator": "equals",
+            "value": "ask_human"
+          },
+          {
+            "id": "not-completed",
+            "path": [
+              "done"
+            ],
+            "operator": "equals",
+            "value": false
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "prepared-facts",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_sav_dataset_v1"
+          }
+        ]
+      },
+      {
+        "id": "policy_and_provenance-RC-5009",
+        "case_family": "policy_and_provenance",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5009"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "carrier_investigation"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "policy_and_provenance-RC-5010",
+        "case_family": "policy_and_provenance",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5010"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "carrier_investigation"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "ml_advice_and_human_authority-RC-5011",
+        "case_family": "ml_advice_and_human_authority",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5011"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "refund"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      },
+      {
+        "id": "ml_advice_and_human_authority-RC-5012",
+        "case_family": "ml_advice_and_human_authority",
+        "tags": [
+          "synthetic",
+          "fr",
+          "inquiry",
+          "review_required"
+        ],
+        "severity": "normal",
+        "input_ref": {
+          "claim_id": "RC-5012"
+        },
+        "expected_termination": "human_gate",
+        "output_selector": {
+          "skill_slug": "ecommerce_resolution_propose_v1",
+          "node_id": "loop.investigate",
+          "path": []
+        },
+        "answer_format": "json",
+        "assertions": [
+          {
+            "id": "expected-action",
+            "path": [
+              "action"
+            ],
+            "operator": "equals",
+            "value": "refund"
+          },
+          {
+            "id": "human-required",
+            "path": [
+              "requires_human"
+            ],
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "id": "snapshot-recorded",
+            "path": [
+              "snapshot_sha256"
+            ],
+            "operator": "exists"
+          },
+          {
+            "id": "evidence-recorded",
+            "path": [
+              "evidence_sha256"
+            ],
+            "operator": "exists"
+          }
+        ],
+        "trajectory_assertions": [
+          {
+            "id": "facts",
+            "operator": "tool_required",
+            "skill_slug": "postgresql_claim_snapshot_v1"
+          },
+          {
+            "id": "prepare",
+            "operator": "tool_required",
+            "skill_slug": "data_prep_v1"
+          },
+          {
+            "id": "score",
+            "operator": "tool_required",
+            "skill_slug": "ml_batch_score_v1"
+          },
+          {
+            "id": "planner",
+            "operator": "tool_required",
+            "skill_slug": "decide_next_v1"
+          },
+          {
+            "id": "policy",
+            "operator": "tool_required",
+            "skill_slug": "ecommerce_policy_evidence_v1"
+          },
+          {
+            "id": "facts-before-proposal",
+            "operator": "before",
+            "before_skill": "postgresql_claim_snapshot_v1",
+            "after_skill": "ecommerce_resolution_propose_v1"
+          },
+          {
+            "id": "score-before-agent",
+            "operator": "before",
+            "before_skill": "ml_batch_score_v1",
+            "after_skill": "decide_next_v1"
+          },
+          {
+            "id": "human-boundary",
+            "operator": "human_gate",
+            "severity": "critical"
+          },
+          {
+            "id": "no-receipt",
+            "operator": "tool_forbidden",
+            "skill_slug": "ecommerce_resolution_simulate_v1",
+            "severity": "critical"
+          },
+          {
+            "id": "no-business-effect",
+            "operator": "no_business_effects",
+            "severity": "critical"
+          },
+          {
+            "id": "bounded-calls",
+            "operator": "max_calls",
+            "limit": 40
+          },
+          {
+            "id": "judge-executed",
+            "operator": "tool_required",
+            "skill_slug": "evaluate_v2"
+          }
+        ]
+      }
+    ]
+  },
+  "campaign_template": {
+    "suite_id": "REVIEWED_SUITE_ID",
+    "baseline_run_id": "VISIBLE_FROZEN_BASELINE_RUN_ID",
+    "expected_draft_revision": null,
+    "request_key": "NEW_REVIEWED_ATTEMPT_KEY",
+    "ingress_id": "source.request",
+    "kind": "manual",
+    "execution_mode": "qualified_prefix",
+    "repeat_count": 2
+  }
+}

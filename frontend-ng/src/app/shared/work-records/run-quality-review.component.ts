@@ -9,7 +9,7 @@ import { runQualityReviews } from './run-quality-review';
   imports: [TypedJudgeResultComponent], changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: '../../features/data/dataops-editor.scss',
   template: `@for (review of reviews(); track review.invocationId) {
-    @if (review.result) { <app-typed-judge-result [value]="review.result" [compact]="true" /> }
+    @if (review.result) { <app-typed-judge-result [value]="review.result" [compact]="true" [runId]="run()?.id || null" [invocationId]="review.invocationId" /> }
     @else { <section class="dp-section" data-testid="run-quality-review-state">
       <h3>{{ i18n.t('dataops.judge.result') }}</h3>
       <p class="dp-note" role="status">{{ i18n.t(review.state === 'pending' ? 'dataops.judge.pending' : 'dataops.judge.unavailable') }}</p>

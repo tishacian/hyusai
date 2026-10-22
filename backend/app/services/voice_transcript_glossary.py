@@ -17,12 +17,16 @@ Two cooperating pieces:
 There is **no hardcoded** ``cadre -> carde`` (or any other) mapping anywhere;
 every correction is derived from the resolved glossary.
 """
+
 from __future__ import annotations
 
 import difflib
 import re
 from dataclasses import dataclass, field
-from typing import Any, Iterable, List, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
+
+from app.services.model_usage import UsageError
+from app.services.model_usage_sdk import async_openai_chat
 
 # --- Extraction primitives --------------------------------------------------
 
@@ -39,16 +43,100 @@ _ACRONYM_RE = re.compile(r"[A-Z][A-Z0-9]{1,}")
 # French "section" must never be normalized to "SECTION").
 _ACRONYM_NOISE = frozenset(
     {
-        "html", "head", "body", "frame", "frameset", "section", "span", "div",
-        "table", "thead", "tbody", "tr", "td", "th", "br", "hr", "ul", "ol", "li",
-        "img", "src", "href", "http", "https", "www", "url", "doc", "pdf", "page",
-        "the", "of", "and", "for", "with", "from", "this", "that", "every", "all",
-        "der", "die", "das", "und", "jede", "jeder", "den", "ein", "eine",
-        "les", "des", "une", "sur", "par", "aux", "ses", "est", "ont", "pas",
-        "tel", "fax", "phone", "email", "mail", "tel.", "info", "ref",
-        "ii", "iii", "iv", "vi", "vii", "viii", "ix", "xi", "xii", "xiii",
-        "sas", "ag", "sa", "gmbh", "inc", "ltd", "corp", "co", "llc",
-        "en", "de", "fr", "us", "uk", "eu", "no", "nr", "id",
+        "html",
+        "head",
+        "body",
+        "frame",
+        "frameset",
+        "section",
+        "span",
+        "div",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "td",
+        "th",
+        "br",
+        "hr",
+        "ul",
+        "ol",
+        "li",
+        "img",
+        "src",
+        "href",
+        "http",
+        "https",
+        "www",
+        "url",
+        "doc",
+        "pdf",
+        "page",
+        "the",
+        "of",
+        "and",
+        "for",
+        "with",
+        "from",
+        "this",
+        "that",
+        "every",
+        "all",
+        "der",
+        "die",
+        "das",
+        "und",
+        "jede",
+        "jeder",
+        "den",
+        "ein",
+        "eine",
+        "les",
+        "des",
+        "une",
+        "sur",
+        "par",
+        "aux",
+        "ses",
+        "est",
+        "ont",
+        "pas",
+        "tel",
+        "fax",
+        "phone",
+        "email",
+        "mail",
+        "tel.",
+        "info",
+        "ref",
+        "ii",
+        "iii",
+        "iv",
+        "vi",
+        "vii",
+        "viii",
+        "ix",
+        "xi",
+        "xii",
+        "xiii",
+        "sas",
+        "ag",
+        "sa",
+        "gmbh",
+        "inc",
+        "ltd",
+        "corp",
+        "co",
+        "llc",
+        "en",
+        "de",
+        "fr",
+        "us",
+        "uk",
+        "eu",
+        "no",
+        "nr",
+        "id",
     }
 )
 
@@ -64,16 +152,97 @@ _SEGMENT_RE = re.compile(r"[A-Za-zÀ-ÿ0-9'’\-]+|[^A-Za-zÀ-ÿ0-9'’\-]+")
 # to suppress the highest-frequency function words, not act as a full lexicon.
 _STOPWORDS = frozenset(
     {
-        "alors", "après", "assez", "aucun", "aussi", "autre", "avant", "avec", "avoir",
-        "bien", "cela", "cette", "ceux", "chaque", "comme", "comment", "dans", "deux",
-        "donc", "dont", "elle", "elles", "encore", "entre", "était", "étaient", "être",
-        "fait", "faire", "faut", "fois", "hors", "ici", "jamais", "leur", "leurs",
-        "lors", "mais", "même", "moins", "notre", "nous", "parce", "pour", "plus",
-        "quand", "quel", "quelle", "quelles", "quels", "qui", "quoi", "sans", "sera",
-        "seront", "ses", "sont", "sous", "sur", "tous", "tout", "toute", "toutes",
-        "très", "trop", "une", "vers", "voici", "voilà", "vont", "votre", "vous",
-        "ça", "celui", "celle", "depuis", "pendant", "puis", "selon", "ainsi", "donne",
-        "passe", "valide", "été", "cet", "des", "les", "ces", "est", "que", "qu",
+        "alors",
+        "après",
+        "assez",
+        "aucun",
+        "aussi",
+        "autre",
+        "avant",
+        "avec",
+        "avoir",
+        "bien",
+        "cela",
+        "cette",
+        "ceux",
+        "chaque",
+        "comme",
+        "comment",
+        "dans",
+        "deux",
+        "donc",
+        "dont",
+        "elle",
+        "elles",
+        "encore",
+        "entre",
+        "était",
+        "étaient",
+        "être",
+        "fait",
+        "faire",
+        "faut",
+        "fois",
+        "hors",
+        "ici",
+        "jamais",
+        "leur",
+        "leurs",
+        "lors",
+        "mais",
+        "même",
+        "moins",
+        "notre",
+        "nous",
+        "parce",
+        "pour",
+        "plus",
+        "quand",
+        "quel",
+        "quelle",
+        "quelles",
+        "quels",
+        "qui",
+        "quoi",
+        "sans",
+        "sera",
+        "seront",
+        "ses",
+        "sont",
+        "sous",
+        "sur",
+        "tous",
+        "tout",
+        "toute",
+        "toutes",
+        "très",
+        "trop",
+        "une",
+        "vers",
+        "voici",
+        "voilà",
+        "vont",
+        "votre",
+        "vous",
+        "ça",
+        "celui",
+        "celle",
+        "depuis",
+        "pendant",
+        "puis",
+        "selon",
+        "ainsi",
+        "donne",
+        "passe",
+        "valide",
+        "été",
+        "cet",
+        "des",
+        "les",
+        "ces",
+        "est",
+        "que",
+        "qu",
     }
 )
 
@@ -84,25 +253,140 @@ _STOPWORDS = frozenset(
 _NOISE_WORDS = frozenset(
     {
         # English function / boilerplate
-        "the", "and", "for", "with", "this", "that", "from", "your", "must", "only",
-        "into", "such", "have", "will", "shall", "been", "they", "their", "there",
-        "page", "part", "parts", "type", "unit", "table", "manual", "section",
-        "safety", "operating", "instructions", "instruction", "installation",
-        "maintenance", "service", "equipment", "system", "machine", "check", "note",
-        "warning", "danger", "caution", "target", "fixed", "center", "style", "blue",
-        "water", "pressure", "temperature", "motor", "motors", "pump", "valve",
-        "background", "nonwoven", "pilot", "every", "must", "when", "where", "which",
+        "the",
+        "and",
+        "for",
+        "with",
+        "this",
+        "that",
+        "from",
+        "your",
+        "must",
+        "only",
+        "into",
+        "such",
+        "have",
+        "will",
+        "shall",
+        "been",
+        "they",
+        "their",
+        "there",
+        "page",
+        "part",
+        "parts",
+        "type",
+        "unit",
+        "table",
+        "manual",
+        "section",
+        "safety",
+        "operating",
+        "instructions",
+        "instruction",
+        "installation",
+        "maintenance",
+        "service",
+        "equipment",
+        "system",
+        "machine",
+        "check",
+        "note",
+        "warning",
+        "danger",
+        "caution",
+        "target",
+        "fixed",
+        "center",
+        "style",
+        "blue",
+        "water",
+        "pressure",
+        "temperature",
+        "motor",
+        "motors",
+        "pump",
+        "valve",
+        "background",
+        "nonwoven",
+        "pilot",
+        "every",
+        "must",
+        "when",
+        "where",
+        "which",
         # German function / boilerplate
-        "werden", "oder", "sind", "nicht", "nach", "durch", "eine", "einen", "kann",
-        "wird", "seite", "maschine", "maschinen", "betriebsanleitung", "monate",
-        "monat", "warnung", "achtung", "gefahr", "auch", "über", "sich", "diese",
-        "dieser", "dieses", "beim", "zum", "zur", "vom", "wenn", "muss",
+        "werden",
+        "oder",
+        "sind",
+        "nicht",
+        "nach",
+        "durch",
+        "eine",
+        "einen",
+        "kann",
+        "wird",
+        "seite",
+        "maschine",
+        "maschinen",
+        "betriebsanleitung",
+        "monate",
+        "monat",
+        "warnung",
+        "achtung",
+        "gefahr",
+        "auch",
+        "über",
+        "sich",
+        "diese",
+        "dieser",
+        "dieses",
+        "beim",
+        "zum",
+        "zur",
+        "vom",
+        "wenn",
+        "muss",
         # HTML / CSS markup leakage
-        "html", "head", "body", "span", "div", "href", "link", "alink", "vlink",
-        "arial", "font", "text", "size", "family", "color", "align", "valign",
-        "width", "height", "style", "class", "table", "border", "cellpadding",
-        "cellspacing", "bgcolor", "nowrap", "verdana", "helvetica", "sans", "serif",
-        "decoration", "none", "left", "right", "center", "top", "bottom", "middle",
+        "html",
+        "head",
+        "body",
+        "span",
+        "div",
+        "href",
+        "link",
+        "alink",
+        "vlink",
+        "arial",
+        "font",
+        "text",
+        "size",
+        "family",
+        "color",
+        "align",
+        "valign",
+        "width",
+        "height",
+        "style",
+        "class",
+        "table",
+        "border",
+        "cellpadding",
+        "cellspacing",
+        "bgcolor",
+        "nowrap",
+        "verdana",
+        "helvetica",
+        "sans",
+        "serif",
+        "decoration",
+        "none",
+        "left",
+        "right",
+        "center",
+        "top",
+        "bottom",
+        "middle",
     }
 )
 
@@ -117,7 +401,7 @@ _FUZZY_EDIT_MAX = 2
 _FUZZY_LEN_DELTA_MAX = 2
 
 
-def extract_acronyms(text: str) -> List[str]:
+def extract_acronyms(text: str) -> list[str]:
     """Return acronym / part-number style surface forms found in ``text``.
 
     Alphanumeric codes (containing a digit, e.g. KD724, XS1) always pass.
@@ -127,7 +411,7 @@ def extract_acronyms(text: str) -> List[str]:
     if not text:
         return []
     text = _strip_markup(text)
-    out: List[str] = []
+    out: list[str] = []
     for surface in _ACRONYM_RE.findall(text):
         if any(ch.isdigit() for ch in surface):
             out.append(surface)
@@ -155,7 +439,7 @@ def _strip_markup(text: str) -> str:
     return text
 
 
-def extract_distinctive_terms(text: str, *, min_len: int = _MIN_TERM_LEN) -> List[str]:
+def extract_distinctive_terms(text: str, *, min_len: int = _MIN_TERM_LEN) -> list[str]:
     """Extract candidate distinctive domain nouns from ``text``.
 
     Heuristic and cheap: alphabetic-ish word tokens of at least ``min_len``
@@ -165,7 +449,7 @@ def extract_distinctive_terms(text: str, *, min_len: int = _MIN_TERM_LEN) -> Lis
     if not text:
         return []
     text = _strip_markup(text)
-    out: List[str] = []
+    out: list[str] = []
     for match in _WORD_RE.finditer(text):
         token = match.group(0)
         if _is_acronym_token(token):
@@ -201,11 +485,11 @@ class Glossary:
     for casing normalization. A case-insensitive lookup is precomputed.
     """
 
-    terms: List[str] = field(default_factory=list)
+    terms: list[str] = field(default_factory=list)
     acronyms: set = field(default_factory=set)
     _by_lower: dict = field(default_factory=dict, init=False, repr=False)
     _acronyms_by_lower: dict = field(default_factory=dict, init=False, repr=False)
-    _fuzzy_terms: List[str] = field(default_factory=list, init=False, repr=False)
+    _fuzzy_terms: list[str] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
         for surface in self.terms:
@@ -232,13 +516,13 @@ class Glossary:
         return self._acronyms_by_lower.get(token.lower())
 
     @property
-    def fuzzy_terms(self) -> List[str]:
+    def fuzzy_terms(self) -> list[str]:
         return self._fuzzy_terms
 
 
-def _coerce_workspace_terms(raw: Any) -> List[str]:
+def _coerce_workspace_terms(raw: Any) -> list[str]:
     """Accept either a list of strings or a list of ``{term/surface: ...}`` dicts."""
-    out: List[str] = []
+    out: list[str] = []
     if not isinstance(raw, (list, tuple)):
         return out
     for item in raw:
@@ -253,11 +537,11 @@ def _coerce_workspace_terms(raw: Any) -> List[str]:
     return out
 
 
-def _plan_labels(capture_session: Any) -> List[str]:
+def _plan_labels(capture_session: Any) -> list[str]:
     plan = getattr(capture_session, "plan", None) or {}
     if not isinstance(plan, dict):
         return []
-    labels: List[str] = []
+    labels: list[str] = []
     for topic in plan.get("topics") or []:
         if not isinstance(topic, dict):
             continue
@@ -293,7 +577,7 @@ def build_glossary_from_terms(
     acronym-style tokens, and caps the total number of terms.
     """
     cap = _resolve_max_terms(max_terms)
-    terms: List[str] = []
+    terms: list[str] = []
     acronyms: set = set()
     seen: set = set()
     for surface in surfaces:
@@ -327,7 +611,7 @@ def resolve_glossary(
     workspace glossary, then plan topic/subtopic labels, then acronyms and
     distinctive terms extracted from the live retrieved chunks. Pure and cheap.
     """
-    ordered: List[str] = []
+    ordered: list[str] = []
 
     settings_obj = getattr(workspace, "settings", None) if workspace is not None else None
     if isinstance(settings_obj, dict):
@@ -337,8 +621,8 @@ def resolve_glossary(
 
     ordered.extend(_plan_labels(capture_session))
 
-    chunk_acronyms: List[str] = []
-    chunk_terms: List[str] = []
+    chunk_acronyms: list[str] = []
+    chunk_terms: list[str] = []
     for chunk in live_chunks or []:
         text = chunk if isinstance(chunk, str) else str(chunk or "")
         if not text:
@@ -456,7 +740,7 @@ def correct_transcript_segment_tier1(text: str, glossary: Optional[Glossary]) ->
     """
     if not text or glossary is None or glossary.is_empty:
         return text
-    out: List[str] = []
+    out: list[str] = []
     for piece in _SEGMENT_RE.findall(text):
         if _WORD_RE.fullmatch(piece):
             out.append(_correct_word(piece, glossary))
@@ -489,7 +773,8 @@ async def _correct_transcript_segment_tier2(
 
         client = AsyncOpenAI(api_key=api_key)
         glossary_terms = list(glossary.terms)[:80]
-        response = await client.chat.completions.create(
+        response = await async_openai_chat(
+            client,
             model=model,
             **_model_chat_kwargs(model, temperature=0.0),
             messages=[
@@ -519,6 +804,8 @@ async def _correct_transcript_segment_tier2(
             return tier1_result
         corrected = content.strip().strip('"').strip()
         return corrected or tier1_result
+    except UsageError:
+        raise
     except Exception:
         return tier1_result
 

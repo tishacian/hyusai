@@ -723,11 +723,26 @@ def _no_call_usage(reason):
     }
 
 
-def _persist_evaluation(db, result, workspace, run):
+def _persist_evaluation(db, result, workspace, run, *, ctx=None, job=None):
     """Expose the same evaluation identity through existing quality surfaces."""
     from sqlalchemy import null
 
     from app.models.evaluation import EvaluationScore
+    from app.models.run import SkillInvocation
+
+    context = ctx or {}
+    producer = (
+        db.get(SkillInvocation, context.get("_skill_invocation_id"))
+        if context.get("_skill_invocation_id")
+        else None
+    )
+    if context.get("_skill_invocation_id") and (
+        producer is None
+        or run is None
+        or producer.run_id != run.id
+        or producer.skill_slug != "evaluate_v2"
+    ):
+        raise TypedEvaluationError("JUDGE_PRODUCER_BINDING_INVALID")
 
     db.add(
         EvaluationScore(
@@ -740,12 +755,16 @@ def _persist_evaluation(db, result, workspace, run):
             scores={},
             composite_score=null(),
             hallucination_rate=null(),
+            drift_rate=null(),
             question_type="typed",
             claim_audit={},
             metadata_={
                 "source": "evaluate_v2",
                 "schema_version": 2,
                 "status": result["status"],
+                "producer_invocation_id": producer.id if producer else None,
+                "producer_job_id": job.id if job else None,
+                "node_id": context.get("_skill_node_id"),
                 "typed_evaluation": result,
             },
         )
@@ -905,7 +924,7 @@ async def _evaluate(db, spec, ctx):
         }
         job.result = state
         decorate(result)
-        _persist_evaluation(db, result, workspace, run)
+        _persist_evaluation(db, result, workspace, run, ctx=ctx, job=job)
         db.commit()
         return result
 
@@ -914,6 +933,9 @@ async def _evaluate(db, spec, ctx):
     local_ctx["_provider_usage_v1"] = accumulator
     ctx["_provider_usage_v1"] = accumulator
     local_ctx["_model_no_retries"] = True
+    local_ctx["_model_usage_purpose"] = "judge"
+    local_ctx["_model_usage_evaluation_id"] = evaluation_id
+    local_ctx["_model_usage_job_id"] = job.id
     existing_reserve = ctx.get("_model_before_dispatch")
     reserved = False
     reservation_tokens = 0
@@ -921,7 +943,7 @@ async def _evaluate(db, spec, ctx):
     service_reservation = None
     reservation_started = None
 
-    def reserve(candidate, actual_prompt, options):
+    def reserve(candidate, actual_prompt, options, *, admission_db=None):
         nonlocal \
             reserved, \
             reservation_tokens, \
@@ -929,16 +951,34 @@ async def _evaluate(db, spec, ctx):
             state, \
             service_reservation, \
             reservation_started
-        _, _, current_run = _authorize(db, ctx)
+        reservation_db = admission_db if admission_db is not None else db
+        _, _, current_run = _authorize(reservation_db, ctx)
         _authorize_evidence(spec, ctx, current_run)
         if route:
-            if _vision_route(db, spec, ctx, workspace, user, current_run, candidate) != route:
+            if (
+                _vision_route(reservation_db, spec, ctx, workspace, user, current_run, candidate)
+                != route
+            ):
                 raise TypedEvaluationError("JUDGE_VISION_ROUTE_CHANGED")
             _images(spec, ctx, route)
         if (candidate.provider, candidate.model) != (execution.provider, execution.model):
             raise TypedEvaluationError("JUDGE_MODEL_CHANGED")
         if reserved:
             raise TypedEvaluationError("JUDGE_UNEXPECTED_RETRY")
+        current_job = job
+        if admission_db is not None:
+            from app.models.workspace_job import WorkspaceJob
+
+            current_job = (
+                admission_db.query(WorkspaceJob)
+                .filter_by(id=job.id)
+                .with_for_update()
+                .populate_existing()
+                .one()
+            )
+            state = copy.deepcopy(current_job.result)
+            if request_key in state["units"]:
+                raise TypedEvaluationError("JUDGE_RECONCILIATION_REQUIRED")
         # Reservation is a conservative allowance, not reported token usage.
         input_allowance = (
             len(actual_prompt.encode())
@@ -955,13 +995,25 @@ async def _evaluate(db, spec, ctx):
             > Decimal(str(spec.budget.max_cost_usd))
         ):
             raise TypedEvaluationError("JUDGE_BUDGET_EXHAUSTED")
-        service_reservation = window_budget.reserve(
-            ctx,
-            stage="judge",
-            key=_hash([spec.batch_key, spec.request_key]),
-            cost=float(reservation_cost),
-            tokens=reservation_tokens,
-            seconds=timeout_s,
+        service_reservation = (
+            window_budget.reserve_in_transaction(
+                admission_db,
+                ctx,
+                stage="judge",
+                key=_hash([spec.batch_key, spec.request_key]),
+                cost=float(reservation_cost),
+                tokens=reservation_tokens,
+                seconds=timeout_s,
+            )
+            if admission_db is not None
+            else window_budget.reserve(
+                ctx,
+                stage="judge",
+                key=_hash([spec.batch_key, spec.request_key]),
+                cost=float(reservation_cost),
+                tokens=reservation_tokens,
+                seconds=timeout_s,
+            )
         )
         reservation_started = time.monotonic()
         if callable(existing_reserve):
@@ -975,12 +1027,29 @@ async def _evaluate(db, spec, ctx):
             "reserved_tokens": reservation_tokens,
             "reserved_cost_usd": str(reservation_cost),
         }
-        job.result = copy.deepcopy(state)
-        job.status = "running"
-        db.commit()  # Crash after dispatch cannot erase a charged reservation.
+        current_job.result = copy.deepcopy(state)
+        current_job.status = "running"
+        if admission_db is None:
+            db.commit()  # Crash after dispatch cannot erase a charged reservation.
+            reserved = True
+
+    def admission_committed(_record):
+        nonlocal reserved
         reserved = True
+        db.expire(job)
 
     local_ctx["_model_before_dispatch"] = reserve
+    if not callable(existing_reserve):
+        # The workspace/application, service window and Judge unit are all
+        # reserved in the same durable transaction before any provider send.
+        local_ctx["_model_admission_hook"] = (
+            lambda session, record, candidate, actual_prompt, options: reserve(
+                candidate, actual_prompt, options, admission_db=session
+            )
+        )
+        local_ctx["_model_admission_committed"] = admission_committed
+        # Release the read transaction; the admission connection owns locks.
+        db.commit()
     reason = None
     response_diagnostic = None
     cancelled = False
@@ -1015,18 +1084,27 @@ async def _evaluate(db, spec, ctx):
         cancelled, reason, status = True, "JUDGE_CANCELLED", "failed"
         answers = _unanswered(spec, reason, invalid=True)
     except Exception as exc:
+        from app.services.model_usage import UsageError
+
         if isinstance(exc, _ResponseValidationError):
             response_diagnostic = exc.diagnostic
         reason = (
             exc.code
-            if isinstance(exc, (TypedEvaluationError, window_budget.GovernanceError))
+            if isinstance(exc, (TypedEvaluationError, window_budget.GovernanceError, UsageError))
             else "JUDGE_TIMEOUT"
             if isinstance(exc, TimeoutError)
             else "JUDGE_PROVIDER_UNAVAILABLE"
         )
         status = "failed"
         answers = _unanswered(spec, reason, invalid=True)
-    for key in ("_model_execution_evidence", "_model_resolution_evidence"):
+    if not reserved and callable(local_ctx.get("_model_admission_hook")):
+        # A refused/rolled-back admission has no native reservation to settle.
+        db.refresh(job)
+        state = copy.deepcopy(job.result)
+        service_reservation = None
+        reservation_tokens, reservation_cost = 0, Decimal(0)
+        reservation_started = None
+    for key in ("_model_execution_evidence", "_model_resolution_evidence", "_model_usage_call_ids"):
         if key in local_ctx:
             ctx[key] = local_ctx[key]
     usage = (
@@ -1126,7 +1204,7 @@ async def _evaluate(db, spec, ctx):
     job.error = reason
     job.updated_at = datetime.utcnow()
     decorate(result)
-    _persist_evaluation(db, result, workspace, run)
+    _persist_evaluation(db, result, workspace, run, ctx=ctx, job=job)
     db.commit()
     if cancelled:
         raise asyncio.CancelledError

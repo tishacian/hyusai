@@ -77,7 +77,7 @@ export function summarySections(view: HypervisorNamedView | null): string[] {
     if (['monument', 'provenance', 'unites', 'couverture', 'signal', 'decisions'].includes(block.type)) add('command');
     else if (block.type === 'rivers') { add('rivers'); add('pair'); }
     else if (block.type === 'hors_denominateur') add('pair');
-    else if (['activity', 'financial_scenario', 'cadran', 'sankey'].includes(block.type)) add(block.type);
+    else if (['activity', 'financial_scenario', 'quality', 'ai_usage', 'cadran', 'sankey'].includes(block.type)) add(block.type);
   }
   return sections;
 }

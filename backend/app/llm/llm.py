@@ -1,15 +1,15 @@
 """
 Main LLM class providing a unified interface for different LLM providers.
 """
+
 from collections.abc import AsyncGenerator
-from typing import Optional, Any
+from typing import Optional
 
 from .base import LLMProvider
 from .models import (
     CompletionRequest,
     CompletionResponse,
     StreamingResponse,
-    MessageParam,
 )
 from .providers import OpenAIProvider
 
@@ -21,9 +21,11 @@ def _lazy_provider(module_name: str, class_name: str):
     def _get():
         if class_name not in _cached:
             import importlib
+
             mod = importlib.import_module(f".providers.{module_name}", package="app.llm")
             _cached[class_name] = getattr(mod, class_name)
         return _cached[class_name]
+
     return _get
 
 
@@ -43,10 +45,14 @@ class LLM:
         "lmstudio": _lazy_provider("lmstudio_provider", "LMStudioProvider"),
         "aws_bedrock": _lazy_provider("aws_bedrock_provider", "AWSBedrockProvider"),
         "azure_openai": _lazy_provider("azure_openai_provider", "AzureOpenAIProvider"),
-        "azure_openai_structured": _lazy_provider("azure_openai_structured_provider", "AzureOpenAIStructuredProvider"),
+        "azure_openai_structured": _lazy_provider(
+            "azure_openai_structured_provider", "AzureOpenAIStructuredProvider"
+        ),
         "langchain": _lazy_provider("langchain_provider", "LangChainProvider"),
         "litellm": _lazy_provider("litellm_provider", "LiteLLMProvider"),
-        "openai_structured": _lazy_provider("openai_structured_provider", "OpenAIStructuredProvider"),
+        "openai_structured": _lazy_provider(
+            "openai_structured_provider", "OpenAIStructuredProvider"
+        ),
         "sarvam": _lazy_provider("sarvam_provider", "SarvamProvider"),
         "vllm": _lazy_provider("vllm_provider", "VLLMProvider"),
         "llamacpp": _lazy_provider("llamacpp_provider", "LlamaCppProvider"),
@@ -58,7 +64,7 @@ class LLM:
         provider: str,
         api_key: Optional[str] = None,
         model_mapping: Optional[dict] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize the LLM with a specific provider.
@@ -72,7 +78,9 @@ class LLM:
         self.provider_name = provider.lower()
 
         if self.provider_name not in self._PROVIDER_FACTORIES:
-            raise ValueError(f"Unsupported provider: {provider}. Must be one of: {', '.join(self._PROVIDER_FACTORIES.keys())}")
+            raise ValueError(
+                f"Unsupported provider: {provider}. Must be one of: {', '.join(self._PROVIDER_FACTORIES.keys())}"
+            )
 
         provider_class = self._PROVIDER_FACTORIES[self.provider_name]()
         self.provider: LLMProvider = provider_class(api_key=api_key, **kwargs)
@@ -83,7 +91,7 @@ class LLM:
         model: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> CompletionResponse:
         """
         Generate a response using the configured provider.
@@ -100,15 +108,23 @@ class LLM:
         """
         # Create a validated request
         request = CompletionRequest(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
+            model=model, messages=messages, temperature=temperature, max_tokens=max_tokens, **kwargs
         )
-        
-        # Call the provider with the validated request
-        return await self.provider.generate(request)
+
+        from app.services.model_usage_transport import ProviderCall, output_limit
+
+        provider, qualified = self._usage_provider()
+        payload = request.model_dump(exclude_none=True)
+        with ProviderCall(
+            self.provider_name,
+            model,
+            payload,
+            output_token_bound=output_limit(payload),
+            qualified=qualified,
+        ) as call:
+            result = await provider.generate(request)
+            call.observe(result)
+            return result
 
     async def stream_generate(
         self,
@@ -116,7 +132,7 @@ class LLM:
         model: str,
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> AsyncGenerator[StreamingResponse, None]:
         """
         Stream a response using the configured provider.
@@ -138,15 +154,45 @@ class LLM:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
-            **kwargs
+            **kwargs,
         )
-        
-        # Stream from the provider with the validated request
-        async for chunk in self.provider.stream_generate(request):
-            yield chunk
-    
+
+        from app.services.model_usage_transport import ProviderCall, output_limit
+
+        provider, qualified = self._usage_provider()
+        payload = request.model_dump(exclude_none=True)
+        with ProviderCall(
+            self.provider_name,
+            model,
+            payload,
+            output_token_bound=output_limit(payload),
+            qualified=qualified,
+        ) as call:
+            async for chunk in provider.stream_generate(request):
+                call.observe(chunk)
+                yield chunk
+
+    def _usage_provider(self):
+        """Per-call SDK copy: no invisible retries or shared-client mutation."""
+        import copy
+
+        from app.services.model_usage_transport import tracking_active
+
+        provider = self.provider
+        if not tracking_active():
+            return provider, False
+        qualified = self.provider_name in {"openai", "azure_openai", "anthropic"}
+        client = getattr(provider, "client", None)
+        with_options = getattr(client, "with_options", None)
+        if callable(with_options):
+            provider = copy.copy(provider)
+            provider.client = with_options(max_retries=0)
+        else:
+            qualified = False
+        return provider, qualified
+
     # Convenience methods for simple text generation
-    
+
     async def complete(
         self,
         prompt: str,
@@ -154,11 +200,11 @@ class LLM:
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Simple text completion with automatic message formatting.
-        
+
         Args:
             prompt: User prompt text
             model: Model to use
@@ -166,7 +212,7 @@ class LLM:
             temperature: Controls randomness
             max_tokens: Maximum tokens to generate
             **kwargs: Additional parameters
-            
+
         Returns:
             Generated text content
         """
@@ -174,20 +220,20 @@ class LLM:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        
+
         response = await self.generate(
             messages=messages,  # type: ignore
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            **kwargs
+            **kwargs,
         )
-        
+
         # Extract text from response
         if response.choices and response.choices[0].message.content:
             return response.choices[0].message.content
         return ""
-    
+
     async def stream_complete(
         self,
         prompt: str,
@@ -196,11 +242,11 @@ class LLM:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         history: Optional[list[dict]] = None,
-        **kwargs
+        **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
         Simple streaming text completion with automatic message formatting.
-        
+
         Args:
             prompt: User prompt text
             model: Model to use
@@ -212,7 +258,7 @@ class LLM:
                 the model can follow the conversation (e.g. expand or continue a
                 previous answer).
             **kwargs: Additional parameters
-            
+
         Yields:
             Generated text chunks
         """
@@ -225,19 +271,16 @@ class LLM:
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": prompt})
-        
+
         async for chunk in self.stream_generate(
             messages=messages,  # type: ignore
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            **kwargs
+            **kwargs,
         ):
             # Extract content from streaming response
             if chunk.choices and chunk.choices[0].delta:
                 content = chunk.choices[0].delta.get("content", "")
                 if content:
                     yield content
-
-
-

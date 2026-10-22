@@ -217,6 +217,8 @@ def _skip(row, reason):
 
 
 def stage(db, *, row: MLPrediction, served: MLModel):
+    if row.evaluation_campaign_id is not None:
+        return None
     """Called inside a savepoint of the PRIMARY journal transaction; never commits."""
     config = configuration(served)
     if not config.enabled or not supported(served):
@@ -338,7 +340,9 @@ def _references(db, job):
     workspace = db.get(Workspace, job.workspace_id, populate_existing=True)
     row = (
         db.query(MLPrediction)
-        .filter_by(id=data["prediction_id"], workspace_id=job.workspace_id)
+        .filter_by(
+            id=data["prediction_id"], workspace_id=job.workspace_id, evaluation_campaign_id=None
+        )
         .populate_existing()
         .first()
     )
@@ -591,7 +595,7 @@ def summary(db, *, model):
         db.query(MLPrediction)
         .options(selectinload(MLPrediction.feedback_samples))
         .populate_existing()
-        .filter_by(workspace_id=model.workspace_id, served_id=model.id)
+        .filter_by(workspace_id=model.workspace_id, served_id=model.id, evaluation_campaign_id=None)
         .order_by(MLPrediction.created_at.desc(), MLPrediction.id.desc())
         .limit(WINDOW_LIMIT)
         .all()

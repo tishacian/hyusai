@@ -2003,7 +2003,7 @@
               ".with_for_update(of=Run)",
               "record_operator_outcome_override(",
               "Outcome, embedded receipt and exact AuditLog are one atomic write",
-              "return _row(r, db=db)"
+              "payload_visible=runtime_judgment_payload_visible("
             ]
           },
           {
