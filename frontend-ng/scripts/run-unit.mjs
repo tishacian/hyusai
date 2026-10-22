@@ -29,6 +29,7 @@ const pureSpecs = [
   'src/app/features/runs/run-sections.spec.ts',
   'src/app/core/run-follow-up.spec.ts',
   'src/app/shared/work-records/run-situation.spec.ts',
+  'src/app/core/run-polling.spec.ts',
   'src/app/features/hypervisor/v2/impact-assurance.spec.ts',
   'src/app/features/observability/test-suite-editor.models.spec.ts',
   'src/app/features/resources/decision-comparison.vm.spec.ts',

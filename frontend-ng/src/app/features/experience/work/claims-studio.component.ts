@@ -6,7 +6,6 @@ import { writeFailure } from '@app/shared/ui/load-state';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
@@ -33,6 +32,7 @@ import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActio
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
 import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
 import { WorkRecordAttemptsComponent } from '@app/shared/work-records/work-record-attempts.component';
+import { pollRun } from '@app/core/run-polling';
 
 type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
   | { key: string; state: 'confirmed'; runId: string };
@@ -399,7 +399,7 @@ export class ClaimsStudioComponent {
           }));
       if (generation !== this.generation) return;
       this.priorityPoll?.unsubscribe();
-      this.priorityPoll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(result.id)), takeUntilDestroyed(this.destroy)).subscribe({
+      this.priorityPoll = pollRun(() => this.canonical.getRun(result.id)).pipe(takeUntilDestroyed(this.destroy)).subscribe({
         next: run => {
           if (generation !== this.generation) return;
           if (!run || ['completed', 'failed', 'cancelled'].includes(run.status)) {
@@ -489,7 +489,7 @@ export class ClaimsStudioComponent {
   private watchRun(runId: string, claimId: string): void {
     this.poll?.unsubscribe(); const g = this.generation;
     this.runRefreshing.set(true);
-    this.poll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(runId)), takeUntilDestroyed(this.destroy)).subscribe({
+    this.poll = pollRun(() => this.canonical.getRun(runId)).pipe(takeUntilDestroyed(this.destroy)).subscribe({
       next: run => { if (g !== this.generation || this.selected() !== claimId) return;
         this.runRefreshing.set(false);
         if (!run || run.id !== runId) { this.runReadFailed.set(runId); this.poll?.unsubscribe(); return; }
