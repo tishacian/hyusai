@@ -247,6 +247,8 @@ def serialize_deployment(row: ExperienceDeployment) -> dict[str, Any]:
         "updated_by": row.updated_by,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "withdrawn_at": row.withdrawn_at.isoformat() if row.withdrawn_at else None,
+        "withdrawn_by": row.withdrawn_by,
     }
 
 
@@ -842,7 +844,10 @@ def _pick_work_release(
     by_channel = {item.channel: item for item in deployments}
     for channel in ("pilot", "live"):
         deployment = by_channel.get(channel)
-        if deployment is None or not audience_allows(deployment.audience, role, groups):
+        # A withdrawn deployment no longer serves its channel's audience.
+        if deployment is None or deployment.withdrawn_at is not None:
+            continue
+        if not audience_allows(deployment.audience, role, groups):
             continue
         release = _owned_release(db, experience=experience, release_id=deployment.release_id)
         if audience_allows(release.access_snapshot, role, groups):
@@ -3416,6 +3421,7 @@ def deploy(
         and row.last_mutation_sha256 == mutation_sha256
         and row.release_id == release.id
         and row.audience == cleaned_audience
+        and row.withdrawn_at is None
     ):
         return row
     if (
@@ -3464,6 +3470,9 @@ def deploy(
         row.last_mutation_sha256 = mutation_sha256
         row.updated_by = actor
         row.updated_at = now
+        # Deploying again puts a withdrawn channel back in service.
+        row.withdrawn_at = None
+        row.withdrawn_by = None
     db.flush()
     emit_audit_event(
         workspace_id=workspace.id,
@@ -3510,6 +3519,13 @@ def rollback_deployment(
             code="EXPERIENCE_DEPLOYMENT_NOT_FOUND",
             message="No deployment exists for this channel.",
             status_code=404,
+        )
+    if row.withdrawn_at is not None:
+        raise ExperienceError(
+            code="EXPERIENCE_DEPLOYMENT_WITHDRAWN",
+            message="This channel is withdrawn; deploy a release to put it back in service.",
+            status_code=409,
+            details={"channel": cleaned_channel},
         )
     target_id = release_id.strip()
     expected_current_id = expected_current_release_id.strip()
@@ -3578,6 +3594,100 @@ def rollback_deployment(
             "channel": cleaned_channel,
             "release_id": release.id,
             "from_release_id": row.previous_release_id,
+        },
+        db=db,
+    )
+    return row
+
+
+def withdraw_deployment(
+    db: DBSession,
+    *,
+    workspace: Any,
+    experience_id: str,
+    channel: str,
+    expected_current_release_id: str,
+    expected_deployment_updated_at: datetime,
+    actor: str | None,
+) -> ExperienceDeployment:
+    """Take a channel out of service without deleting anything.
+
+    The deployment row keeps its release and audience; releases, bindings,
+    Runs and record attempts are untouched. Work stops serving the channel
+    until a release is deployed on it again.
+    """
+    cleaned_channel = _channel(channel)
+    experience = _owned(db, workspace_id=workspace.id, experience_id=experience_id, lock=True)
+    row = (
+        db.query(ExperienceDeployment)
+        .filter(
+            ExperienceDeployment.experience_id == experience.id,
+            ExperienceDeployment.workspace_id == experience.workspace_id,
+            ExperienceDeployment.channel == cleaned_channel,
+        )
+        .populate_existing()
+        .with_for_update(of=ExperienceDeployment)
+        .one_or_none()
+    )
+    if row is None:
+        raise ExperienceError(
+            code="EXPERIENCE_DEPLOYMENT_NOT_FOUND",
+            message="No deployment exists for this channel.",
+            status_code=404,
+        )
+    mutation_sha256 = _deployment_mutation_sha256(
+        operation="withdraw",
+        channel=cleaned_channel,
+        release_id=row.release_id,
+        audience=row.audience or {},
+        expected_current_release_id=expected_current_release_id.strip(),
+        expected_deployment_updated_at=expected_deployment_updated_at,
+    )
+    # A lost-response retry of this exact withdrawal returns the same row.
+    if row.withdrawn_at is not None and row.last_mutation_sha256 == mutation_sha256:
+        return row
+    if (
+        row.release_id != expected_current_release_id.strip()
+        or row.updated_at != expected_deployment_updated_at
+    ):
+        raise ExperienceError(
+            code="EXPERIENCE_DEPLOYMENT_CONFLICT",
+            message="The deployment changed; refresh before withdrawing.",
+            status_code=409,
+            details={
+                "expected_current_release_id": expected_current_release_id,
+                "current_release_id": row.release_id,
+                "expected_deployment_updated_at": expected_deployment_updated_at.isoformat(),
+                "current_deployment_updated_at": row.updated_at.isoformat(),
+            },
+        )
+    if row.withdrawn_at is not None:
+        raise ExperienceError(
+            code="EXPERIENCE_DEPLOYMENT_WITHDRAWN",
+            message="This channel is already withdrawn.",
+            status_code=409,
+            details={"channel": cleaned_channel},
+        )
+    release = _owned_release(db, experience=experience, release_id=row.release_id)
+    now = datetime.utcnow()
+    row.withdrawn_at = now
+    row.withdrawn_by = actor
+    row.last_mutation_sha256 = mutation_sha256
+    row.updated_by = actor
+    row.updated_at = now
+    db.flush()
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="experience.deployment_withdrawn",
+        actor=actor or "unknown",
+        agent_id=experience.id,
+        details={
+            "experience_id": experience.id,
+            "deployment_id": row.id,
+            "channel": cleaned_channel,
+            "release_id": release.id,
+            "release_number": release.release_number,
+            "withdrawn_at": now.isoformat(),
         },
         db=db,
     )

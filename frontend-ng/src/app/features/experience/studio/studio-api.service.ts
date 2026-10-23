@@ -58,6 +58,9 @@ export interface StudioDeployment {
   previous_release_id?: string | null;
   audience?: Record<string, unknown> | null;
   updated_at?: string | null;
+  /** Withdrawn from its channel: kept, but Work no longer serves it. */
+  withdrawn_at?: string | null;
+  withdrawn_by?: string | null;
 }
 
 export interface StudioDetail extends Omit<StudioExperience, 'draft' | 'deployments'> {
@@ -310,6 +313,21 @@ export class StudioApiService {
     },
   ): Observable<StudioDeployment> {
     return this.api.post<StudioDeployment>(`/experiences/${encodeURIComponent(id)}/deployments`, body);
+  }
+
+  /** Takes the channel out of service; nothing is deleted and it can be deployed again. */
+  withdraw(
+    id: string,
+    channel: 'pilot' | 'live',
+    body: { expectedCurrentReleaseId: string; expectedDeploymentUpdatedAt: string },
+  ): Observable<StudioDeployment> {
+    return this.api.post<StudioDeployment>(
+      `/experiences/${encodeURIComponent(id)}/deployments/${channel}/withdraw`,
+      {
+        expected_current_release_id: body.expectedCurrentReleaseId,
+        expected_deployment_updated_at: body.expectedDeploymentUpdatedAt,
+      },
+    );
   }
 
   rollback(

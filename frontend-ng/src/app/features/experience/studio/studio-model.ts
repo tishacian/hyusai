@@ -129,7 +129,7 @@ export function schemaSelectorOptions(schema: unknown, componentType: string): S
 export const INVENTORY_FILTERS = ['all', 'live', 'pilot', 'drafts'] as const;
 export type InventoryFilter = (typeof INVENTORY_FILTERS)[number];
 
-export type InventoryState = 'draft' | 'pilot' | 'live';
+export type InventoryState = 'draft' | 'pilot' | 'live' | 'withdrawn';
 
 export const ACCESS_ROLES = [
   'workspace_viewer',
@@ -215,10 +215,12 @@ export function uniqueBindingKey(
 }
 
 export function inventoryState(deployments: WorkDeployment[] | undefined): InventoryState {
-  const list = deployments ?? [];
+  const all = deployments ?? [];
+  // A withdrawn channel no longer serves anyone: it does not count as deployed.
+  const list = all.filter((item) => !item.withdrawn_at);
   if (list.some((item) => item.channel === 'live')) return 'live';
   if (list.some((item) => item.channel === 'pilot')) return 'pilot';
-  return 'draft';
+  return all.length ? 'withdrawn' : 'draft';
 }
 
 export function filterInventory(

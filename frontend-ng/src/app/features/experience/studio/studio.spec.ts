@@ -314,7 +314,18 @@ test('release and rollback requests carry the state reviewed by the author', () 
   assert.match(EDITOR_SOURCE, /\(click\)="rollbackCandidate\.set\(deployment\)"/);
   assert.match(EDITOR_SOURCE, /\[description\]="rollbackDescription\(\)"/);
   assert.match(EDITOR_SOURCE, /if \(conflict\) this\.reloadDeployments\(\)/);
-  assert.match(EDITOR_SOURCE, /lifecycleBusy\(\) \|\| deploymentsState\(\) !== 'ready' \|\| !deployment\.previous_release_id \|\| !deployment\.updated_at/);
+  assert.match(EDITOR_SOURCE, /lifecycleBusy\(\) \|\| deploymentsState\(\) !== 'ready' \|\| !!deployment\.withdrawn_at \|\| !deployment\.previous_release_id \|\| !deployment\.updated_at/);
+});
+
+test('withdrawing a channel is confirmed, carries the reviewed head and reports honestly', () => {
+  assert.match(API_SOURCE, /\/deployments\/\$\{channel\}\/withdraw/);
+  assert.match(EDITOR_SOURCE, /\(click\)="withdrawCandidate\.set\(deployment\)"/);
+  assert.match(EDITOR_SOURCE, /\[open\]="withdrawCandidate\(\) !== null"/);
+  assert.match(EDITOR_SOURCE, /\(confirm\)="confirmWithdraw\(\)"/);
+  assert.match(EDITOR_SOURCE, /this\.api\.withdraw\(id, channel, \{\s+expectedCurrentReleaseId: deployment\.release_id,\s+expectedDeploymentUpdatedAt,/);
+  assert.match(EDITOR_SOURCE, /experience\.editor\.withdraw\.pending/);
+  assert.match(EDITOR_SOURCE, /experience\.editor\.withdraw\.error/);
+  assert.match(EDITOR_SOURCE, /@if \(!deployment\.withdrawn_at\)/);
 });
 
 test('deployment compares the channel head captured when review opens', () => {
@@ -985,4 +996,16 @@ test('form-result generation wires status, result and evidence to the chosen act
   const rebound = bindSeedDocument(explicit, [{ bindingKey: 'team.refresh', ingressId: 'refresh' }]);
   assert.equal(runtimeDataBinding(rebound.pages[0]!.components.find(node => node.id === 'custom')!)?.bindingKey, 'independent');
   assert.equal(template.pages[0]!.components.find(node => node.id === 'seed-result')?.props, undefined);
+});
+
+test('a withdrawn channel no longer counts as deployed', () => {
+  const at = '2026-10-23T17:00:00';
+  assert.equal(inventoryState([{ channel: 'pilot', withdrawn_at: at }]), 'withdrawn');
+  assert.equal(inventoryState([{ channel: 'live', withdrawn_at: at }, { channel: 'pilot' }]), 'pilot');
+  assert.equal(inventoryState([{ channel: 'live' }, { channel: 'pilot', withdrawn_at: at }]), 'live');
+  assert.equal(inventoryState([]), 'draft');
+  assert.deepEqual(
+    filterInventory([{ deployments: [{ channel: 'pilot', withdrawn_at: at }] } as never], 'pilot'),
+    [],
+  );
 });

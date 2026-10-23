@@ -19,6 +19,8 @@ export interface WorkDeployment {
   channel: string;
   audience?: Record<string, unknown> | null;
   release_id?: string;
+  /** Set when the channel was withdrawn: the deployment no longer serves it. */
+  withdrawn_at?: string | null;
 }
 
 export interface WorkExperience {
