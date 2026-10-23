@@ -331,6 +331,7 @@ export class WorkShellComponent {
       : { pages: [] };
   });
   readonly runtimeInputs = computed<Record<string, unknown>>(() => ({
+    ...(this.renderer()?.inputs ?? {}),
     document: this.document(),
     pageId: this.activePage(),
     experienceSlug: this.slug(),

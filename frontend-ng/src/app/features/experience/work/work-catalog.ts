@@ -8,7 +8,7 @@
  */
 
 import { onAccentColor } from '../runtime/style';
-import { CERTIFIED_RENDERER_VERSION as CURRENT_RENDERER_VERSION } from '../runtime/model';
+import { CATALOG_0_2_RENDERER_VERSION, CERTIFIED_RENDERER_VERSION as CURRENT_RENDERER_VERSION } from '../runtime/model';
 import { CERTIFIED_RENDERER_VERSION as LEGACY_RENDERER_VERSION } from '../runtime/v0_1/model';
 import { isCataloguedReturnTo } from './work-return';
 import { isStandaloneApplicationPath } from '@app/core/navigation.catalog';
@@ -135,6 +135,7 @@ export function launchHref(app: WorkExperience): string {
 export function catalogLaunchHref(item: WorkCatalogItem): string {
   if (
     item.release.renderer_version !== CURRENT_RENDERER_VERSION
+    && item.release.renderer_version !== CATALOG_0_2_RENDERER_VERSION
     && item.release.renderer_version !== LEGACY_RENDERER_VERSION
   ) {
     return `/work/${item.experience.slug}`;

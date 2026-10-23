@@ -8,6 +8,8 @@ import {
   type RuntimeMode,
   type RuntimeNodeContext,
   renderableComponents,
+  CERTIFIED_RENDERER_VERSION,
+  recordFollowUpConfig,
   resolveCatalogType,
   runtimeDataBinding,
   runtimeStateKey,
@@ -69,6 +71,8 @@ export class ExperienceRuntimeHostComponent {
   readonly experienceSlug = input('');
   readonly releaseId = input<string | null>(null);
   readonly mode = input<RuntimeMode>('preview');
+  /** Catalog the release is pinned to; drafts and previews use the latest. */
+  readonly catalogVersion = input<string>(CERTIFIED_RENDERER_VERSION);
 
   readonly visiblePages = computed(() => {
     const pages = this.document().pages;
@@ -89,7 +93,7 @@ export class ExperienceRuntimeHostComponent {
     inputs: Record<string, unknown>;
     context: RuntimeNodeContext;
   } | null {
-    const resolved = resolveCatalogType(node.type);
+    const resolved = resolveCatalogType(node.type, this.catalogVersion());
     if (resolved.kind === 'skip') return null;
     const component = resolved.kind === 'ok' ? CATALOG[resolved.type] : FallbackBlock;
     const context = this.context(page, node, index);
@@ -102,7 +106,8 @@ export class ExperienceRuntimeHostComponent {
     const componentId = node.id || `${node.type}-${index}`;
     const binding = runtimeDataBinding(node);
     const datasetSource = node.props?.['datasetSource'] as { componentId?: string } | undefined;
-    const explicit = datasetSource?.componentId || (
+    const followed = node.type === 'record_follow_up' ? recordFollowUpConfig(node)?.source : null;
+    const explicit = datasetSource?.componentId || (followed?.kind === 'action' ? followed.componentId : null) || (
       binding?.source === 'run-output'
         ? binding.componentId
         : typeof node.props?.['sourceComponentId'] === 'string'
@@ -184,4 +189,5 @@ const CONTEXT_TYPES = new Set([
   'agenda_panel',
   'intelligence_feed',
   'decision_queue',
+  'record_follow_up',
 ]);

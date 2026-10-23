@@ -14,7 +14,11 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map, of } from 'rxjs';
+import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
+import { WorkRecordAttemptsComponent } from '@app/shared/work-records/work-record-attempts.component';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { BaseChartDirective } from 'ng2-charts';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -56,6 +60,8 @@ import {
   unavailablePolicy,
   validateValues,
   valuesToPayload,
+  followUpRecordRef,
+  recordFollowUpConfig,
 } from './model';
 import { TimeseriesBlockComponent } from './timeseries-block.component';
 import { PredictionCardComponent } from '../work/prediction-card.component';
@@ -2077,6 +2083,84 @@ export class PredictionBlock {
   readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
+
+/**
+ * Catalog 0.3.0 — follow-up of a record handled by one of the app's actions:
+ * the situation of its shown attempt and the history of attempts, through the
+ * shared reads (`/runs/{id}/follow-up`, `/work/{app}/records/{ref}/runs`). The
+ * block names no business domain; the record identity comes from the
+ * action's binding contract.
+ */
+@Component({
+  selector: 'xp-rt-record-follow-up',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  styleUrl: './runtime.scss',
+  imports: [RunSituationComponent, WorkRecordAttemptsComponent],
+  template: `
+    <section class="xp-rt-block xp-rt-follow-up" data-testid="record-follow-up" [attr.aria-label]="title()">
+      <h3>{{ title() }}</h3>
+      @if (!config()) {
+        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.follow_up.unconfigured') }}</p>
+      } @else if (context().mode !== 'live') {
+        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.follow_up.preview') }}</p>
+      } @else if (recordRef(); as record) {
+        @if (shownRun(); as runId) {
+          <app-run-situation [runId]="runId" [refreshKey]="refreshKey()" [compact]="true" [showRunLink]="true" />
+        }
+        <app-work-record-attempts
+          [slug]="context().experienceSlug || ''"
+          [bindingKey]="config()!.bindingKey"
+          [recordRef]="record"
+          [selectedRunId]="shownRun()"
+          [refreshKey]="refreshKey()"
+          (selectRun)="pinned.set($event)"
+          (latestRun)="latest.set($event)"
+        />
+      } @else {
+        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.follow_up.no_record') }}</p>
+      }
+    </section>
+  `,
+})
+export class RecordFollowUpBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly route = inject(ActivatedRoute, { optional: true });
+  readonly i18n = inject(I18nService);
+  readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
+  readonly config = computed(() => recordFollowUpConfig(this.node()));
+  readonly title = computed(() => appearanceOf(this.node()).title || this.i18n.t('experience.runtime.follow_up.title'));
+  private readonly query = toSignal(this.route?.queryParamMap.pipe(map((params) => ({
+    record: params.get('record'), attempt: params.get('attempt'),
+  }))) ?? of({ record: null, attempt: null }), { initialValue: { record: null, attempt: null } });
+  private readonly sourceRun = computed(() => this.runtime.run(this.context().sourceStateKey));
+  readonly recordRef = computed(() => followUpRecordRef(this.config(), {
+    queryRecord: this.query().record,
+    runInput: this.sourceRun()?.input_ref,
+    lastPayload: this.runtime.state(this.context().sourceStateKey).lastInvoke?.payload,
+  }));
+  /** Attempt the reader chose; the page address may name one too. */
+  readonly pinned = signal<string | null>(null);
+  readonly latest = signal<string | null>(null);
+  readonly shownRun = computed(() => this.pinned()
+    ?? (this.config()?.source.kind === 'url' ? this.query().attempt : null)
+    ?? this.latest());
+  /** A new run of the followed action is listed and shown. */
+  readonly refreshKey = computed(() => {
+    const run = this.config()?.source.kind === 'action' ? this.sourceRun() : null;
+    return run ? `${run.id}:${run.status}` : null;
+  });
+
+  constructor() {
+    effect(() => {
+      this.recordRef();
+      this.refreshKey();
+      untracked(() => this.pinned.set(null));
+    });
+  }
+}
+
 export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   section: SectionBlock,
   header: HeaderBlock,
@@ -2097,6 +2181,7 @@ export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   agenda_panel: FeedBlock,
   intelligence_feed: FeedBlock,
   decision_queue: FeedBlock,
+  record_follow_up: RecordFollowUpBlock,
 };
 
 /**

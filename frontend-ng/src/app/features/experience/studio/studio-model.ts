@@ -506,3 +506,67 @@ export function simulatedExperienceAccess(
   if (roles.length === 0 && groups.length === 0) return true;
   return (!!role && roles.includes(role)) || (!!group && groups.includes(group));
 }
+
+/** An action a follow-up block can follow, with the input fields it sends. */
+export interface FollowUpAction {
+  componentId: string;
+  bindingKey: string;
+  fields: string[];
+}
+
+/**
+ * Choices offered by the follow-up block builder, read from the document:
+ * the app's bound forms and actions and their input fields. The author picks
+ * among them; nothing is typed as free JSON.
+ */
+export function followUpActions(doc: ExperienceDocument): FollowUpAction[] {
+  const actions: FollowUpAction[] = [];
+  for (const page of doc.pages) {
+    for (const node of page.components) {
+      const key = typeof node.props?.['bindingKey'] === 'string' ? (node.props['bindingKey'] as string).trim() : '';
+      if (!key || !node.id || (node.type !== 'form' && node.type !== 'action_button')) continue;
+      const schema = node.props?.['schema'] as { properties?: Record<string, unknown> } | undefined;
+      const input = node.props?.['input'];
+      const fields = node.type === 'form'
+        ? Object.keys(schema?.properties ?? {})
+        : input && typeof input === 'object' && !Array.isArray(input) ? Object.keys(input as Record<string, unknown>) : [];
+      actions.push({ componentId: node.id, bindingKey: key, fields });
+    }
+  }
+  return actions;
+}
+
+/** Bindings a block can follow, each once, and the fields their actions send. */
+export function followUpBindings(doc: ExperienceDocument): Array<{ bindingKey: string; fields: string[]; actions: string[] }> {
+  const byKey = new Map<string, { bindingKey: string; fields: string[]; actions: string[] }>();
+  for (const action of followUpActions(doc)) {
+    const entry = byKey.get(action.bindingKey) ?? { bindingKey: action.bindingKey, fields: [], actions: [] };
+    for (const field of action.fields) if (!entry.fields.includes(field)) entry.fields.push(field);
+    entry.actions.push(action.componentId);
+    byKey.set(action.bindingKey, entry);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Props after the author picks a binding, a field or a source. Choosing
+ * another binding resets what depended on the previous one.
+ */
+export function followUpProps(
+  current: Record<string, unknown> | undefined,
+  change: { bindingKey?: string; recordField?: string; source?: 'url' | string },
+  doc: ExperienceDocument,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(current ?? {}) };
+  if (change.bindingKey !== undefined) {
+    next['followBindingKey'] = change.bindingKey;
+    const binding = followUpBindings(doc).find((row) => row.bindingKey === change.bindingKey);
+    next['recordField'] = binding?.fields.length === 1 ? binding.fields[0] : '';
+    next['recordSource'] = { kind: 'url' };
+  }
+  if (change.recordField !== undefined) next['recordField'] = change.recordField;
+  if (change.source !== undefined) {
+    next['recordSource'] = change.source === 'url' ? { kind: 'url' } : { kind: 'action', componentId: change.source };
+  }
+  return next;
+}

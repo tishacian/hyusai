@@ -135,6 +135,8 @@ export class WorkRecordAttemptsComponent {
   /** Bump when the caller knows a new attempt exists (e.g. after starting one). */
   readonly refreshKey = input<unknown>(null);
   readonly selectRun = output<string>();
+  /** The newest attempt once the list is read (null when there is none). */
+  readonly latestRun = output<string | null>();
   readonly i18n = inject(I18nService);
   private readonly api = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
@@ -157,6 +159,10 @@ export class WorkRecordAttemptsComponent {
   });
 
   constructor() {
+    effect(() => {
+      const view = this.view();
+      if (view) this.latestRun.emit(view.lines[0]?.runId ?? null);
+    });
     effect((onCleanup) => {
       this.reload();
       this.refreshKey();
