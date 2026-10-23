@@ -6,7 +6,7 @@ import { of, Subject } from 'rxjs';
 import type { Run } from '@app/core/canonical-api.service';
 import type { DecisionCheck, DecisionOutcome } from '@app/shared/ui/run-decision';
 import { noticeForRun, type DecisionNoticeMap } from '@app/shared/ui/run-decision-notice';
-import { claimInvestigationFailureMessage, ClaimsStudioComponent } from './claims-studio.component';
+import { claimInvestigationFailureMessage, ClaimsStudioComponent, recordEntry } from './claims-studio.component';
 import type { ClaimSnapshot } from './claim-run';
 
 const paused = (id: string, decisionId = `decision-${id}`): Run => ({
@@ -25,7 +25,7 @@ function harness() {
   const checks: Array<{ run: Run; answer: Subject<DecisionCheck> }> = [];
   const component = Object.assign(Object.create(ClaimsStudioComponent.prototype), {
     run, decisionNotices, generation: 0, appMissing: signal(false), releaseTheme: signal(null),
-    pinnedRun: signal<string | null>(null), attemptsRefresh: signal(0),
+    pinnedRun: signal<string | null>(null), attemptsRefresh: signal(0), outsideQueue: signal(null),
     route: { snapshot: { queryParamMap: new Map<string, string>() } }, router: { navigate: async () => true },
     decisionNotice: computed(() => noticeForRun(decisionNotices(), workspaceId(), run())),
     workspace: { current: () => ({ id: workspaceId() }) },
@@ -331,4 +331,36 @@ test('manual benchmarking and read-only decisions still prevent approval request
   h.machineAidsAllowed.set(false);
   await h.component.decide('accept');
   assert.equal(h.writes.length, 0);
+});
+
+test('a requested case outside the queue is never replaced by another case', () => {
+  assert.deepEqual(recordEntry(['RC-1042', 'RC-1043'], 'RC-1043'), { kind: 'select', id: 'RC-1043' });
+  assert.deepEqual(recordEntry(['RC-1042', 'RC-1043'], 'RC-5003'), { kind: 'outside', ref: 'RC-5003' });
+  assert.deepEqual(recordEntry(['RC-1042'], null), { kind: 'select', id: 'RC-1042' });
+  assert.deepEqual(recordEntry(['RC-1042'], '  '), { kind: 'select', id: 'RC-1042' });
+  assert.deepEqual(recordEntry([], 'RC-5003'), { kind: 'outside', ref: 'RC-5003' });
+  assert.deepEqual(recordEntry([], null), { kind: 'none' });
+});
+
+test('an outside case keeps the link’s record and attempt, and the queue opens only on request', () => {
+  const { component } = harness();
+  const navigations: unknown[] = [];
+  Object.assign(component, {
+    route: { snapshot: { queryParamMap: new Map([['record', 'RC-5003'], ['attempt', 'run-3ec3']]) } },
+    router: { navigate: async (_: unknown, extras: unknown) => { navigations.push(extras); return true; } },
+    rows: signal([{ claim_id: 'RC-1042' }]),
+  });
+  (component as unknown as { showOutside(ref: string): void }).showOutside('RC-5003');
+  assert.deepEqual(component.outsideQueue(), { ref: 'RC-5003', attempt: 'run-3ec3' });
+  assert.equal(component.selected(), null);
+  assert.equal(component.run(), null);
+  assert.equal(navigations.length, 0, 'the link is not rewritten');
+
+  component.openOutsideAttempt('run-7a62');
+  assert.deepEqual(component.outsideQueue(), { ref: 'RC-5003', attempt: 'run-7a62' });
+  assert.deepEqual((navigations[0] as { queryParams: unknown }).queryParams, { record: 'RC-5003', attempt: 'run-7a62' });
+
+  component.showQueue();
+  assert.equal(component.outsideQueue(), null);
+  assert.equal(component.selected(), 'RC-1042');
 });
