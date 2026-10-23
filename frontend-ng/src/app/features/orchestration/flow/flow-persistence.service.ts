@@ -68,6 +68,7 @@ import {
   yieldsFlowHistoryShortcut,
 } from './flow-keyboard-target.vm';
 import { emptyScratchFlow } from './flow.types';
+import { promotionFailure } from './promotion-failure';
 import {
   clearWorkspaceFlowDraft,
   persistWorkspaceFlowDraft,
@@ -1148,8 +1149,18 @@ export class FlowPersistenceService {
           this.promoting.set(false);
           const outcome = writeFailure(error);
           this.promotionOutcome.set(outcome);
-          this.promotionError.set(this.i18n.t(outcome.s === 'unknown'
-            ? 'flow.promote.error.unknown' : 'flow.promote.error.failed'));
+          if (outcome.s === 'unknown') {
+            this.promotionError.set(this.i18n.t('flow.promote.error.unknown'));
+            return;
+          }
+          // Say which rule the draft breaks and where, so the author can act.
+          const failure = promotionFailure(error);
+          const node = failure.nodeId ? this.store.nodes().find((item) => item.id === failure.nodeId) : null;
+          const step = node ? (node.label || node.id) : failure.nodeId;
+          this.promotionError.set([
+            this.i18n.t(failure.key),
+            step ? this.i18n.t('flow.promote.error.step', { step }) : '',
+          ].filter(Boolean).join(' '));
         },
         complete: () => {
           if (this.workspace.isRequestScopeCurrent(scope)) this.promoting.set(false);
