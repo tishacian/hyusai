@@ -145,3 +145,26 @@ def test_flow_diff_exposes_frozen_contract_drift_without_schema_values(db_sessio
     )
     assert contract_change["impact"] == "breaking"
     assert "published-only-secret-marker" not in json.dumps(payload)
+
+
+def test_flow_diff_names_each_side_by_its_stored_pointer_hash(db_session) -> None:
+    """A flow whose stored hash is not its canonical hash (a builder flow saved
+    before canonicalisation) must still be publishable: the review compares
+    the diff with the stored Draft/Published pointers."""
+    from app.models.system_flow_draft import SystemFlowDraft
+
+    workspace, user, system = _seed(db_session)
+    draft = db_session.query(SystemFlowDraft).filter(SystemFlowDraft.system_id == system.id).one()
+    version = db_session.get(SystemVersion, system.published_flow_version_id)
+    draft.flow_sha256 = "d" * 64
+    version.flow_sha256 = "p" * 64
+    db_session.commit()
+
+    payload = _client(db_session, workspace, user).get(
+        f"/systems/{system.id}/flow-diff", params={"base": "published", "target": "draft"},
+    ).json()
+
+    assert payload["target"]["flow_sha256"] == "d" * 64
+    assert payload["base"]["flow_sha256"] == "p" * 64
+    assert payload["target"]["canonical_flow_sha256"] not in {"d" * 64, None}
+    assert payload["base"]["canonical_flow_sha256"] not in {"p" * 64, None}
