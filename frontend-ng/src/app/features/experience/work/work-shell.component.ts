@@ -98,7 +98,7 @@ const POLL_MS = 8000;
       [style.--xp-on-accent]="brandStyles()['--xp-on-accent'] || theme().onAccent || null"
     >
       <app-work-bar
-        [creatorHref]="canEdit() ? studioLink() : null"
+        [creatorHref]="canEdit() && state() !== 'missing' ? studioLink() : null"
         creatorLabelKey="experience.work.edit_studio"
         [appContext]="title()"
       />

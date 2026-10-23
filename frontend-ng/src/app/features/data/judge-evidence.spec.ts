@@ -13,9 +13,9 @@ test('structured data becomes labelled facts without ids or hashes', () => {
   const read = readableQuote(quote);
   assert.equal(read.transformed, true);
   assert.deepEqual(read.fields, [
-    { label: 'context · claim id', value: 'RC-5003' },
-    { label: 'context · currency', value: 'EUR' },
-    { label: 'context · paid amount', value: '49.90' },
+    { label: 'Claim id', value: 'RC-5003' },
+    { label: 'Currency', value: 'EUR' },
+    { label: 'Paid amount', value: '49.90' },
   ]);
 });
 
@@ -35,10 +35,23 @@ test('dates in structured evidence read as dates in the reader locale, instants 
   const quote = JSON.stringify({ context: { opened_at: '2026-09-25T10:00:00+00:00', ordered_on: '2026-09-20', paid_amount: 420 } });
   const read = readableQuote(quote, 'en-GB');
   const value = (label: string) => read.fields.find((field) => field.label === label)?.value;
-  assert.match(value('context · opened at') ?? '', /25 Sept? 2026/);
-  assert.match(value('context · opened at') ?? '', /(UTC|GMT|BST|CEST|CET)/);
-  assert.equal(value('context · ordered on'), '20 Sept 2026');
-  assert.equal(value('context · paid amount'), '420');
+  assert.match(value('Opened at') ?? '', /25 Sept? 2026/);
+  assert.match(value('Opened at') ?? '', /(UTC|GMT|BST|CEST|CET)/);
+  assert.equal(value('Ordered on'), '20 Sept 2026');
+  assert.equal(value('Paid amount'), '420');
   // Without a locale the exact values are kept.
-  assert.equal(readableQuote(quote).fields.find((field) => field.label === 'context · ordered on')?.value, '2026-09-20');
+  assert.equal(readableQuote(quote).fields.find((field) => field.label === 'Ordered on')?.value, '2026-09-20');
+});
+
+test('facts read in business words: known labels first, codes as words', () => {
+  const quote = JSON.stringify({ context: { paid_amount: '420.00', reason: 'delivery_disputed', claim_id: 'RC-1042' } });
+  const labels: Record<string, string> = { paid_amount: 'Montant payé' };
+  const read = readableQuote(quote, 'fr-FR', (key) => labels[key] ?? null);
+  assert.deepEqual(read.fields, [
+    { label: 'Montant payé', value: '420.00' },
+    { label: 'Reason', value: 'Delivery disputed' },
+    { label: 'Claim id', value: 'RC-1042' },
+  ]);
+  // A single fact keeps its path; separate groups keep theirs.
+  assert.deepEqual(readableQuote(JSON.stringify({ order: { id_ref: 'A' }, refund: { amount: 1 } })).fields.map((f) => f.label), ['Order · Id ref', 'Refund · Amount']);
 });

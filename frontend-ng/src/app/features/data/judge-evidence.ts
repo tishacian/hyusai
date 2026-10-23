@@ -81,7 +81,36 @@ function proseFromFragment(quote: string): string | null {
   return text || null;
 }
 
-export function readableQuote(quote: string | null | undefined, locale?: string): ReadableQuote {
+/** Label a reader knows for a data key (e.g. from the app's field labels), or null. */
+export type FieldLabel = (key: string) => string | null | undefined;
+
+const CODE_VALUE = /^[a-z]+(_[a-z]+)+$/;
+
+function humanize(text: string): string {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+/**
+ * Business wording for structured facts: a wrapper shared by every field
+ * (e.g. "context") is dropped, each key takes its known label or a humanized
+ * form, and snake_case codes read as words. The exact slice stays in the
+ * technical fold.
+ */
+function presentFields(fields: ReadableQuote['fields'], fieldLabel?: FieldLabel): ReadableQuote['fields'] {
+  const paths = fields.map((field) => field.label.split(' · '));
+  const shared = paths.length > 1 && paths.every((path) => path.length > 1 && path[0] === paths[0][0]);
+  return fields.map((field, index) => {
+    const path = shared ? paths[index].slice(1) : paths[index];
+    const key = path[path.length - 1] ?? '';
+    const known = fieldLabel?.(key.replace(/ /g, '_'));
+    const last = known && known.trim() ? known.trim() : humanize(key);
+    const label = [...path.slice(0, -1).map(humanize), last].join(' · ');
+    const value = CODE_VALUE.test(field.value) ? humanize(field.value.replace(/_/g, ' ')) : field.value;
+    return { label, value };
+  });
+}
+
+export function readableQuote(quote: string | null | undefined, locale?: string, fieldLabel?: FieldLabel): ReadableQuote {
   const raw = (quote ?? '').trim();
   if (!raw) return { text: null, fields: [], transformed: false };
   if (raw.startsWith('{') || raw.startsWith('[')) {
@@ -93,7 +122,7 @@ export function readableQuote(quote: string | null | undefined, locale?: string)
       if (prose.length === fields.length && prose.length) {
         return { text: prose.map((field) => field.value).join(' … '), fields: [], transformed: true };
       }
-      if (fields.length) return { text: null, fields, transformed: true };
+      if (fields.length) return { text: null, fields: presentFields(fields, fieldLabel), transformed: true };
     } catch {
       // A fragment: fall through to prose extraction.
     }

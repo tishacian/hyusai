@@ -12,6 +12,8 @@ import { formatInstant } from './format-instant';
 export type RunBusinessState =
   | 'in_progress'
   | 'awaiting_human_decision'
+  /** The human approval ran out of time: not an execution failure. */
+  | 'decision_expired'
   | 'paused_for_debug'
   | 'stopped_at_review_boundary'
   | 'completed'

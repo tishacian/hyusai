@@ -32,6 +32,7 @@ EVALUATION_STOPPED_AT_HUMAN_GATE = "EVALUATION_STOPPED_AT_HUMAN_GATE"
 BUSINESS_STATES = (
     "in_progress",
     "awaiting_human_decision",
+    "decision_expired",
     "paused_for_debug",
     "stopped_at_review_boundary",
     "completed",
@@ -67,7 +68,21 @@ def _cause(code: str, checkpoint: Optional[dict[str, Any]], **extra: Any) -> dic
     return cause
 
 
-def run_follow_up(run: Any, *, payload_visible: bool = True) -> dict[str, Any]:
+def _decision_expired(run: Any, *, now: Optional[datetime] = None, decision: Any = None) -> bool:
+    """True when the Run's last human approval expired: the same rule as
+    ``run_decision_state`` reporting ``expired``, so a list and the Situation
+    never disagree about one Run."""
+    state = run_decision_state(run, decision=decision, now=now)
+    return bool(state) and state.get("state") == "expired"
+
+
+def run_follow_up(
+    run: Any,
+    *,
+    payload_visible: bool = True,
+    now: Optional[datetime] = None,
+    decision: Any = None,
+) -> dict[str, Any]:
     """Project a Run onto its follow-up state.
 
     ``payload_visible`` mirrors the Run serializer: when the caller may not see
@@ -85,6 +100,10 @@ def run_follow_up(run: Any, *, payload_visible: bool = True) -> dict[str, Any]:
         business_state = "stopped_at_review_boundary"
         boundary_kind = _text((boundary or {}).get("boundary")) or "human_gate"
         cause = _cause("evaluation_stopped_at_review_boundary", boundary, boundary=boundary_kind)
+    elif status in {"hitl_pending", "failed", "cancelled"} and _decision_expired(run, now=now, decision=decision):
+        # A human approval that ran out of time is not an execution failure.
+        business_state = "decision_expired"
+        cause = _cause("human_decision_expired", _last_checkpoint(run, "hitl_pause"))
     elif status == "hitl_pending":
         business_state = "awaiting_human_decision"
         cause = _cause("human_decision_required", _last_checkpoint(run, "hitl_pause"))
@@ -249,7 +268,7 @@ def run_follow_up_detail(
     record_identity: Any = None,
 ) -> dict[str, Any]:
     """The follow-up read model served by GET /runs/{id}/follow-up."""
-    follow_up = run_follow_up(run, payload_visible=payload_visible)
+    follow_up = run_follow_up(run, payload_visible=payload_visible, now=now, decision=decision)
     decision_state = run_decision_state(run, decision=decision, now=now)
     proposal = None
     if payload_visible:
