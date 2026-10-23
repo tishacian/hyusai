@@ -1500,6 +1500,149 @@ async def _remote_job_submit_v1(
     return await asyncio.to_thread(_submit)
 
 
+def _review_set_items(db, workspace_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Items inline, or JSON lines from an artifact of a finished runner job."""
+
+    import json
+
+    from app.models.remote_runner import RemoteRunnerJob
+    from app.services.object_store import get_object_store
+
+    if isinstance(payload.get("items"), list):
+        return payload["items"]
+    job_id, artifact = payload.get("job_id"), payload.get("artifact")
+    if not isinstance(job_id, str) or not isinstance(artifact, str):
+        raise ValueError("review_set_items_required: items, or job_id and artifact")
+    job = db.query(RemoteRunnerJob).filter_by(id=job_id, workspace_id=workspace_id).first()
+    if job is None or job.status != "succeeded":
+        raise ValueError("REVIEW_SOURCE_JOB_NOT_READY")
+    entry = next(
+        (a for a in job.artifacts or [] if a.get("path") == artifact and a.get("present")), None
+    )
+    if entry is None:
+        raise ValueError("REVIEW_SOURCE_ARTIFACT_MISSING")
+    lines = get_object_store().read_bytes(entry["key"]).decode("utf-8").splitlines()
+    try:
+        return [json.loads(line) for line in lines if line.strip()]
+    except ValueError:
+        raise ValueError("REVIEW_SOURCE_ARTIFACT_INVALID") from None
+
+
+async def _review_set_open_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Open a review set in the run's workspace from items or a runner job artifact."""
+
+    import asyncio
+    from datetime import datetime, timedelta
+
+    from app.db.base import SessionLocal
+    from app.services import review_sets as rs
+
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("review_set_workspace_required")
+
+    def _open() -> dict[str, Any]:
+        with SessionLocal() as db:
+            items = _review_set_items(db, workspace_id, payload)
+            days = payload.get("deadline_days")
+            deadline = (
+                datetime.utcnow() + timedelta(days=float(days))
+                if isinstance(days, (int, float)) and not isinstance(days, bool) and days > 0
+                else None
+            )
+            source = {
+                "run_id": ctx.get("run_id"),
+                "job_id": payload.get("job_id"),
+                "correlation_key": payload.get("correlation_key") or ctx.get("run_id"),
+            }
+            if payload.get("notify_system_id"):
+                source["notify_system_id"] = str(payload["notify_system_id"])
+            try:
+                row = rs.open_set(
+                    db,
+                    workspace_id=workspace_id,
+                    namespace=payload.get("namespace"),
+                    group_key=payload.get("group_key"),
+                    title=payload.get("title"),
+                    items=items,
+                    group_labels=payload.get("group_labels"),
+                    taxonomy=payload.get("taxonomy"),
+                    policy=payload.get("policy"),
+                    reviewers=payload.get("reviewers"),
+                    deadline_at=deadline,
+                    source=source,
+                    user_id=ctx.get("user_id"),
+                )
+            except rs.ReviewError as exc:
+                db.rollback()
+                raise ValueError(exc.code) from None
+            db.commit()
+            return {
+                "set_id": row.id,
+                "items": row.item_count,
+                "status": row.status,
+                "group_key": row.group_key,
+            }
+
+    return await asyncio.to_thread(_open)
+
+
+async def _review_set_read_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Return the latest decision of every item of a set of the run's workspace."""
+
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.models.review_set import ReviewItem
+    from app.services import review_sets as rs
+
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id")
+    set_id = payload.get("set_id")
+    if not workspace_id or not isinstance(set_id, str):
+        raise ValueError("review_set_read_requires_workspace_and_set_id")
+    only = payload.get("decisions")
+
+    def _read() -> dict[str, Any]:
+        with SessionLocal() as db:
+            try:
+                review_set = rs.get_set(db, workspace_id, set_id)
+            except rs.ReviewError as exc:
+                raise ValueError(exc.code) from None
+            latest = rs.latest_decisions(db, review_set)
+            rows = []
+            for item in (
+                db.query(ReviewItem).filter_by(set_id=set_id).order_by(ReviewItem.position).all()
+            ):
+                decision = latest.get(item.id)
+                if decision is None or (isinstance(only, list) and decision.decision not in only):
+                    continue
+                rows.append(
+                    {
+                        "item_ref": item.item_ref,
+                        "tier": item.tier,
+                        "decision": decision.decision,
+                        "value": decision.value,
+                        "annotations": decision.annotations,
+                        "comment": decision.comment,
+                        "subject": item.subject,
+                    }
+                )
+            return {
+                "set_id": set_id,
+                "status": review_set.status,
+                "stats": rs.stats(db, review_set),
+                "decisions": rows,
+            }
+
+    return await asyncio.to_thread(_read)
+
+
 _MCP_NAMED_FORBIDDEN = frozenset({"tool", "sql", "server_id", "_side_effect"})
 #: Keys ``_mcp_trace`` appends to every MCP node output. In overlay io-mode the
 #: walker merges the upstream output into the next payload, so a named skill

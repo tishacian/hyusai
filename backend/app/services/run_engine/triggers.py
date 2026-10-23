@@ -65,6 +65,7 @@ EVENT_WEBHOOK_RECEIVED = "webhook.received"
 EVENT_SCHEDULE_FIRED = "schedule.fired"
 EVENT_CONNECTOR_CHANGED = "connector.objects_changed"
 EVENT_REMOTE_JOB_FINISHED = "remote_runner.job_finished"
+EVENT_REVIEW_SET_COMPLETED = "review_set.completed"
 
 # A ``kind == 'source'`` node is an ACTIVE trigger when its ``type`` is one of
 # these; the value is the ``event_kind`` it listens for. ``source.chat_request``
@@ -79,6 +80,7 @@ TRIGGER_TYPE_TO_EVENT: dict[str, str] = {
     "source.schedule": EVENT_SCHEDULE_FIRED,
     "source.connector_watch": EVENT_CONNECTOR_CHANGED,
     "source.remote_job_finished": EVENT_REMOTE_JOB_FINISHED,
+    "source.review_set_completed": EVENT_REVIEW_SET_COMPLETED,
 }
 
 
@@ -139,6 +141,13 @@ _GOVERNANCE: dict[str, EventGovernance] = {
     # but only behind an ``hitl`` gate, as for a promoted deposit.
     EVENT_REMOTE_JOB_FINISHED: EventGovernance(
         event_kind=EVENT_REMOTE_JOB_FINISHED,
+        permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
+        require_hitl_for_side_effects=True,
+    ),
+    # People finished (or an administrator closed) a review set. What follows
+    # applies their decisions, so a write still waits behind an ``hitl`` gate.
+    EVENT_REVIEW_SET_COMPLETED: EventGovernance(
+        event_kind=EVENT_REVIEW_SET_COMPLETED,
         permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
         require_hitl_for_side_effects=True,
     ),

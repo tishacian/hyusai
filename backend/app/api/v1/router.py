@@ -84,6 +84,7 @@ from app.api.v1.endpoints import (
     recipes,
     remote_runners,
     reports,
+    review_sets,
     rpa,
     runs,
     secrets,
@@ -277,6 +278,7 @@ api_router.include_router(
 api_router.include_router(
     remote_runners.router, prefix="/remote-runners", tags=["remote-runners"]
 )
+api_router.include_router(review_sets.router, prefix="/review-sets", tags=["review-sets"])
 
 api_router.include_router(ml_operations.router)
 api_router.include_router(navigation_search.router, prefix="/navigation", tags=["navigation"])

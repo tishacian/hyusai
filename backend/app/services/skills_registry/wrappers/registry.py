@@ -91,6 +91,8 @@ from app.services.skills_registry.wrappers.skills import (
     _response_eval_v1,
     _role_agent_v1,
     _remote_job_submit_v1,
+    _review_set_open_v1,
+    _review_set_read_v1,
     _rpa_dispatch_v1,
     _rumor_origin_trace_v1,
     _sap_check_budget_v1,
@@ -185,6 +187,8 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
         "app.services.remote_runners.service",
         "bound",
     ),
+    "review_set_open_v1": (_review_set_open_v1, "app.services.review_sets", "bound"),
+    "review_set_read_v1": (_review_set_read_v1, "app.services.review_sets", "bound"),
     "mcp_call_v1": (
         _mcp_call_v1,
         "app.services.connectors.mcp.client",
