@@ -39,11 +39,12 @@ test('the router mounts customer applications only through the composition modul
   assert.doesNotMatch(routes, /features\/nawa/);
 });
 
-test('the Agent Studio wears the workspace appearance, always dark', () => {
+test('the Agent Studio wears the workspace appearance in the reader theme', () => {
   const studio = source('features/experience/work/pr-to-po-studio.component.ts');
-  assert.match(studio, /class="xp-work xp-studio" data-brand-scope data-theme="dark" \[ngStyle\]="brandStyles\(\)"/);
+  assert.match(studio, /class="xp-work xp-studio" data-brand-scope \[attr\.data-theme\]="readerTheme\.resolved\(\)" \[ngStyle\]="brandStyles\(\)"/);
+  assert.doesNotMatch(studio, /data-theme="dark"/);
   assert.doesNotMatch(studio, /data-studio=/);
-  assert.match(studio, /appearanceStyles\(brand\?\.\['appearance'\], 'dark'\)/);
+  assert.match(studio, /appearanceStyles\(brand\?\.\['appearance'\], this\.readerTheme\.resolved\(\)\)/);
 });
 
 test('the Studio tokens derive from the workspace tokens, not from a palette', () => {
