@@ -140,6 +140,27 @@ def summarize_activity(runs, invocations, *, complete_ledger_runs):
     }
 
 
+def impact_window_start(window, now):
+    """First instant counted by Impact for a window: midnight, N-1 days ago."""
+    return (now - timedelta(days=WINDOWS[window] - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
+def published_runs(query, *, start, now):
+    """The one Impact scope: published runs started inside the window.
+
+    Shared by the activity block and the per-day series so their counts can
+    only differ by status, never by surface, trigger or time field.
+    """
+    return query.filter(
+        Run.started_at >= start,
+        Run.started_at <= now,
+        func.coalesce(Run.execution_surface, "").notin_(NON_PUBLISHED_EXECUTION_SURFACES),
+        func.coalesce(Run.trigger, "").notin_(NON_PUBLISHED_EXECUTION_SURFACES),
+    )
+
+
 def execution_activity(db, workspace, user, *, window, system_id=None):
     systems = activity_systems(db, workspace, user)
     system_ids = [system["id"] for system in systems]
@@ -148,21 +169,15 @@ def execution_activity(db, workspace, user, *, window, system_id=None):
             raise HTTPException(status_code=404, detail={"code": "SYSTEM_NOT_FOUND"})
         system_ids = [system_id]
     now = datetime.utcnow()
-    start = (now - timedelta(days=WINDOWS[window] - 1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    query = (
-        db.query(Run)
-        .filter(
+    start = impact_window_start(window, now)
+    query = published_runs(
+        db.query(Run).filter(
             Run.workspace_id == workspace.id,
             Run.system_id.in_(system_ids),
-            Run.started_at >= start,
-            Run.started_at <= now,
-            func.coalesce(Run.execution_surface, "").notin_(NON_PUBLISHED_EXECUTION_SURFACES),
-            func.coalesce(Run.trigger, "").notin_(NON_PUBLISHED_EXECUTION_SURFACES),
-        )
-        .order_by(Run.started_at.desc(), Run.id.asc())
-    )
+        ),
+        start=start,
+        now=now,
+    ).order_by(Run.started_at.desc(), Run.id.asc())
     page = readable_run_page(
         db, query=query, limit=ACTIVITY_LIMIT + 1, user=user, workspace=workspace
     )
