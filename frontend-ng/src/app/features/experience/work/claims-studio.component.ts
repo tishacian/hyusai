@@ -180,7 +180,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
               @if (run(); as current) { <app-run-situation [runId]="current.id" [refreshKey]="current.status" [compact]="true" [showRunLink]="true" /> }
               @if (selected(); as recordId) {
                 <app-work-record-attempts slug="reclamations" bindingKey="showcase.claims.investigate" [recordRef]="recordId"
-                  [selectedRunId]="run()?.id ?? null" [refreshKey]="attemptsRefresh()" (selectRun)="openAttempt($event)" />
+                  [selectedRunId]="run()?.id ?? null" [currentRunId]="run()?.id ?? null" [refreshKey]="attemptsRefresh()" (selectRun)="openAttempt($event)" />
               }
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
                 <span>{{ triage()?.prediction_contract?.label || i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>

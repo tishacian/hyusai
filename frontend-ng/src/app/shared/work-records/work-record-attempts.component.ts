@@ -3,6 +3,7 @@ import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { formatRunInstant, runStatusLabel, type RunFollowUp } from '@app/core/run-follow-up';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { attemptsView } from './work-record-attempts.vm';
 
 export interface WorkRecordAttempt {
   attempt_id: string;
@@ -59,34 +60,42 @@ const PAGE = 10;
         }
         @default {
           @if (loaded(); as list) {
-            @if (!list.attempts.length) {
-              <p class="note">{{ i18n.t('experience.record_attempts.empty') }}</p>
-            } @else {
-              <ol>
-                @for (attempt of list.attempts; track attempt.attempt_id; let n = $index) {
-                  <li>
-                    <button
-                      type="button"
-                      class="attempt"
-                      [class.is-selected]="attempt.run_id === selectedRunId()"
-                      [attr.aria-current]="attempt.run_id === selectedRunId() ? 'true' : null"
-                      [attr.data-testid]="'work-record-attempt-' + attempt.run_id"
-                      (click)="selectRun.emit(attempt.run_id)"
-                    >
-                      <span class="when">{{ when(attempt) }}</span>
-                      <span class="state">{{ stateLabel(attempt) }}</span>
-                      @if (attempt.started_by_reader === false && attempt.started_by) { <span class="state">· {{ i18n.t('experience.record_attempts.by', { name: attempt.started_by }) }}</span> }
-                      @if (n === 0) { <span class="tag">{{ i18n.t('experience.record_attempts.latest') }}</span> }
-                    </button>
-                  </li>
+            @if (view(); as shown) {
+              @if (shown.empty) {
+                <p class="note">{{ i18n.t('experience.record_attempts.empty') }}</p>
+              } @else {
+                <ol>
+                  @for (line of shown.lines; track line.runId; let n = $index) {
+                    <li>
+                      <button
+                        type="button"
+                        class="attempt"
+                        [class.is-selected]="line.runId === selectedRunId()"
+                        [attr.aria-current]="line.runId === selectedRunId() ? 'true' : null"
+                        [attr.data-testid]="'work-record-attempt-' + line.runId"
+                        (click)="selectRun.emit(line.runId)"
+                      >
+                        @if (line.attempt; as attempt) {
+                          <span class="when">{{ when(attempt) }}</span>
+                          <span class="state">{{ stateLabel(attempt) }}</span>
+                          @if (attempt.started_by_reader === false && attempt.started_by) { <span class="state">· {{ i18n.t('experience.record_attempts.by', { name: attempt.started_by }) }}</span> }
+                        } @else {
+                          <span class="when">{{ i18n.t('experience.record_attempts.shown_run', { id: line.runId.slice(0, 8) }) }}</span>
+                          <span class="state">{{ i18n.t('experience.record_attempts.not_in_history') }}</span>
+                        }
+                        @if (n === 0) { <span class="tag">{{ i18n.t('experience.record_attempts.latest') }}</span> }
+                      </button>
+                    </li>
+                  }
+                </ol>
+                @if (list.hasMore) {
+                  <button type="button" class="more" [disabled]="list.loadingMore" (click)="loadMore()">
+                    {{ i18n.t(list.loadingMore ? 'experience.record_attempts.loading_more' : 'experience.record_attempts.more') }}
+                  </button>
+                  @if (list.moreFailed) { <p role="alert" class="note">{{ i18n.t('experience.record_attempts.failed') }}</p> }
                 }
-              </ol>
-              @if (list.hasMore) {
-                <button type="button" class="more" [disabled]="list.loadingMore" (click)="loadMore()">
-                  {{ i18n.t(list.loadingMore ? 'experience.record_attempts.loading_more' : 'experience.record_attempts.more') }}
-                </button>
-                @if (list.moreFailed) { <p role="alert" class="note">{{ i18n.t('experience.record_attempts.failed') }}</p> }
               }
+              @if (shown.historyIncomplete) { <p class="note" data-testid="work-record-attempts-incomplete">{{ i18n.t('experience.record_attempts.history_incomplete') }}</p> }
             }
             <p class="note scope">{{ i18n.t('experience.record_attempts.scope') }}</p>
           }
@@ -121,6 +130,8 @@ export class WorkRecordAttemptsComponent {
   readonly bindingKey = input.required<string>();
   readonly recordRef = input.required<string>();
   readonly selectedRunId = input<string | null>(null);
+  /** A Run of this record the page already shows (e.g. its Situation). */
+  readonly currentRunId = input<string | null>(null);
   /** Bump when the caller knows a new attempt exists (e.g. after starting one). */
   readonly refreshKey = input<unknown>(null);
   readonly selectRun = output<string>();
@@ -139,6 +150,10 @@ export class WorkRecordAttemptsComponent {
   readonly loaded = computed(() => {
     const state = this.state();
     return state.s === 'loaded' ? state : null;
+  });
+  readonly view = computed(() => {
+    const list = this.loaded();
+    return list ? attemptsView(list.attempts, list.hasMore, this.currentRunId()) : null;
   });
 
   constructor() {
