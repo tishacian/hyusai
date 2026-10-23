@@ -68,6 +68,8 @@ COMPONENT_TYPES = frozenset(
         "decision_queue",
         # certified-components-0.3.0
         "record_follow_up",
+        "review_workbench",
+        "review_matrix",
     }
 )
 ABSOLUTE_POSITION_KEYS = frozenset(

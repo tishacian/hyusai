@@ -68,6 +68,8 @@ import { TimeseriesBlockComponent } from './timeseries-block.component';
 import { PredictionCardComponent } from '../work/prediction-card.component';
 import { a11yOf, appearanceOf } from './style';
 import { runtimeFailureKind, runtimeFailureRunId } from './runtime-failure';
+import { ReviewWorkbenchBlock } from './review/review-workbench.block';
+import { ReviewMatrixBlock } from './review/review-matrix.block';
 
 function str(node: ExperienceNode, key: string, fallback = ''): string {
   const value = node.props?.[key];
@@ -2196,6 +2198,8 @@ export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   intelligence_feed: FeedBlock,
   decision_queue: FeedBlock,
   record_follow_up: RecordFollowUpBlock,
+  review_workbench: ReviewWorkbenchBlock,
+  review_matrix: ReviewMatrixBlock,
 };
 
 /**

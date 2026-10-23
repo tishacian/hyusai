@@ -1,9 +1,11 @@
 # Agentium Experience Lot 10: Review workbench
 
-**Status:** specification, 23 October 2026. Nothing below is activated by this
-document. The backend part is implemented behind `review_sets_enabled`; the
-certified components ship in a new renderer pin and do not change Releases
-already pinned to `certified-components-0.2.0`.
+**Status:** specification and first implementation, 23 October 2026. The
+backend is off behind `review_sets_enabled`. Two certified components are
+added to the current catalog, the same way `map_panel` and `decision_queue`
+were: `review_workbench` (sets, packages, filtered records, decision screen)
+and `review_matrix` (sets on two label axes with deadline, close and export).
+A Release that does not place them renders exactly as before.
 
 ## Why
 

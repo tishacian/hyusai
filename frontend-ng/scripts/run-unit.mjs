@@ -78,6 +78,7 @@ const pureSpecs = [
   'src/app/features/connectors/connections/connections.models.spec.ts',
   'src/app/features/connectors/connector-catalog.vm.spec.ts',
   'src/app/features/experience/runtime/timeseries.spec.ts',
+  'src/app/features/experience/runtime/review/review-model.spec.ts',
   'src/app/features/models/clustering.vm.spec.ts',
   'src/app/features/models/forecast-actuals.vm.spec.ts',
   'src/app/features/models/retraining-evidence.vm.spec.ts',

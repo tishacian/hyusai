@@ -1,0 +1,144 @@
+// Review workbench (Experience Lot 10). Tokens only; layout on the 4 px scale.
+.xp-rv-live {
+  margin: 0;
+  min-height: var(--ck-space-4);
+  color: var(--ck-fg-2);
+  font-size: 13px;
+}
+
+.xp-rv-sets,
+.xp-rv-packages,
+.xp-rv-list,
+.xp-rv-problems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--ck-space-2);
+}
+
+.xp-rv-set {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ck-space-4);
+  padding: var(--ck-space-3);
+  border: 1px solid var(--ck-stroke-1);
+  border-radius: var(--ck-radius-md);
+  background: var(--ck-bg-panel-hi);
+}
+
+.xp-rv-set-title,
+.xp-rv-h {
+  margin: 0;
+  font-family: var(--ck-font-display);
+  font-weight: 600;
+  color: var(--ck-fg-1);
+}
+
+.xp-rv-progress {
+  width: 100%;
+  height: var(--ck-space-2);
+  accent-color: var(--ck-primary);
+}
+
+.xp-rv-due-overdue {
+  color: var(--ck-status-neg-fg);
+}
+
+.xp-rv-due-soon {
+  color: var(--ck-status-warn-fg);
+}
+
+.xp-rv-packages {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.xp-rv-package {
+  width: 100%;
+  min-height: var(--ck-space-8);
+  padding: var(--ck-space-2) var(--ck-space-3);
+  text-align: left;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-sm);
+  background: var(--ck-bg-panel);
+  color: var(--ck-fg-1);
+  cursor: pointer;
+}
+
+.xp-rv-package-on {
+  border-color: var(--ck-primary);
+}
+
+.xp-rv-package:focus-visible,
+.xp-rv-check input:focus-visible,
+.xp-rv-table input:focus-visible {
+  outline: 2px solid var(--ck-primary);
+  outline-offset: 2px;
+}
+
+.xp-rv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--ck-space-3);
+}
+
+.xp-rv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--ck-space-4);
+}
+
+.xp-rv-source {
+  margin: var(--ck-space-1) 0;
+  padding: var(--ck-space-2);
+  border-left: 2px solid var(--ck-primary);
+  color: var(--ck-fg-1);
+}
+
+.xp-rv-context {
+  margin: 0;
+  color: var(--ck-fg-2);
+  font-size: 13px;
+}
+
+.xp-rv-annotations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ck-space-3);
+  margin: 0;
+  padding: var(--ck-space-3);
+  border: 1px solid var(--ck-stroke-1);
+  border-radius: var(--ck-radius-md);
+}
+
+.xp-rv-check {
+  display: flex;
+  align-items: center;
+  gap: var(--ck-space-2);
+  min-height: var(--ck-space-6);
+  color: var(--ck-fg-1);
+}
+
+.xp-rv-mono {
+  font-family: var(--ck-font-mono);
+}
+
+.xp-rv-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.xp-rv-cell {
+  display: grid;
+  gap: var(--ck-space-1);
+}
+
+.xp-rv-cell p {
+  margin: 0;
+}
