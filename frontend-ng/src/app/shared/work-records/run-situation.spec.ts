@@ -54,3 +54,12 @@ test('the handled object shows its reference, not the technical input field', ()
   assert.equal(subject?.value, 'RC-1');
   assert.equal(subject?.detail, undefined);
 });
+
+test('an outcome code sent as the proposal is read in words, a real proposal is kept', () => {
+  const failed = { ...base, native_status: 'failed', business_state: 'failed', decision: null, proposal: 'failed' };
+  assert.equal(situationLines(failed, { s: 'loaded', value: null }, t, 'en-GB', quality)[1].value, 'None: the run failed before producing a result.');
+  for (const code of ['partial', 'hitl_escalated', 'approved', 'blocked']) {
+    assert.notEqual(situationLines({ ...failed, proposal: code }, { s: 'loaded', value: null }, t, 'en-GB', quality)[1].value, code);
+  }
+  assert.equal(situationLines(base, { s: 'loaded', value: null }, t, 'en-GB', quality)[1].value, 'Open a carrier investigation');
+});

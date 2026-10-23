@@ -16,6 +16,9 @@ export interface SituationLine {
  * Pure projection of a follow-up read model onto the Situation lines, kept
  * out of the component so it can be tested without Angular.
  */
+/** Outcome codes the server may send as the proposal (see outcome/derive.py). */
+const OUTCOME_PROPOSALS = new Set(['failed', 'partial', 'hitl_escalated', 'approved', 'blocked']);
+
 export function situationLines(
   detail: RunFollowUpDetail,
   quality: Read<QualityValue>,
@@ -31,8 +34,13 @@ export function situationLines(
     ? { id: 'subject', label: t('runs.situation.subject'), value: detail.subject.value, unknown: false }
     : unknown('subject');
 
+  // Without a decision title the server falls back to the Run's outcome code
+  // ("failed", "partial"…): read it in words, never as the raw code.
   const proposal: SituationLine = detail.proposal
-    ? { id: 'proposal', label: t('runs.situation.proposal'), value: detail.proposal, unknown: false }
+    ? {
+      id: 'proposal', label: t('runs.situation.proposal'), unknown: false,
+      value: OUTCOME_PROPOSALS.has(detail.proposal) ? t(`runs.situation.proposal_outcome.${detail.proposal}`) : detail.proposal,
+    }
     : unknown('proposal');
 
   const qualityTitle = t('runs.situation.quality');

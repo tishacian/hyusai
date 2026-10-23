@@ -42,7 +42,7 @@ import { agentDecisionTrail, agentToolLabel, type AgentChoice } from './agent-de
         @if (choice.normalized) { <p class="agent-choice-reserve">{{ i18n.t('experience.agent_choices.normalized') }}</p> }
         @if (choice.rationale) { <p class="agent-choice-rationale">{{ choice.rationale }}</p> }
         @else if (choice.state !== 'deciding') { <p class="agent-choice-muted">{{ i18n.t('experience.agent_choices.reason_unknown') }}</p> }
-        @if (choice.invocationId && showLinks()) { <a class="agent-choice-link" [navLink]="{ type: 'skill_invocation', ref: choice.invocationId }">{{ i18n.t('experience.agent_choices.open_execution') }} →</a> }
+        @if (choice.invocationId && showLinks()) { <a class="agent-choice-link" [navLink]="{ type: 'skill_invocation', runId: run()?.id, ref: choice.invocationId }">{{ i18n.t('experience.agent_choices.open_execution') }} →</a> }
         <details class="agent-choice-evidence"><summary>{{ i18n.t('experience.agent_choices.evidence') }}</summary>
           <div class="agent-choice-evidence-body">
             @if (choice.model) { <app-model-execution [resolution]="choice.model" /> }
