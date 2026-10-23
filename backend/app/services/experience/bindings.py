@@ -92,10 +92,59 @@ def serialize_binding(row: SystemBinding) -> dict[str, Any]:
         "output_schema_sha256": row.output_schema_sha256,
         "confirmation_policy": row.confirmation_policy,
         "on_unavailable": row.on_unavailable,
+        "record_identity": record_identity_of(row),
         "created_by": row.created_by,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+
+
+RECORD_NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+RECORD_INPUT_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
+_UNSET: Any = object()
+
+
+def record_identity_of(row: Any) -> dict[str, str] | None:
+    """The binding's optional record identity contract, or None."""
+    namespace = getattr(row, "record_namespace", None)
+    field = getattr(row, "record_input_field", None)
+    if not namespace or not field:
+        return None
+    return {"namespace": namespace, "input_field": field}
+
+
+def validate_record_identity(value: Any) -> dict[str, str] | None:
+    """Both parts or none: a namespace names the kind of record, the input
+    field carries its reference in the Run payload."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise BindingError(
+            code="BINDING_RECORD_IDENTITY_INVALID",
+            message="record_identity must be an object with namespace and input_field.",
+            status_code=422,
+        )
+    namespace = str(value.get("namespace") or "").strip()
+    field = str(value.get("input_field") or "").strip()
+    if not RECORD_NAMESPACE_RE.fullmatch(namespace) or not RECORD_INPUT_FIELD_RE.fullmatch(field):
+        raise BindingError(
+            code="BINDING_RECORD_IDENTITY_INVALID",
+            message="record_identity needs a lowercase namespace and an input field name.",
+            status_code=422,
+            details={"namespace": namespace, "input_field": field},
+        )
+    return {"namespace": namespace, "input_field": field}
+
+
+def record_ref_from_payload(identity: Mapping[str, Any] | None, payload: Any) -> str | None:
+    """The record reference a Run payload carries for this identity, if any."""
+    if not identity or not isinstance(payload, Mapping):
+        return None
+    value = payload.get(identity.get("input_field"))
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    text = str(value).strip()
+    return text[:200] if text else None
 
 
 def _validate_key(binding_key: str) -> str:
@@ -312,8 +361,10 @@ def create_binding(
     ingress_id: str,
     confirmation_policy: str,
     on_unavailable: str,
+    record_identity: Any = None,
 ) -> SystemBinding:
     key = _validate_key(binding_key)
+    identity = validate_record_identity(record_identity)
     policy = _validate_policy(
         confirmation_policy, CONFIRMATION_POLICIES, field="confirmation_policy"
     )
@@ -354,6 +405,8 @@ def create_binding(
         output_schema_sha256=snapshot["output_schema_sha256"],
         confirmation_policy=policy,
         on_unavailable=unavailable,
+        record_namespace=identity["namespace"] if identity else None,
+        record_input_field=identity["input_field"] if identity else None,
         created_by=actor,
         created_at=now,
         updated_at=now,
@@ -397,9 +450,15 @@ def update_binding(
     published_flow_version_id: str | None = None,
     ingress_id: str | None = None,
     actor: str | None = None,
+    record_identity: Any = _UNSET,
 ) -> SystemBinding:
     row = get_binding(db, workspace_id=workspace.id, binding_key=binding_key)
     before = serialize_binding(row)
+    if record_identity is not _UNSET:
+        # Explicit None clears the contract; earlier attempt rows are kept.
+        identity = validate_record_identity(record_identity)
+        row.record_namespace = identity["namespace"] if identity else None
+        row.record_input_field = identity["input_field"] if identity else None
     if confirmation_policy is not None:
         row.confirmation_policy = _validate_policy(
             confirmation_policy, CONFIRMATION_POLICIES, field="confirmation_policy"
@@ -434,6 +493,7 @@ def update_binding(
             "output_schema_sha256",
             "confirmation_policy",
             "on_unavailable",
+            "record_identity",
         )
         if before[field] != after[field]
     ]

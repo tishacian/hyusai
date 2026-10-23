@@ -289,6 +289,9 @@ export function publishedNodeExecutor(
         away, in the same place, and none was removed.
       -->
       <fieldset class="ck-flow-inspector__body" [disabled]="publishedReading()">
+        @if (publishedReading()) {
+          <p class="ck-flow-inspector__read-only" role="note" data-testid="flow-inspector-read-only">{{ i18n.t('flow.inspector.read_only') }}</p>
+        }
         @if (node(); as n) {
           <section class="ck-flow-section">
             <label class="ck-flow-field">
@@ -336,7 +339,7 @@ export function publishedNodeExecutor(
             }
           }
 
-          @if (selectedSkillSlug() === 'data_prep_v1' || selectedSkillSlug() === 'evaluate_v2') {
+          @if (!(publishedReading() && selectedSkillSlug() === 'data_prep_v1') && (selectedSkillSlug() === 'data_prep_v1' || selectedSkillSlug() === 'evaluate_v2')) {
             <section class="ck-flow-section"><app-flow-dataops-inspector [node]="n" /></section>
           }
           @if ((n.kind ?? 'task') === 'task' || (n.kind ?? 'task') === 'retry') {
@@ -1350,6 +1353,13 @@ export function publishedNodeExecutor(
           </div>
         }
       </fieldset>
+      <!-- A disabled fieldset also disables consultation: the preparation
+           workshop of a published version opens outside it, read-only. -->
+      @if (publishedReading() && selectedSkillSlug() === 'data_prep_v1') {
+        @if (node(); as n) {
+          <section class="ck-flow-section" data-testid="flow-inspector-prep-consult"><app-flow-dataops-inspector [node]="n" [readOnly]="true" /></section>
+        }
+      }
     </aside>
   `,
 })

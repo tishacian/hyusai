@@ -19,6 +19,9 @@ from app.services.ecommerce import policy_settings
 from app.services.ecommerce.resolution_policy import ResolutionPolicy
 from app.services.experience import lifecycle
 
+# Registers the claims record identity with the Work attempt ledger.
+from app.services.ecommerce import record_identity as _claims_record_identity  # noqa: E402,F401
+
 router = APIRouter()
 
 
@@ -144,18 +147,26 @@ def dossier(
             .order_by(ClaimAction.created_at)
             .all()
         ]
-        latest = (
-            db.query(Run)
+        # The case's latest analysis is the team's, like the Work last result:
+        # any member's Run that this reader may still read.
+        from app.services.run_access import readable_run_page
+
+        page = readable_run_page(
+            db,
+            query=db.query(Run)
             .filter(
                 Run.workspace_id == workspace.id,
-                Run.initiated_by_user_id == user.id,
+                Run.initiated_by_user_id.isnot(None),
                 Run.input_ref["claim_id"].as_string() == claim_id,
                 Run.input_ref["_ingress"]["adapter"]["binding_key"].as_string()
                 == "showcase.claims.investigate",
             )
-            .order_by(Run.started_at.desc())
-            .first()
+            .order_by(Run.started_at.desc(), Run.id.desc()),
+            limit=1,
+            user=user,
+            workspace=workspace,
         )
+        latest = page[0] if page else None
         result["latest_run_id"] = latest.id if latest else None
         return result
     except pg.ClaimReadError as exc:

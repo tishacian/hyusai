@@ -1,4 +1,5 @@
 import type { RetrainingBinding } from '@app/features/models/retraining-evidence.vm';
+import type { RunFollowUp } from './run-follow-up';
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
@@ -361,6 +362,9 @@ export interface Run {
     | 'cancelled'
     | 'hitl_pending'
     | 'debug_pending';
+  /** Server-derived follow-up state; read it through `core/run-follow-up.ts`
+   * instead of interpreting `status` and `error` locally. */
+  follow_up?: RunFollowUp | null;
   started_at?: string;
   completed_at?: string;
   ended_at?: string;
@@ -2944,9 +2948,15 @@ export class CanonicalApiService {
       source_feedback_id?: string;
     } = {},
     _policy?: ErrorPolicy,
+    /** Optional: the same key answers a lost response with the first replay. */
+    idempotencyKey?: string,
   ): Observable<RunReplayResult | null> {
     return this.api
-      .post<RunReplayResult>(`/runs/${runId}/replay`, body);
+      .post<RunReplayResult>(
+        `/runs/${runId}/replay`,
+        body,
+        idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+      );
   }
 
   listRunReplays(runId: string, policy?: ErrorPolicy): Observable<RunReplayListResponse | null> {

@@ -11,6 +11,8 @@ import { formatObservationDate } from './flow-observation-bar.component';
 import { observationRunVersion, type FlowObservedAttempt } from './flow-observation.vm';
 import type { FlowObservationPinInput } from './flow-observation-windows.vm';
 import { formatDuration } from './flow-node-run.vm';
+import { runStatusLabel } from '@app/core/run-follow-up';
+import type { FlowObservationRun } from './flow-observation.vm';
 
 @Component({
   selector:'app-flow-observation-panel',
@@ -27,7 +29,7 @@ import { formatDuration } from './flow-node-run.vm';
       @if (observation.detailStatus()==='loading') { <p class="fo-empty" role="status">{{i18n.t('common.loading')}}</p> }
       @else if (observation.detailError()) { <p class="fo-empty" role="alert">{{i18n.t(observation.detailError()==='forbidden'?'flow.observation.forbidden':'flow.observation.unavailable')}}</p><button type="button" class="fo-text-button" (click)="observation.refresh()">{{i18n.t('common.retry')}}</button> }
       @else if (observation.currentRun(); as run) {
-        <div class="fo-provenance"><span>{{date(run.started_at)}} · {{i18n.t('runs.status.'+run.status)}}</span><a [navLink]="{type:'run',ref:run.id}">{{i18n.t('flow.observation.open_run')}} · {{run.id.slice(0,8)}}</a></div>
+        <div class="fo-provenance"><span>{{date(run.started_at)}} · {{runState(run)}}</span><a [navLink]="{type:'run',ref:run.id}">{{i18n.t('flow.observation.open_run')}} · {{run.id.slice(0,8)}}</a></div>
         <details class="fo-provenance-details"><summary>{{i18n.t('flow.observation.provenance')}}</summary><dl><dt>{{i18n.t('flow.observation.run')}}</dt><dd>{{run.id}}</dd><dt>{{i18n.t('flow.observation.node')}}</dt><dd>{{observation.selectedNodeId()}}</dd><dt>{{i18n.t('flow.observation.version_label')}}</dt><dd>{{version()||i18n.t('flow.observation.unknown')}}</dd><dt>{{i18n.t('flow.observation.flow_hash')}}</dt><dd>{{run.flow_sha256||i18n.t('flow.observation.unknown')}}</dd></dl></details>
         @if (run.result_held) { <p class="fo-empty" role="status">{{i18n.t('flow.observation.held')}}</p> }
         @else if (!observation.currentNode()) {
@@ -75,6 +77,7 @@ export class FlowObservationPanelComponent {
   readonly windows=inject(FlowObservationWindowsService);
   readonly dataset=inject(FlowObservationDatasetService);
   readonly i18n=inject(I18nService);
+  runState(run: FlowObservationRun): string { return runStatusLabel(run, this.i18n.t); }
   readonly nodeTitle=input('');
   readonly pinPosition=input({x:480,y:40});
   readonly closed=output<void>();

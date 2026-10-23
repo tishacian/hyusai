@@ -5,6 +5,7 @@ import { FlowResultViewerComponent } from './flow-result-viewer.component';
 import { observationPinValue, type FlowObservationPin } from './flow-observation-windows.vm';
 import { formatObservationDate } from './flow-observation-bar.component';
 import { FlowObservationWindowsService } from './flow-observation-windows.service';
+import { runStatusLabel } from '@app/core/run-follow-up';
 
 @Component({
   selector:'app-flow-observation-card',
@@ -22,7 +23,7 @@ import { FlowObservationWindowsService } from './flow-observation-windows.servic
         </div>
       </header>
       <div class="fo-card__provenance"><span>{{date()}} · {{i18n.t('runs.status.'+pin().attempt.status)}}</span><span>{{i18n.t('flow.observation.'+pin().mode)}} · {{pin().run.id.slice(0,8)}}</span></div>
-      <details class="fo-provenance-details fo-card__details" (pointerdown)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()"><summary>{{i18n.t('flow.observation.provenance')}} · {{pin().run.flow_version_id?.slice(0,8)||i18n.t('flow.observation.unknown')}}</summary><dl><dt>{{i18n.t('flow.observation.run')}}</dt><dd>{{pin().run.id}} · {{i18n.t('runs.status.'+pin().run.status)}}</dd><dt>{{i18n.t('flow.observation.node')}}</dt><dd>{{pin().nodeId}}</dd><dt>{{i18n.t('flow.observation.attempt')}}</dt><dd>{{pin().attempt.id}} · {{i18n.t('runs.status.'+pin().attempt.status)}}</dd><dt>{{i18n.t('flow.observation.version_label')}}</dt><dd>{{pin().run.flow_version_id||i18n.t('flow.observation.unknown')}}</dd><dt>{{i18n.t('flow.observation.flow_hash')}}</dt><dd>{{pin().run.flow_sha256||i18n.t('flow.observation.unknown')}}</dd></dl></details>
+      <details class="fo-provenance-details fo-card__details" (pointerdown)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()"><summary>{{i18n.t('flow.observation.provenance')}} · {{pin().run.flow_version_id?.slice(0,8)||i18n.t('flow.observation.unknown')}}</summary><dl><dt>{{i18n.t('flow.observation.run')}}</dt><dd>{{pin().run.id}} · {{runState()}}</dd><dt>{{i18n.t('flow.observation.node')}}</dt><dd>{{pin().nodeId}}</dd><dt>{{i18n.t('flow.observation.attempt')}}</dt><dd>{{pin().attempt.id}} · {{i18n.t('runs.status.'+pin().attempt.status)}}</dd><dt>{{i18n.t('flow.observation.version_label')}}</dt><dd>{{pin().run.flow_version_id||i18n.t('flow.observation.unknown')}}</dd><dt>{{i18n.t('flow.observation.flow_hash')}}</dt><dd>{{pin().run.flow_sha256||i18n.t('flow.observation.unknown')}}</dd></dl></details>
       <div class="fo-card__body" tabindex="-1" (pointerdown)="focusView($event);$event.stopPropagation()" (mousedown)="$event.stopPropagation()">
         <app-flow-result-viewer [value]="value()" [run]="pin().mode==='output'?pin().run:null" [nodeId]="pin().nodeId" [invocationId]="pin().attempt.id" [title]="pin().title" [presentation]="pin().presentation" [datasetPreview]="pin().mode==='output'?(pin().datasetPreview??null):null" [selectedSeriesName]="pin().selectedSeriesName??null" (selectedSeriesNameChange)="windows.selectSeries(pin().id,$event)" />
       </div>
@@ -37,6 +38,7 @@ export class FlowObservationCardComponent {
   readonly expand=output<string>();
   readonly closed=output<string>();
   readonly value=()=>observationPinValue(this.pin());
+  readonly runState=()=>runStatusLabel(this.pin().run,this.i18n.t);
   focusView(event: PointerEvent): void {
     if (!(event.target as Element | null)?.closest('button, select, input, textarea, a, summary')) {
       (event.currentTarget as HTMLElement).focus({preventScroll:true});

@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { ChangeDetectionStrategy, Component, computed, inject, input, model } from '@angular/core';
 import type { Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -174,7 +175,6 @@ export class FlowResultViewerComponent {
     return ['answer', 'summary', 'text', 'content'].includes(title) ? this.i18n.t('flow.results.viewer.document.' + title) : title;
   }
   formatDate(value: string): string {
-    const stamp = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : value + 'Z');
-    return Number.isFinite(stamp) ? new Date(stamp).toLocaleString(this.i18n.locale()) : this.i18n.t('flow.results.viewer.unknown');
+    return formatInstant(value, this.i18n.locale()) ?? this.i18n.t('flow.results.viewer.unknown');
   }
 }

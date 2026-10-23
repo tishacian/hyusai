@@ -1,3 +1,4 @@
+import { readableQuote } from './judge-evidence';
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { I18nService } from '@app/core/i18n.service';
@@ -43,13 +44,22 @@ import { typedDecisionObservation, typedJudgeFailure, typedResult, type TypedAns
           </details>
         }
       </ng-template>
+      <ng-template #citation let-proof="proof">
+        @if (proof.kind === 'image') { <p>{{ proof.description }}</p> }
+        @else {
+          @let read = readable(proof.quote);
+          @if (read.fields.length) {
+            <dl class="judge-proof-fields">@for (field of read.fields; track $index) { <div><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div> }</dl>
+          } @else { <p>{{ read.text }}</p> }
+        }
+      </ng-template>
       @for (entry of answers(); track entry.key) {
         @if (compact()) { <div class="dp-answer">
           <h3>{{ entry.question }}</h3><p class="dp-note">{{ i18n.t('dataops.status.' + entry.answer.status) }}@if (entry.answer.value != null) { · {{ display(entry.answer.value) }} }@if (entry.answer.reason) { · {{ reason(entry.answer.reason) }} }</p>
           <p class="dp-note">{{ explanation(entry.answer) }}</p>
           <ng-container [ngTemplateOutlet]="decision" [ngTemplateOutletContext]="{questionKey:entry.key}" />
           @if (entry.answer.evidence.length) { <details><summary>{{ i18n.t('dataops.judge.proofs') }} · {{ entry.answer.evidence.length }}</summary>
-            @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} · {{ proof.kind === 'image' ? proof.image_sha256 : sourceVersion(proof.evidence_id) }}</small>
+            @for (proof of entry.answer.evidence; track $index) { <blockquote><ng-container [ngTemplateOutlet]="citation" [ngTemplateOutletContext]="{ proof }" /><details class="judge-technical-proof"><summary>{{ i18n.t('dataops.judge.proof_technical') }}</summary><small>{{ proof.evidence_id }} · {{ proof.kind === 'image' ? proof.image_sha256 : sourceVersion(proof.evidence_id) }}</small>@if (proof.kind !== 'image' && readable(proof.quote).transformed) { <pre>{{ proof.quote }}</pre> }</details>
               @if (sourcePreview(proof); as source) {<details><summary>{{i18n.t('observability.assurance.source_context')}}</summary><p>{{source.before}}<mark>{{source.quote}}</mark>{{source.after}}</p></details>}
               @if (sourceInvocation(proof.evidence_id); as sourceId) { @if(runId()) { <p><a [navLink]="{type:'skill_invocation',runId:runId() || undefined,ref:sourceId}">{{t('invocation')}}</a></p> } }
             </blockquote> }
@@ -58,7 +68,7 @@ import { typedDecisionObservation, typedJudgeFailure, typedResult, type TypedAns
         @else { <details class="dp-section"><summary>{{ entry.question }} · {{ i18n.t('dataops.status.' + entry.answer.status) }} · {{ display(entry.answer.value) }}</summary>
         <p class="dp-note">{{ explanation(entry.answer) }}</p>@if (entry.answer.reason) { <p class="dp-note">{{ reason(entry.answer.reason) }}</p> }
         <ng-container [ngTemplateOutlet]="decision" [ngTemplateOutletContext]="{questionKey:entry.key}" />
-        @for (proof of entry.answer.evidence; track $index) { <blockquote><p>{{ proof.kind === 'image' ? proof.description : proof.quote }}</p><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} · {{ sourceVersion(proof.evidence_id) }} }</small>
+        @for (proof of entry.answer.evidence; track $index) { <blockquote><ng-container [ngTemplateOutlet]="citation" [ngTemplateOutletContext]="{ proof }" /><details class="judge-technical-proof"><summary>{{ i18n.t('dataops.judge.proof_technical') }}</summary><small>{{ proof.evidence_id }} @if (proof.kind === 'image') { · {{ proof.image_sha256 }} · {{ display(proof.region) }} } @else { · {{ proof.start }}–{{ proof.end }} · {{ sourceVersion(proof.evidence_id) }} }</small>@if (proof.kind !== 'image' && readable(proof.quote).transformed) { <pre>{{ proof.quote }}</pre> }</details>
           @if (sourcePreview(proof); as source) {<details><summary>{{i18n.t('observability.assurance.source_context')}}</summary><p>{{source.before}}<mark>{{source.quote}}</mark>{{source.after}}</p></details>}
               @if (sourceInvocation(proof.evidence_id); as sourceId) { @if(runId()) { <p><a [navLink]="{type:'skill_invocation',runId:runId() || undefined,ref:sourceId}">{{t('invocation')}}</a></p> } }
         </blockquote> }
@@ -67,9 +77,10 @@ import { typedDecisionObservation, typedJudgeFailure, typedResult, type TypedAns
       @if (compact()) { <details data-testid="judge-technical-details"><summary>{{ i18n.t('dataops.judge.technical_details') }}</summary><ng-container [ngTemplateOutlet]="technical" /></details> }
     </section>
   }`,
-  styles: [`.judge-failure{margin:12px 0;padding:12px 14px;border-inline-start:2px solid var(--ck-signal-warn);background:var(--ck-bg-inset);border-radius:4px;overflow-wrap:anywhere}.judge-failure h3{margin:0 0 6px}.judge-failure p{margin:4px 0;font-size:12px;line-height:1.5}.judge-questions{margin:8px 0}.judge-questions ol{padding-inline-start:20px;list-style:decimal}.judge-questions li{margin:4px 0;overflow-wrap:anywhere}`],
+  styles: [`.judge-proof-fields{display:grid;gap:var(--ck-space-1);margin:0}.judge-proof-fields div{display:grid;grid-template-columns:minmax(120px,40%) 1fr;gap:var(--ck-space-2)}.judge-proof-fields dt{color:var(--ck-fg-3)}.judge-proof-fields dd{margin:0;overflow-wrap:anywhere}.judge-technical-proof{margin-top:var(--ck-space-2);font-size:12px;color:var(--ck-fg-3)}.judge-technical-proof pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--ck-font-mono)}.judge-failure{margin:12px 0;padding:12px 14px;border-inline-start:2px solid var(--ck-signal-warn);background:var(--ck-bg-inset);border-radius:4px;overflow-wrap:anywhere}.judge-failure h3{margin:0 0 6px}.judge-failure p{margin:4px 0;font-size:12px;line-height:1.5}.judge-questions{margin:8px 0}.judge-questions ol{padding-inline-start:20px;list-style:decimal}.judge-questions li{margin:4px 0;overflow-wrap:anywhere}`],
 })
 export class TypedJudgeResultComponent {
+  readonly readable = readableQuote;
   providerDecision(key: string) { return typedDecisionObservation(this.result(), key); }
   percent(value: number): string { return `${Math.round(value * 1000) / 10} %`; }
   explanation(answer: TypedAnswer): string {

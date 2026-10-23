@@ -1006,6 +1006,11 @@ def serialize_public_binding_resolution(resolved: Mapping[str, Any]) -> dict[str
             "binding_key": binding.get("binding_key"),
             "confirmation_policy": binding.get("confirmation_policy"),
             "on_unavailable": binding.get("on_unavailable"),
+            "record_identity": (
+                dict(binding["record_identity"])
+                if isinstance(binding.get("record_identity"), Mapping)
+                else None
+            ),
         },
     }
 
@@ -2863,6 +2868,12 @@ def _binding_snapshot_item(resolved: Mapping[str, Any]) -> dict[str, Any]:
         "output_schema_sha256": binding["output_schema_sha256"],
         "confirmation_policy": binding["confirmation_policy"],
         "on_unavailable": binding["on_unavailable"],
+        # Additive and only when declared, so existing release hashes hold.
+        **(
+            {"record_identity": dict(binding["record_identity"])}
+            if isinstance(binding.get("record_identity"), Mapping)
+            else {}
+        ),
     }
 
 

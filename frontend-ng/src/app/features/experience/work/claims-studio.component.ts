@@ -1,3 +1,6 @@
+import { WorkAppElsewhereComponent } from './work-app-elsewhere.component';
+import { ThemeService } from '@app/core/theme.service';
+import { workTheme, workThemeMode } from './work-catalog';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
@@ -6,7 +9,6 @@ import { writeFailure } from '@app/shared/ui/load-state';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
@@ -31,6 +33,9 @@ import { WorkApiService } from './work-api.service';
 import { runtimeFailureKind } from '../runtime/runtime-failure';
 import { CLAIM_ACTION_LABELS, CLAIM_REASON_LABELS, CLAIM_TOOL_LABELS, claimActionGroups, claimRunProjection, recordedClaimActions, type ClaimProposal, type ClaimRow, type ClaimSnapshot } from './claim-run';
 import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimTriage } from './claim-triage';
+import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
+import { WorkRecordAttemptsComponent } from '@app/shared/work-records/work-record-attempts.component';
+import { pollRun } from '@app/core/run-polling';
 
 type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
   | { key: string; state: 'confirmed'; runId: string };
@@ -55,10 +60,10 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent],
+  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent, WorkAppElsewhereComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
-    <div class="xp-work claims-app">
+    <div class="xp-work claims-app" data-brand-scope [attr.data-theme]="themeMode()">
       <app-work-bar [appContext]="i18n.t('experience.claims.title')" />
       <app-work-app-header [title]="i18n.t('experience.claims.title')" [eyebrow]="i18n.t('experience.claims.brand')"
         [description]="i18n.t('experience.claims.promise')" [status]="i18n.t('experience.claims.demo')" emblem="◈">
@@ -149,6 +154,11 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
             </section>
             <aside class="claims-decision" [attr.aria-label]="i18n.t('experience.claims.decision')">
               <h2>{{ i18n.t('experience.claims.decision') }}</h2>
+              @if (run(); as current) { <app-run-situation [runId]="current.id" [refreshKey]="current.status" [compact]="true" [showRunLink]="true" /> }
+              @if (selected(); as recordId) {
+                <app-work-record-attempts slug="reclamations" bindingKey="showcase.claims.investigate" [recordRef]="recordId"
+                  [selectedRunId]="run()?.id ?? null" [refreshKey]="attemptsRefresh()" (selectRun)="openAttempt($event)" />
+              }
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
                 <span>{{ triage()?.prediction_contract?.label || i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
                 <p>{{ priorityLabel(advice.priority) }} · {{ i18n.t('experience.claims.triage.basis.' + advice.basis) }}</p>
@@ -226,7 +236,8 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
         }
       </main>
       <ng-template #dataUnavailable>
-        @if (dataError(); as failure) {
+        @if (appMissing()) { <app-work-app-elsewhere appSlug="reclamations" />
+        } @else if (dataError(); as failure) {
           <p class="claims-data-error-title">{{ i18n.t('experience.claims.data_unavailable') }}</p>
           <p>{{ i18n.t('connectors.pg.error.' + failure.code) }}</p>
           @if (!canConfigureData()) { <p class="claims-quiet">{{ i18n.t('connectors.pg.contact_admin') }}</p> }
@@ -250,6 +261,12 @@ export class ClaimsStudioComponent {
   private readonly router = inject(Router);
   private readonly destroy = inject(DestroyRef);
   readonly releasePages = signal<unknown>(null);
+  /** The app is not published in this workspace (404), not a data outage. */
+  readonly appMissing = signal(false);
+  /** Same theme rule as every Work page: release mode, else the reader's. */
+  private readonly readerTheme = inject(ThemeService);
+  readonly releaseTheme = signal<ReturnType<typeof workTheme> | null>(null);
+  readonly themeMode = computed(() => workThemeMode(this.releaseTheme(), this.readerTheme.resolved()));
   readonly rows = signal<ClaimRow[]>([]); readonly selected = signal<string | null>(null);
   readonly detail = signal<ClaimSnapshot | null>(null); readonly run = signal<Run | null>(null);
   readonly loading = signal(true); readonly detailLoading = signal(false); readonly error = signal(false);
@@ -339,8 +356,10 @@ export class ClaimsStudioComponent {
     try {
       const release = await firstValueFrom(this.work.resolve('reclamations'));
       if (generation !== this.generation) return;
+      this.appMissing.set(release.kind === 'missing');
       if (release.kind !== 'ok') throw Error('Release unavailable');
       this.releasePages.set(release.body.release.pages ?? null);
+      this.releaseTheme.set(workTheme(release.body.release.theme as Record<string, unknown> | null | undefined));
       void this.loadDataAccess(generation);
       const response = await firstValueFrom(this.api.get<{ data: { queue: ClaimRow[] } }>('/ecommerce-claims'));
       if (generation !== this.generation) return;
@@ -392,7 +411,7 @@ export class ClaimsStudioComponent {
           }));
       if (generation !== this.generation) return;
       this.priorityPoll?.unsubscribe();
-      this.priorityPoll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(result.id)), takeUntilDestroyed(this.destroy)).subscribe({
+      this.priorityPoll = pollRun(() => this.canonical.getRun(result.id)).pipe(takeUntilDestroyed(this.destroy)).subscribe({
         next: run => {
           if (generation !== this.generation) return;
           if (!run || ['completed', 'failed', 'cancelled'].includes(run.status)) {
@@ -403,21 +422,36 @@ export class ClaimsStudioComponent {
       });
     } catch { if (generation === this.generation) { this.triageBusy.set(false); this.triageError.set(true); } }
   }
+  /** Attempt chosen by the reader; a refresh never swaps it for the latest. */
+  readonly pinnedRun = signal<string | null>(null);
+  readonly attemptsRefresh = signal(0);
+  openAttempt(runId: string): void {
+    const id = this.selected();
+    if (!id || this.run()?.id === runId) return;
+    this.poll?.unsubscribe();
+    this.pinnedRun.set(runId);
+    this.run.set(null); this.runReadFailed.set(null);
+    void this.writeRecordUrl(id, true);
+    this.watchRun(runId, id);
+  }
   select(id: string, updateUrl = true): void {
+    // A record opened from the URL keeps the attempt the URL names.
+    const requested = updateUrl ? null : this.route?.snapshot?.queryParamMap?.get('attempt') ?? null;
+    this.pinnedRun.set(requested && requested.trim() ? requested : null);
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
     this.selected.set(id); this.sourceDocumentId.set(null); this.detailReadFailed.set(false); this.runReadFailed.set(null); this.runRefreshing.set(false); this.dataError.set(null); this.detailLoading.set(true);
     if (updateUrl) void this.writeRecordUrl(id);
     this.refreshDetail(id);
   }
   private writeRecordUrl(id: string, replaceUrl = false): Promise<boolean> {
-    return this.router.navigate([], { relativeTo: this.route, queryParams: { record: id }, queryParamsHandling: 'merge', replaceUrl });
+    return this.router.navigate([], { relativeTo: this.route, queryParams: { record: id, attempt: this.pinnedRun() }, queryParamsHandling: 'merge', replaceUrl });
   }
   private refreshDetail(id: string): void {
     const generation = this.generation;
     this.detailRequest?.unsubscribe();
     this.detailLoading.set(true);
     this.detailRequest = this.api.get<ClaimSnapshot>(`/ecommerce-claims/${encodeURIComponent(id)}`).pipe(takeUntilDestroyed(this.destroy)).subscribe({
-      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detailReadFailed.set(false); this.detail.set(detail); this.detailLoading.set(false); if (detail.latest_run_id && !this.run()) this.watchRun(detail.latest_run_id, id); } },
+      next: detail => { if (generation === this.generation && this.selected() === id) { this.dataError.set(null); this.detailReadFailed.set(false); this.detail.set(detail); this.detailLoading.set(false); const shown = this.pinnedRun() ?? detail.latest_run_id; if (shown && !this.run()) this.watchRun(shown, id); } },
       error: error => { if (generation === this.generation && this.selected() === id) { this.dataError.set(this.readFailure(error)); this.detailLoading.set(false); this.detailReadFailed.set(true); } },
     });
   }
@@ -444,6 +478,9 @@ export class ClaimsStudioComponent {
         this.investigationRequests.update(current => ({ ...current, [requestKey]: { key, state: 'confirmed', runId: result.id } }));
         return;
       }
+      // A new analysis becomes the shown attempt; earlier ones stay listed.
+      this.pinnedRun.set(null); this.attemptsRefresh.update(n => n + 1);
+      void this.writeRecordUrl(id, true);
       this.run.set({ id: result.id, system_id: '', status: 'pending' });
       this.investigationRequests.update(current => { const next = { ...current }; delete next[requestKey]; return next; });
       this.watchRun(result.id, id);
@@ -464,10 +501,14 @@ export class ClaimsStudioComponent {
   private watchRun(runId: string, claimId: string): void {
     this.poll?.unsubscribe(); const g = this.generation;
     this.runRefreshing.set(true);
-    this.poll = timer(0, 2000).pipe(switchMap(() => this.canonical.getRun(runId)), takeUntilDestroyed(this.destroy)).subscribe({
+    this.poll = pollRun(() => this.canonical.getRun(runId)).pipe(takeUntilDestroyed(this.destroy)).subscribe({
       next: run => { if (g !== this.generation || this.selected() !== claimId) return;
         this.runRefreshing.set(false);
         if (!run || run.id !== runId) { this.runReadFailed.set(runId); this.poll?.unsubscribe(); return; }
+        if (this.pinnedRun() === run.id && run.input_ref?.['claim_id'] !== undefined && run.input_ref['claim_id'] !== claimId) {
+          // An attempt named in the URL must belong to this case.
+          this.pinnedRun.set(null); this.poll?.unsubscribe(); this.run.set(null); void this.writeRecordUrl(claimId, true); this.refreshDetail(claimId); return;
+        }
         this.runReadFailed.set(null);
         this.clock.set(Date.now());
         this.run.set(run);

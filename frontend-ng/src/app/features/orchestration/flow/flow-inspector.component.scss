@@ -574,3 +574,21 @@
 
 /* Read-only publication keeps the inspector close control outside locked fields. */
 fieldset.ck-flow-inspector__body { border: 0; margin: 0; min-inline-size: 0; }
+
+/* A published version reads as locked, not as an editor that ignores input. */
+fieldset.ck-flow-inspector__body:disabled :is(input, textarea, select) {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ck-fg-2);
+  cursor: not-allowed;
+}
+
+.ck-flow-inspector__read-only {
+  margin: 0 0 var(--ck-space-3);
+  padding: var(--ck-space-2) var(--ck-space-3);
+  border: 1px solid var(--ck-status-info-line);
+  border-radius: var(--ck-radius-sm);
+  background: var(--ck-status-info-bg);
+  color: var(--ck-fg-1);
+  font-size: 12px;
+}

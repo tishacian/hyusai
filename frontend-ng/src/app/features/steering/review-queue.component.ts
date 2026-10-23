@@ -707,7 +707,7 @@ export class SteeringReviewQueueComponent implements OnInit {
       .replayRun(item.run.id, {
         overrides,
         source_decision_id: item.decision.id,
-      }, STRICT)
+      }, STRICT, crypto.randomUUID())
       .pipe(timeout({ first: WRITE_TIMEOUT_MS }))
       .subscribe({
         next: (res) => {

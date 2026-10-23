@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { workPageHref } from '../work/work-catalog';
 import {
   ChangeDetectionStrategy,
@@ -1014,6 +1015,7 @@ export class HistoryBlock {
     <div class="xp-rt-block" role="status" aria-live="polite">
       <div class="xp-rt-row">
         <ck-tag [tone]="tone()">{{ label() }}</ck-tag>
+        @if (teamAuthor(); as author) { <span class="xp-rt-sub" data-testid="runtime-team-result">{{ author }}</span> }
         @if (inspectableRunId(); as id) {
           <a class="xp-rt-link xp-rt-link-action" [navLink]="{ type: 'run', lens: 'operate', ref: id }">
             {{ i18n.t('experience.runtime.failure.inspect') }}
@@ -1048,6 +1050,14 @@ export class RuntimeStatusBlock {
   readonly context = input.required<RuntimeNodeContext>();
   private readonly error = computed(() => this.runtime.lastError(this.context().sourceStateKey));
   readonly copiedRunId = signal<string | null>(null);
+  /** A restored result started by a teammate says so, with when and who. */
+  readonly teamAuthor = computed(() => {
+    if (!this.vocab()) return null;
+    const author = this.runtime.restoredAuthor?.(this.context().sourceStateKey);
+    if (!author) return null;
+    const at = formatInstant(author.startedAt, this.i18n.locale());
+    return this.i18n.t(author.name ? 'experience.runtime.team_result.by' : 'experience.runtime.team_result.anonymous', { name: author.name ?? '', at: at ?? this.i18n.t('experience.runtime.team_result.date_unknown') });
+  });
   readonly copyFailed = signal(false);
   readonly vocab = computed(() => {
     const phase = this.runtime.phase(this.context().sourceStateKey);
@@ -1079,7 +1089,10 @@ export class RuntimeStatusBlock {
       return this.i18n.t('experience.runtime.status.restoring');
     }
     const vocab = this.vocab();
-    if (!vocab) return this.i18n.t('experience.runtime.status.idle');
+    if (!vocab) return this.i18n.t(idleStatusKey(
+      this.context().mode,
+      this.runtime.previousResult?.(this.context().sourceStateKey) ?? 'unchecked',
+    ));
     if (vocab === 'error' && runtimeFailureKind(this.error()) === 'status_unknown') {
       return this.i18n.t('experience.runtime.failure.status_unknown_label');
     }
@@ -2066,3 +2079,15 @@ export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   intelligence_feed: FeedBlock,
   decision_queue: FeedBlock,
 };
+
+/**
+ * Label of a status with no Run to show. A live reader is told why: the
+ * server only resumes their own result on this release, or this component
+ * does not resume earlier results at all. "Not started yet" stays for
+ * previews, where nothing is ever resumed.
+ */
+export function idleStatusKey(mode: string | undefined, previous: string): string {
+  if (mode !== 'live') return 'experience.runtime.status.idle';
+  if (previous === 'none_on_release') return 'experience.runtime.status.idle_none_on_release';
+  return 'experience.runtime.status.idle_not_resumed';
+}

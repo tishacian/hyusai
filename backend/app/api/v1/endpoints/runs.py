@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -50,6 +50,7 @@ from app.services.iam.legacy_authority import (
     legacy_run_approval_allowed,
 )
 from app.services.llm_label_review import LabelReviewInput
+from app.services.run_follow_up import run_follow_up, run_follow_up_detail
 from app.services.object_perspective import (
     build_run_perspective,
     build_skill_invocation_perspective,
@@ -243,6 +244,9 @@ def _row(r: Run, *, db: DBSession, payload_visible: bool = True) -> dict[str, An
         "execution_surface": r.execution_surface,
         "capability_id": r.capability_id,
         "status": r.status,
+        # Derived follow-up state; every surface reads it instead of
+        # re-interpreting status and error (see services/run_follow_up.py).
+        "follow_up": run_follow_up(r, payload_visible=payload_visible),
         "trigger": r.trigger,
         "initiated_by_user_id": r.initiated_by_user_id,
         "execution_principal": public_run_principal(r),
@@ -724,6 +728,74 @@ async def get_run(
                 "payload_unavailable_reason": "evidence_unavailable",
             }
     return payload
+
+
+@router.get("/{run_id}/follow-up")
+def get_run_follow_up(
+    run_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """RunFollowUp read model: state, cause, attempt, object, proposal and
+    human decision of one Run, under exactly the Run's own read rights."""
+    r = _visible_run_or_404(db, run_id=run_id, user=user, workspace=workspace)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="run",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs=_run_read_attrs(r),
+    )
+    payload_visible = runtime_judgment_payload_visible(db, r, workspace=workspace, user=user)
+    decision: Optional[Decision] = None
+    pause = next(
+        (
+            cp
+            for cp in reversed(list(r.checkpoints or []))
+            if isinstance(cp, dict) and cp.get("kind") == "hitl_pause"
+        ),
+        None,
+    )
+    decision_id = (pause or {}).get("decision_id")
+    if decision_id:
+        candidate = db.query(Decision).filter(Decision.id == decision_id).first()
+        if candidate and _decision_target_run(
+            db, decision=candidate, paused_run=r, workspace_id=workspace.id
+        ):
+            decision = candidate
+    return run_follow_up_detail(
+        r,
+        payload_visible=payload_visible,
+        decision=decision,
+        record_identity=_released_record_identity(db, r, workspace_id=workspace.id),
+    )
+
+
+def _released_record_identity(db: DBSession, run: Run, *, workspace_id: str) -> Optional[dict]:
+    """Record identity of the released Work binding that started this Run."""
+    ingress = (run.input_ref or {}).get("_ingress") if isinstance(run.input_ref, dict) else None
+    adapter = ingress.get("adapter") if isinstance(ingress, dict) else None
+    if not isinstance(adapter, dict) or adapter.get("surface") != "experience":
+        return None
+    from app.models.experience import ExperienceRelease
+
+    release = db.get(ExperienceRelease, adapter.get("experience_release_id") or "")
+    if release is None or getattr(release, "workspace_id", workspace_id) != workspace_id:
+        return None
+    from app.models.workspace import Workspace
+    from app.services.experience.record_identity import resolve_record_identity
+
+    workspace = db.get(Workspace, workspace_id)
+    for item in release.bindings_snapshot or []:
+        if isinstance(item, dict) and item.get("binding_key") == adapter.get("binding_key"):
+            # Released contract, else a business reader's (e.g. the claims reader).
+            return resolve_record_identity(
+                item, workspace=workspace, experience_slug=adapter.get("experience_slug")
+            )
+    return None
 
 
 @router.get("/{run_id}/execution-view")
@@ -2119,6 +2191,44 @@ class ReplayRequest(BaseModel):
     )
 
 
+def _replay_claim(workspace_id: str, parent_id: str, user_id: Optional[str], key: str) -> str:
+    """Opaque replay idempotency claim: one key means one replay, per reader."""
+    digest = hashlib.sha256(
+        json.dumps([workspace_id, parent_id, user_id, key], separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"replay:{digest}"
+
+
+def _replay_by_claim(db: DBSession, *, workspace_id: str, parent_id: str, claim: str) -> Optional[Run]:
+    return (
+        db.query(Run)
+        .filter(
+            Run.workspace_id == workspace_id,
+            Run.parent_run_id == parent_id,
+            Run.trigger == "replay",
+            Run.trigger_dedup_key == claim,
+        )
+        .order_by(Run.started_at.desc())
+        .first()
+    )
+
+
+def _replay_response(new_run: Run, parent_id: str, response_text: str, *, replayed: bool) -> dict:
+    return {
+        "run_id": new_run.id,
+        "parent_run_id": parent_id,
+        "status": new_run.status,
+        "trigger": new_run.trigger,
+        "started_at": new_run.started_at.isoformat() if new_run.started_at else None,
+        "completed_at": (new_run.completed_at.isoformat() if new_run.completed_at else None),
+        "duration_ms": new_run.duration_ms,
+        "replay_overrides": new_run.replay_overrides or {},
+        "response_preview": (response_text[:500] if response_text else ""),
+        "eval_pending": not replayed,
+        "replayed": replayed,
+    }
+
+
 @router.post("/{run_id}/replay")
 async def replay_run(
     run_id: str,
@@ -2126,6 +2236,9 @@ async def replay_run(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
+    idempotency_key: Optional[str] = Header(
+        None, alias="Idempotency-Key", min_length=16, max_length=160
+    ),
 ):
     """Re-run a settled chat-style Run with operator overrides applied.
 
@@ -2164,6 +2277,28 @@ async def replay_run(
         },
     )
 
+    # Optional and backward compatible: without the header every call is a
+    # new replay, as before. With it, a lost response is answered from the
+    # Run the first call created instead of driving the model again.
+    claim = (
+        _replay_claim(workspace.id, parent.id, getattr(user, "id", None), idempotency_key)
+        if idempotency_key
+        else None
+    )
+    if claim:
+        existing = _replay_by_claim(db, workspace_id=workspace.id, parent_id=parent.id, claim=claim)
+        if existing is not None:
+            if (existing.replay_overrides or {}) != (body.overrides or {}):
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "REPLAY_IDEMPOTENCY_KEY_REUSED",
+                        "message": "This idempotency key already started a replay with other overrides.",
+                        "run_id": existing.id,
+                    },
+                )
+            return _replay_response(existing, parent.id, "", replayed=True)
+
     try:
         new_run, response_text = await replay_run_async(
             db=db,
@@ -2173,6 +2308,7 @@ async def replay_run(
             actor=_actor_label(user),
             source_decision_id=body.source_decision_id,
             source_feedback_id=body.source_feedback_id,
+            dedup_key=claim,
         )
     except ReplayError as exc:
         raise HTTPException(400, str(exc))
@@ -2185,18 +2321,7 @@ async def replay_run(
     new_run.initiated_by_user_id = user.id
     db.commit()
 
-    return {
-        "run_id": new_run.id,
-        "parent_run_id": parent.id,
-        "status": new_run.status,
-        "trigger": new_run.trigger,
-        "started_at": new_run.started_at.isoformat() if new_run.started_at else None,
-        "completed_at": (new_run.completed_at.isoformat() if new_run.completed_at else None),
-        "duration_ms": new_run.duration_ms,
-        "replay_overrides": new_run.replay_overrides or {},
-        "response_preview": (response_text[:500] if response_text else ""),
-        "eval_pending": True,
-    }
+    return _replay_response(new_run, parent.id, response_text, replayed=False)
 
 
 @router.get("/{run_id}/replays")
@@ -2205,6 +2330,7 @@ async def list_run_replays(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
+    idempotency_key: Optional[str] = Query(None, min_length=16, max_length=160),
 ):
     """List runs that were replayed from this run as parent.
 
@@ -2236,6 +2362,15 @@ async def list_run_replays(
             Run.workspace_id == workspace.id,
             Run.delegation_key.is_(None),
             Run.trigger.in_(("replay", "rerun")),
+            # Reconciliation read: the replay a given key started, if any.
+            *(
+                [
+                    Run.trigger_dedup_key
+                    == _replay_claim(workspace.id, run_id, getattr(user, "id", None), idempotency_key)
+                ]
+                if idempotency_key
+                else []
+            ),
         )
         .order_by(Run.started_at.desc())
         .all()

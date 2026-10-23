@@ -5,6 +5,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { FlowObservationService } from './flow-observation.service';
 import { FlowObservationWindowsService } from './flow-observation-windows.service';
 import { observationRunIngress, observationRunVersion, type FlowObservationRun } from './flow-observation.vm';
+import { runStatusLabel } from '@app/core/run-follow-up';
 
 @Component({
   selector: 'app-flow-observation-bar',
@@ -51,7 +52,7 @@ export class FlowObservationBarComponent {
 
   runLabel(run: FlowObservationRun): string {
     const date = formatObservationDate(run.started_at, this.i18n.locale(), this.i18n.t('flow.observation.date_unknown'));
-    const status = this.i18n.t('runs.status.' + run.status);
+    const status = runStatusLabel(run, this.i18n.t);
     const ingress = observationRunIngress(run);
     const surfaceKey = run.execution_surface === 'published_manual' ? 'flow.runtime.surface.published'
       : run.execution_surface === 'draft_test' ? 'flow.runtime.surface.draft'
@@ -68,5 +69,5 @@ export function formatObservationDate(value: string | null | undefined, locale: 
   // Canonical Run timestamps are UTC; historical projections omitted the Z.
   const normalized = value && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value) ? value + 'Z' : value;
   if (!normalized || !Number.isFinite(Date.parse(normalized))) return unknown;
-  return new Intl.DateTimeFormat(locale, {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(normalized));
+  return new Intl.DateTimeFormat(locale, {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}).format(new Date(normalized));
 }

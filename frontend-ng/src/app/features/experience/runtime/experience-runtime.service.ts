@@ -30,6 +30,9 @@ export interface BindingInvokeResult {
   channel?: string;
   origin?: string;
   idempotent_replay?: boolean;
+  /** Team last result: whether this reader started it, and who did. */
+  started_by_reader?: boolean;
+  started_by?: string | null;
 }
 
 export interface RuntimeFileReference {
@@ -42,11 +45,25 @@ export interface RuntimeFileReference {
 }
 
 export type RuntimePhase = 'idle' | 'loading' | 'restoring' | 'running' | 'error';
+/**
+ * What the last-result lookup found. The server only resumes a result this
+ * reader started on the current release with the same fixed input, so "no
+ * result" must say that, never "not started yet".
+ */
+export type RuntimePreviousResult = 'unchecked' | 'restored' | 'none_on_release' | 'not_resumable';
+
+/** Who started a restored team result; absent when it is the reader's own. */
+export interface RuntimeRestoredAuthor {
+  name: string | null;
+  startedAt: string | null;
+}
 
 export interface RuntimeExecutionState {
   run: Run | null;
   history: Run[];
   phase: RuntimePhase;
+  previousResult?: RuntimePreviousResult;
+  restoredAuthor?: RuntimeRestoredAuthor | null;
   lastError: string | null;
   lastInvoke: {
     context: RuntimeNodeContext;
@@ -126,6 +143,14 @@ export class ExperienceRuntimeService {
     return this.state(key).phase;
   }
 
+  previousResult(key: string): RuntimePreviousResult {
+    return this.state(key).previousResult ?? 'unchecked';
+  }
+
+  restoredAuthor(key: string): RuntimeRestoredAuthor | null {
+    return this.state(key).restoredAuthor ?? null;
+  }
+
   lastError(key: string): string | null {
     return this.state(key).lastError;
   }
@@ -163,7 +188,7 @@ export class ExperienceRuntimeService {
         switchMap((result) => {
           if (!current()) return of(null);
           if (!result.run?.id) {
-            this.patch(context.stateKey, { phase: 'idle' });
+            this.patch(context.stateKey, { phase: 'idle', previousResult: 'none_on_release', restoredAuthor: null });
             return of(null);
           }
           return this.canonical.getRun(result.run.id).pipe(
@@ -177,6 +202,10 @@ export class ExperienceRuntimeService {
               this.patch(context.stateKey, {
                 run,
                 history: upsertRun(this.state(context.stateKey).history, run),
+                previousResult: 'restored',
+                restoredAuthor: result.run?.started_by_reader === false
+                  ? { name: result.run.started_by ?? null, startedAt: run.started_at ?? null }
+                  : null,
                 phase: run.status === 'failed' ? 'error' : settled ? 'idle' : 'running',
                 lastError: run.status === 'failed' ? run.error ?? 'failed' : null,
               });
@@ -185,6 +214,12 @@ export class ExperienceRuntimeService {
           );
         }),
         catchError((err: unknown) => {
+          if (current() && err instanceof HttpErrorResponse && err.status === 404
+            && err.error?.detail?.code === 'WORK_RUN_RESUME_UNSUPPORTED') {
+            // Not an outage: this component cannot resume an earlier result.
+            this.patch(context.stateKey, { run: null, phase: 'idle', previousResult: 'not_resumable', lastError: null });
+            return of(null);
+          }
           if (current()) this.patch(context.stateKey, {
             run: null, phase: 'error',
             lastError: err instanceof HttpErrorResponse && err.status === 409

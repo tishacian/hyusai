@@ -13,7 +13,7 @@ import { NavigationResolverService } from '@app/core/navigation-resolver.service
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ExperienceRuntimeService, type RuntimePhase } from './experience-runtime.service';
 import type { RuntimeNodeContext } from './model';
-import { RuntimeSlotComponent, RuntimeStatusBlock } from './runtime-blocks';
+import { RuntimeSlotComponent, RuntimeStatusBlock, idleStatusKey } from './runtime-blocks';
 import { runtimeFailureKind, runtimeFailureRunId } from './runtime-failure';
 
 const ERROR = 'node_error_policy:forecast.predict:ml_forecast_failed: ML_ARTIFACT_LEGACY_UNSUPPORTED: private diagnostic';
@@ -297,4 +297,42 @@ test('previews and hosts without an immutable release never restore live activit
   runtime.restore({ ...ACTION_CONTEXT, mode: 'preview' }, 'forecast').subscribe();
   runtime.restore({ ...ACTION_CONTEXT, releaseId: undefined }, 'forecast').subscribe();
   assert.deepEqual(reads, []);
+});
+
+
+test('no result on this release is said as such, not as "not started yet"', () => {
+  const { runtime } = restorationSetup({ lookup: () => of({ run: null }) });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.phase('forecast-action'), 'idle');
+  assert.equal(runtime.previousResult('forecast-action'), 'none_on_release');
+  assert.equal(EXPERIENCE_EN[idleStatusKey('live', 'none_on_release') as keyof typeof EXPERIENCE_EN], 'No result yet on this version of the app');
+  assert.equal(EXPERIENCE_FR[idleStatusKey('live', 'none_on_release') as keyof typeof EXPERIENCE_FR], 'Aucun résultat sur cette version de l’application');
+});
+
+test('a component that cannot resume a result is idle, not a network error', () => {
+  const refused = new HttpErrorResponse({ status: 404, error: { detail: { code: 'WORK_RUN_RESUME_UNSUPPORTED' } } });
+  const { runtime } = restorationSetup({ lookup: () => throwError(() => refused) });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.phase('forecast-action'), 'idle');
+  assert.equal(runtime.lastError('forecast-action'), null);
+  assert.equal(runtime.previousResult('forecast-action'), 'not_resumable');
+  assert.equal(idleStatusKey('live', 'not_resumable'), 'experience.runtime.status.idle_not_resumed');
+});
+
+test('a restored result is marked restored and previews keep their idle wording', () => {
+  const { runtime } = restorationSetup();
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(runtime.previousResult('forecast-action'), 'restored');
+  assert.equal(idleStatusKey('preview', 'unchecked'), 'experience.runtime.status.idle');
+  assert.equal(idleStatusKey('live', 'unchecked'), 'experience.runtime.status.idle_not_resumed');
+});
+
+
+test('a teammate restored result keeps who started it; my own does not', () => {
+  const teammate = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: false, started_by: 'camille' } }) });
+  teammate.runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.deepEqual(teammate.runtime.restoredAuthor('forecast-action'), { name: 'camille', startedAt: null });
+  const mine = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: true } }) });
+  mine.runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.equal(mine.runtime.restoredAuthor('forecast-action'), null);
 });

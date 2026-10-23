@@ -26,7 +26,10 @@ from app.services import automation_portfolio
 from app.services.chat_execution_policy import migration_059_system_id
 from app.services.experience import bindings as binding_service
 from app.services.experience import lifecycle as experience_service
+from app.services.experience import work_records
+from app.services.experience.record_identity import resolve_record_identity
 from app.services.experience.work_receipt import run_receipt
+from app.services.run_follow_up import run_follow_up
 from app.services.iam.config_service import load_iam_config
 from app.services.iam.decision_plane import (
     ModeResolutionCache,
@@ -907,8 +910,12 @@ async def resolve_work_binding(
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
     except binding_service.BindingError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    public = experience_service.serialize_public_binding_resolution(resolved)
+    public["binding"]["record_identity"] = resolve_record_identity(
+        snapshot, workspace=workspace, experience_slug=identity["slug"]
+    )
     return {
-        **experience_service.serialize_public_binding_resolution(resolved),
+        **public,
         "experience_slug": identity["slug"],
         "experience_release_id": release.id,
         "experience_deployment_id": deployment.id,
@@ -928,7 +935,10 @@ def latest_work_action_run(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Resume this reader's fixed released action without invoking anything.
+    """Resume the team's last result of a fixed released action, read only.
+
+    Shared with the team that uses the app: the latest matching Run started by
+    any member is returned, as long as this reader may still read that Run.
 
     The immutable action supplies its input. Forms are deliberately excluded:
     their last submitted values cannot be inferred from an empty page. Matching
@@ -986,7 +996,8 @@ def latest_work_action_run(
     }
     query = db.query(Run).filter(
         Run.workspace_id == workspace.id,
-        Run.initiated_by_user_id == user.id,
+        # A team result: any member's Run, never an anonymous one.
+        Run.initiated_by_user_id.isnot(None),
         Run.system_id == snapshot["system_id"],
         Run.published_flow_version_id == snapshot["published_flow_version_id"],
         Run.flow_sha256 == snapshot["flow_sha256"],
@@ -995,7 +1006,98 @@ def latest_work_action_run(
         *(adapter[field].as_string() == value for field, value in expected.items()),
     ).order_by(Run.started_at.desc(), Run.id.desc())
     runs = readable_run_page(db, query=query, limit=1, user=user, workspace=workspace)
-    return {"run": _work_run_response(runs[0], replayed=False) if runs else None}
+    if not runs:
+        return {"run": None}
+    return {
+        "run": {
+            **_work_run_response(runs[0], replayed=False),
+            "started_by_reader": runs[0].initiated_by_user_id == getattr(user, "id", None),
+            # Workspace member name, as shown in the members list.
+            "started_by": getattr(db.get(User, runs[0].initiated_by_user_id), "username", None),
+        }
+    }
+
+
+@router.get("/{slug}/records/{record_ref}/runs")
+def list_work_record_runs(
+    slug: str,
+    record_ref: str,
+    namespace: str = Query(min_length=1, max_length=80),
+    limit: int = Query(20, ge=1, le=work_records.MAX_PAGE),
+    offset: int = Query(0, ge=0, le=10_000),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Attempts a Work record received, newest first.
+
+    Read only. Shared with the app's audience like its last result: each Run
+    still passes the normal Run read rights. A new attempt is listed next to
+    the earlier ones; nothing is replaced.
+    """
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    try:
+        experience, _deployment, release = _resolve_for_user(
+            db, workspace=workspace, user=user, slug=slug
+        )
+    except experience_service.ExperienceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    app_slug = experience_service.release_identity(release)["slug"]
+    declared = any(
+        (resolve_record_identity(item, workspace=workspace, experience_slug=app_slug) or {}).get(
+            "namespace"
+        )
+        == namespace
+        for item in release.bindings_snapshot or []
+        if isinstance(item, dict)
+    )
+    if not declared:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "WORK_RECORD_NAMESPACE_UNKNOWN",
+                "message": "No action of this application declares this kind of record.",
+            },
+        )
+    rows, has_more = work_records.record_attempts_page(
+        db,
+        workspace_id=workspace.id,
+        experience_id=experience.id,
+        namespace=namespace,
+        record_ref=record_ref.strip()[:200],
+        user_id=getattr(user, "id", None),
+        limit=limit,
+        offset=offset,
+    )
+    readable = {
+        run.id
+        for run in readable_runs(db, runs=[run for _row, run in rows], user=user, workspace=workspace)
+    }
+    attempts = [
+        {
+            "attempt_id": row.id,
+            "run_id": run.id,
+            "binding_key": row.binding_key,
+            "recorded_at": row.created_at.isoformat() + "Z" if row.created_at else None,
+            "started_at": run.started_at.isoformat() + "Z" if run.started_at else None,
+            "completed_at": run.completed_at.isoformat() + "Z" if run.completed_at else None,
+            "status": run.status,
+            "follow_up": run_follow_up(run, payload_visible=False),
+            "started_by_reader": run.initiated_by_user_id == getattr(user, "id", None),
+            "started_by": getattr(db.get(User, run.initiated_by_user_id), "username", None)
+            if run.initiated_by_user_id
+            else None,
+        }
+        for row, run in rows
+        if run.id in readable
+    ]
+    return {
+        "record": {"namespace": namespace, "ref": record_ref},
+        "attempts": attempts,
+        "has_more": has_more,
+        "next_offset": offset + len(rows) if has_more else None,
+    }
 
 
 @router.post("/{slug}/bindings/{key}/runs", status_code=201)
@@ -1086,6 +1188,18 @@ async def invoke_work_binding(
                     provenance=adapter_provenance,
                     trigger_dedup_key=dedup_key,
                     experience_idempotency_key=experience_idempotency_key,
+                )
+                # Same transaction: a Run never exists without its attempt row.
+                work_records.record_work_attempt(
+                    db,
+                    workspace_id=workspace.id,
+                    experience_id=experience.id,
+                    snapshot=snapshot,
+                    payload=body.payload,
+                    run=run,
+                    user_id=getattr(user, "id", None),
+                    workspace=workspace,
+                    experience_slug=identity["slug"],
                 )
         except IntegrityError:
             run = _idempotent_run(

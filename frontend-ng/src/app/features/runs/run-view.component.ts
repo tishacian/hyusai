@@ -1,3 +1,4 @@
+import { formatInstant } from '@app/core/format-instant';
 import { STRICT, settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
 import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { RetrainingRunApprovalComponent } from '@app/features/models/retraining-run-approval.component';
@@ -52,6 +53,8 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
 import { observabilityNumber } from '../observability/observability-labels';
 import { RunUsageComponent } from '../observability/usage/run-usage.component';
 import { runSectionLabels } from './run-sections';
+import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
+import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up';
 
 @Component({
   selector: 'app-run-view',
@@ -78,6 +81,7 @@ import { runSectionLabels } from './run-sections';
     RunTraceComponent,
     RunUsageComponent,
     RetrainingRunApprovalComponent,
+    RunSituationComponent,
   ],
   template: `
     @if (run(); as currentRun) {
@@ -125,7 +129,7 @@ import { runSectionLabels } from './run-sections';
       } @else if (detailSection() === 'usage') {
         <app-run-usage [runId]="currentRun.id" />
       } @else {
-        <div class="run-result"><ck-run-outcome-card [run]="currentRun" /></div>
+        <div class="run-result"><app-run-situation [runId]="currentRun.id" [refreshKey]="currentRun.status" /><ck-run-outcome-card [run]="currentRun" /></div>
         <button
           type="button"
           class="time-spent"
@@ -198,7 +202,7 @@ import { runSectionLabels } from './run-sections';
       [eyebrow]="i18n.t('runs.list.eyebrow')"
       [title]="titleLabel()"
       [description]="descriptionLabel()"
-      [status]="statusLabel(run()?.status)"
+      [status]="runStatus()"
     >
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.flexWrap]="'wrap'">
         <ck-back-link />
@@ -279,6 +283,7 @@ import { runSectionLabels } from './run-sections';
           >{{ chip }}</a>
         }
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
+        <app-run-situation [runId]="run()!.id" [refreshKey]="run()!.status" />
         <div class="mb-6">
           <ck-run-outcome-card [run]="run()!" />
 
@@ -370,8 +375,19 @@ import { runSectionLabels } from './run-sections';
           </details>
         </div>
 
-        <!-- Error banner -->
-        @if (run()?.error) {
+        <!-- A planned stop at a review boundary is not a failure. -->
+        @if (atReviewBoundary()) {
+          <div class="boundary-note" data-testid="run-review-boundary" role="status">
+            <app-icon name="info" [size]="14" aria-hidden="true" />
+            <div class="min-w-0">
+              <div class="boundary-note-title">{{ i18n.t('runs.detail.boundary.title') }}</div>
+              <p class="boundary-note-text">{{ i18n.t(run()!.follow_up?.cause?.boundary === 'policy_gate' ? 'runs.detail.boundary.policy_gate' : 'runs.detail.boundary.human_gate') }}</p>
+              @if (run()!.error) {
+                <details><summary>{{ i18n.t('runs.detail.boundary.code') }}</summary><code>{{ run()!.error }}</code></details>
+              }
+            </div>
+          </div>
+        } @else if (run()?.error) {
           <div class="rounded-lg border border-red-500/30 bg-red-500/10 p-3 mb-6">
             <div class="flex items-start gap-2">
               <app-icon name="alert-triangle" [size]="14" class="text-red-400 mt-0.5" />
@@ -579,6 +595,11 @@ import { runSectionLabels } from './run-sections';
   `,
   styles: [`
     .run-result { margin: 18px clamp(12px,3vw,32px); }
+    .boundary-note { display: flex; align-items: flex-start; gap: var(--ck-space-2); margin-bottom: var(--ck-space-6); padding: var(--ck-space-3); border: 1px solid var(--ck-status-info-line); border-radius: var(--ck-radius-md); background: var(--ck-status-info-bg); color: var(--ck-status-info-fg); }
+    .boundary-note-title { font-size: 13px; font-weight: 600; margin-bottom: var(--ck-space-1); }
+    .boundary-note-text { margin: 0; font-size: 13px; color: var(--ck-fg-1); }
+    .boundary-note details { margin-top: var(--ck-space-2); font-size: 12px; color: var(--ck-fg-2); }
+    .boundary-note code { font-family: var(--ck-font-mono); overflow-wrap: anywhere; }
     .run-audit-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--ck-stroke-2); border-radius: 4px; color: var(--ck-fg-2); font-size: 12px; text-decoration: none; }
     .run-audit-link:hover { background: var(--ck-bg-panel-hi); }
     .run-audit-link:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 2px; }
@@ -819,7 +840,8 @@ export class RunViewComponent implements OnInit, OnDestroy {
   /** Only a finished run has something to replay. */
   protected readonly rerunnable = computed(() => {
     const status = this.run()?.status;
-    return !!status && status !== 'pending' && status !== 'running';
+    // A Run waiting on a person is decided first, not duplicated from here.
+    return !!status && !['pending', 'running', 'hitl_pending', 'debug_pending'].includes(status);
   });
   protected readonly rerunning = signal(false);
   /** Outcome of the last rerun or override, so a failure or a lost answer is said, never silent. */
@@ -954,6 +976,10 @@ export class RunViewComponent implements OnInit, OnDestroy {
    * when the backend grows a status the dictionary hasn't caught up with — an
    * unknown status must stay visible, not turn into a blank chip.
    */
+  /** Header label from the server-derived follow-up state (RunFollowUp). */
+  protected readonly runStatus = computed(() => runStatusLabel(this.run(), this.i18n.t));
+  protected readonly atReviewBoundary = computed(() => stoppedAtReviewBoundary(this.run()));
+
   statusLabel(status: string | null | undefined): string {
     if (!status) return '';
     const key = `runs.status.${status}`;
@@ -969,20 +995,10 @@ export class RunViewComponent implements OnInit, OnDestroy {
     return label === key ? source : label;
   }
 
+  /** Engine timestamps are UTC: shown in the reader's zone, zone named. */
   formatTime(ts: string | undefined): string {
     if (!ts) return '—';
-    try {
-      return new Date(ts).toLocaleString(this.i18n.locale(), {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-    } catch {
-      return ts;
-    }
+    return formatInstant(ts, this.i18n.locale(), { seconds: true }) ?? ts;
   }
 
   formatDuration(ms: number): string {

@@ -52,6 +52,10 @@ class SystemBinding(Base):
     output_schema_sha256 = Column(String(64), nullable=True)
     confirmation_policy = Column(String(32), nullable=False, default="confirm")
     on_unavailable = Column(String(32), nullable=False, default="unavailable")
+    # Optional record identity: which Work record a Run started through this
+    # binding treats (namespace + the input field carrying its reference).
+    record_namespace = Column(String(80), nullable=True)
+    record_input_field = Column(String(80), nullable=True)
     created_by = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
