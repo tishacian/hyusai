@@ -146,7 +146,6 @@ export const RUNS_FR = {
   'runs.detail.boundary.code': 'Code technique',
   'runs.situation.title': 'Situation',
   'runs.situation.subject': 'Objet traité',
-  'runs.situation.subject_field': 'Champ d’entrée : {field}',
   'runs.situation.proposal': 'Proposition',
   'runs.situation.quality': 'Contrôle qualité',
   'runs.situation.quality_loading': 'Chargement du contrôle…',
@@ -239,6 +238,8 @@ export const RUNS_FR = {
   'runs.detail.override.failed': 'La valeur n’est pas enregistrée.',
   'runs.detail.rerun_hint': "Réexécuter avec la même entrée et le Flow tel qu'il était alors",
   'runs.detail.not_found.title': 'Exécution introuvable',
+  'runs.detail.not_found.short': 'Cet identifiant court ne correspond à aucune exécution que vous pouvez lire dans cet espace. Utilisez l’identifiant complet.',
+  'runs.detail.not_found.ambiguous': 'Cet identifiant court correspond à plusieurs exécutions. Utilisez l’identifiant complet.',
   'runs.detail.not_found.description':
     "Cette exécution a peut-être été purgée, ou l'identifiant est incorrect.",
   'runs.detail.error.title': "Échec de l'exécution",
@@ -470,7 +471,6 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.detail.boundary.code': 'Technical code',
   'runs.situation.title': 'Situation',
   'runs.situation.subject': 'Object handled',
-  'runs.situation.subject_field': 'Input field: {field}',
   'runs.situation.proposal': 'Proposal',
   'runs.situation.quality': 'Quality check',
   'runs.situation.quality_loading': 'Loading the check…',
@@ -563,6 +563,8 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.detail.override.failed': 'The value was not saved.',
   'runs.detail.rerun_hint': 'Re-execute with the same input and the Flow as it stood then',
   'runs.detail.not_found.title': 'Run not found',
+  'runs.detail.not_found.short': 'This short id matches no run you can read in this workspace. Use the full id.',
+  'runs.detail.not_found.ambiguous': 'This short id matches several runs. Use the full id.',
   'runs.detail.not_found.description':
     'This run may have been purged, or the id is incorrect.',
   'runs.detail.error.title': 'Run failed',

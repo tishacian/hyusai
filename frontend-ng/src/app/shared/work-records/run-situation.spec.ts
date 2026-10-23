@@ -48,3 +48,9 @@ test('a planned stop at review says no decision and no business effect', () => {
   assert.equal(lines[3].value, 'No: the trial stopped before the decision, as planned.');
   assert.equal(lines[4].value, 'None: no business action was approved.');
 });
+
+test('the handled object shows its reference, not the technical input field', () => {
+  const subject = situationLines(base, { s: 'loaded', value: null }, t, 'en', quality).find((line) => line.id === 'subject');
+  assert.equal(subject?.value, 'RC-1');
+  assert.equal(subject?.detail, undefined);
+});

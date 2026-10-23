@@ -137,7 +137,7 @@ const POLL_MS = 8000;
             }
           </nav>
         }
-        @if (showCockpitLink()) {
+        @if (showCockpitLink() && state() === 'ready') {
           <a class="xp-work-link" [routerLink]="cockpitHref()">{{ i18n.t('nav.cockpit') }}</a>
           @if (adoption.enabled()) {
             @for (id of boundSystemIds(); track id) {
@@ -439,7 +439,8 @@ export class WorkShellComponent {
         if (request !== generation) return;
         if (result.kind !== 'ok') {
           this.state.set(result.kind);
-          this.title.set(this.i18n.t('experience.work.title'));
+          // Name what was asked for, not the catalogue: the page is about this app.
+          this.title.set(result.kind === 'missing' ? this.i18n.t('experience.work.not_found.header') : this.i18n.t('experience.work.title'));
           return;
         }
         this.open(result.body);

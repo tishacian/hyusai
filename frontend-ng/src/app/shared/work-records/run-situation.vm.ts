@@ -27,7 +27,8 @@ export function situationLines(
     ({ id, label: t(`runs.situation.${id}`), value: t('runs.situation.unknown'), unknown: true });
 
   const subject: SituationLine = detail.subject
-    ? { id: 'subject', label: t('runs.situation.subject'), value: detail.subject.value, detail: t('runs.situation.subject_field', { field: detail.subject.field }), unknown: false }
+    // The reference speaks for itself; the input field name is a technical detail.
+    ? { id: 'subject', label: t('runs.situation.subject'), value: detail.subject.value, unknown: false }
     : unknown('subject');
 
   const proposal: SituationLine = detail.proposal

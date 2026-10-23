@@ -13,7 +13,7 @@ import { NavLinkDirective } from '@app/shared/cockpit';
   template: `@for (review of reviews(); track review.invocationId) {
     <ng-template #identity>
       <div class="quality-review-identity" data-testid="quality-review-identity">
-        @if (review.node) { <span class="dp-note">{{ i18n.t('dataops.judge.recorded_step') }}: {{ review.node }}</span> }
+        @if (review.nodeLabel) { <span class="dp-note">{{ i18n.t('dataops.judge.recorded_step') }} : {{ review.nodeLabel }}</span> }
         @if (run()?.id; as runId) { <a [navLink]="{type:'skill_invocation',runId,ref:review.invocationId}">{{ i18n.t('dataops.judge.open_review') }}</a> }
       </div>
     </ng-template>

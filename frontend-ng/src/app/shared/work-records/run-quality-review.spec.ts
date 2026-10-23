@@ -40,6 +40,8 @@ test('two evaluations retain distinct recorded engines and invocation identities
     {invocationId: 'jev-call', node: 'Independent decision', model: 'typesafe · jev-1.13.0'},
     {invocationId: 'gpt-call', node: 'review.evidence', model: 'openai · gpt-5-2025-08-07'},
   ]);
+  // Readers see the step's label; a bare node id stays technical evidence.
+  assert.deepEqual(reviews.map(({nodeLabel}) => nodeLabel), ['Independent decision', null]);
 });
 
 test('review identity never falls back to a planned model or mutable output claims', () => {

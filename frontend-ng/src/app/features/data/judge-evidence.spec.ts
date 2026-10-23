@@ -30,3 +30,15 @@ test('empty citations are empty', () => {
   assert.deepEqual(readableQuote(''), { text: null, fields: [], transformed: false });
   assert.deepEqual(readableQuote(null), { text: null, fields: [], transformed: false });
 });
+
+test('dates in structured evidence read as dates in the reader locale, instants with their zone', () => {
+  const quote = JSON.stringify({ context: { opened_at: '2026-09-25T10:00:00+00:00', ordered_on: '2026-09-20', paid_amount: 420 } });
+  const read = readableQuote(quote, 'en-GB');
+  const value = (label: string) => read.fields.find((field) => field.label === label)?.value;
+  assert.match(value('context · opened at') ?? '', /25 Sept? 2026/);
+  assert.match(value('context · opened at') ?? '', /(UTC|GMT|BST|CEST|CET)/);
+  assert.equal(value('context · ordered on'), '20 Sept 2026');
+  assert.equal(value('context · paid amount'), '420');
+  // Without a locale the exact values are kept.
+  assert.equal(readableQuote(quote).fields.find((field) => field.label === 'context · ordered on')?.value, '2026-09-20');
+});

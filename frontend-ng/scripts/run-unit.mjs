@@ -30,6 +30,7 @@ const pureSpecs = [
   'src/app/core/run-follow-up.spec.ts',
   'src/app/shared/work-records/run-situation.spec.ts',
   'src/app/shared/work-records/work-record-attempts.spec.ts',
+  'src/app/features/runs/run-reference.spec.ts',
   'src/app/core/run-polling.spec.ts',
   'src/app/core/format-instant.spec.ts',
   'src/app/features/data/judge-evidence.spec.ts',

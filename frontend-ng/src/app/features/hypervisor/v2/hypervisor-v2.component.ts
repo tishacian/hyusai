@@ -103,6 +103,7 @@ import {
   viewPeriod,
   applyReading,
   parseImpactReading,
+  boardFromQuery,
   readingQuery,
   type ImpactReading,
   type HypervisorBlockRef,
@@ -2313,6 +2314,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   private viewsLoaded = false;
   private destroyed = false;
   readonly activeViewId = signal('direction');
+  /** Board named by the URL (`?board=`), applied once the views are known. */
+  private requestedBoard: string | null = null;
   readonly activeImpactViewId = signal<ImpactViewId | null>(null);
   readonly meetingEventId = signal<string | null>(null);
   readonly impactSelectedZone = signal<string | null>(null);
@@ -2676,6 +2679,17 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       const impactView = parseImpactViewQuery(params.get('view'));
       this.activeImpactViewId.set(impactView);
       this.meetingEventId.set(params.get('eventId'));
+      // The named board (Direction, Conformité…) is part of the shareable reading.
+      const board = params.get('board');
+      this.requestedBoard = board && board.trim() ? board.trim() : null;
+      const asked = boardFromQuery(this.requestedBoard, this.views().map((view) => view.id));
+      if (this.viewsLoaded && asked && asked !== this.activeViewId()) {
+        const before = viewPeriod(this.activeView());
+        this.activeImpactViewId.set(null);
+        this.activeViewId.set(asked);
+        this.applyDayLock({ type: 'reset' });
+        if (viewPeriod(this.activeView()) !== before) this.reload(false); else this.reproject();
+      }
       const reading = parseImpactReading(params.get('scope'), params.get('period'));
       if (JSON.stringify(reading) !== JSON.stringify(this.reading())) this.reading.set(reading);
       if (impactView && this.activeFacet() !== 'synthese') {
@@ -3611,7 +3625,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.activeViewId.set(id);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { view: null, eventId: null },
+      queryParams: { view: null, eventId: null, board: id },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -4205,7 +4219,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       this.canEdit.set(parsed.can_edit);
       this.defaultViewId.set(parsed.default_view_id ?? null);
       if (!this.viewsLoaded) {
-        this.activeViewId.set(parsed.default_view_id || parsed.views[0]?.id || 'direction');
+        const requested = boardFromQuery(this.requestedBoard, parsed.views.map((view) => view.id));
+        this.activeViewId.set(requested || parsed.default_view_id || parsed.views[0]?.id || 'direction');
         this.viewsLoaded = true;
       }
       this.activitySystems.set(bundle.activitySystems?.systems ?? []);
