@@ -50,7 +50,8 @@ def _resolve_ref(
     system: System,
     workspace: Workspace,
     ref: str,
-) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
+) -> tuple[dict[str, Any], str, dict[str, Any] | None, str | None]:
+    """The flow to compare, its identity, its contract and its stored hash."""
     if ref == "published":
         version = (
             db.query(SystemVersion)
@@ -67,6 +68,7 @@ def _resolve_ref(
             canonical_flow(version.flow_definition),
             f"published:{version.version_number}",
             _diff_contract(version),
+            version.flow_sha256,
         )
     if ref == "draft":
         draft = (
@@ -89,6 +91,7 @@ def _resolve_ref(
                 workspace,
                 system=system,
             ),
+            draft.flow_sha256,
         )
     if ref.startswith("version:"):
         try:
@@ -110,6 +113,7 @@ def _resolve_ref(
             canonical_flow(version.flow_definition),
             f"version:{number}",
             _diff_contract(version),
+            version.flow_sha256,
         )
     raise HTTPException(422, detail={"code": "FLOW_DIFF_REF_INVALID"})
 
@@ -136,13 +140,13 @@ async def get_flow_diff(
     except flow_publication.FlowPublicationError as exc:
         raise HTTPException(exc.status_code, detail=exc.payload()) from exc
     try:
-        base_flow, base_identity, base_contract = _resolve_ref(
+        base_flow, base_identity, base_contract, base_stored = _resolve_ref(
             db,
             system=system,
             workspace=workspace,
             ref=base,
         )
-        target_flow, target_identity, target_contract = _resolve_ref(
+        target_flow, target_identity, target_contract, target_stored = _resolve_ref(
             db,
             system=system,
             workspace=workspace,
@@ -150,7 +154,7 @@ async def get_flow_diff(
         )
     except flow_publication.FlowPublicationError as exc:
         raise HTTPException(exc.status_code, detail=exc.payload()) from exc
-    return semantic_flow_diff(
+    diff = semantic_flow_diff(
         base_flow,
         target_flow,
         base_identity=base_identity,
@@ -158,3 +162,21 @@ async def get_flow_diff(
         base_contract=base_contract,
         target_contract=target_contract,
     )
+    return _with_stored_hashes(diff, base=base_stored, target=target_stored)
+
+
+def _with_stored_hashes(diff: dict[str, Any], *, base: str | None, target: str | None) -> dict[str, Any]:
+    """Name each side by the hash its pointer stores.
+
+    The diff compares canonical flows, whose hash can differ from the stored
+    one (e.g. a builder flow saved before canonicalisation). The publish
+    review checks the diff against the stored Draft/Published pointers, so a
+    canonical hash there blocked publishing for good. The canonical hash stays
+    available as ``canonical_flow_sha256``.
+    """
+    for side, stored in (("base", base), ("target", target)):
+        entry = diff.get(side)
+        if isinstance(entry, dict) and stored:
+            entry["canonical_flow_sha256"] = entry.get("flow_sha256")
+            entry["flow_sha256"] = stored
+    return diff
