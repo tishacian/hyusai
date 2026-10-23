@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.experience import (
-    DEFAULT_RENDERER_VERSION,
+    renderer_version_for,
     DEPLOYMENT_CHANNELS,
     EXPERIENCE_PATTERNS,
     Experience,
@@ -66,6 +66,8 @@ COMPONENT_TYPES = frozenset(
         "agenda_panel",
         "intelligence_feed",
         "decision_queue",
+        # certified-components-0.3.0
+        "record_follow_up",
     }
 )
 ABSOLUTE_POSITION_KEYS = frozenset(
@@ -2144,6 +2146,62 @@ def _data_binding_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
+FOLLOW_UP_SOURCES = frozenset({"url", "action"})
+
+
+def _action_fields(component: Mapping[str, Any]) -> set[str]:
+    """Input fields an action submits: its form schema, or its fixed input."""
+    props = component.get("props") if isinstance(component.get("props"), Mapping) else {}
+    if component.get("type") == "form":
+        schema = props.get("schema") if isinstance(props.get("schema"), Mapping) else {}
+        properties = schema.get("properties") if isinstance(schema.get("properties"), Mapping) else {}
+        return {str(name) for name in properties}
+    value = props.get("input")
+    return {str(name) for name in value} if isinstance(value, Mapping) else set()
+
+
+def _record_follow_up_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """A follow-up block names an action of this app, one of its input fields
+    as the record key, and where the record comes from (the page address or
+    the last run of an action on the same binding). Nothing is free JSON."""
+    actions: list[Mapping[str, Any]] = [
+        component
+        for page in pages.get("pages") or []
+        if isinstance(page, Mapping)
+        for component in page.get("components") or []
+        if isinstance(component, Mapping) and _bound_action(component) and component.get("type") in {"form", "action_button"}
+    ]
+    issues: list[dict[str, Any]] = []
+    for page in pages.get("pages") or []:
+        if not isinstance(page, Mapping):
+            continue
+        for component in page.get("components") or []:
+            if not isinstance(component, Mapping) or component.get("type") != "record_follow_up":
+                continue
+            props = component.get("props") if isinstance(component.get("props"), Mapping) else {}
+            key = props.get("followBindingKey")
+            field = props.get("recordField")
+            source = props.get("recordSource") if isinstance(props.get("recordSource"), Mapping) else {}
+            followed = [a for a in actions if (a.get("props") or {}).get("bindingKey") == key]
+            fields = set().union(*(_action_fields(a) for a in followed)) if followed else set()
+            problem = None
+            if not isinstance(key, str) or not followed:
+                problem = "followBindingKey must name an action of this application."
+            elif not isinstance(field, str) or field not in fields:
+                problem = "recordField must be an input field of the followed action."
+            elif source.get("kind") not in FOLLOW_UP_SOURCES:
+                problem = "recordSource must be the page address or an action of this application."
+            elif source.get("kind") == "action" and not any(
+                a.get("id") == source.get("componentId") for a in followed
+            ):
+                problem = "recordSource must name a form or action on the followed binding."
+            if problem:
+                issues.append(
+                    {"code": "RECORD_FOLLOW_UP_INVALID", "message": problem, "component_id": component.get("id")}
+                )
+    return issues
+
+
 def _implicit_action_issues(pages: Mapping[str, Any]) -> list[dict[str, Any]]:
     static_props = {"result": "value", "runtime_status": "status", "evidence": "citations"}
     issues: list[dict[str, Any]] = []
@@ -2800,6 +2858,7 @@ def _ready_check_document(
     blockers.extend(validate_dataset_chart_configuration(pages))
     blockers.extend(_data_binding_issues(pages))
     blockers.extend(_implicit_action_issues(pages))
+    blockers.extend(_record_follow_up_issues(pages))
     blockers.extend(_binding_contract_issues(pages, resolved_by_key))
     if pattern in DATA_LED_PATTERNS and not _has_template_data_source(pages):
         blockers.append(
@@ -3032,7 +3091,7 @@ def create_release(
         identity_snapshot=identity_snapshot,
         languages=languages_snapshot,
         theme=theme_snapshot,
-        renderer_version=DEFAULT_RENDERER_VERSION,
+        renderer_version=renderer_version_for(draft.pages),
         notes=cleaned_notes,
         created_by=actor,
         created_at=datetime.utcnow(),

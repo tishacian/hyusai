@@ -3,6 +3,7 @@ import { ɵresolveComponentResources as resolveComponentResources } from '@angul
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  CATALOG_0_2_RENDERER_VERSION,
   CURRENT_RENDERER_VERSION,
   LEGACY_RENDERER_VERSION,
   experienceRenderer,
@@ -30,7 +31,14 @@ test('immutable renderer pins route to distinct catalogs and unknown pins fail c
   assert.ok(current);
   assert.notEqual(legacy.host, current.host);
   assert.equal(legacy.version, 'certified-components-0.1.0');
-  assert.equal(current.version, 'certified-components-0.2.0');
+  assert.equal(current.version, 'certified-components-0.3.0');
+  // 0.2.0 and 0.3.0 share one host; the host input pins which types render.
+  const pinned = experienceRenderer(CATALOG_0_2_RENDERER_VERSION);
+  assert.ok(pinned);
+  assert.equal(pinned.host, current.host);
+  assert.deepEqual(pinned.inputs, { catalogVersion: 'certified-components-0.2.0' });
+  assert.deepEqual(current.inputs, { catalogVersion: 'certified-components-0.3.0' });
+  assert.equal(legacy.inputs, undefined);
   assert.equal(experienceRenderer('certified-components-9.9.9'), null);
   assert.equal(experienceRenderer(undefined), null);
 });

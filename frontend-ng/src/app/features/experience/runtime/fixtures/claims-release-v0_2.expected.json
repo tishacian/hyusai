@@ -1,0 +1,696 @@
+{
+  "fr": {
+    "document": {
+      "pages": [
+        {
+          "id": "dossier",
+          "title": "Dossier",
+          "components": [
+            {
+              "type": "header",
+              "id": "header",
+              "props": {
+                "title": "Réclamations — Luma Maison",
+                "description": "Démonstration synthétique. Toutes les actions sont simulées."
+              }
+            },
+            {
+              "type": "action_button",
+              "id": "queue_refresh",
+              "props": {
+                "bindingKey": "showcase.claims.refresh_queue",
+                "input": {},
+                "label": "Recalculer la file"
+              }
+            },
+            {
+              "type": "form",
+              "id": "investigation",
+              "props": {
+                "bindingKey": "showcase.claims.investigate",
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "claim_id"
+                  ],
+                  "properties": {
+                    "claim_id": {
+                      "type": "string",
+                      "enum": [
+                        "RC-1042",
+                        "RC-1043",
+                        "RC-1044",
+                        "RC-5001",
+                        "RC-5002",
+                        "RC-5003"
+                      ]
+                    }
+                  }
+                },
+                "fieldPresentation": {
+                  "claim_id": {
+                    "label": "Réclamation",
+                    "options": {
+                      "RC-1042": "RC-1042",
+                      "RC-1043": "RC-1043",
+                      "RC-1044": "RC-1044",
+                      "RC-5001": "RC-5001",
+                      "RC-5002": "RC-5002",
+                      "RC-5003": "RC-5003"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "runtime_status",
+              "id": "state",
+              "props": {
+                "sourceComponentId": "investigation"
+              }
+            },
+            {
+              "type": "prediction",
+              "id": "case_prediction",
+              "props": {
+                "title": "Conseil de priorité du modèle",
+                "density": "compact",
+                "predictionContract": {
+                  "schema_version": 1,
+                  "model_id": "2e71ce6f-800f-4d02-b59e-498e40fe48eb",
+                  "model_version": 5,
+                  "task": "classification",
+                  "target": "resolution_over_72h",
+                  "positive_label": "1",
+                  "value_column": "prediction",
+                  "score_column": "score_1",
+                  "label": "Risque de résolution au-delà de 72 h",
+                  "unit": "probability",
+                  "order": "descending",
+                  "max_age_seconds": 3600,
+                  "bands": [
+                    {
+                      "key": "low",
+                      "label": "Standard",
+                      "min": 0
+                    },
+                    {
+                      "key": "medium",
+                      "label": "À surveiller",
+                      "min": 0.35
+                    },
+                    {
+                      "key": "high",
+                      "label": "Prioritaire",
+                      "min": 0.6
+                    }
+                  ]
+                },
+                "dataBinding": {
+                  "source": "run-output",
+                  "componentId": "investigation",
+                  "nodeId": "sav.context",
+                  "selector": "model_advice"
+                }
+              }
+            },
+            {
+              "type": "result",
+              "id": "result",
+              "props": {
+                "sourceComponentId": "investigation"
+              }
+            },
+            {
+              "type": "evidence",
+              "id": "evidence",
+              "props": {
+                "sourceComponentId": "investigation"
+              }
+            },
+            {
+              "type": "callout",
+              "id": "case_studio_link",
+              "props": {
+                "body": "Ouvrir la file SAV et les preuves du dossier dans l'atelier métier.",
+                "density": "compact",
+                "href": "/work/reclamations/studio"
+              }
+            }
+          ]
+        },
+        {
+          "id": "charge",
+          "title": "Charge et capacité",
+          "props": {
+            "density": "compact"
+          },
+          "components": [
+            {
+              "type": "header",
+              "id": "charge_header",
+              "props": {
+                "title": "Anticiper la charge SAV",
+                "description": "Historique synthétique arrêté au 8 octobre 2026 ; prévision du 9 octobre au 5 novembre, avec intervalle à 80 %."
+              }
+            },
+            {
+              "type": "action_button",
+              "id": "forecast_refresh",
+              "props": {
+                "bindingKey": "showcase.claims.forecast",
+                "input": {},
+                "density": "compact",
+                "label": "Actualiser la prévision"
+              }
+            },
+            {
+              "type": "runtime_status",
+              "id": "forecast_state",
+              "props": {
+                "sourceComponentId": "forecast_refresh"
+              }
+            },
+            {
+              "type": "chart",
+              "id": "forecast_chart",
+              "props": {
+                "kind": "timeseries",
+                "title": "Réclamations par jour",
+                "unit": "dossiers/jour",
+                "mapping": {
+                  "time": "timestamp",
+                  "value": "pred",
+                  "actual": "actual",
+                  "lower": "lower_bound",
+                  "upper": "upper_bound",
+                  "series": "series"
+                },
+                "datasetSource": {
+                  "source": "run-output",
+                  "selector": "dataset_id",
+                  "componentId": "forecast_refresh"
+                }
+              }
+            },
+            {
+              "type": "callout",
+              "id": "forecast_capacity",
+              "props": {
+                "body": "Utiliser cette prévision pour revoir le planning et les priorités. La bande traduit une incertitude ; elle ne garantit pas le volume futur.",
+                "density": "compact"
+              }
+            }
+          ]
+        },
+        {
+          "id": "amelioration",
+          "title": "Amélioration",
+          "props": {
+            "density": "compact"
+          },
+          "components": [
+            {
+              "type": "header",
+              "id": "improvement_header",
+              "props": {
+                "title": "Améliorer avec des preuves",
+                "description": "Comparer les modèles, revoir les labels et décider avant de changer la version utilisée."
+              }
+            },
+            {
+              "type": "callout",
+              "id": "improvement_model_0",
+              "props": {
+                "body": "Modèle de priorité SLA en service · version 5",
+                "density": "compact",
+                "href": "/models/2e71ce6f-800f-4d02-b59e-498e40fe48eb"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "rendered": [
+      [
+        {
+          "id": "header",
+          "resolution": {
+            "kind": "ok",
+            "type": "header"
+          }
+        },
+        {
+          "id": "queue_refresh",
+          "resolution": {
+            "kind": "ok",
+            "type": "action_button"
+          }
+        },
+        {
+          "id": "investigation",
+          "resolution": {
+            "kind": "ok",
+            "type": "form"
+          }
+        },
+        {
+          "id": "state",
+          "resolution": {
+            "kind": "ok",
+            "type": "runtime_status"
+          }
+        },
+        {
+          "id": "case_prediction",
+          "resolution": {
+            "kind": "ok",
+            "type": "prediction"
+          }
+        },
+        {
+          "id": "result",
+          "resolution": {
+            "kind": "ok",
+            "type": "result"
+          }
+        },
+        {
+          "id": "evidence",
+          "resolution": {
+            "kind": "ok",
+            "type": "evidence"
+          }
+        },
+        {
+          "id": "case_studio_link",
+          "resolution": {
+            "kind": "ok",
+            "type": "callout"
+          }
+        }
+      ],
+      [
+        {
+          "id": "charge_header",
+          "resolution": {
+            "kind": "ok",
+            "type": "header"
+          }
+        },
+        {
+          "id": "forecast_refresh",
+          "resolution": {
+            "kind": "ok",
+            "type": "action_button"
+          }
+        },
+        {
+          "id": "forecast_state",
+          "resolution": {
+            "kind": "ok",
+            "type": "runtime_status"
+          }
+        },
+        {
+          "id": "forecast_chart",
+          "resolution": {
+            "kind": "ok",
+            "type": "chart"
+          }
+        },
+        {
+          "id": "forecast_capacity",
+          "resolution": {
+            "kind": "ok",
+            "type": "callout"
+          }
+        }
+      ],
+      [
+        {
+          "id": "improvement_header",
+          "resolution": {
+            "kind": "ok",
+            "type": "header"
+          }
+        },
+        {
+          "id": "improvement_model_0",
+          "resolution": {
+            "kind": "ok",
+            "type": "callout"
+          }
+        }
+      ]
+    ]
+  },
+  "en": {
+    "document": {
+      "pages": [
+        {
+          "id": "dossier",
+          "title": "Case",
+          "components": [
+            {
+              "type": "header",
+              "id": "header",
+              "props": {
+                "title": "Réclamations — Luma Maison",
+                "description": "Démonstration synthétique. Toutes les actions sont simulées."
+              }
+            },
+            {
+              "type": "action_button",
+              "id": "queue_refresh",
+              "props": {
+                "bindingKey": "showcase.claims.refresh_queue",
+                "input": {},
+                "label": "Rescore the queue"
+              }
+            },
+            {
+              "type": "form",
+              "id": "investigation",
+              "props": {
+                "bindingKey": "showcase.claims.investigate",
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "claim_id"
+                  ],
+                  "properties": {
+                    "claim_id": {
+                      "type": "string",
+                      "enum": [
+                        "RC-1042",
+                        "RC-1043",
+                        "RC-1044",
+                        "RC-5001",
+                        "RC-5002",
+                        "RC-5003"
+                      ]
+                    }
+                  }
+                },
+                "fieldPresentation": {
+                  "claim_id": {
+                    "label": "Claim",
+                    "options": {
+                      "RC-1042": "RC-1042",
+                      "RC-1043": "RC-1043",
+                      "RC-1044": "RC-1044",
+                      "RC-5001": "RC-5001",
+                      "RC-5002": "RC-5002",
+                      "RC-5003": "RC-5003"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "runtime_status",
+              "id": "state",
+              "props": {
+                "sourceComponentId": "investigation"
+              }
+            },
+            {
+              "type": "prediction",
+              "id": "case_prediction",
+              "props": {
+                "title": "Conseil de priorité du modèle",
+                "density": "compact",
+                "predictionContract": {
+                  "schema_version": 1,
+                  "model_id": "2e71ce6f-800f-4d02-b59e-498e40fe48eb",
+                  "model_version": 5,
+                  "task": "classification",
+                  "target": "resolution_over_72h",
+                  "positive_label": "1",
+                  "value_column": "prediction",
+                  "score_column": "score_1",
+                  "label": "Risque de résolution au-delà de 72 h",
+                  "unit": "probability",
+                  "order": "descending",
+                  "max_age_seconds": 3600,
+                  "bands": [
+                    {
+                      "key": "low",
+                      "label": "Standard",
+                      "min": 0
+                    },
+                    {
+                      "key": "medium",
+                      "label": "À surveiller",
+                      "min": 0.35
+                    },
+                    {
+                      "key": "high",
+                      "label": "Prioritaire",
+                      "min": 0.6
+                    }
+                  ]
+                },
+                "dataBinding": {
+                  "source": "run-output",
+                  "componentId": "investigation",
+                  "nodeId": "sav.context",
+                  "selector": "model_advice"
+                }
+              }
+            },
+            {
+              "type": "result",
+              "id": "result",
+              "props": {
+                "sourceComponentId": "investigation"
+              }
+            },
+            {
+              "type": "evidence",
+              "id": "evidence",
+              "props": {
+                "sourceComponentId": "investigation"
+              }
+            },
+            {
+              "type": "callout",
+              "id": "case_studio_link",
+              "props": {
+                "body": "Ouvrir la file SAV et les preuves du dossier dans l'atelier métier.",
+                "density": "compact",
+                "href": "/work/reclamations/studio"
+              }
+            }
+          ]
+        },
+        {
+          "id": "charge",
+          "title": "Load and capacity",
+          "props": {
+            "density": "compact"
+          },
+          "components": [
+            {
+              "type": "header",
+              "id": "charge_header",
+              "props": {
+                "title": "Anticiper la charge SAV",
+                "description": "Historique synthétique arrêté au 8 octobre 2026 ; prévision du 9 octobre au 5 novembre, avec intervalle à 80 %."
+              }
+            },
+            {
+              "type": "action_button",
+              "id": "forecast_refresh",
+              "props": {
+                "bindingKey": "showcase.claims.forecast",
+                "input": {},
+                "density": "compact",
+                "label": "Actualiser la prévision"
+              }
+            },
+            {
+              "type": "runtime_status",
+              "id": "forecast_state",
+              "props": {
+                "sourceComponentId": "forecast_refresh"
+              }
+            },
+            {
+              "type": "chart",
+              "id": "forecast_chart",
+              "props": {
+                "kind": "timeseries",
+                "title": "Réclamations par jour",
+                "unit": "dossiers/jour",
+                "mapping": {
+                  "time": "timestamp",
+                  "value": "pred",
+                  "actual": "actual",
+                  "lower": "lower_bound",
+                  "upper": "upper_bound",
+                  "series": "series"
+                },
+                "datasetSource": {
+                  "source": "run-output",
+                  "selector": "dataset_id",
+                  "componentId": "forecast_refresh"
+                }
+              }
+            },
+            {
+              "type": "callout",
+              "id": "forecast_capacity",
+              "props": {
+                "body": "Utiliser cette prévision pour revoir le planning et les priorités. La bande traduit une incertitude ; elle ne garantit pas le volume futur.",
+                "density": "compact"
+              }
+            }
+          ]
+        },
+        {
+          "id": "amelioration",
+          "title": "Amélioration",
+          "props": {
+            "density": "compact"
+          },
+          "components": [
+            {
+              "type": "header",
+              "id": "improvement_header",
+              "props": {
+                "title": "Améliorer avec des preuves",
+                "description": "Comparer les modèles, revoir les labels et décider avant de changer la version utilisée."
+              }
+            },
+            {
+              "type": "callout",
+              "id": "improvement_model_0",
+              "props": {
+                "body": "Modèle de priorité SLA en service · version 5",
+                "density": "compact",
+                "href": "/models/2e71ce6f-800f-4d02-b59e-498e40fe48eb"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "rendered": [
+      [
+        {
+          "id": "header",
+          "resolution": {
+            "kind": "ok",
+            "type": "header"
+          }
+        },
+        {
+          "id": "queue_refresh",
+          "resolution": {
+            "kind": "ok",
+            "type": "action_button"
+          }
+        },
+        {
+          "id": "investigation",
+          "resolution": {
+            "kind": "ok",
+            "type": "form"
+          }
+        },
+        {
+          "id": "state",
+          "resolution": {
+            "kind": "ok",
+            "type": "runtime_status"
+          }
+        },
+        {
+          "id": "case_prediction",
+          "resolution": {
+            "kind": "ok",
+            "type": "prediction"
+          }
+        },
+        {
+          "id": "result",
+          "resolution": {
+            "kind": "ok",
+            "type": "result"
+          }
+        },
+        {
+          "id": "evidence",
+          "resolution": {
+            "kind": "ok",
+            "type": "evidence"
+          }
+        },
+        {
+          "id": "case_studio_link",
+          "resolution": {
+            "kind": "ok",
+            "type": "callout"
+          }
+        }
+      ],
+      [
+        {
+          "id": "charge_header",
+          "resolution": {
+            "kind": "ok",
+            "type": "header"
+          }
+        },
+        {
+          "id": "forecast_refresh",
+          "resolution": {
+            "kind": "ok",
+            "type": "action_button"
+          }
+        },
+        {
+          "id": "forecast_state",
+          "resolution": {
+            "kind": "ok",
+            "type": "runtime_status"
+          }
+        },
+        {
+          "id": "forecast_chart",
+          "resolution": {
+            "kind": "ok",
+            "type": "chart"
+          }
+        },
+        {
+          "id": "forecast_capacity",
+          "resolution": {
+            "kind": "ok",
+            "type": "callout"
+          }
+        }
+      ],
+      [
+        {
+          "id": "improvement_header",
+          "resolution": {
+            "kind": "ok",
+            "type": "header"
+          }
+        },
+        {
+          "id": "improvement_model_0",
+          "resolution": {
+            "kind": "ok",
+            "type": "callout"
+          }
+        }
+      ]
+    ]
+  }
+}

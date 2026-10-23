@@ -446,8 +446,8 @@ test('validateValues flags required and invalid numbers, accepts a filled form',
   assert.deepEqual(valuesToPayload(numericEnum, { priority: '2' }), { priority: 2 });
 });
 
-test('the authoring catalog creates releases against renderer 0.2', () => {
-  assert.equal(CERTIFIED_RENDERER_VERSION, 'certified-components-0.2.0');
+test('drafts are authored against catalog 0.3; the server pins a release to the oldest catalog it needs', () => {
+  assert.equal(CERTIFIED_RENDERER_VERSION, 'certified-components-0.3.0');
 });
 
 test('document copy resolves explicit i18n refs with a controlled fallback', () => {

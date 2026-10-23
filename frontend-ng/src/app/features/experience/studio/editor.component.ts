@@ -56,6 +56,9 @@ import {
 } from './studio-document';
 import {
   ADDABLE_TYPES,
+  followUpActions,
+  followUpBindings,
+  followUpProps,
   ACCESS_ROLES,
   CONFIRMATION_POLICIES,
   UNAVAILABLE_POLICIES,
@@ -739,6 +742,43 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
               }
               @if (node.type === 'chart') {
                 <xp-timeseries-editor [node]="node" [sources]="sourceNodes(node)" (changed)="setChartProp(node, $event.key, $event.value)" />
+              }
+              @if (node.type === 'record_follow_up') {
+                <section class="xp-inspector-section" data-testid="follow-up-builder">
+                  <h3>{{ i18n.t('experience.editor.follow_up.title') }}</h3>
+                  <p class="xp-hint">{{ i18n.t('experience.editor.follow_up.hint') }}</p>
+                  @if (followBindings().length === 0) {
+                    <p class="xp-hint" role="status">{{ i18n.t('experience.editor.follow_up.no_action') }}</p>
+                  } @else {
+                    <label class="xp-field">
+                      <span>{{ i18n.t('experience.editor.follow_up.service') }}</span>
+                      <select [value]="str(node, 'followBindingKey')" [disabled]="readOnly()" (change)="setFollowUp(node, { bindingKey: selectValue($event) })" data-testid="follow-up-service">
+                        <option value="">{{ i18n.t('experience.editor.follow_up.choose') }}</option>
+                        @for (row of followBindings(); track row.bindingKey) {
+                          <option [value]="row.bindingKey" [selected]="row.bindingKey === str(node, 'followBindingKey')">{{ followBindingLabel(row.bindingKey) }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label class="xp-field">
+                      <span>{{ i18n.t('experience.editor.follow_up.record_key') }}</span>
+                      <select [value]="str(node, 'recordField')" [disabled]="readOnly() || !str(node, 'followBindingKey')" (change)="setFollowUp(node, { recordField: selectValue($event) })" data-testid="follow-up-key">
+                        <option value="">{{ i18n.t('experience.editor.follow_up.choose') }}</option>
+                        @for (field of followFields(node); track field) {
+                          <option [value]="field" [selected]="field === str(node, 'recordField')">{{ field }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label class="xp-field">
+                      <span>{{ i18n.t('experience.editor.follow_up.source') }}</span>
+                      <select [value]="followSourceValue(node)" [disabled]="readOnly() || !str(node, 'followBindingKey')" (change)="setFollowUp(node, { source: selectValue($event) })" data-testid="follow-up-source">
+                        <option value="url" [selected]="followSourceValue(node) === 'url'">{{ i18n.t('experience.editor.follow_up.source_url') }}</option>
+                        @for (action of followSourceActions(node); track action) {
+                          <option [value]="action" [selected]="followSourceValue(node) === action">{{ i18n.t('experience.editor.follow_up.source_action', { id: action }) }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+                </section>
               }
               @if (node.type === 'prediction') {
                 <xp-prediction-contract-editor [value]="node.props?.['predictionContract']" (changed)="setProp(node, 'predictionContract', $event)" />
@@ -2540,6 +2580,42 @@ export class ExperienceEditorComponent implements OnDestroy {
     if (key === 'datasetSource') {
       this.setProps(node, value ? {datasetSource: value, dataBinding: undefined, queryBinding: undefined} : {datasetSource: undefined});
     } else this.setProp(node, key, value);
+  }
+
+  /** Bound actions of this draft a follow-up block can follow. */
+  readonly followBindings = computed(() => followUpBindings(this.doc()));
+
+  followFields(node: ExperienceNode): string[] {
+    return this.followBindings().find((row) => row.bindingKey === this.str(node, 'followBindingKey'))?.fields ?? [];
+  }
+
+  followSourceActions(node: ExperienceNode): string[] {
+    const key = this.str(node, 'followBindingKey');
+    return followUpActions(this.doc()).filter((action) => action.bindingKey === key).map((action) => action.componentId);
+  }
+
+  followSourceValue(node: ExperienceNode): string {
+    const source = node.props?.['recordSource'] as { kind?: string; componentId?: string } | undefined;
+    return source?.kind === 'action' && source.componentId ? source.componentId : 'url';
+  }
+
+  followBindingLabel(key: string): string {
+    const row = this.bindings().find((binding) => binding.binding_key === key);
+    const name = row ? this.systemNames()[row.system_id] : null;
+    return name ? `${name} · ${key}` : key;
+  }
+
+  setFollowUp(node: ExperienceNode, change: { bindingKey?: string; recordField?: string; source?: string }): void {
+    if (this.readOnly()) return;
+    const found = findNode(this.doc(), node.id ?? null);
+    if (!found || !node.id) return;
+    const next = followUpProps(node.props, change, this.doc());
+    this.commit(applyPatch(this.doc(), {
+      kind: 'update_node',
+      pageId: found.pageId,
+      nodeId: node.id,
+      props: { followBindingKey: next['followBindingKey'], recordField: next['recordField'], recordSource: next['recordSource'] },
+    }));
   }
 
   setProp(node: ExperienceNode, key: string, value: unknown): void {
