@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "149_experience_deployment_withdrawn"
+revision = "149_deployment_withdrawn"
 down_revision = "148_work_record_backfill"
 branch_labels = depends_on = None
 
