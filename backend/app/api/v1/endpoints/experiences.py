@@ -164,6 +164,13 @@ class RollbackBody(BaseModel):
     expected_deployment_updated_at: datetime
 
 
+class WithdrawBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_current_release_id: str = Field(min_length=1, max_length=36)
+    expected_deployment_updated_at: datetime
+
+
 def _raise_experience(db: DBSession, exc: experience_service.ExperienceError) -> None:
     db.rollback()
     raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
@@ -914,6 +921,35 @@ async def rollback_experience_deployment(
             experience_id=experience_id,
             channel=channel,
             release_id=body.release_id,
+            expected_current_release_id=body.expected_current_release_id,
+            expected_deployment_updated_at=body.expected_deployment_updated_at,
+            actor=_actor(user),
+        )
+        db.commit()
+        db.refresh(row)
+    except experience_service.ExperienceError as exc:
+        _raise_experience(db, exc)
+    return experience_service.serialize_deployment(row)
+
+
+@router.post("/{experience_id}/deployments/{channel}/withdraw")
+async def withdraw_experience_deployment(
+    experience_id: str,
+    channel: str,
+    body: WithdrawBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Take one channel out of service; nothing is deleted, it can be deployed again."""
+    _require_studio_enabled(workspace)
+    _enforce_deploy(db, user=user, workspace=workspace)
+    try:
+        row = experience_service.withdraw_deployment(
+            db,
+            workspace=workspace,
+            experience_id=experience_id,
+            channel=channel,
             expected_current_release_id=body.expected_current_release_id,
             expected_deployment_updated_at=body.expected_deployment_updated_at,
             actor=_actor(user),

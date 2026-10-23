@@ -12,6 +12,21 @@ export interface ReadyIssue {
   component_id?: string;
   binding_key?: string;
   path?: string;
+  /** STEP_INPUT_UNFED: the Flow step and the required field nothing feeds. */
+  step?: number;
+  skill?: string;
+  field?: string;
+}
+
+/** Message parameters and context of a ready-check issue. */
+export function readyIssueDetail(issue: ReadyIssue): { params: Record<string, string | number>; context: string | null } {
+  if (issue.code === 'STEP_INPUT_UNFED' && issue.field) {
+    return {
+      params: { step: issue.step ?? '?', skill: issue.skill ?? '', field: issue.field },
+      context: issue.binding_key ?? null,
+    };
+  }
+  return { params: {}, context: issue.component_id || issue.binding_key || issue.path || null };
 }
 
 export interface ReadyBindingEvidence {

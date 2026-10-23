@@ -295,6 +295,10 @@ class ExperienceDeployment(Base):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+    # Withdrawn from its channel: the row, release and audience stay; Work
+    # ignores the deployment until it is deployed again.
+    withdrawn_at = Column(DateTime, nullable=True)
+    withdrawn_by = Column(String(255), nullable=True)
 
     __table_args__ = (
         UniqueConstraint(

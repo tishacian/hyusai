@@ -31,6 +31,7 @@ const pureSpecs = [
   'src/app/shared/work-records/run-situation.spec.ts',
   'src/app/features/orchestration/flow/promotion-failure.spec.ts',
   'src/app/features/experience/runtime/record-follow-up.spec.ts',
+  'src/app/features/experience/studio/studio-publish-issue.spec.ts',
   'src/app/shared/work-records/work-record-attempts.spec.ts',
   'src/app/features/runs/run-reference.spec.ts',
   'src/app/core/run-polling.spec.ts',
