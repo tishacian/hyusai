@@ -65,3 +65,13 @@ test('the builder offers the app’s own actions, their fields and sources, by s
   // A fixed-input action without fields leaves the key to choose.
   assert.equal(followUpProps({}, { bindingKey: 'showcase.claims.refresh_queue' }, doc)['recordField'], '');
 });
+
+test('an action’s case identity is chosen among its input fields, with a derived kind', async () => {
+  const { recordIdentityPatch, recordNamespaceFor } = await import('../studio/studio-model');
+  assert.deepEqual(recordIdentityPatch('incident_id'), { namespace: 'incident', input_field: 'incident_id' });
+  assert.deepEqual(recordIdentityPatch('claim_id'), { namespace: 'claim', input_field: 'claim_id' });
+  assert.equal(recordNamespaceFor('purchaseRequisitionRef'), 'purchase_requisition');
+  assert.equal(recordNamespaceFor('id'), 'record');
+  assert.equal(recordNamespaceFor('2nd_ticket'), 'nd_ticket');
+  assert.equal(recordIdentityPatch(''), null);
+});

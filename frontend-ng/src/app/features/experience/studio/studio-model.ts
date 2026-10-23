@@ -570,3 +570,24 @@ export function followUpProps(
   }
   return next;
 }
+
+/**
+ * Kind of record named by an input field: `incident_id` → `incident`,
+ * `claimRef` → `claim`. Lowercase, as the binding contract requires.
+ */
+export function recordNamespaceFor(field: string): string {
+  const words = field.trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '_')
+    .replace(/(^|_)(id|ref|reference|number|key)$/, '')
+    .replace(/^[^a-z]+/, '')
+    .replace(/_+$/, '');
+  return (words || 'record').slice(0, 80);
+}
+
+/** The binding patch for a chosen record field, or none to clear it. */
+export function recordIdentityPatch(field: string): { namespace: string; input_field: string } | null {
+  const name = field.trim();
+  return name ? { namespace: recordNamespaceFor(name), input_field: name } : null;
+}

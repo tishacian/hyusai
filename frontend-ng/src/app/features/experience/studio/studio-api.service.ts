@@ -19,6 +19,8 @@ export interface StudioBinding {
   output_schema_sha256?: string;
   confirmation_policy: string;
   on_unavailable: string;
+  /** Which input field names the record a Run handles (attempt history). */
+  record_identity?: { namespace: string; input_field: string } | null;
 }
 
 export interface StudioIngress {
@@ -359,6 +361,7 @@ export class StudioApiService {
       on_unavailable: string;
       published_flow_version_id: string;
       ingress_id: string;
+      record_identity: { namespace: string; input_field: string } | null;
     }>,
   ): Observable<StudioBinding> {
     return this.api.patch<StudioBinding>(`/system-bindings/${encodeURIComponent(key)}`, body);
