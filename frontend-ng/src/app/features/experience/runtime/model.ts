@@ -395,6 +395,19 @@ export function runtimeResultRows(
  * Project the executable contract and its optional, document-owned copy.
  * `presentation` never changes field names, values, types, or schema hashes.
  */
+/**
+ * A form without any field always submits the same empty input, so like a
+ * fixed action it may show the team's last result. A form with fields may not:
+ * its last values cannot be inferred from an empty page.
+ */
+export function formHasFixedInput(schema: unknown): boolean {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+  const { properties, required } = schema as { properties?: unknown; required?: unknown };
+  const hasProperties = !!properties && typeof properties === 'object' && Object.keys(properties).length > 0;
+  const hasRequired = Array.isArray(required) && required.length > 0;
+  return !hasProperties && !hasRequired;
+}
+
 export function fieldsFromSchema(schema: unknown, presentation?: unknown): RuntimeField[] {
   if (!isRecord(schema)) return [];
   const properties = isRecord(schema['properties']) ? schema['properties'] : {};

@@ -10,6 +10,7 @@ import {
   chartSeries,
   extractCitations,
   fieldsFromSchema,
+  formHasFixedInput,
   formSchemaSupported,
   isReadyFileReference,
   localizeDocument,
@@ -736,4 +737,13 @@ test('mapRunStatus uses business vocabulary; citations read output_ref', () => {
       { title: 'bare' },
     ],
   );
+});
+
+test('only a form without any field has a fixed input that may resume the last result', () => {
+  assert.equal(formHasFixedInput({ type: 'object', additionalProperties: false, properties: {} }), true);
+  assert.equal(formHasFixedInput({ type: 'object' }), true);
+  assert.equal(formHasFixedInput(SCHEMA), false);
+  assert.equal(formHasFixedInput({ type: 'object', properties: { q: { type: 'string' } } }), false);
+  assert.equal(formHasFixedInput({ type: 'object', required: ['q'] }), false);
+  assert.equal(formHasFixedInput(undefined), false);
 });

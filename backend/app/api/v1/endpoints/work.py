@@ -924,6 +924,26 @@ async def resolve_work_binding(
     }
 
 
+def _fixed_released_input(component: dict, key: str) -> Optional[dict]:
+    """The input a released component always submits, or None if it varies.
+
+    An action button submits its frozen input. A form without any field can
+    only submit an empty payload, so it is a fixed action too. A form with
+    fields is not: its last values cannot be inferred from an empty page.
+    """
+    props = component.get("props") or {}
+    if props.get("bindingKey") != key:
+        return None
+    if component.get("type") == "action_button":
+        value = props.get("input", {})
+        return value if isinstance(value, dict) else None
+    if component.get("type") == "form":
+        schema = props.get("schema")
+        if isinstance(schema, dict) and not schema.get("properties") and not schema.get("required"):
+            return {}
+    return None
+
+
 @router.get("/{slug}/bindings/{key}/runs/latest")
 def latest_work_action_run(
     slug: str,
@@ -940,8 +960,9 @@ def latest_work_action_run(
     Shared with the team that uses the app: the latest matching Run started by
     any member is returned, as long as this reader may still read that Run.
 
-    The immutable action supplies its input. Forms are deliberately excluded:
-    their last submitted values cannot be inferred from an empty page. Matching
+    The immutable action supplies its input; a form without any field counts
+    as one. Forms with fields are deliberately excluded: their last submitted
+    values cannot be inferred from an empty page. Matching
     all statuses preserves a recent failure or pending Run instead of silently
     replacing it with an older successful result.
     """
@@ -963,8 +984,8 @@ def latest_work_action_run(
         )
         page = next(p for p in release.pages["pages"] if p.get("id") == page_id)
         component = next(c for c in page["components"] if c.get("id") == component_id)
-        props = component.get("props") or {}
-        if component.get("type") != "action_button" or props.get("bindingKey") != key:
+        fixed_input = _fixed_released_input(component, key)
+        if fixed_input is None:
             raise experience_service.ExperienceError(
                 code="WORK_RUN_RESUME_UNSUPPORTED",
                 message="Only actions with a fixed released input can resume their last result.",
@@ -976,7 +997,7 @@ def latest_work_action_run(
                 "component_id": component_id,
                 "confirmed": True if snapshot.get("confirmation_policy") == "confirm" else None,
                 "page_id": page_id,
-                "payload": props.get("input", {}),
+                "payload": fixed_input,
                 "slug": slug,
             }
         )
