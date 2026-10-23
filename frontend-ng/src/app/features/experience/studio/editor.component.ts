@@ -59,6 +59,7 @@ import {
   followUpActions,
   followUpBindings,
   followUpProps,
+  recordIdentityPatch,
   ACCESS_ROLES,
   CONFIRMATION_POLICIES,
   UNAVAILABLE_POLICIES,
@@ -937,6 +938,21 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                     }
                   </select>
                 </div>
+                <label class="xp-field">
+                  <span>{{ i18n.t('experience.editor.action.record_identity') }}</span>
+                  <select
+                    [disabled]="appsState() !== 'ready' || dataContractStates()[row.binding_key] !== 'ready'"
+                    [value]="row.record_identity?.input_field || ''"
+                    (change)="patchBinding(row.binding_key, { record_identity: recordIdentityPatch(selectValue($event)) })"
+                    data-testid="action-record-identity"
+                  >
+                    <option value="" [selected]="!row.record_identity">{{ i18n.t('experience.editor.action.record_identity.none') }}</option>
+                    @for (field of actionInputs(row); track field) {
+                      <option [value]="field" [selected]="row.record_identity?.input_field === field">{{ field }}</option>
+                    }
+                  </select>
+                  <small>{{ i18n.t('experience.editor.action.record_identity.hint') }}</small>
+                </label>
                 <label class="xp-field">
                   <span>{{ i18n.t('experience.editor.action.after') }}</span>
                   <select [value]="str(node, 'afterSuccess') || 'stay'" (change)="setProp(node, 'afterSuccess', selectValue($event))">
@@ -2709,7 +2725,9 @@ export class ExperienceEditorComponent implements OnDestroy {
     return accentContrastWarning(accent, page ? pageAppearance(page).theme : 'inherit');
   }
 
-  patchBinding(key: string, body: Partial<{ confirmation_policy: string; on_unavailable: string }>): void {
+  readonly recordIdentityPatch = recordIdentityPatch;
+
+  patchBinding(key: string, body: Partial<{ confirmation_policy: string; on_unavailable: string; record_identity: { namespace: string; input_field: string } | null }>): void {
     if (this.readOnly() || !this.confirmBindingChange(key)) return;
     const request = this.api.patchBinding(key, body).subscribe({
       next: (row) => {
