@@ -212,3 +212,30 @@ PACKAGE = register(
         tags=("translation", "delivery"),
     )
 )
+
+CERTIFY = register(
+    CommandSpec(
+        key="translation_suite.certify",
+        title="Certify a packaged release",
+        risk="compute",
+        mode="detached",
+        params=_Lot,
+        build=lambda p, paths: _entry(
+            paths, "certify", p.lot, "--profile", "inputs/certify_profile.json"
+        ),
+        artifacts=(
+            "cleanroom_summary.json",
+            "cleanroom_rerun_manifest.json",
+            "package_receipt.json",
+            "release_certificate.json",
+        ),
+        runner_paths=PATHS,
+        timeout_s=24 * 3600,
+        description=(
+            "Runs the golden release chain on the lot's latest package: cleanroom, 4D canaries, "
+            "immutable archive, resolved views and certificate. The first refusing gate is the "
+            "verdict."
+        ),
+        tags=("translation", "delivery", "gate"),
+    )
+)

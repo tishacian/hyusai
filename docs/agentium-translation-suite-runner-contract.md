@@ -47,6 +47,7 @@ Every subcommand must:
 | `audit` | none | the lot | `{verdict: "pass" \| "fail", layers: {<layer>: "pass" \| "fail" \| "info"}}` | `audit.json` |
 | `reinject` | `--decisions inputs/decisions.jsonl` | reviewers' decisions | `{applied: n, skipped: n, requalified_topics: n}` | `reinject_report.json` |
 | `package` | `--producer-commit <sha>` (optional) | the lot | `{verdict: "pass" \| "blocked", blockers: [..]}` | `package.zip`, `release_certificate.json` |
+| `certify` | `--profile inputs/certify_profile.json` | the lot's latest package (or `release_dir`) and the curated inputs the profile names | `{verdict, stopped_at, stages: {<stage>: {status, exit_code}}}` | `cleanroom_summary.json`, `cleanroom_rerun_manifest.json`, `package_receipt.json`, `release_certificate.json` |
 
 `package` only returns `pass` when the release certificate is `ACCEPTED`:
 the certificate requires the full locale set (39), the cleanroom quality
@@ -54,6 +55,18 @@ report and the resolved-view receipts of the archive. Otherwise the built
 archive stays on the machine, `result.json` lists the certificate blockers
 (`certificate:<code>`) and no `package.zip` is returned. `audit` and the
 archive audit inside `package` fail when no file was checked.
+
+`certify` runs the existing golden chain in order (cleanroom v3, 4D canaries,
+immutable archive, strict fulltexts, fulltext requalification, PDFs,
+resolved-view qualification, certificate) and stops at the first gate that
+refuses; that gate names the verdict (`replay_required`, `canary_failed`,
+`package_refused`, …, `golden_candidate` when the certificate is a golden
+candidate). The profile carries the curated inputs on the machine: release,
+fr-FR source, bench at a clean commit, library packs, authority manifests,
+canary manifests and roots, editorial manifest and expected counts. The 4D
+canaries and the fulltext generator are specific to the guide they were
+curated for. The installer pins the profile into the certification Skill
+(`--certify-profile`); without it the chain stops after packaging.
 
 `translate` runs the scheduler in the foreground: the job ends when the lot is
 translated, never by polling a marker file. Completion is read from the topic

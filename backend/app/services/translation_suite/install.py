@@ -285,6 +285,7 @@ def launch_flow(prepare: Skill) -> dict:
 
 
 def chain_flow(skills: dict[str, Skill]) -> dict:
+    """The routing flow; with a ``certify`` skill, a package job leads to certification."""
     lot = {"lot": "run.params.lot"}
     route = {
         "id": "decision.route",
@@ -313,6 +314,10 @@ def chain_flow(skills: dict[str, Skill]) -> dict:
                 {
                     "label": "audited",
                     "condition": "command == 'translation_suite.audit' and status == 'succeeded'",
+                },
+                {
+                    "label": "packaged",
+                    "condition": "command == 'translation_suite.package' and status == 'succeeded'",
                 },
                 {"label": "other", "condition": "True"},
             ],
@@ -354,6 +359,11 @@ def chain_flow(skills: dict[str, Skill]) -> dict:
             _sink("sink.review", "Revue ouverte"),
             _sink("sink.packaged", "Paquet demandé"),
             _sink("sink.stopped", "Aucune suite automatique"),
+            *(
+                [_task("task.certify", "Certifier la release", skills["certify"], lot)]
+                if "certify" in skills
+                else []
+            ),
         ],
         "edges": [
             _edge("source.job", "decision.route"),
@@ -369,6 +379,14 @@ def chain_flow(skills: dict[str, Skill]) -> dict:
             _edge("task.review", "sink.review"),
             _edge("hitl.deliver", "task.package"),
             _edge("task.package", "sink.packaged"),
+            *(
+                [
+                    _edge("decision.route", "task.certify", "packaged"),
+                    _edge("task.certify", "sink.next"),
+                ]
+                if "certify" in skills
+                else [_edge("decision.route", "sink.stopped", "packaged")]
+            ),
         ],
     }
 
@@ -473,9 +491,29 @@ APP_PAGES = {
 }
 
 
-def install(db, workspace, actor, *, runner_slug: str, activate: bool = False) -> dict[str, Any]:
+def install(
+    db,
+    workspace,
+    actor,
+    *,
+    runner_slug: str,
+    activate: bool = False,
+    certify_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Install the Translation Suite; ``certify_profile`` adds the golden certification step.
+
+    The profile is the machine-side document of ``ts.runner certify`` (paths of the curated
+    inputs on the runner), pinned into the certification Skill.
+    """
     _require_admin(db, workspace, actor)
     runner = _require_runner(db, workspace, runner_slug)
+    if certify_profile is not None:
+        if not isinstance(certify_profile, dict) or not certify_profile:
+            raise InstallError("TRANSLATION_INSTALL_CERTIFY_PROFILE_INVALID")
+        if commands.CERTIFY.key not in (runner.allowed_commands or []):
+            raise InstallError(
+                "TRANSLATION_INSTALL_RUNNER_COMMANDS_MISSING: " + commands.CERTIFY.key
+            )
     if (
         db.query(System.id)
         .filter(System.workspace_id == workspace.id, System.blueprint_key.like(f"{BLUEPRINT}:%"))
@@ -551,6 +589,18 @@ def install(db, workspace, actor, *, runner_slug: str, activate: bool = False) -
             {"document_keys": {"decisions.jsonl": "decisions"}},
         ),
         "package": job("ts_package", "Empaqueter un lot", commands.PACKAGE.key),
+        **(
+            {
+                "certify": job(
+                    "ts_certify",
+                    "Certifier une release",
+                    commands.CERTIFY.key,
+                    {"documents": {"certify_profile.json": certify_profile}},
+                )
+            }
+            if certify_profile is not None
+            else {}
+        ),
         "review_open": _pinned_skill(
             db,
             workspace,
@@ -576,7 +626,9 @@ def install(db, workspace, actor, *, runner_slug: str, activate: bool = False) -
     # A published flow may only call Skills bound to its System.
     launch.skill_ids = [skills["prepare"].id]
     chain.skill_ids = [
-        skills[k].id for k in ("translate", "export", "review_open", "audit", "package")
+        skills[k].id
+        for k in ("translate", "export", "review_open", "audit", "package", "certify")
+        if k in skills
     ]
     feedback.skill_ids = [builtin["review_set_read_v1"].id, skills["reinject"].id]
     db.flush()

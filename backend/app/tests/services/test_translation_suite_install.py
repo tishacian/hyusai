@@ -257,3 +257,77 @@ def test_exported_segments_open_review_sets_and_their_completion_waits_for_a_per
         .filter_by(command="translation_suite.reinject")
         .first()
     )
+
+
+def test_a_certify_profile_adds_certification_after_packaging(db_session, seeded):
+    workspace, user, runner = seeded
+    profile = {"source_dir": "/srv/k3/Topics/Source", "expected": {"locales": 39}}
+    with pytest.raises(InstallError, match="RUNNER_COMMANDS_MISSING"):
+        install(db_session, workspace, user, runner_slug="gpu-vm", certify_profile=profile)
+    runner.allowed_commands = [*REQUIRED_COMMANDS, commands.CERTIFY.key]
+    db_session.commit()
+    result = install(db_session, workspace, user, runner_slug="gpu-vm", certify_profile=profile)
+    db_session.commit()
+    certify = db_session.query(Skill).filter(Skill.slug == result["skills"]["certify"]).one()
+    frozen = certify.executor["params"]["frozen_input"]
+    assert frozen["command"] == "translation_suite.certify"
+    assert frozen["documents"] == {"certify_profile.json": profile}
+    version = db_session.get(SystemVersion, result["published_versions"]["chain"])
+    assert version is not None
+    chain = db_session.get(System, result["systems"]["chain"])
+    assert certify.id in chain.skill_ids
+
+
+def test_a_finished_package_job_queues_the_certification(db_session, seeded, monkeypatch):
+    import asyncio
+    from datetime import datetime, timedelta
+
+    from app.models.remote_runner import RemoteRunnerJob
+    from app.models.run import Run
+    from app.services.remote_runners import service as runners
+    from app.services.run_engine.dag import execute_run_dag
+
+    workspace, user, runner = seeded
+    runner.allowed_commands = [*REQUIRED_COMMANDS, commands.CERTIFY.key]
+    db_session.commit()
+    result = install(
+        db_session,
+        workspace,
+        user,
+        runner_slug="gpu-vm",
+        certify_profile={"expected": {"locales": 39}},
+    )
+    db_session.commit()
+    monkeypatch.setattr(triggers, "_dispatch_live_run", lambda run_id: None)
+    now = datetime.utcnow()
+    db_session.add(
+        RemoteRunnerJob(
+            workspace_id=workspace.id,
+            runner_id=runner.id,
+            command="translation_suite.package",
+            params={"lot": "LOT-7"},
+            status="succeeded",
+            exit_code=0,
+            result={"verdict": "blocked"},
+            inputs=[],
+            artifacts=[],
+            cancel_requested=False,
+            created_at=now,
+            deadline_at=now + timedelta(hours=1),
+            finished_at=now,
+            notify_system_id=result["systems"]["chain"],
+        )
+    )
+    db_session.commit()
+    assert runners.announce_finished(db_session) == 1
+    run = db_session.query(Run).filter(Run.system_id == result["systems"]["chain"]).one()
+    asyncio.run(execute_run_dag(run.id))
+    db_session.expire_all()
+    assert db_session.get(Run, run.id).status == "completed"
+    queued = (
+        db_session.query(RemoteRunnerJob)
+        .filter(RemoteRunnerJob.command == "translation_suite.certify")
+        .one()
+    )
+    assert queued.params == {"lot": "LOT-7"}
+    assert [item.get("path") for item in queued.inputs] == ["inputs/certify_profile.json"]
