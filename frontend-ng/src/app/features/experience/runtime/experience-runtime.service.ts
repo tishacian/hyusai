@@ -56,6 +56,8 @@ export type RuntimePreviousResult = 'unchecked' | 'restored' | 'none_on_release'
 export interface RuntimeRestoredAuthor {
   name: string | null;
   startedAt: string | null;
+  /** Started by the reader: still dated, without naming them to themselves. */
+  mine?: boolean;
 }
 
 export interface RuntimeExecutionState {
@@ -205,7 +207,7 @@ export class ExperienceRuntimeService {
                 previousResult: 'restored',
                 restoredAuthor: result.run?.started_by_reader === false
                   ? { name: result.run.started_by ?? null, startedAt: run.started_at ?? null }
-                  : null,
+                  : { name: null, startedAt: run.started_at ?? null, mine: true },
                 phase: run.status === 'failed' ? 'error' : settled ? 'idle' : 'running',
                 lastError: run.status === 'failed' ? run.error ?? 'failed' : null,
               });
@@ -253,6 +255,8 @@ export class ExperienceRuntimeService {
       // history, but never present one as the cause/result of this new action.
       run: null,
       lastError: null,
+      // A new action is no longer the restored result: drop its author line.
+      restoredAuthor: null,
       lastInvoke: { context, bindingKey, payload, confirmed, idempotencyKey },
     });
     const body: {

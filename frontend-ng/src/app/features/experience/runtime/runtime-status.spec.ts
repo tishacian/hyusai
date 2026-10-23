@@ -328,11 +328,19 @@ test('a restored result is marked restored and previews keep their idle wording'
 });
 
 
-test('a teammate restored result keeps who started it; my own does not', () => {
+test('a teammate restored result keeps who started it; my own is dated without naming me', () => {
   const teammate = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: false, started_by: 'camille' } }) });
   teammate.runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
   assert.deepEqual(teammate.runtime.restoredAuthor('forecast-action'), { name: 'camille', startedAt: null });
   const mine = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: true } }) });
   mine.runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
-  assert.equal(mine.runtime.restoredAuthor('forecast-action'), null);
+  assert.deepEqual(mine.runtime.restoredAuthor('forecast-action'), { name: null, startedAt: null, mine: true });
+});
+
+test('a new action drops the restored result line', () => {
+  const { runtime } = restorationSetup({ lookup: () => of({ run: { id: COMPLETED.id, started_by_reader: false, started_by: 'camille' } }) });
+  runtime.restore(ACTION_CONTEXT, 'forecast').subscribe();
+  assert.ok(runtime.restoredAuthor('forecast-action'));
+  runtime.invoke(ACTION_CONTEXT, 'forecast', {}).subscribe();
+  assert.equal(runtime.restoredAuthor('forecast-action'), null);
 });

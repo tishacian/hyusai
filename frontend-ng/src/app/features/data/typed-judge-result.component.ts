@@ -80,7 +80,12 @@ import { typedDecisionObservation, typedJudgeFailure, typedResult, type TypedAns
   styles: [`.judge-proof-fields{display:grid;gap:var(--ck-space-1);margin:0}.judge-proof-fields div{display:grid;grid-template-columns:minmax(120px,40%) 1fr;gap:var(--ck-space-2)}.judge-proof-fields dt{color:var(--ck-fg-3)}.judge-proof-fields dd{margin:0;overflow-wrap:anywhere}.judge-technical-proof{margin-top:var(--ck-space-2);font-size:12px;color:var(--ck-fg-3)}.judge-technical-proof pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--ck-font-mono)}.judge-failure{margin:12px 0;padding:12px 14px;border-inline-start:2px solid var(--ck-signal-warn);background:var(--ck-bg-inset);border-radius:4px;overflow-wrap:anywhere}.judge-failure h3{margin:0 0 6px}.judge-failure p{margin:4px 0;font-size:12px;line-height:1.5}.judge-questions{margin:8px 0}.judge-questions ol{padding-inline-start:20px;list-style:decimal}.judge-questions li{margin:4px 0;overflow-wrap:anywhere}`],
 })
 export class TypedJudgeResultComponent {
-  readonly readable = (quote: string | null | undefined) => readableQuote(quote, this.i18n.locale());
+  readonly readable = (quote: string | null | undefined) => readableQuote(quote, this.i18n.locale(), (key) => {
+    // An app or workspace may name its fields; otherwise the key is humanized.
+    const labelKey = `dataops.evidence.field.${key}`;
+    const label = this.i18n.t(labelKey);
+    return label !== labelKey ? label : null;
+  });
   providerDecision(key: string) { return typedDecisionObservation(this.result(), key); }
   percent(value: number): string { return `${Math.round(value * 1000) / 10} %`; }
   explanation(answer: TypedAnswer): string {

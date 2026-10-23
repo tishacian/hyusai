@@ -4,6 +4,13 @@
 .dp-field > span { color: var(--ck-fg-3); }
 .dp-input { width: 100%; box-sizing: border-box; background: var(--ck-bg-inset); color: var(--ck-fg-1); border: 1px solid var(--ck-stroke-2); border-radius: 4px; padding: 8px; }
 .dp-input:focus-visible { outline: 2px solid var(--ck-signal-cool); outline-offset: 2px; }
+/* Chosen items of a multiple list stay legible when the list is not focused
+   (e.g. a published step in consultation): the browser default greys them. */
+select[multiple].dp-input option:checked {
+  background: linear-gradient(var(--ck-status-info-bg), var(--ck-status-info-bg)), var(--ck-bg-inset);
+  color: var(--ck-status-info-fg);
+  font-weight: 600;
+}
 .dp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dp-row > .dp-field { flex: 1; min-width: 130px; }
 .dp-section { padding: 16px 0; border-bottom: 1px solid var(--ck-stroke-2); }

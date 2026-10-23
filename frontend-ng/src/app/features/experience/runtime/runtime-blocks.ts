@@ -1051,13 +1051,14 @@ export class RuntimeStatusBlock {
   readonly context = input.required<RuntimeNodeContext>();
   private readonly error = computed(() => this.runtime.lastError(this.context().sourceStateKey));
   readonly copiedRunId = signal<string | null>(null);
-  /** A restored result started by a teammate says so, with when and who. */
+  /** A restored result says when it ran, and who started it when it was a teammate. */
   readonly teamAuthor = computed(() => {
     if (!this.vocab()) return null;
     const author = this.runtime.restoredAuthor?.(this.context().sourceStateKey);
     if (!author) return null;
     const at = formatInstant(author.startedAt, this.i18n.locale());
-    return this.i18n.t(author.name ? 'experience.runtime.team_result.by' : 'experience.runtime.team_result.anonymous', { name: author.name ?? '', at: at ?? this.i18n.t('experience.runtime.team_result.date_unknown') });
+    const key = author.mine ? 'experience.runtime.team_result.mine' : author.name ? 'experience.runtime.team_result.by' : 'experience.runtime.team_result.anonymous';
+    return this.i18n.t(key, { name: author.name ?? '', at: at ?? this.i18n.t('experience.runtime.team_result.date_unknown') });
   });
   readonly copyFailed = signal(false);
   readonly vocab = computed(() => {

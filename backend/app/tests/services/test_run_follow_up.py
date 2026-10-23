@@ -265,3 +265,32 @@ def test_work_origin_reads_the_run_ingress_and_the_released_record_field():
     assert run_work_origin(run)["record_ref"] is None
     assert run_work_origin(SimpleNamespace(input_ref={"_ingress": {"adapter": {"surface": "api"}}})) is None
     assert run_work_origin(SimpleNamespace(input_ref=None)) is None
+
+
+@pytest.mark.parametrize(
+    ("run", "when"),
+    [
+        # The sweep applied the expiry: the Run failed because nobody decided.
+        (
+            lambda: _paused("failed", checkpoints=[{"kind": "gate_ttl_expired", "t": "2026-10-22T14:00:05", "decision_id": "dec-1"}]),
+            NOW,
+        ),
+        # The deadline passed before the sweep ran.
+        (lambda: _paused(), NOW + timedelta(hours=3)),
+    ],
+)
+def test_an_expired_approval_is_not_shown_as_a_failure_anywhere(run, when):
+    """A list (``follow_up``) and the Situation (decision state) agree on one Run."""
+    target = run()
+    follow_up = run_follow_up(target, now=when)
+    assert follow_up["business_state"] == "decision_expired"
+    assert follow_up["cause"]["code"] == "human_decision_expired"
+    assert run_decision_state(target, now=when)["state"] == "expired"
+    detail = run_follow_up_detail(target, payload_visible=True, now=when)
+    assert detail["business_state"] == "decision_expired"
+    assert detail["decision"]["state"] == "expired"
+
+
+def test_a_plain_execution_failure_stays_a_failure():
+    assert run_follow_up(_run("failed"), now=NOW)["business_state"] == "failed"
+    assert run_follow_up(_paused(), now=NOW)["business_state"] == "awaiting_human_decision"

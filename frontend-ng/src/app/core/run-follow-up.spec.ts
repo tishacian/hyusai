@@ -38,3 +38,9 @@ test('every business state has a French and English label', () => {
     assert.notEqual(en(key), key, key);
   }
 });
+
+test('an expired approval reads as expired, never as a failure', () => {
+  const run = { status: 'failed', follow_up: { native_status: 'failed', business_state: 'decision_expired', cause: { code: 'human_decision_expired' } } };
+  assert.equal(runStatusLabel(run, fr), 'Validation expirée');
+  assert.equal(runStatusLabel(run, en), 'Approval expired');
+});
