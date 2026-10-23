@@ -1,3 +1,4 @@
+import { formatInstant } from './format-instant';
 /**
  * RunFollowUp — the server-derived follow-up state of a Run.
  *
@@ -97,14 +98,7 @@ export interface RunFollowUpDetail extends RunFollowUp {
   payload_unavailable_reason: string | null;
 }
 
-/** Instants carry their time zone so two screens never disagree silently. */
+/** Kept for callers of the follow-up helpers; the one formatter is core/format-instant. */
 export function formatRunInstant(value: string | null | undefined, locale: string): string | null {
-  if (!value) return null;
-  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`;
-  const time = Date.parse(normalized);
-  if (!Number.isFinite(time)) return null;
-  // dateStyle/timeStyle cannot be combined with timeZoneName: spell the parts.
-  return new Date(time).toLocaleString(locale, {
-    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
-  });
+  return formatInstant(value, locale);
 }

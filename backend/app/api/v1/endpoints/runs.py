@@ -785,10 +785,16 @@ def _released_record_identity(db: DBSession, run: Run, *, workspace_id: str) -> 
     release = db.get(ExperienceRelease, adapter.get("experience_release_id") or "")
     if release is None or getattr(release, "workspace_id", workspace_id) != workspace_id:
         return None
+    from app.models.workspace import Workspace
+    from app.services.experience.record_identity import resolve_record_identity
+
+    workspace = db.get(Workspace, workspace_id)
     for item in release.bindings_snapshot or []:
         if isinstance(item, dict) and item.get("binding_key") == adapter.get("binding_key"):
-            identity = item.get("record_identity")
-            return dict(identity) if isinstance(identity, dict) else None
+            # Released contract, else a business reader's (e.g. the claims reader).
+            return resolve_record_identity(
+                item, workspace=workspace, experience_slug=adapter.get("experience_slug")
+            )
     return None
 
 
