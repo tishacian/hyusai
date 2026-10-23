@@ -15,7 +15,7 @@ import { NewVersionNoticeComponent } from './shared/ui/new-version-notice.compon
   template: `
     <router-outlet />
     <app-panel-host />
-    <app-new-version-notice />
+    @defer (on idle) { <app-new-version-notice /> }
     @defer (on idle; when overlay.isOpen()) { <app-chat-overlay /> }
     @defer (on idle; when help.isOpen()) { <app-help-panel /> }
   `,
