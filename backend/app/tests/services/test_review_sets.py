@@ -343,3 +343,37 @@ def test_skills_open_from_runner_artifact_and_read(db_session, monkeypatch, tmp_
         asyncio.run(
             _review_set_read_v1({"set_id": opened["set_id"]}, {"workspace_id": str(uuid4())})
         )
+
+
+def test_skill_splits_items_by_group(db_session):
+    import asyncio
+
+    from app.services.skills_registry.wrappers.skills import _review_set_open_v1
+
+    ws = Workspace(id=str(uuid4()), name="split", slug=str(uuid4()), settings={})
+    db_session.add(ws)
+    db_session.commit()
+    items = [{**item, "group": "de" if i % 2 else "it"} for i, item in enumerate(_items())]
+    out = asyncio.run(
+        _review_set_open_v1(
+            {
+                "namespace": "translation.segment",
+                "group_key": "L7",
+                "title": "Lot 7",
+                "items": items,
+                "split_by_group": True,
+                "group_label": "language",
+                "group_labels": {"lot": "L7"},
+                "taxonomy": TAXONOMY,
+                "policy": POLICY,
+            },
+            {"workspace_id": ws.id},
+        )
+    )
+    keys = sorted(s["group_key"] for s in out["sets"])
+    assert keys == ["L7:de", "L7:it"]
+    review_set = rs.get_set(db_session, ws.id, out["sets"][0]["set_id"])
+    assert review_set.group_labels["lot"] == "L7" and review_set.group_labels["language"] in {
+        "de",
+        "it",
+    }

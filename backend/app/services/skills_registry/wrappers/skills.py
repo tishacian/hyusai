@@ -1483,6 +1483,9 @@ async def _remote_job_submit_v1(
                     input_file_ids=[str(item) for item in payload.get("file_ids") or []]
                     if isinstance(payload.get("file_ids"), list)
                     else None,
+                    input_documents=payload.get("documents")
+                    if isinstance(payload.get("documents"), dict)
+                    else None,
                 )
             except runners.RunnerError as exc:
                 db.rollback()
@@ -1560,32 +1563,49 @@ async def _review_set_open_v1(
             }
             if payload.get("notify_system_id"):
                 source["notify_system_id"] = str(payload["notify_system_id"])
+            groups: dict[str | None, list[dict[str, Any]]] = {}
+            split = bool(payload.get("split_by_group"))
+            for item in items:
+                key = item.get("group") if split and isinstance(item, dict) else None
+                groups.setdefault(None if key is None else str(key), []).append(item)
+            label = str(payload.get("group_label") or "group")
+            base_labels = (
+                payload.get("group_labels") if isinstance(payload.get("group_labels"), dict) else {}
+            )
+            opened = []
             try:
-                row = rs.open_set(
-                    db,
-                    workspace_id=workspace_id,
-                    namespace=payload.get("namespace"),
-                    group_key=payload.get("group_key"),
-                    title=payload.get("title"),
-                    items=items,
-                    group_labels=payload.get("group_labels"),
-                    taxonomy=payload.get("taxonomy"),
-                    policy=payload.get("policy"),
-                    reviewers=payload.get("reviewers"),
-                    deadline_at=deadline,
-                    source=source,
-                    user_id=ctx.get("user_id"),
-                )
+                for group, group_items in groups.items():
+                    row = rs.open_set(
+                        db,
+                        workspace_id=workspace_id,
+                        namespace=payload.get("namespace"),
+                        group_key=(
+                            payload.get("group_key")
+                            if group is None
+                            else f"{payload.get('group_key')}:{group}"
+                        ),
+                        title=(
+                            payload.get("title")
+                            if group is None
+                            else f"{payload.get('title')} · {group}"
+                        ),
+                        items=group_items,
+                        group_labels=base_labels if group is None else {**base_labels, label: group},
+                        taxonomy=payload.get("taxonomy"),
+                        policy=payload.get("policy"),
+                        reviewers=payload.get("reviewers"),
+                        deadline_at=deadline,
+                        source=source,
+                        user_id=ctx.get("user_id"),
+                    )
+                    opened.append(
+                        {"set_id": row.id, "items": row.item_count, "group_key": row.group_key}
+                    )
             except rs.ReviewError as exc:
                 db.rollback()
                 raise ValueError(exc.code) from None
             db.commit()
-            return {
-                "set_id": row.id,
-                "items": row.item_count,
-                "status": row.status,
-                "group_key": row.group_key,
-            }
+            return {**opened[0], "status": "open", "sets": opened}
 
     return await asyncio.to_thread(_open)
 

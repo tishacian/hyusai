@@ -30,7 +30,7 @@ from app.models.remote_runner import (
     RemoteRunnerJob,
 )
 from app.services.audit_logger import emit_audit_event
-from app.services.remote_runners import catalog
+from app.services.remote_runners import catalog, catalogs  # noqa: F401 - registers domain commands
 from app.services.remote_runners.transport import (
     LocalTransport,
     Transport,
@@ -270,7 +270,7 @@ def open_transport(db: Session, runner: RemoteRunner) -> Transport:
 def probe_runner(db: Session, runner: RemoteRunner, *, user_id: str | None = None) -> dict:
     """Run the read-only probe now and keep its answer on the runner."""
 
-    _, _, argv = catalog.validate(catalog.PROBE.key, {})
+    _, _, argv = catalog.validate(catalog.PROBE.key, {}, runner.labels)
 
     async def go():
         transport = open_transport(db, runner)
@@ -318,6 +318,7 @@ def submit_job(
     correlation_key: str | None = None,
     notify_system_id: str | None = None,
     input_file_ids: list[str] | None = None,
+    input_documents: dict[str, Any] | None = None,
 ) -> RemoteRunnerJob:
     if correlation_key is not None and not (
         isinstance(correlation_key, str) and 0 < len(correlation_key) <= 200
@@ -340,7 +341,7 @@ def submit_job(
     if command not in (runner.allowed_commands or []):
         raise RunnerError("REMOTE_COMMAND_NOT_ALLOWED", 403, detail=command)
     try:
-        spec, model, _argv = catalog.validate(command, params)
+        spec, model, _argv = catalog.validate(command, params, runner.labels)
     except catalog.CatalogError as exc:
         raise RunnerError(exc.code, detail=str(exc)) from None
     if spec.mode != "detached":
@@ -370,7 +371,11 @@ def submit_job(
     db.add(job)
     db.flush()
     job.remote_dir = job_dir(runner.work_root, job.id)
-    job.inputs = _stage_inputs(db, job, input_file_ids or [])
+    job.inputs = _stage_inputs(db, job, input_file_ids or []) + _stage_documents(
+        job, input_documents or {}
+    )
+    if len({item["path"] for item in job.inputs}) != len(job.inputs):
+        raise RunnerError("REMOTE_JOB_INPUT_NAME_INVALID", detail="duplicate input name")
     db.flush()
     _audit(
         db,
@@ -435,6 +440,50 @@ def _stage_inputs(db: Session, job: RemoteRunnerJob, file_ids: list[str]) -> lis
                 "size": len(data),
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "deposit_file_id": row.id,
+            }
+        )
+    return staged
+
+
+def _stage_documents(job: RemoteRunnerJob, documents: dict[str, Any]) -> list[dict]:
+    """Documents a flow produced (JSON or JSON lines), staged like deposit inputs."""
+
+    if not documents:
+        return []
+    if not isinstance(documents, dict) or len(documents) > 10:
+        raise RunnerError("REMOTE_JOB_INPUTS_INVALID")
+    from app.services.object_store import get_object_store
+
+    store = get_object_store()
+    limit = settings.remote_runner_artifact_max_mb * 1024 * 1024
+    staged = []
+    for name, value in documents.items():
+        if (
+            not isinstance(name, str)
+            or not _INPUT_NAME_RE.match(name)
+            or not name.endswith((".json", ".jsonl"))
+        ):
+            raise RunnerError("REMOTE_JOB_INPUT_NAME_INVALID", detail=str(name))
+        try:
+            if name.endswith(".jsonl"):
+                if not isinstance(value, list):
+                    raise RunnerError("REMOTE_JOB_INPUTS_INVALID", detail=name)
+                text = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in value)
+            else:
+                text = json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            raise RunnerError("REMOTE_JOB_INPUTS_INVALID", detail=name) from None
+        data = text.encode("utf-8")
+        if len(data) > limit:
+            raise RunnerError("REMOTE_JOB_INPUT_TOO_LARGE", detail=name)
+        key = store.key("remote-runners", job.workspace_id, job.id, "inputs", name)
+        store.write_bytes(key, data)
+        staged.append(
+            {
+                "path": f"inputs/{name}",
+                "key": key,
+                "size": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
             }
         )
     return staged
@@ -695,7 +744,8 @@ async def _launch(db: Session, transport: Transport, job: RemoteRunnerJob, now: 
     if claimed != 1:
         return False
     try:
-        _spec, _model, argv = catalog.validate(job.command, job.params)
+        runner = db.get(RemoteRunner, job.runner_id)
+        _spec, _model, argv = catalog.validate(job.command, job.params, runner.labels)
         await _upload_inputs(transport, job)
         pid = await transport.start(job.remote_dir, argv)
     except RunnerError as exc:

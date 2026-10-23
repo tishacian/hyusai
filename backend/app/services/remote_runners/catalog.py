@@ -9,6 +9,10 @@ Conventions a command may follow, inside its own job directory:
 
 * ``result.json``: a JSON object read back as the job result (bounded size);
 * any path listed in ``artifacts`` is copied to the object store after success.
+
+Where a program lives on the machine (a checkout, an interpreter) is runner
+configuration, not job input: a command lists the runner labels it needs in
+``runner_paths`` and ``build`` receives them, checked as absolute paths.
 """
 
 from __future__ import annotations
@@ -39,8 +43,9 @@ class CommandSpec:
     risk: Risk
     mode: Mode
     params: type[BaseModel]
-    build: Callable[[BaseModel], list[str]]
+    build: Callable[[BaseModel, dict[str, str]], list[str]]
     artifacts: tuple[str, ...] = ()
+    runner_paths: tuple[str, ...] = ()
     timeout_s: int = 3600
     description: str = ""
     tags: tuple[str, ...] = field(default_factory=tuple)
@@ -55,6 +60,7 @@ class CommandSpec:
             "artifacts": list(self.artifacts),
             "description": self.description,
             "tags": list(self.tags),
+            "runner_paths": list(self.runner_paths),
             "params_schema": self.params.model_json_schema(),
         }
 
@@ -85,20 +91,40 @@ def all_commands() -> list[CommandSpec]:
     return sorted(_REGISTRY.values(), key=lambda spec: spec.key)
 
 
-def validate(key: str, params: dict | None) -> tuple[CommandSpec, BaseModel, list[str]]:
+def validate(
+    key: str, params: dict | None, labels: dict | None = None
+) -> tuple[CommandSpec, BaseModel, list[str]]:
     """Return the spec, the validated parameters and the argv they build."""
 
     spec = get(key)
+    paths = runner_paths(spec, labels or {})
     if params is not None and not isinstance(params, dict):
         raise CatalogError("REMOTE_COMMAND_PARAMS_INVALID", "params must be an object")
     try:
         model = spec.params.model_validate(params or {})
     except Exception as exc:  # pydantic ValidationError, kept generic for the API
         raise CatalogError("REMOTE_COMMAND_PARAMS_INVALID", str(exc)) from None
-    argv = spec.build(model)
+    argv = spec.build(model, paths)
     if not argv or not all(isinstance(item, str) and "\x00" not in item for item in argv):
         raise CatalogError("REMOTE_COMMAND_ARGV_INVALID", key)
     return spec, model, argv
+
+
+def runner_paths(spec: CommandSpec, labels: dict) -> dict[str, str]:
+    """The runner labels a command needs, each an absolute path without ``..``."""
+
+    out = {}
+    for name in spec.runner_paths:
+        value = labels.get(name)
+        if (
+            not isinstance(value, str)
+            or not value.startswith("/")
+            or ".." in value.split("/")
+            or any(ord(c) < 32 for c in value)
+        ):
+            raise CatalogError("REMOTE_RUNNER_PATH_LABEL_MISSING", name)
+        out[name] = value
+    return out
 
 
 def _check_relative(path: str) -> None:
@@ -129,7 +155,7 @@ PROBE = register(
         mode="sync",
         params=_NoParams,
         # nvidia-smi is optional: its absence leaves an empty GPU list, not a failure.
-        build=lambda _p: [
+        build=lambda _p, _r: [
             "sh",
             "-c",
             "uname -srm; nproc 2>/dev/null || echo 0; "
@@ -148,7 +174,7 @@ SLEEP = register(
         risk="compute",
         mode="detached",
         params=_SleepParams,
-        build=lambda p: ["sleep", str(p.seconds)],
+        build=lambda p, _r: ["sleep", str(p.seconds)],
         timeout_s=86400,
         description="A detached job that does nothing for a while; used to qualify a runner.",
         tags=("qualification",),

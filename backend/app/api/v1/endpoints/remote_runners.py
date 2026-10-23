@@ -125,7 +125,15 @@ def submit_job(
     if (
         not isinstance(body, dict)
         or set(body)
-        - {"command", "params", "timeout_s", "correlation_key", "notify_system_id", "file_ids"}
+        - {
+            "command",
+            "params",
+            "timeout_s",
+            "correlation_key",
+            "notify_system_id",
+            "file_ids",
+            "documents",
+        }
         or not isinstance(body.get("command"), str)
     ):
         raise HTTPException(400, detail={"code": "REMOTE_JOB_INVALID"})
@@ -142,6 +150,7 @@ def submit_job(
                 correlation_key=body.get("correlation_key"),
                 notify_system_id=body.get("notify_system_id"),
                 input_file_ids=body.get("file_ids"),
+                input_documents=body.get("documents"),
                 user_id=user.id,
             )
         ),

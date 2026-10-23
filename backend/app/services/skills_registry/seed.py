@@ -1154,6 +1154,10 @@ SEED_SKILLS: list[dict[str, Any]] = [
                     "items": {"type": "string"},
                     "description": "Deposit files copied to inputs/<filename> before launch.",
                 },
+                "documents": {
+                    "type": "object",
+                    "description": "JSON (.json) or JSON lines (.jsonl) written to inputs/<name>.",
+                },
             },
         },
         "output_schema": {
@@ -1196,6 +1200,14 @@ SEED_SKILLS: list[dict[str, Any]] = [
                 "policy": {"type": "object"},
                 "reviewers": {"type": "array", "items": {"type": "string"}},
                 "deadline_days": {"type": "number"},
+                "split_by_group": {
+                    "type": "boolean",
+                    "description": "Open one set per item 'group' value.",
+                },
+                "group_label": {
+                    "type": "string",
+                    "description": "Label under which each set records its group (default 'group').",
+                },
                 "correlation_key": {"type": "string"},
                 "notify_system_id": {"type": "string"},
             },
@@ -1207,6 +1219,7 @@ SEED_SKILLS: list[dict[str, Any]] = [
                 "items": {"type": "integer"},
                 "status": {"type": "string"},
                 "group_key": {"type": "string"},
+                "sets": {"type": "array"},
             },
         },
     },

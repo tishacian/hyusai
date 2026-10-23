@@ -29,7 +29,7 @@ WRITE_RESULT = catalog.register(
         risk="compute",
         mode="detached",
         params=_ResultParams,
-        build=lambda p: [
+        build=lambda p, _r: [
             "sh",
             "-c",
             'printf \'{"word": "%s"}\' "$1" > result.json && echo "$1" > out.txt && echo done',
@@ -48,7 +48,7 @@ FAIL = catalog.register(
         risk="compute",
         mode="detached",
         params=catalog._NoParams,
-        build=lambda _p: ["sh", "-c", "echo boom >&2; exit 3"],
+        build=lambda _p, _r: ["sh", "-c", "echo boom >&2; exit 3"],
         timeout_s=60,
     )
 )
@@ -317,7 +317,7 @@ READ_INPUT = catalog.register(
         risk="compute",
         mode="detached",
         params=catalog._NoParams,
-        build=lambda _p: [
+        build=lambda _p, _r: [
             "sh",
             "-c",
             'printf \'{"bytes": %s}\' "$(wc -c < inputs/pack.zip)" > result.json',
@@ -384,3 +384,72 @@ def test_deposit_inputs_are_snapshotted_and_uploaded(
             input_file_ids=[deposit.id],
         )
     assert foreign.value.code == "REMOTE_RUNNER_NOT_FOUND"
+
+
+def test_translation_commands_need_their_runner_paths(db_session, runner):
+    from app.services.remote_runners import catalog as cat
+
+    spec, _model, argv = cat.validate(
+        "translation_suite.prepare",
+        {"lot": "L-7", "targets": ["de-DE", "it-IT"]},
+        {
+            "translation.repo": "/srv/mt",
+            "translation.python": "/srv/venv/bin/python",
+            "translation.base_dir": "/srv/agentium-lots",
+        },
+    )
+    assert argv[:6] == [
+        "env",
+        "PYTHONPATH=/srv/mt",
+        "/srv/venv/bin/python",
+        "-m",
+        "ts.runner",
+        "prepare",
+    ]
+    assert argv[-4:] == ["--target", "de-DE", "--target", "it-IT"]
+    assert "inputs/pack.zip" in argv
+    with pytest.raises(cat.CatalogError) as missing:
+        cat.validate(
+            "translation_suite.translate", {"lot": "L-7"}, {"translation.repo": "relative"}
+        )
+    assert missing.value.code == "REMOTE_RUNNER_PATH_LABEL_MISSING"
+    with pytest.raises(cat.CatalogError):
+        cat.validate("translation_suite.prepare", {"lot": "../etc"}, {})
+    runner.allowed_commands = [*runner.allowed_commands, "translation_suite.translate"]
+    db_session.commit()
+    with pytest.raises(runners.RunnerError) as refused:
+        submit(db_session, runner, "translation_suite.translate", {"lot": "L-7"})
+    assert refused.value.code == "REMOTE_RUNNER_PATH_LABEL_MISSING"
+
+
+def test_documents_are_staged_as_inputs(db_session, runner):
+    runner.allowed_commands = [*runner.allowed_commands, "tests.read_doc"]
+    db_session.commit()
+    job = submit(
+        db_session,
+        runner,
+        "tests.read_doc",
+        input_documents={"decisions.jsonl": [{"item_ref": "a"}, {"item_ref": "b"}]},
+    )
+    settle(db_session, job, until={"succeeded", "failed"})
+    assert job.status == "succeeded", job.error_detail
+    assert job.result == {"lines": 2}
+    with pytest.raises(runners.RunnerError):
+        submit(db_session, runner, "tests.read_doc", input_documents={"../x.json": {}})
+
+
+READ_DOC = catalog.register(
+    catalog.CommandSpec(
+        key="tests.read_doc",
+        title="Count the lines of a staged document",
+        risk="compute",
+        mode="detached",
+        params=catalog._NoParams,
+        build=lambda _p, _r: [
+            "sh",
+            "-c",
+            'printf \'{"lines": %s}\' "$(wc -l < inputs/decisions.jsonl)" > result.json',
+        ],
+        timeout_s=60,
+    )
+)
