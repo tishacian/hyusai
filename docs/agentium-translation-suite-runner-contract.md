@@ -2,8 +2,8 @@
 
 **Status:** contract, 23 October 2026. The Agentium side (catalog
 `translation_suite.*` in `backend/app/services/remote_runners/catalogs/`) is
-implemented; the machine side, a `ts.runner` entry point in the translation
-pipeline repository, is still to be written against this document.
+implemented; the machine side is the `ts.runner` entry point of the
+translation pipeline repository, qualified on a GPU runner on 23 October 2026.
 
 ## How a command runs
 
@@ -47,6 +47,13 @@ Every subcommand must:
 | `audit` | none | the lot | `{verdict: "pass" \| "fail", layers: {<layer>: "pass" \| "fail" \| "info"}}` | `audit.json` |
 | `reinject` | `--decisions inputs/decisions.jsonl` | reviewers' decisions | `{applied: n, skipped: n, requalified_topics: n}` | `reinject_report.json` |
 | `package` | `--producer-commit <sha>` (optional) | the lot | `{verdict: "pass" \| "blocked", blockers: [..]}` | `package.zip`, `release_certificate.json` |
+
+`package` only returns `pass` when the release certificate is `ACCEPTED`:
+the certificate requires the full locale set (39), the cleanroom quality
+report and the resolved-view receipts of the archive. Otherwise the built
+archive stays on the machine, `result.json` lists the certificate blockers
+(`certificate:<code>`) and no `package.zip` is returned. `audit` and the
+archive audit inside `package` fail when no file was checked.
 
 `translate` runs the scheduler in the foreground: the job ends when the lot is
 translated, never by polling a marker file. Completion is read from the topic
