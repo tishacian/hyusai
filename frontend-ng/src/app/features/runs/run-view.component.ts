@@ -156,7 +156,7 @@ import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up
                 @for (inv of skillInvocations(); track inv.id || $index) {
                   @if (inv.id) {
                     <a
-                      [navLink]="{ type: 'skill_invocation', ref: inv.id }"
+                      [navLink]="{ type: 'skill_invocation', runId: run()?.id, ref: inv.id }"
                       class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] hover:bg-white/[0.07] ring-1 ring-white/10 text-xs"
                     >
                       <span class="font-mono text-cyan-200">{{ inv.skill_slug || inv.skill_id || inv.id }}</span>
@@ -485,7 +485,7 @@ import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up
                     <div class="flex items-baseline justify-between gap-3">
                       @if (inv.id) {
                         <a
-                          [navLink]="{ type: 'skill_invocation', ref: inv.id }"
+                          [navLink]="{ type: 'skill_invocation', runId: run()?.id, ref: inv.id }"
                           class="font-mono text-sm text-white truncate hover:text-cyan-300"
                         >{{ inv.skill_slug || inv.skill_id || i18n.t('runs.detail.trail.invocation_fallback') }}</a>
                       } @else if (inv.skill_slug) {

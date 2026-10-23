@@ -2115,7 +2115,7 @@ export class PredictionBlock {
           [recordRef]="record"
           [selectedRunId]="shownRun()"
           [refreshKey]="refreshKey()"
-          (selectRun)="pinned.set($event)"
+          (selectRun)="pin(record, $event)"
           (latestRun)="latest.set($event)"
         />
       } @else {
@@ -2127,6 +2127,7 @@ export class PredictionBlock {
 export class RecordFollowUpBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
   private readonly route = inject(ActivatedRoute, { optional: true });
+  private readonly router = inject(Router, { optional: true });
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
@@ -2159,6 +2160,17 @@ export class RecordFollowUpBlock {
       this.recordRef();
       this.refreshKey();
       untracked(() => this.pinned.set(null));
+    });
+  }
+
+  /** The chosen attempt goes into the address, so a reload or a shared link keeps it. */
+  pin(record: string, runId: string): void {
+    this.pinned.set(runId);
+    void this.router?.navigate([], {
+      relativeTo: this.route ?? undefined,
+      queryParams: { record, attempt: runId },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 }
