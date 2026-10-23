@@ -19,9 +19,6 @@ from app.services.ecommerce import policy_settings
 from app.services.ecommerce.resolution_policy import ResolutionPolicy
 from app.services.experience import lifecycle
 
-# Registers the claims record identity with the Work attempt ledger.
-from app.services.ecommerce import record_identity as _claims_record_identity  # noqa: E402,F401
-
 router = APIRouter()
 
 

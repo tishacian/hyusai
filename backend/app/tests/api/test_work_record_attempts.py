@@ -144,6 +144,41 @@ def test_backfill_preview_classifies_runs_and_writes_nothing(sample, db_session)
     assert db_session.query(WorkRecordRun).count() == 0
 
 
+
+def test_backfill_preview_links_runs_through_a_business_reader(db_session, monkeypatch):
+    """The preview loads readers' providers itself: a claims Run whose release
+    declares no identity is still proven, with an empty registry as in a script."""
+    from app.services.ecommerce import claims
+    from app.services.ecommerce import record_identity as claims_identity
+    from app.services.experience import record_identity
+    from scripts.preview_work_record_runs_backfill import preview
+
+    workspace, user = helpers._seed(db_session)
+    helpers._seed_binding(db_session, workspace, user)  # no identity declared on the binding
+    studio = helpers._experiences_client(db_session, workspace, user)
+    with monkeypatch.context() as patch:
+        patch.setattr(helpers, "_pages", _action_pages)
+        helpers._publish(studio, binding_key="work.reset")
+    client = helpers._client(db_session, workspace, user, monkeypatch)
+    run_id = _invoke(SimpleNamespace(client=client), "claims-history")
+    run = db_session.get(Run, run_id)
+    run.input_ref = {**run.input_ref, "claim_id": "RC-1042"}
+    db_session.query(WorkRecordRun).delete()
+    db_session.commit()
+
+    monkeypatch.setattr(claims_identity, "CLAIMS_APP_SLUG", "password-reset")
+    monkeypatch.setattr(claims_identity, "INVESTIGATE_BINDING", "work.reset")
+    monkeypatch.setattr(claims, "_config", lambda ws: {"allowed_claim_ids": ["RC-1042"]})
+    monkeypatch.setattr(record_identity, "_PROVIDERS", [])
+    monkeypatch.setattr(record_identity, "_loaded", False, raising=False)
+
+    report = preview(db_session, workspace_id=workspace.id)
+
+    assert report["counts"] == {"would_link": 1}
+    assert report["sample"][0]["run_id"] == run_id
+    assert (report["sample"][0]["namespace"], report["sample"][0]["record_ref"]) == ("claim", "RC-1042")
+    assert db_session.query(WorkRecordRun).count() == 0
+
 def test_a_business_reader_can_supply_the_identity_without_republishing(db_session, monkeypatch):
     from app.services.experience import record_identity
 
