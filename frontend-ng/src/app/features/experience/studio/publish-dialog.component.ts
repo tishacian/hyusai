@@ -31,6 +31,7 @@ import {
 import {
   canCreateRelease,
   canDeploy,
+  readyIssueDetail,
   releaseSemanticDiff,
   type ReleaseDiffCategory,
   type ReleaseDiffItem,
@@ -622,11 +623,11 @@ export class ExperiencePublishDialogComponent {
   issueText(issue: ReadyIssue): string {
     const code = issue.code?.toLowerCase();
     const key = code ? `experience.publish.issue.${code}` : '';
-    const translated = key ? this.i18n.t(key) : '';
+    const { params, context } = readyIssueDetail(issue);
+    const translated = key ? this.i18n.t(key, params) : '';
     const label = translated && translated !== key
       ? translated
       : issue.message || issue.code || this.i18n.t('experience.publish.error');
-    const context = issue.component_id || issue.binding_key || issue.path;
     return context ? `${label} · ${context}` : label;
   }
 

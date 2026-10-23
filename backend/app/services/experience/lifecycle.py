@@ -2453,6 +2453,61 @@ def _form_schema_supported(schema: Mapping[str, Any]) -> bool:
     return True
 
 
+def _unfed_step_input_warnings(
+    db: DBSession, *, workspace: Any, resolved_by_key: Mapping[str, Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Warn (never block) when a step requires a field nothing in its Flow provides.
+
+    The engine decides what reaches each step (``unfed_required_inputs``);
+    publication only relays it. Any failure to read the Flow yields no warning.
+    """
+    from app.models.system import System
+    from app.services.run_engine.input_coverage import unfed_required_inputs
+    from app.services.systems import flow_publication
+
+    warnings: list[dict[str, Any]] = []
+    for key, resolved in resolved_by_key.items():
+        binding = resolved.get("binding") if isinstance(resolved, Mapping) else None
+        if resolved.get("status") != "ok" or not isinstance(binding, Mapping):
+            continue
+        try:
+            system = (
+                db.query(System)
+                .filter(System.id == binding.get("system_id"), System.workspace_id == workspace.id)
+                .one_or_none()
+            )
+            if system is None:
+                continue
+            _, flow, _, _ = flow_publication.version_run_evidence(
+                db,
+                system=system,
+                workspace=workspace,
+                version_id=binding.get("published_flow_version_id"),
+            )
+            gaps = unfed_required_inputs(
+                db,
+                workspace=workspace,
+                system=system,
+                flow=flow,
+                input_schema=resolved.get("input_schema"),
+            )
+        except Exception:  # noqa: BLE001 - a warning must never break the check
+            continue
+        for gap in gaps:
+            warnings.append(
+                {
+                    "code": "STEP_INPUT_UNFED",
+                    "message": "A step requires a field that no form field or previous step provides.",
+                    "binding_key": key,
+                    "step": gap["step"],
+                    "node_id": gap["node_id"],
+                    "skill": gap["skill_name"] or gap["skill_slug"],
+                    "field": gap["field"],
+                }
+            )
+    return warnings
+
+
 def _binding_contract_issues(
     pages: Mapping[str, Any], resolved_by_key: Mapping[str, Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -2860,6 +2915,7 @@ def _ready_check_document(
     blockers.extend(_implicit_action_issues(pages))
     blockers.extend(_record_follow_up_issues(pages))
     blockers.extend(_binding_contract_issues(pages, resolved_by_key))
+    warnings.extend(_unfed_step_input_warnings(db, workspace=workspace, resolved_by_key=resolved_by_key))
     if pattern in DATA_LED_PATTERNS and not _has_template_data_source(pages):
         blockers.append(
             {
