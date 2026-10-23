@@ -1037,17 +1037,34 @@ export function recordFollowUpConfig(node: ExperienceNode): RecordFollowUpConfig
   return bindingKey && recordField && source ? { bindingKey, recordField, source } : null;
 }
 
+interface FollowUpFacts {
+  queryRecord?: string | null;
+  runInput?: unknown;
+  lastPayload?: unknown;
+}
+
+const cleanRef = (value: unknown) =>
+  (typeof value === 'string' || typeof value === 'number') && String(value).trim() ? String(value).trim() : null;
+
+function actionRecordRef(config: RecordFollowUpConfig, facts: FollowUpFacts): string | null {
+  const fromRun = isRecord(facts.runInput) ? cleanRef(facts.runInput[config.recordField]) : null;
+  return fromRun ?? (isRecord(facts.lastPayload) ? cleanRef(facts.lastPayload[config.recordField]) : null);
+}
+
 /**
  * The record a follow-up block shows. From the page address (`?record=`), or
- * from the followed action: its current Run's input, else what it last sent.
+ * from the followed action: its current Run's input, else what it last sent,
+ * else the record the page address names (a link from a Run lands here before
+ * the reader has sent anything).
  */
-export function followUpRecordRef(
-  config: RecordFollowUpConfig | null,
-  facts: { queryRecord?: string | null; runInput?: unknown; lastPayload?: unknown },
-): string | null {
+export function followUpRecordRef(config: RecordFollowUpConfig | null, facts: FollowUpFacts): string | null {
   if (!config) return null;
-  const clean = (value: unknown) => (typeof value === 'string' || typeof value === 'number') && String(value).trim() ? String(value).trim() : null;
-  if (config.source.kind === 'url') return clean(facts.queryRecord);
-  const fromRun = isRecord(facts.runInput) ? clean(facts.runInput[config.recordField]) : null;
-  return fromRun ?? (isRecord(facts.lastPayload) ? clean(facts.lastPayload[config.recordField]) : null);
+  if (config.source.kind === 'url') return cleanRef(facts.queryRecord);
+  return actionRecordRef(config, facts) ?? cleanRef(facts.queryRecord);
+}
+
+/** True when the shown record is the one the page address names, so its `?attempt=` applies. */
+export function followUpRecordFromAddress(config: RecordFollowUpConfig | null, facts: FollowUpFacts): boolean {
+  if (!config || !cleanRef(facts.queryRecord)) return false;
+  return config.source.kind === 'url' || actionRecordRef(config, facts) === null;
 }

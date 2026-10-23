@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   CATALOG_0_2_RENDERER_VERSION,
   CERTIFIED_RENDERER_VERSION,
+  followUpRecordFromAddress,
   followUpRecordRef,
   localizeDocument,
   recordFollowUpConfig,
@@ -45,6 +46,14 @@ test('the block reads its record from the page address or from the followed acti
   assert.equal(followUpRecordRef(byAction, { runInput: { claim_id: 'RC-1043' }, lastPayload: { claim_id: 'RC-1' } }), 'RC-1043');
   assert.equal(followUpRecordRef(byAction, { lastPayload: { claim_id: 'RC-1044' } }), 'RC-1044');
   assert.equal(followUpRecordRef(byAction, {}), null);
+  // A link from a Run (`?record=&attempt=`) lands on an action-fed block: the
+  // address names the record until the reader sends the action again.
+  assert.equal(followUpRecordRef(byAction, { queryRecord: 'RC-5003' }), 'RC-5003');
+  assert.equal(followUpRecordFromAddress(byAction, { queryRecord: 'RC-5003' }), true);
+  assert.equal(followUpRecordRef(byAction, { queryRecord: 'RC-5003', lastPayload: { claim_id: 'RC-1044' } }), 'RC-1044');
+  assert.equal(followUpRecordFromAddress(byAction, { queryRecord: 'RC-5003', lastPayload: { claim_id: 'RC-1044' } }), false);
+  assert.equal(followUpRecordFromAddress(byUrl, { queryRecord: 'RC-1042' }), true);
+  assert.equal(followUpRecordFromAddress(byAction, {}), false);
   // An incomplete or free-form configuration renders as "not linked yet".
   assert.equal(recordFollowUpConfig({ type: 'record_follow_up', props: { followBindingKey: 'k', recordField: 'claim_id', recordSource: { kind: 'json' } } }), null);
   assert.equal(recordFollowUpConfig({ type: 'record_follow_up', props: {} }), null);

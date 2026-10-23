@@ -60,6 +60,7 @@ import {
   unavailablePolicy,
   validateValues,
   valuesToPayload,
+  followUpRecordFromAddress,
   followUpRecordRef,
   recordFollowUpConfig,
 } from './model';
@@ -2135,16 +2136,17 @@ export class RecordFollowUpBlock {
     record: params.get('record'), attempt: params.get('attempt'),
   }))) ?? of({ record: null, attempt: null }), { initialValue: { record: null, attempt: null } });
   private readonly sourceRun = computed(() => this.runtime.run(this.context().sourceStateKey));
-  readonly recordRef = computed(() => followUpRecordRef(this.config(), {
+  private readonly facts = computed(() => ({
     queryRecord: this.query().record,
     runInput: this.sourceRun()?.input_ref,
     lastPayload: this.runtime.state(this.context().sourceStateKey).lastInvoke?.payload,
   }));
+  readonly recordRef = computed(() => followUpRecordRef(this.config(), this.facts()));
   /** Attempt the reader chose; the page address may name one too. */
   readonly pinned = signal<string | null>(null);
   readonly latest = signal<string | null>(null);
   readonly shownRun = computed(() => this.pinned()
-    ?? (this.config()?.source.kind === 'url' ? this.query().attempt : null)
+    ?? (followUpRecordFromAddress(this.config(), this.facts()) ? this.query().attempt : null)
     ?? this.latest());
   /** A new run of the followed action is listed and shown. */
   readonly refreshKey = computed(() => {
