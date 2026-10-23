@@ -8,8 +8,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "149_remote_runners"
-down_revision = "148_work_record_backfill"
+revision = "150_remote_runners"
+down_revision = "149_deployment_withdrawn"
 branch_labels = depends_on = None
 
 
