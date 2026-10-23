@@ -31,6 +31,20 @@ EXPERIENCE_PATTERNS = (
 )
 DEPLOYMENT_CHANNELS = ("pilot", "live")
 DEFAULT_RENDERER_VERSION = "certified-components-0.2.0"
+# 0.3.0 adds the "record_follow_up" block. A release is pinned to 0.3.0 only
+# when it uses a 0.3.0 component, so every other release keeps 0.2.0 and
+# renders exactly as before.
+RENDERER_VERSION_0_3 = "certified-components-0.3.0"
+RENDERER_0_3_COMPONENT_TYPES = frozenset({"record_follow_up"})
+
+
+def renderer_version_for(pages: object) -> str:
+    """The oldest certified catalog able to render these pages."""
+    for page in (pages or {}).get("pages", []) if isinstance(pages, dict) else []:
+        for component in (page or {}).get("components", []) if isinstance(page, dict) else []:
+            if isinstance(component, dict) and component.get("type") in RENDERER_0_3_COMPONENT_TYPES:
+                return RENDERER_VERSION_0_3
+    return DEFAULT_RENDERER_VERSION
 
 
 def _enum_check(column: str, values: tuple[str, ...]) -> str:

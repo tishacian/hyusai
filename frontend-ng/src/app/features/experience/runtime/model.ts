@@ -8,9 +8,15 @@
  * different `renderer_version` must not render — show the repair state instead.
  */
 
-export const CERTIFIED_RENDERER_VERSION = 'certified-components-0.2.0';
+export const CERTIFIED_RENDERER_VERSION = 'certified-components-0.3.0';
+/**
+ * Catalog 0.2.0, frozen: releases pinned to it render with exactly these
+ * types. 0.3.0 adds `record_follow_up`; the server pins a release to 0.3.0
+ * only when it uses it.
+ */
+export const CATALOG_0_2_RENDERER_VERSION = 'certified-components-0.2.0';
 
-export const CERTIFIED_TYPES = [
+const CATALOG_0_2_TYPES = [
   'section',
   'header',
   'form',
@@ -32,7 +38,14 @@ export const CERTIFIED_TYPES = [
   'decision_queue',
 ] as const;
 
+export const CERTIFIED_TYPES = [...CATALOG_0_2_TYPES, 'record_follow_up'] as const;
+
 export type CertifiedType = (typeof CERTIFIED_TYPES)[number];
+
+/** Types a catalog version renders; an unknown version gets the latest. */
+export function catalogTypes(version: string | null | undefined): readonly string[] {
+  return version === CATALOG_0_2_RENDERER_VERSION ? CATALOG_0_2_TYPES : CERTIFIED_TYPES;
+}
 
 export interface ExperienceNode {
   type: string;
@@ -103,9 +116,9 @@ export type CatalogResolution =
   | { kind: 'ok'; type: CertifiedType }
   | { kind: 'fallback'; type: string };
 
-export function resolveCatalogType(type: string): CatalogResolution {
+export function resolveCatalogType(type: string, version: string = CERTIFIED_RENDERER_VERSION): CatalogResolution {
   if (type === 'page') return { kind: 'skip' };
-  if ((CERTIFIED_TYPES as readonly string[]).includes(type)) {
+  if (catalogTypes(version).includes(type)) {
     return { kind: 'ok', type: type as CertifiedType };
   }
   return { kind: 'fallback', type };
@@ -1001,4 +1014,40 @@ export type UnavailablePolicy = 'empty' | 'unavailable' | 'admin-repair';
 export function unavailablePolicy(value: unknown): UnavailablePolicy {
   if (value === 'empty' || value === 'admin-repair') return value;
   return 'unavailable';
+}
+
+/** Configuration of a `record_follow_up` block (catalog 0.3.0). */
+export interface RecordFollowUpConfig {
+  /** Binding of the followed action; its Runs make the record's attempts. */
+  bindingKey: string;
+  /** Input field of that action that carries the record reference. */
+  recordField: string;
+  /** Where the record comes from: the page address, or an action's last run. */
+  source: { kind: 'url' } | { kind: 'action'; componentId: string };
+}
+
+export function recordFollowUpConfig(node: ExperienceNode): RecordFollowUpConfig | null {
+  const props = node.props ?? {};
+  const bindingKey = typeof props['followBindingKey'] === 'string' ? props['followBindingKey'].trim() : '';
+  const recordField = typeof props['recordField'] === 'string' ? props['recordField'].trim() : '';
+  const raw = isRecord(props['recordSource']) ? props['recordSource'] : {};
+  const source = raw['kind'] === 'action' && typeof raw['componentId'] === 'string' && raw['componentId'].trim()
+    ? { kind: 'action' as const, componentId: raw['componentId'].trim() }
+    : raw['kind'] === 'url' ? { kind: 'url' as const } : null;
+  return bindingKey && recordField && source ? { bindingKey, recordField, source } : null;
+}
+
+/**
+ * The record a follow-up block shows. From the page address (`?record=`), or
+ * from the followed action: its current Run's input, else what it last sent.
+ */
+export function followUpRecordRef(
+  config: RecordFollowUpConfig | null,
+  facts: { queryRecord?: string | null; runInput?: unknown; lastPayload?: unknown },
+): string | null {
+  if (!config) return null;
+  const clean = (value: unknown) => (typeof value === 'string' || typeof value === 'number') && String(value).trim() ? String(value).trim() : null;
+  if (config.source.kind === 'url') return clean(facts.queryRecord);
+  const fromRun = isRecord(facts.runInput) ? clean(facts.runInput[config.recordField]) : null;
+  return fromRun ?? (isRecord(facts.lastPayload) ? clean(facts.lastPayload[config.recordField]) : null);
 }
