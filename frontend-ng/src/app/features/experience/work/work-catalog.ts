@@ -156,12 +156,27 @@ export function workTheme(theme: Record<string, unknown> | null | undefined): {
   mode: 'light' | 'dark';
   accent: string;
   onAccent: string;
+  /** True when the release chose a mode; otherwise the reader's preference applies. */
+  declaredMode?: boolean;
 } {
+  const declared = theme?.['mode'] === 'dark' || theme?.['mode'] === 'light';
   const mode = theme?.['mode'] === 'dark' ? 'dark' : 'light';
   const accent = typeof theme?.['accent'] === 'string' && /^#[0-9a-f]{6}$/i.test(theme['accent'])
     ? theme['accent']
     : '';
-  return { mode, accent, onAccent: accent ? onAccentColor(accent) : '' };
+  return { mode, accent, onAccent: accent ? onAccentColor(accent) : '', ...(declared ? { declaredMode: true } : {}) };
+}
+
+/**
+ * One theme rule for every Work page, generic or specialised: the release's
+ * declared mode, otherwise the reader's own preference. No page is forced
+ * light or dark on its own.
+ */
+export function workThemeMode(
+  theme: { mode: 'light' | 'dark'; declaredMode?: boolean } | null | undefined,
+  readerMode: 'light' | 'dark',
+): 'light' | 'dark' {
+  return theme?.declaredMode ? theme.mode : readerMode;
 }
 
 export function launcherDecision(apps: readonly WorkExperience[]): LauncherDecision {

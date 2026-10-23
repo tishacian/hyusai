@@ -1,3 +1,4 @@
+import { ThemeService } from '@app/core/theme.service';
 import { SpecializedAppContractComponent } from '@app/shared/ui/specialized-app-contract.component';
 import { DecisionRightComponent, mayDecide } from '@app/shared/ui/decision-right.component';
 import { CommonModule } from '@angular/common';
@@ -138,7 +139,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
   imports: [SpecializedAppContractComponent, CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent, WorkBarComponent, WorkAppHeaderComponent, DecisionRightComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-studio" data-brand-scope data-theme="dark" [ngStyle]="brandStyles()">
+    <div class="xp-work xp-studio" data-brand-scope [attr.data-theme]="readerTheme.resolved()" [ngStyle]="brandStyles()">
       <app-work-bar
         [appContext]="i18n.t('experience.pr_to_po.studio.title')"
         creatorLabelKey="experience.work.open_cockpit"
@@ -873,9 +874,10 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
    * and accent a workspace declares in platform_brand.appearance, else the
    * product's dark tokens. work.scss derives every --studio-* token from them.
    */
+  readonly readerTheme = inject(ThemeService);
   readonly brandStyles = computed(() => {
     const brand = this.workspace.current()?.settings?.['platform_brand'] as Record<string, unknown> | undefined;
-    return appearanceStyles(brand?.['appearance'], 'dark');
+    return appearanceStyles(brand?.['appearance'], this.readerTheme.resolved());
   });
 
   private readonly context = factoryRuntimeContext();

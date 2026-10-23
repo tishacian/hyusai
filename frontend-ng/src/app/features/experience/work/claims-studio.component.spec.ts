@@ -24,7 +24,7 @@ function harness() {
   const writes: Array<{ run: Run; action: string; answer: Subject<DecisionOutcome> }> = [];
   const checks: Array<{ run: Run; answer: Subject<DecisionCheck> }> = [];
   const component = Object.assign(Object.create(ClaimsStudioComponent.prototype), {
-    run, decisionNotices, generation: 0, appMissing: signal(false),
+    run, decisionNotices, generation: 0, appMissing: signal(false), releaseTheme: signal(null),
     pinnedRun: signal<string | null>(null), attemptsRefresh: signal(0),
     route: { snapshot: { queryParamMap: new Map<string, string>() } }, router: { navigate: async () => true },
     decisionNotice: computed(() => noticeForRun(decisionNotices(), workspaceId(), run())),
