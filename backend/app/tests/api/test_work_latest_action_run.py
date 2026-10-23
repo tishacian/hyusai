@@ -287,3 +287,66 @@ def test_my_own_result_is_marked_as_mine(sample):
     body = _latest(sample).json()["run"]
     assert body["id"] == run_id
     assert body["started_by_reader"] is True
+
+
+def _fieldless_form_pages(_key):
+    return {
+        "pages": [{
+            "id": "home",
+            "title": "Home",
+            "components": [{
+                "type": "form",
+                "id": "refresh-form",
+                "props": {
+                    "bindingKey": "work.reset",
+                    "schema": {"type": "object", "additionalProperties": False, "properties": {}},
+                },
+            }],
+        }],
+    }
+
+
+def test_a_form_without_any_field_resumes_the_teams_last_result(db_session, monkeypatch):
+    """A form with nothing to fill in always submits the same input: it is a
+    fixed action, so the team's last result is shown with its author."""
+    empty = {"type": "object", "additionalProperties": False, "properties": {}}
+    monkeypatch.setattr(helpers, "_input_schema", lambda **_: dict(empty))
+    workspace, user = helpers._seed(db_session)
+    helpers._seed_binding(db_session, workspace, user)
+    studio = helpers._experiences_client(db_session, workspace, user)
+    with monkeypatch.context() as patch:
+        patch.setattr(helpers, "_pages", _fieldless_form_pages)
+        _, release_id = helpers._publish(studio, binding_key="work.reset")
+    client = helpers._client(db_session, workspace, user, monkeypatch)
+    started = client.post(
+        PATH,
+        json={"payload": {}, "page_id": "home", "component_id": "refresh-form"},
+        headers={"Idempotency-Key": "fieldless-form-00000001"},
+    )
+    assert started.status_code == 201, started.text
+    run = db_session.get(Run, started.json()["id"])
+    teammate = _member(db_session, workspace, "work-teammate", "workspace_contributor")
+    run.initiated_by_user_id = teammate.id
+    db_session.commit()
+
+    response = client.get(
+        PATH + "/latest",
+        params={"page_id": "home", "component_id": "refresh-form", "release_id": release_id},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()["run"]
+    assert body["id"] == run.id
+    assert body["started_by_reader"] is False
+    assert body["started_by"] == "work-teammate"
+
+
+def test_fixed_input_rule():
+    fixed = endpoint._fixed_released_input
+    assert fixed({"type": "action_button", "props": {"bindingKey": "k", "input": {"q": 1}}}, "k") == {"q": 1}
+    assert fixed({"type": "action_button", "props": {"bindingKey": "other"}}, "k") is None
+    assert fixed({"type": "form", "props": {"bindingKey": "k", "schema": {"type": "object", "properties": {}}}}, "k") == {}
+    assert fixed({"type": "form", "props": {"bindingKey": "k", "schema": {"type": "object"}}}, "k") == {}
+    with_field = {"type": "object", "properties": {"q": {"type": "string"}}}
+    assert fixed({"type": "form", "props": {"bindingKey": "k", "schema": with_field}}, "k") is None
+    assert fixed({"type": "form", "props": {"bindingKey": "k", "schema": {"required": ["q"]}}}, "k") is None
+    assert fixed({"type": "form", "props": {"bindingKey": "k"}}, "k") is None

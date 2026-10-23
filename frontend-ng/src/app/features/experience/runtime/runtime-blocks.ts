@@ -41,6 +41,7 @@ import {
   extractCitations,
   extractResult,
   fieldsFromSchema,
+  formHasFixedInput,
   humanizeIdentifier,
   isReadyFileReference,
   mapRunStatus,
@@ -1539,7 +1540,24 @@ export class FormBlock {
         this.confirmation = resolved.binding.confirmation_policy === 'confirm';
       });
     });
+    // A form without any field always submits the same input: like a fixed
+    // action, it shows the team's last result. The server rechecks audience
+    // and Run read rights; nothing is submitted.
+    effect((onCleanup) => {
+      const { context, bindingKey: key, fixed } = this.restoreContext();
+      if (!fixed || !key || context.mode !== 'live') return;
+      const restoration = untracked(() => this.runtime.restore(context, key).subscribe());
+      onCleanup(() => restoration.unsubscribe());
+    });
   }
+
+  private readonly restoreContext = computed(() => {
+    const context = this.context(), bindingKey = this.bindingKey(), fixed = formHasFixedInput(this.node().props?.['schema']);
+    return { context, bindingKey, fixed, key: JSON.stringify([
+      context.experienceSlug, context.releaseId, context.pageId, context.componentId,
+      context.stateKey, context.mode, bindingKey, fixed,
+    ]) };
+  }, { equal: (a, b) => a.key === b.key });
 
   private confirmation = false;
 
