@@ -1,4 +1,5 @@
 import '@angular/compiler';
+import { ApiService } from '@app/core/api.service';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector, signal } from '@angular/core';
@@ -89,6 +90,7 @@ test('Run facets track history, merge tab changes and refresh can force store in
       RunViewComponent,
       { provide: ActivatedRoute, useValue: route },
       { provide: Router, useValue: router },
+      { provide: ApiService, useValue: { get: () => of({ run_ids: [], ambiguous: false }) } },
       {
         provide: CanonicalApiService,
         useValue: { getRun: () => of(null), getRunFiles: () => of([]) },
@@ -140,6 +142,7 @@ test('Run loads its projection when the effective gate activates in the same wor
         },
       },
       { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+      { provide: ApiService, useValue: { get: () => of({ run_ids: [], ambiguous: false }) } },
       {
         provide: CanonicalApiService,
         useValue: { getRun: () => of(null), getRunFiles: () => of([]) },
@@ -194,6 +197,7 @@ test('overview exposes Temps passé to open the trace facet and never embeds the
           },
         },
       },
+      { provide: ApiService, useValue: { get: () => of({ run_ids: [], ambiguous: false }) } },
       {
         provide: CanonicalApiService,
         useValue: {

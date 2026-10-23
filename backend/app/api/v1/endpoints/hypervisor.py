@@ -53,6 +53,7 @@ from app.services.recommendations.proactive_service import (
 from app.services.run_access import readable_runs
 from app.services.value_loop_gate import value_loop_enabled, value_loop_requested
 from app.services.value_scenario_access import readable_value_scenarios
+from app.services.decision_titles import display_title
 
 router = APIRouter()
 
@@ -909,7 +910,7 @@ async def portfolio_value_loop(
                     {
                         "id": decision.id,
                         "status": decision.status,
-                        "title": decision.title,
+                        "title": display_title(decision.title),
                     }
                     if decision is not None
                     else None
@@ -1263,7 +1264,7 @@ async def list_recommendations(
                 "id": d.id,
                 "scope": d.scope,
                 "target_id": d.target_id,
-                "title": d.title,
+                "title": display_title(d.title),
                 "rationale": d.rationale or {},
                 "impact_estimate": d.impact_estimate or {},
                 "status": d.status,
@@ -1350,7 +1351,7 @@ def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
         "target_id": d.target_id,
         "kind": d.kind,
         "status": d.status,
-        "title": d.title,
+        "title": display_title(d.title),
         "created_at": d.created_at.isoformat() if d.created_at else None,
         "approved_by": d.approved_by,
         "applied_at": d.applied_at.isoformat() if getattr(d, "applied_at", None) else None,

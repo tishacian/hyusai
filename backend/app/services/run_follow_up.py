@@ -25,6 +25,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from app.services.decision_titles import display_title
+
 EVALUATION_STOPPED_AT_HUMAN_GATE = "EVALUATION_STOPPED_AT_HUMAN_GATE"
 
 BUSINESS_STATES = (
@@ -251,7 +253,7 @@ def run_follow_up_detail(
     decision_state = run_decision_state(run, decision=decision, now=now)
     proposal = None
     if payload_visible:
-        proposal = (
+        proposal = display_title(
             (decision_state or {}).get("title")
             or _text((_last_checkpoint(run, "hitl_pause") or {}).get("prompt"))
             or _text(getattr(run, "decision", None))

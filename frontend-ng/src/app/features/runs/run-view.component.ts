@@ -1,4 +1,6 @@
 import { formatInstant } from '@app/core/format-instant';
+import { ApiService } from '@app/core/api.service';
+import { isShortRunReference, shortReferenceOutcome } from './run-reference';
 import { STRICT, settleWrite, type WriteOutcome } from '@app/shared/ui/load-state';
 import { WriteOutcomeComponent } from '@app/shared/ui/write-outcome.component';
 import { RetrainingRunApprovalComponent } from '@app/features/models/retraining-run-approval.component';
@@ -256,7 +258,7 @@ import { runStatusLabel, stoppedAtReviewBoundary } from '@app/core/run-follow-up
         <app-empty-state
           icon="alert-triangle"
           [title]="i18n.t('runs.detail.not_found.title')"
-          [description]="i18n.t('runs.detail.not_found.description')"
+          [description]="i18n.t(shortReference() === 'ambiguous' ? 'runs.detail.not_found.ambiguous' : shortReference() === 'none' ? 'runs.detail.not_found.short' : 'runs.detail.not_found.description')"
         />
       } @else if (showingTrace()) {
         @if (arrivalChipLabel(); as chip) {
@@ -675,6 +677,9 @@ export class RunViewComponent implements OnInit, OnDestroy {
       zone: this.i18n.t(this.navigation.zoneI18nKey()),
     });
   }
+  private readonly api = inject(ApiService);
+  /** A short reference (e.g. "f0f481fb") that matched no, or several, readable Runs. */
+  protected readonly shortReference = signal<'ambiguous' | 'none' | null>(null);
   private routeSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private loadSubscription: Subscription | null = null;
@@ -889,16 +894,36 @@ export class RunViewComponent implements OnInit, OnDestroy {
         if (!this.workspaceView.isCurrent(request) || id !== this.runId()) return;
         this.run.set(r);
         this.loading.set(false);
+        if (!r) this.resolveShortReference(id, request);
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || id !== this.runId()) return;
         this.run.set(null);
         this.loading.set(false);
+        this.resolveShortReference(id, request);
       },
     });
     this.loadSubscription = subscription.closed ? null : subscription;
     this.loadFiles(id);
     this.loadPerspectives(id, request, forcePerspectiveRefresh);
+  }
+
+  /** Open the full Run a short reference names, or say why it cannot. */
+  private resolveShortReference(id: string, request: WorkspaceViewRequest): void {
+    this.shortReference.set(null);
+    if (!isShortRunReference(id)) return;
+    this.api.get<{ run_ids?: string[]; ambiguous?: boolean }>('/runs/resolve', { prefix: id }).subscribe({
+      next: (resolved) => {
+        if (!this.workspaceView.isCurrent(request) || id !== this.runId()) return;
+        const outcome = shortReferenceOutcome(resolved);
+        if (outcome.kind === 'open') {
+          void this.router.navigate(['/runs', outcome.runId], { replaceUrl: true, queryParamsHandling: 'preserve' });
+        } else {
+          this.shortReference.set(outcome.kind);
+        }
+      },
+      error: () => undefined,
+    });
   }
 
   private loadFiles(id: string): void {

@@ -1298,6 +1298,15 @@
 
 .xp-preview-denied p { margin: 0; color: var(--ck-fg-4); }
 
+/* The test preview sits under the canvas: it never eats the preview, and it
+   scrolls on its own when a test has many outputs. */
+.xp-ed-canvas app-studio-test-preview {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow: auto;
+  margin: 0 18px 12px;
+}
+
 .xp-ed-canvas .xp-assist {
   flex: 0 0 auto;
   margin: 0 18px 12px;

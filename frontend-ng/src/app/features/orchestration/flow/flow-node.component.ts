@@ -255,6 +255,9 @@ export class FlowNodeComponent {
     : this.run?.isActiveNode(this.node().id) ?? false);
   readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
   readonly canRunStep = computed(() => {
+    // A published version is read only: the isolated preview cannot open there,
+    // so the control is not offered (it would do nothing).
+    if (this.persistence?.readOnly?.()) return false;
     const node = this.node();
     if ((node.kind ?? 'task') !== 'task') return false;
     const config = node.config ?? {};

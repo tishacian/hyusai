@@ -6,7 +6,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { decisionNoticeKey, noticeForRun, type DecisionNoticeMap, type DecisionNoticeTarget } from '@app/shared/ui/run-decision-notice';
 import { writeFailure } from '@app/shared/ui/load-state';
-import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -36,6 +36,7 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
 import { WorkRecordAttemptsComponent } from '@app/shared/work-records/work-record-attempts.component';
 import { pollRun } from '@app/core/run-polling';
+import { formatInstant } from '@app/core/format-instant';
 
 type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
   | { key: string; state: 'confirmed'; runId: string };
@@ -60,7 +61,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent, WorkAppElsewhereComponent],
+  imports: [NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent, WorkAppElsewhereComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app" data-brand-scope [attr.data-theme]="themeMode()">
@@ -89,7 +90,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
               @if (triageLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
               @else if (triage()?.model; as model) {
                 <p class="claims-provenance" [attr.data-state]="triage()?.status" aria-live="polite">{{ i18n.t('experience.claims.triage.' + triage()!.status) }}
-                  @if (triage()?.captured_at; as captured) { · {{ captured | date:'dd/MM HH:mm:ss' }} }
+                  @if (triage()?.captured_at; as captured) { · {{ instant(captured) }} }
                   @if (triage()?.run_id; as runId) { · <a [navLink]="{ type: 'run', lens: 'operate', ref: runId }">{{ i18n.t('experience.claims.triage.trace') }}</a> }
                 </p>
                 <details class="claims-triage-details">
@@ -129,7 +130,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
                 <article><span>{{ i18n.t('experience.claims.postcode') }}</span><strong>{{ dossier.data.context[0].shipping_postcode }}</strong></article>
                 <article><span>{{ i18n.t('experience.claims.shipping') }}</span><strong>{{ shipping(dossier.data.shipments[0]?.status) }}</strong></article>
               </div>
-              <p class="claims-provenance">{{ i18n.t('experience.claims.database') }} · {{ dossier.provenance.captured_at | date:'dd/MM HH:mm:ss' }}</p>
+              <p class="claims-provenance">{{ i18n.t('experience.claims.database') }} · {{ instant(dossier.provenance.captured_at) }}</p>
               <article class="claims-panel claims-panel-order"><h3>{{ i18n.t('experience.claims.order') }}</h3>
                 @for (item of dossier.data.items; track $index) { <p>{{ item.product_name }} · {{ item.quantity }} × {{ money(item.unit_price, 'EUR') }}</p> }
                 @for (shipment of dossier.data.shipments; track shipment.tracking_id) { <p class="claims-quiet">{{ shipment.carrier }} · {{ shipment.tracking_id }}</p> }
@@ -396,6 +397,11 @@ export class ClaimsStudioComponent {
   }
   priorityFor(claimId: string) { return this.triage()?.status === 'ready' ? this.triage()?.rows.find(row => row.claim_id === claimId) : null; }
   priorityLabel(key: string): string { return this.triage()?.prediction_contract?.bands?.find(band => band.key === key)?.label ?? this.i18n.t('experience.claims.triage.priority.' + key); }
+  /** Reader's locale and zone, zone named, seconds kept for evidence order. */
+  instant(value: string | Date | null | undefined): string {
+    const text = value instanceof Date ? value.toISOString() : value;
+    return formatInstant(text, this.i18n.locale(), { seconds: true }) ?? '—';
+  }
   percent(value: number): string { return new Intl.NumberFormat(this.i18n.locale(), { style: 'percent', maximumFractionDigits: 0 }).format(value); }
   async recalculatePriority(): Promise<void> {
     const scoring = this.triage()?.scoring;

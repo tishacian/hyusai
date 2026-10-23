@@ -200,3 +200,25 @@ def test_follow_up_endpoint_reads_one_visible_run(db_session):
     assert body["proposal"] == "Refund 49.90 EUR"
     assert body["decision"]["state"] == "awaiting"
     assert missing.status_code == 404
+
+
+def test_a_short_run_reference_resolves_within_the_workspace_only(db_session):
+    workspace = Workspace(id="ws-run-resolve", slug="run-resolve", name="Run resolve")
+    other = Workspace(id="ws-run-resolve-other", slug="run-resolve-other", name="Other")
+    started = datetime(2026, 10, 1, 12, 0, 0)
+    db_session.add_all([
+        workspace, other,
+        Run(id="f0f481fb-24cb-4cab-9d65-9d624157b1ff", workspace_id=workspace.id, status="completed", started_at=started),
+        Run(id="aaaa1111-0000-4000-8000-000000000001", workspace_id=workspace.id, status="completed", started_at=started),
+        Run(id="aaaa1111-0000-4000-8000-000000000002", workspace_id=workspace.id, status="completed", started_at=started),
+        Run(id="bbbb2222-0000-4000-8000-000000000001", workspace_id=other.id, status="completed", started_at=started),
+    ])
+    db_session.commit()
+    client = _client(db_session, workspace)
+
+    unique = client.get("/runs/resolve", params={"prefix": "F0F481FB"}).json()
+    assert unique == {"prefix": "f0f481fb", "run_ids": ["f0f481fb-24cb-4cab-9d65-9d624157b1ff"], "ambiguous": False}
+    assert client.get("/runs/resolve", params={"prefix": "aaaa1111"}).json()["ambiguous"] is True
+    assert client.get("/runs/resolve", params={"prefix": "bbbb2222"}).json()["run_ids"] == []
+    assert client.get("/runs/resolve", params={"prefix": "f0f4"}).status_code == 422
+    assert client.get("/runs/resolve", params={"prefix": "f0f481fb%"}).status_code == 422
