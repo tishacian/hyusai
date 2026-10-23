@@ -1121,6 +1121,54 @@ SEED_SKILLS: list[dict[str, Any]] = [
         },
     },
     {
+        "slug": "remote_job_submit_v1",
+        "version": "1",
+        "name": "Remote Job Submit",
+        "description": (
+            "Queues a catalogued command on an external runner of the workspace (SSH). "
+            "The run does not wait; the end of the job is announced as remote_runner.job_finished."
+        ),
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_job", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["runner", "command"],
+            "properties": {
+                "runner": {"type": "string", "description": "Runner slug in this workspace."},
+                "command": {"type": "string", "description": "Catalogued command key."},
+                "params": {"type": "object"},
+                "timeout_s": {"type": "integer"},
+                "correlation_key": {
+                    "type": "string",
+                    "description": "Carried into the job_finished event (defaults to the run id).",
+                },
+                "notify_system_id": {
+                    "type": "string",
+                    "description": "Only this System hears the job_finished event.",
+                },
+                "file_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Deposit files copied to inputs/<filename> before launch.",
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "status": {"type": "string"},
+                "runner": {"type": "string"},
+                "command": {"type": "string"},
+                "correlation_key": {"type": "string"},
+                "deadline_at": {"type": "string"},
+            },
+        },
+    },
+    {
         "slug": "mcp_call_v1",
         "version": "1",
         "name": "MCP Call",
@@ -4627,6 +4675,7 @@ SKILL_CATEGORIES: dict[str, str] = {
     "narration_run_v1": "Analysis",
     "publish_email_v1": "Automation",
     "role_agent_v1": "LLM",
+    "remote_job_submit_v1": "Automation",
     "rpa_dispatch_v1": "Automation",
     "rumor_origin_trace_v1": "Analysis",
     "mcp_call_v1": "Connections",

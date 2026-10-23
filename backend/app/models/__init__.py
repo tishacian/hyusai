@@ -76,6 +76,7 @@ from app.models.model_usage import (
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.rag_preset import RagPreset
 from app.models.recipe import PythonEnv, RecipeExecution
+from app.models.remote_runner import RemoteRunner, RemoteRunnerJob
 from app.models.run import Run, SkillInvocation
 from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.run_inbox import RunInbox
@@ -158,6 +159,8 @@ __all__ = [
     "ConnectorWrite",
     "ConnectorOAuthState",
     "ComputeRun",
+    "RemoteRunner",
+    "RemoteRunnerJob",
     "ConnectorConnection",
     "ConnectorGrant",
     "ConnectorDelegation",

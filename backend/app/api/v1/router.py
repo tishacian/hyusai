@@ -82,6 +82,7 @@ from app.api.v1.endpoints import (
     presets,
     reasoning,
     recipes,
+    remote_runners,
     reports,
     rpa,
     runs,
@@ -272,6 +273,9 @@ api_router.include_router(
 
 api_router.include_router(
     connector_watches.router, prefix="/connector-watches", tags=["connector-watches"]
+)
+api_router.include_router(
+    remote_runners.router, prefix="/remote-runners", tags=["remote-runners"]
 )
 
 api_router.include_router(ml_operations.router)

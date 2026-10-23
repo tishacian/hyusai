@@ -196,6 +196,8 @@ def db_session():
         "connector_sync_states",
         "connector_writes",
         "connector_oauth_states",
+        "remote_runner_jobs",
+        "remote_runners",
         "compute_runs",
         "connector_delegations",
         "connector_grants",

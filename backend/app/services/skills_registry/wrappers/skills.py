@@ -1427,6 +1427,79 @@ async def _rpa_dispatch_v1(
             db.close()
 
 
+async def _remote_job_submit_v1(
+    payload: dict[str, Any], ctx: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Queue a catalogued command on an external runner of the run's workspace.
+
+    The run does not wait: the job runs for minutes or days on the machine and
+    its end is announced as ``remote_runner.job_finished``, which a flow picks
+    up with a ``source.remote_job_finished`` trigger. The workspace comes from
+    the run, never from the payload.
+    """
+
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.models.remote_runner import RemoteRunner
+    from app.services.remote_runners import service as runners
+
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("remote_job_workspace_required")
+    runner_slug = payload.get("runner")
+    command = payload.get("command")
+    if not isinstance(runner_slug, str) or not isinstance(command, str):
+        raise ValueError("remote_job_runner_and_command_required")
+    params = payload.get("params")
+    correlation_key = payload.get("correlation_key")
+    timeout_s = payload.get("timeout_s")
+
+    def _submit() -> dict[str, Any]:
+        with SessionLocal() as db:
+            runner = (
+                db.query(RemoteRunner)
+                .filter_by(workspace_id=workspace_id, slug=runner_slug)
+                .first()
+            )
+            if runner is None:
+                raise ValueError("REMOTE_RUNNER_NOT_FOUND")
+            try:
+                job = runners.submit_job(
+                    db,
+                    workspace_id=workspace_id,
+                    runner_id=runner.id,
+                    command=command,
+                    params=params if isinstance(params, dict) else None,
+                    user_id=ctx.get("user_id"),
+                    run_id=ctx.get("run_id"),
+                    node_id=ctx.get("node_id"),
+                    timeout_s=int(timeout_s) if isinstance(timeout_s, (int, float)) else None,
+                    correlation_key=str(correlation_key) if correlation_key else ctx.get("run_id"),
+                    notify_system_id=str(payload["notify_system_id"])
+                    if payload.get("notify_system_id")
+                    else None,
+                    input_file_ids=[str(item) for item in payload.get("file_ids") or []]
+                    if isinstance(payload.get("file_ids"), list)
+                    else None,
+                )
+            except runners.RunnerError as exc:
+                db.rollback()
+                raise ValueError(exc.code) from None
+            db.commit()
+            return {
+                "job_id": job.id,
+                "status": job.status,
+                "runner": runner.slug,
+                "command": job.command,
+                "correlation_key": job.correlation_key,
+                "deadline_at": job.deadline_at.isoformat(),
+            }
+
+    return await asyncio.to_thread(_submit)
+
+
 _MCP_NAMED_FORBIDDEN = frozenset({"tool", "sql", "server_id", "_side_effect"})
 #: Keys ``_mcp_trace`` appends to every MCP node output. In overlay io-mode the
 #: walker merges the upstream output into the next payload, so a named skill

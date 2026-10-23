@@ -90,6 +90,7 @@ from app.services.skills_registry.wrappers.skills import (
     _reconciliation_report_v1,
     _response_eval_v1,
     _role_agent_v1,
+    _remote_job_submit_v1,
     _rpa_dispatch_v1,
     _rumor_origin_trace_v1,
     _sap_check_budget_v1,
@@ -177,6 +178,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "rpa_dispatch_v1": (
         _rpa_dispatch_v1,
         "app.services.connectors.rpa.service",
+        "bound",
+    ),
+    "remote_job_submit_v1": (
+        _remote_job_submit_v1,
+        "app.services.remote_runners.service",
         "bound",
     ),
     "mcp_call_v1": (

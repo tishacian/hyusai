@@ -1188,6 +1188,7 @@ export function publishedNodeExecutor(
                 {{ i18n.t('flow.inspector.section.trigger') }}
                 <ck-help id="concept.trigger" />
               </span>
+              @if (n.type === 'source.remote_job_finished') { <p class="ck-flow-hint">{{ i18n.t('flow.inspector.trigger.remote_job_finished') }}</p> }
               @if (n.type === 'source.connector_watch') { <p class="ck-flow-hint">{{ i18n.t('flow.inspector.trigger.connector_watch') }}</p><a class="ck-flow-action" [navLink]="{ leaf: 'connector-connections' }">{{ i18n.t('flow.inspector.trigger.connections') }}</a> }
               @if (isSftpTrigger(n)) {
                 <a class="ck-flow-action" [navLink]="{ surface: 'secure-deposit' }">
@@ -1398,6 +1399,7 @@ export class FlowInspectorComponent {
     'source.schedule',
     'source.webhook',
     'source.connector_watch',
+    'source.remote_job_finished',
   ]);
 
   /** The System this inspector's flow is bound to (null on the scratchpad).

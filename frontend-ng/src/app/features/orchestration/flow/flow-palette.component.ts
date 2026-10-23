@@ -732,7 +732,7 @@ export class FlowPaletteComponent {
 
   protected integrationHint(item: PaletteItem): string | null {
     if (item.runtimeStatus && item.runtimeStatus !== 'bound') return 'flow.palette.integration.runtime';
-    if (['source.webhook', 'source.sftp_arrival', 'source.connector_watch'].includes(item.type)) return 'flow.palette.integration.connection';
+    if (['source.webhook', 'source.sftp_arrival', 'source.connector_watch', 'source.remote_job_finished'].includes(item.type)) return 'flow.palette.integration.connection';
     if (['tool', 'python', 'sql', 'rpa', 'mcp'].some(kind => item.type.includes(kind))) return 'flow.palette.integration.specialist';
     if (item.type === 'source.schedule') return 'flow.palette.integration.schedule';
     return null;
