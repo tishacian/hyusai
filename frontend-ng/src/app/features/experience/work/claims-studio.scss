@@ -115,3 +115,28 @@
   .claims-dossier-heading { align-items: start; }
   .claims-main .claims-dossier-customer { text-align: start; }
 }
+
+.claims-outside {
+  grid-column: 2 / -1;
+  display: grid;
+  gap: var(--ck-space-3);
+  align-content: start;
+  padding: var(--ck-space-4);
+  border: 1px solid var(--ck-status-info-line);
+  border-radius: var(--ck-radius-md);
+  background: var(--ck-status-info-bg);
+  color: var(--ck-fg-1);
+  h2 { margin: 0; font-family: var(--ck-font-display); font-weight: 600; font-size: 18px; }
+  p { margin: 0; color: var(--ck-fg-2); font-size: 14px; }
+}
+.claims-outside-back {
+  justify-self: start;
+  padding: var(--ck-space-2) var(--ck-space-3);
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: var(--ck-radius-sm);
+  background: var(--ck-bg-panel);
+  color: inherit;
+  &:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: 2px; }
+}
+@media (max-width: 1199px) { .claims-outside { grid-column: 2; order: 2; } }
+@media (max-width: 760px) { .claims-outside { align-self: stretch; order: 2; } }

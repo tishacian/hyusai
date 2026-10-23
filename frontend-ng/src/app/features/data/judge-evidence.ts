@@ -1,3 +1,5 @@
+import { formatInstant } from '@app/core/format-instant';
+
 /**
  * Readable form of a Judge citation.
  *
@@ -31,22 +33,37 @@ function label(path: string[]): string {
   return path.filter((part) => !/^\d+$/.test(part)).map((part) => part.replace(/^\/data\//, '').replace(/_/g, ' ')).join(' · ');
 }
 
-function collect(value: unknown, path: string[], out: ReadableQuote['fields']): void {
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Dates read as dates in the reader's locale (instants with their zone). */
+function readableValue(value: string, locale: string | undefined): string {
+  if (!locale) return value;
+  if (ISO_INSTANT.test(value)) return formatInstant(value, locale) ?? value;
+  if (ISO_DATE.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+  return value;
+}
+
+function collect(value: unknown, path: string[], out: ReadableQuote['fields'], locale?: string): void {
   if (out.length >= MAX_FIELDS) return;
   const leaf = scalar(value);
   if (leaf !== null) {
     const key = path[path.length - 1] ?? '';
-    if (!TECHNICAL_KEYS.test(key)) out.push({ label: label(path) || '·', value: leaf });
+    if (!TECHNICAL_KEYS.test(key)) out.push({ label: label(path) || '·', value: readableValue(leaf, locale) });
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => collect(item, [...path, String(index)], out));
+    value.forEach((item, index) => collect(item, [...path, String(index)], out, locale));
     return;
   }
   if (value && typeof value === 'object') {
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
       if (TECHNICAL_KEYS.test(key)) continue;
-      collect(item, [...path, key], out);
+      collect(item, [...path, key], out, locale);
     }
   }
 }
@@ -64,14 +81,14 @@ function proseFromFragment(quote: string): string | null {
   return text || null;
 }
 
-export function readableQuote(quote: string | null | undefined): ReadableQuote {
+export function readableQuote(quote: string | null | undefined, locale?: string): ReadableQuote {
   const raw = (quote ?? '').trim();
   if (!raw) return { text: null, fields: [], transformed: false };
   if (raw.startsWith('{') || raw.startsWith('[')) {
     try {
       const parsed = JSON.parse(raw) as unknown;
       const fields: ReadableQuote['fields'] = [];
-      collect(parsed, [], fields);
+      collect(parsed, [], fields, locale);
       const prose = fields.filter((field) => PROSE_KEYS.some((key) => field.label.endsWith(key)));
       if (prose.length === fields.length && prose.length) {
         return { text: prose.map((field) => field.value).join(' … '), fields: [], transformed: true };

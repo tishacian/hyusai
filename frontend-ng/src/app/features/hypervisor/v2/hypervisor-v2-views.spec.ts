@@ -8,6 +8,7 @@ import {
   normalizeBlockRef,
   normalizeView,
   parseImpactViewQuery,
+  boardFromQuery,
   parseViewsPayload,
   removeStratumBlock,
   replaceView,
@@ -265,4 +266,11 @@ test('the reading round-trips through the URL and rejects partial or invalid val
   assert.equal(parseImpactReading(null, '7d'), null);
   assert.deepEqual(readingQuery({ systemId: null, period: '90d' }), { scope: 'all', period: '90d' });
   assert.deepEqual(readingQuery(null), { scope: null, period: null });
+});
+
+test('a shared link reopens the named board it shows, when the workspace has it', () => {
+  assert.equal(boardFromQuery('conformite', ['direction', 'conformite']), 'conformite');
+  assert.equal(boardFromQuery(' conformite ', ['conformite']), 'conformite');
+  assert.equal(boardFromQuery('unknown', ['direction']), null);
+  assert.equal(boardFromQuery(null, ['direction']), null);
 });

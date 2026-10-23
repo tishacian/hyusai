@@ -5,6 +5,8 @@ import { typedResult, type TypedEvaluationResult } from '@app/features/data/data
 export interface RunQualityReview {
   invocationId: string;
   node: string | null;
+  /** The step's human label, when recorded; a bare node id is not shown to readers. */
+  nodeLabel: string | null;
   model: string | null;
   state: 'pending' | 'unavailable' | 'result';
   result: TypedEvaluationResult | null;
@@ -21,7 +23,8 @@ export function runQualityReviews(run: Run | null): RunQualityReview[] {
     // A current draft or planned model cannot describe a recorded execution.
     // Historical invocations may have only the frozen node id, or neither.
     const node = text(invocation.trace?.['node_label']) || text(invocation.trace?.['node_id']);
-    return [{ invocationId: invocation.id, node, model: provider && model ? `${provider} · ${model}` : null,
+    const nodeLabel = text(invocation.trace?.['node_label']);
+    return [{ invocationId: invocation.id, node, nodeLabel, model: provider && model ? `${provider} · ${model}` : null,
       state: result ? 'result' as const : pending ? 'pending' as const : 'unavailable' as const, result }];
   });
 }

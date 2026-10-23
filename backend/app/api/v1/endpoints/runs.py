@@ -556,6 +556,28 @@ async def get_runs_summary(
     return {"summaries": list(summaries.values())}
 
 
+@router.get("/resolve")
+def resolve_run_reference(
+    prefix: str = Query(min_length=8, max_length=36, pattern=r"^[0-9a-fA-F-]+$"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Full id of the Run a short reference names (e.g. ``f0f481fb``), read only.
+
+    Only Runs of this workspace the reader may read are considered. Returns
+    the readable matches, at most two, so the caller can open a unique match
+    or say the reference is ambiguous; never another workspace's Run.
+    """
+    query = (
+        db.query(Run)
+        .filter(Run.workspace_id == workspace.id, Run.id.like(f"{prefix.lower()}%"))
+        .order_by(Run.started_at.desc(), Run.id.desc())
+    )
+    matches = readable_run_page(db, query=query, limit=2, user=user, workspace=workspace)
+    return {"prefix": prefix.lower(), "run_ids": [run.id for run in matches], "ambiguous": len(matches) > 1}
+
+
 @router.get("/{run_id}")
 async def get_run(
     run_id: str,

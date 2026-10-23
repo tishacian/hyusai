@@ -6,7 +6,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { checkMessage, decisionMessage, type DecisionMessage } from '@app/shared/ui/run-decision';
 import { decisionNoticeKey, noticeForRun, type DecisionNoticeMap, type DecisionNoticeTarget } from '@app/shared/ui/run-decision-notice';
 import { writeFailure } from '@app/shared/ui/load-state';
-import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, lastValueFrom, Subscription, timer } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -36,6 +36,19 @@ import { caseDatasets, freshTriage, queueByPriority, selectedAdvice, type ClaimT
 import { RunSituationComponent } from '@app/shared/work-records/run-situation.component';
 import { WorkRecordAttemptsComponent } from '@app/shared/work-records/work-record-attempts.component';
 import { pollRun } from '@app/core/run-polling';
+import { formatInstant } from '@app/core/format-instant';
+
+/**
+ * Which case a Work link opens. A requested case outside the queue (an
+ * evaluation case, a closed case) is never replaced by another one: the reader
+ * is told so. Without a request, the first case of the queue opens.
+ */
+export type RecordEntry = { kind: 'select'; id: string } | { kind: 'outside'; ref: string } | { kind: 'none' };
+export function recordEntry(queueIds: readonly string[], requested: string | null | undefined): RecordEntry {
+  const ref = requested?.trim();
+  if (ref) return queueIds.includes(ref) ? { kind: 'select', id: ref } : { kind: 'outside', ref };
+  return queueIds.length ? { kind: 'select', id: queueIds[0] } : { kind: 'none' };
+}
 
 type InvestigationRequest = { key: string; state: 'sending' | 'unknown' | 'rejected' }
   | { key: string; state: 'confirmed'; runId: string };
@@ -60,7 +73,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
 
 @Component({
   selector: 'app-claims-studio', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent, WorkAppElsewhereComponent],
+  imports: [NgTemplateOutlet, WorkBarComponent, WorkAppHeaderComponent, WorkReleasePagesNavComponent, WorkSourcePanelComponent, WorkRecordQueueComponent, WorkActionReceiptComponent, RunQualityReviewComponent, AgentDecisionTrailComponent, NavLinkDirective, ClaimsBenchmarkComponent, ClaimsResolutionPolicyComponent, IconComponent, DecisionRightComponent, RunSituationComponent, WorkRecordAttemptsComponent, WorkAppElsewhereComponent],
   styleUrls: ['./work.scss', './claims-studio.scss'],
   template: `
     <div class="xp-work claims-app" data-brand-scope [attr.data-theme]="themeMode()">
@@ -89,7 +102,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
               @if (triageLoading()) { <p role="status">{{ i18n.t('common.loading') }}</p> }
               @else if (triage()?.model; as model) {
                 <p class="claims-provenance" [attr.data-state]="triage()?.status" aria-live="polite">{{ i18n.t('experience.claims.triage.' + triage()!.status) }}
-                  @if (triage()?.captured_at; as captured) { · {{ captured | date:'dd/MM HH:mm:ss' }} }
+                  @if (triage()?.captured_at; as captured) { · {{ instant(captured) }} }
                   @if (triage()?.run_id; as runId) { · <a [navLink]="{ type: 'run', lens: 'operate', ref: runId }">{{ i18n.t('experience.claims.triage.trace') }}</a> }
                 </p>
                 <details class="claims-triage-details">
@@ -117,6 +130,17 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
               (selectedChange)="select($event)" />
             <p class="claims-quiet">{{ i18n.t('experience.claims.synthetic') }}</p>
           </aside>
+          @if (outsideQueue(); as outside) {
+            <section class="claims-outside" role="status" data-testid="claims-record-outside-queue" [attr.aria-label]="i18n.t('experience.claims.dossier')">
+              <h2>{{ i18n.t('experience.claims.outside.title', { ref: outside.ref }) }}</h2>
+              <p>{{ i18n.t('experience.claims.outside.body') }}</p>
+              @if (outside.attempt) { <app-run-situation [runId]="outside.attempt" [compact]="true" [showRunLink]="true" /> }
+              @else { <p class="claims-quiet">{{ i18n.t('experience.claims.outside.no_attempt') }}</p> }
+              <app-work-record-attempts slug="reclamations" bindingKey="showcase.claims.investigate" [recordRef]="outside.ref"
+                [selectedRunId]="outside.attempt" (selectRun)="openOutsideAttempt($event)" />
+              <button type="button" class="claims-outside-back" (click)="showQueue()">{{ i18n.t('experience.claims.outside.back') }}</button>
+            </section>
+          }
           @if (!detail() && !detailLoading() && detailReadFailed()) { <div class="claims-data-error" role="alert"><ng-container [ngTemplateOutlet]="dataUnavailable" /></div> }
           @if (detail(); as dossier) {
             <section class="claims-dossier" [attr.aria-label]="i18n.t('experience.claims.dossier')">
@@ -129,7 +153,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
                 <article><span>{{ i18n.t('experience.claims.postcode') }}</span><strong>{{ dossier.data.context[0].shipping_postcode }}</strong></article>
                 <article><span>{{ i18n.t('experience.claims.shipping') }}</span><strong>{{ shipping(dossier.data.shipments[0]?.status) }}</strong></article>
               </div>
-              <p class="claims-provenance">{{ i18n.t('experience.claims.database') }} · {{ dossier.provenance.captured_at | date:'dd/MM HH:mm:ss' }}</p>
+              <p class="claims-provenance">{{ i18n.t('experience.claims.database') }} · {{ instant(dossier.provenance.captured_at) }}</p>
               <article class="claims-panel claims-panel-order"><h3>{{ i18n.t('experience.claims.order') }}</h3>
                 @for (item of dossier.data.items; track $index) { <p>{{ item.product_name }} · {{ item.quantity }} × {{ money(item.unit_price, 'EUR') }}</p> }
                 @for (shipment of dossier.data.shipments; track shipment.tracking_id) { <p class="claims-quiet">{{ shipment.carrier }} · {{ shipment.tracking_id }}</p> }
@@ -157,7 +181,7 @@ export function claimInvestigationFailureMessage(run: Run | null): string | null
               @if (run(); as current) { <app-run-situation [runId]="current.id" [refreshKey]="current.status" [compact]="true" [showRunLink]="true" /> }
               @if (selected(); as recordId) {
                 <app-work-record-attempts slug="reclamations" bindingKey="showcase.claims.investigate" [recordRef]="recordId"
-                  [selectedRunId]="run()?.id ?? null" [refreshKey]="attemptsRefresh()" (selectRun)="openAttempt($event)" />
+                  [selectedRunId]="run()?.id ?? null" [currentRunId]="run()?.id ?? null" [refreshKey]="attemptsRefresh()" (selectRun)="openAttempt($event)" />
               }
               @if (advice(); as advice) { <div class="claims-risk" [attr.data-priority]="advice.priority">
                 <span>{{ triage()?.prediction_contract?.label || i18n.t('experience.claims.triage.risk') }}</span><strong>{{ percent(advice.risk) }}</strong>
@@ -338,7 +362,9 @@ export class ClaimsStudioComponent {
         if (this.selected()) void this.writeRecordUrl(this.selected()!, true);
         return;
       }
-      if (this.rows().some(row => row.claim_id === id)) this.select(id, false);
+      const entry = recordEntry(this.rows().map(row => row.claim_id), id);
+      if (entry.kind === 'select') this.select(entry.id, false);
+      else if (entry.kind === 'outside' && entry.ref !== this.outsideQueue()?.ref) this.showOutside(entry.ref);
     });
     timer(0, 60000).pipe(takeUntilDestroyed(this.destroy)).subscribe(() => this.clock.set(Date.now()));
     this.destroy.onDestroy(() => { this.generation++; this.poll?.unsubscribe(); this.priorityPoll?.unsubscribe(); this.detailRequest?.unsubscribe(); });
@@ -349,7 +375,7 @@ export class ClaimsStudioComponent {
     this.releasePages.set(null);
     this.triageData.set(null); this.triageBusy.set(false); this.triageError.set(false); this.triageLoading.set(false);
     this.benchmarkReady.set(false);
-    this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null);
+    this.rows.set([]); this.detail.set(null); this.run.set(null); this.selected.set(null); this.sourceDocumentId.set(null); this.outsideQueue?.set(null);
     this.error.set(false); this.dataError.set(null); this.canConfigureData.set(false);
     this.detailReadFailed.set(false); this.runReadFailed.set(null); this.runRefreshing.set(false);
     this.loading.set(true); this.busy.set(false);
@@ -364,9 +390,9 @@ export class ClaimsStudioComponent {
       const response = await firstValueFrom(this.api.get<{ data: { queue: ClaimRow[] } }>('/ecommerce-claims'));
       if (generation !== this.generation) return;
       this.rows.set(response.data.queue); this.loading.set(false);
-      const requested = this.route.snapshot.queryParamMap.get('record');
-      const initial = response.data.queue.find(row => row.claim_id === requested) ?? response.data.queue[0];
-      if (initial) { this.select(initial.claim_id, false); void this.writeRecordUrl(initial.claim_id, true); }
+      const entry = recordEntry(response.data.queue.map(row => row.claim_id), this.route.snapshot.queryParamMap.get('record'));
+      if (entry.kind === 'select') { this.select(entry.id, false); void this.writeRecordUrl(entry.id, true); }
+      else if (entry.kind === 'outside') this.showOutside(entry.ref);
       void this.loadTriage(generation);
     } catch (error) { if (generation === this.generation) { this.dataError.set(this.readFailure(error)); this.error.set(true); this.loading.set(false); } }
   }
@@ -396,6 +422,11 @@ export class ClaimsStudioComponent {
   }
   priorityFor(claimId: string) { return this.triage()?.status === 'ready' ? this.triage()?.rows.find(row => row.claim_id === claimId) : null; }
   priorityLabel(key: string): string { return this.triage()?.prediction_contract?.bands?.find(band => band.key === key)?.label ?? this.i18n.t('experience.claims.triage.priority.' + key); }
+  /** Reader's locale and zone, zone named, seconds kept for evidence order. */
+  instant(value: string | Date | null | undefined): string {
+    const text = value instanceof Date ? value.toISOString() : value;
+    return formatInstant(text, this.i18n.locale(), { seconds: true }) ?? '—';
+  }
   percent(value: number): string { return new Intl.NumberFormat(this.i18n.locale(), { style: 'percent', maximumFractionDigits: 0 }).format(value); }
   async recalculatePriority(): Promise<void> {
     const scoring = this.triage()?.scoring;
@@ -422,6 +453,25 @@ export class ClaimsStudioComponent {
       });
     } catch { if (generation === this.generation) { this.triageBusy.set(false); this.triageError.set(true); } }
   }
+  /** A requested case that is not in the queue, with the attempt the link named. */
+  readonly outsideQueue = signal<{ ref: string; attempt: string | null } | null>(null);
+  private showOutside(ref: string): void {
+    const attempt = this.route?.snapshot?.queryParamMap?.get('attempt')?.trim() || null;
+    this.poll?.unsubscribe(); this.detailRequest?.unsubscribe();
+    this.selected.set(null); this.detail.set(null); this.run.set(null); this.detailLoading.set(false);
+    this.outsideQueue.set({ ref, attempt });
+  }
+  openOutsideAttempt(runId: string): void {
+    const outside = this.outsideQueue();
+    if (!outside || outside.attempt === runId) return;
+    this.outsideQueue.set({ ...outside, attempt: runId });
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { record: outside.ref, attempt: runId }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+  showQueue(): void {
+    const first = this.rows()[0];
+    this.outsideQueue.set(null);
+    if (first) this.select(first.claim_id);
+  }
   /** Attempt chosen by the reader; a refresh never swaps it for the latest. */
   readonly pinnedRun = signal<string | null>(null);
   readonly attemptsRefresh = signal(0);
@@ -439,6 +489,7 @@ export class ClaimsStudioComponent {
     const requested = updateUrl ? null : this.route?.snapshot?.queryParamMap?.get('attempt') ?? null;
     this.pinnedRun.set(requested && requested.trim() ? requested : null);
     this.poll?.unsubscribe(); this.detailRequest?.unsubscribe(); this.run.set(null); this.detail.set(null);
+    this.outsideQueue?.set(null);
     this.selected.set(id); this.sourceDocumentId.set(null); this.detailReadFailed.set(false); this.runReadFailed.set(null); this.runRefreshing.set(false); this.dataError.set(null); this.detailLoading.set(true);
     if (updateUrl) void this.writeRecordUrl(id);
     this.refreshDetail(id);

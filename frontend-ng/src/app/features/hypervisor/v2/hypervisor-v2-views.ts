@@ -487,3 +487,9 @@ export function parseImpactReading(scope: string | null, period: string | null):
 export function readingQuery(reading: ImpactReading | null): { scope: string | null; period: string | null } {
   return reading ? { scope: reading.systemId ?? 'all', period: reading.period } : { scope: null, period: null };
 }
+
+/** The named board a URL asks for (`?board=`), if the workspace has it. */
+export function boardFromQuery(board: string | null | undefined, viewIds: readonly string[]): string | null {
+  const id = board?.trim();
+  return id && viewIds.includes(id) ? id : null;
+}

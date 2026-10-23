@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.services.ecommerce import claims
-from app.services.experience.record_identity import register_record_identity_provider
 
 CLAIMS_APP_SLUG = "reclamations"
 INVESTIGATE_BINDING = "showcase.claims.investigate"
@@ -28,4 +27,5 @@ def claims_record_identity(workspace: Any, experience_slug: str, binding_key: st
     return dict(CLAIM_IDENTITY)
 
 
-register_record_identity_provider(claims_record_identity)
+# Loaded by app.services.experience.record_identity.load_record_identity_providers.
+record_identity_provider = claims_record_identity
