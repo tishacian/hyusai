@@ -403,3 +403,20 @@ export function extraValueKeys(
   const known = new Set(fields.map((field) => field.name));
   return Object.keys(value).filter((key) => !known.has(key));
 }
+
+/**
+ * Rows to show: the fields the stored schema holds, then the rows the author
+ * added but has not named yet. A schema cannot key a nameless property, so
+ * those rows live beside it until they get a name, instead of vanishing.
+ */
+export function visibleRows(stored: readonly SchemaField[], pending: readonly SchemaField[]): SchemaField[] {
+  return [...stored, ...pending];
+}
+
+/** Split an edit into what the schema can store and the rows still unnamed. */
+export function splitRows(rows: readonly SchemaField[]): { named: SchemaField[]; pending: SchemaField[] } {
+  return {
+    named: rows.filter((row) => row.name.trim()),
+    pending: rows.filter((row) => !row.name.trim()),
+  };
+}

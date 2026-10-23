@@ -9,6 +9,8 @@ import { test } from 'node:test';
 import {
   applyFields,
   blankField,
+  splitRows,
+  visibleRows,
   emptyObjectSchema,
   objectToValues,
   projectSchema,
@@ -157,5 +159,22 @@ test('preset inputs are derived from the target contract and typed on the way in
   assert.deepEqual(objectToValues({ retries: 5, ticket_id: 'T-1' }), {
     retries: '5',
     ticket_id: 'T-1',
+  });
+});
+
+test('an added field stays visible and editable until it is named, then enters the schema', () => {
+  const stored = projectSchema({ type: 'object', properties: {} }).fields;
+  // "Add a field": a nameless row the schema cannot key yet.
+  let pending = [blankField()];
+  assert.equal(visibleRows(stored, pending).length, 1, 'the new row is shown');
+  assert.deepEqual(applyFields({ type: 'object' }, splitRows(visibleRows(stored, pending)).named), { type: 'object', properties: {} });
+
+  // Naming it commits it, with its type and requirement.
+  const edited = visibleRows(stored, pending).map((row) => ({ ...row, name: 'incident_id', required: true }));
+  const split = splitRows(edited);
+  pending = split.pending;
+  assert.equal(pending.length, 0);
+  assert.deepEqual(applyFields({ type: 'object' }, split.named), {
+    type: 'object', properties: { incident_id: { type: 'string' } }, required: ['incident_id'],
   });
 });
