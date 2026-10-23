@@ -947,8 +947,8 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                     data-testid="action-record-identity"
                   >
                     <option value="" [selected]="!row.record_identity">{{ i18n.t('experience.editor.action.record_identity.none') }}</option>
-                    @for (field of actionInputs(row); track field) {
-                      <option [value]="field" [selected]="row.record_identity?.input_field === field">{{ field }}</option>
+                    @for (field of actionInputFields(row); track field.key) {
+                      <option [value]="field.key" [selected]="row.record_identity?.input_field === field.key">{{ field.label === field.key ? field.key : field.label + ' · ' + field.key }}</option>
                     }
                   </select>
                   <small>{{ i18n.t('experience.editor.action.record_identity.hint') }}</small>
@@ -2428,9 +2428,14 @@ export class ExperienceEditorComponent implements OnDestroy {
 
   /** Inputs the bound entry point of the published version expects. */
   actionInputs(row: StudioBinding): string[] {
+    return this.actionInputFields(row).map((field) => field.label);
+  }
+
+  /** Input fields of an action: the payload key, and the label shown to authors. */
+  actionInputFields(row: StudioBinding): Array<{ key: string; label: string }> {
     const contract = this.dataContracts()[row.binding_key];
     const ingress = contract?.ingresses.find((item) => item.ingress_id === row.ingress_id);
-    return fieldsFromSchema(ingress?.input_schema ?? null).map((field) => field.label || field.name);
+    return fieldsFromSchema(ingress?.input_schema ?? null).map((field) => ({ key: field.name, label: field.label || field.name }));
   }
 
   openComponentSetting(componentId: string): void {
