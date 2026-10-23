@@ -2032,6 +2032,9 @@ export const FLOW_FR = {
   'flow.palette.label.source.connector_watch': 'Surveillance de connexion',
   'flow.palette.desc.source.connector_watch': 'Objets nouveaux ou modifiés dans un préfixe de connexion approuvé',
   'flow.inspector.trigger.connector_watch': 'Créez la surveillance dans Connexions, puis choisissez ici le mode de déclenchement du système. Une livraison reste soumise à son approbation.',
+  'flow.palette.label.source.remote_job_finished': 'Fin d’une commande sur un runner',
+  'flow.palette.desc.source.remote_job_finished': 'Démarre le flow quand une commande se termine sur un runner externe',
+  'flow.inspector.trigger.remote_job_finished': 'Le flow reçoit le statut, le résultat et les artefacts de la commande. Une écriture en aval reste soumise à une validation humaine.',
   'flow.inspector.trigger.connections': 'Configurer les surveillances',
   'flow.palette.desc.source.webhook': 'Déclencheur webhook entrant signé HMAC',
   'flow.palette.desc.task.role_agent':
@@ -4408,6 +4411,9 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.palette.label.source.connector_watch': 'Connector watch',
   'flow.palette.desc.source.connector_watch': 'New or changed objects in an approved connection prefix',
   'flow.inspector.trigger.connector_watch': 'Create the watch in Connections, then select the system trigger mode here. A delivery still requires its approval.',
+  'flow.palette.label.source.remote_job_finished': 'Runner command finished',
+  'flow.palette.desc.source.remote_job_finished': 'Starts the flow when a command ends on an external runner',
+  'flow.inspector.trigger.remote_job_finished': 'The flow receives the command status, result and artifacts. A write downstream still requires a human approval.',
   'flow.inspector.trigger.connections': 'Configure watches',
   'flow.palette.desc.source.webhook': 'HMAC inbound webhook trigger',
   'flow.palette.desc.task.role_agent':

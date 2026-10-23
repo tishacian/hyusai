@@ -55,6 +55,8 @@ const TITLE_TYPES = new Set([
   'agenda_panel',
   'intelligence_feed',
   'decision_queue',
+  'review_workbench',
+  'review_matrix',
 ]);
 const DESC_TYPES = new Set([...TITLE_TYPES, 'kpi', 'callout']);
 const ACCENT_TYPES = new Set(['action_button', 'kpi', 'header', 'callout', 'approval_card']);

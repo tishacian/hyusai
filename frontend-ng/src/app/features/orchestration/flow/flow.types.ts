@@ -278,6 +278,12 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     outputs: [{ name: 'watch_id', schema: 'string' }, { name: 'connection_id', schema: 'string' }, { name: 'source_fingerprint', schema: 'string' }, { name: 'objects', schema: 'array' }, { name: 'sequence', schema: 'number' }],
   },
   {
+    type: 'source.remote_job_finished', kind: 'source', label: 'Runner command finished',
+    description: 'Trigger when a command ends on an external runner',
+    icon: 'server', tone: 'emerald', badge: 'event',
+    outputs: [{ name: 'job_id', schema: 'string' }, { name: 'status', schema: 'string' }, { name: 'result', schema: 'object' }, { name: 'artifacts', schema: 'array' }, { name: 'correlation_key', schema: 'string' }],
+  },
+  {
     type: 'source.webhook',
     kind: 'source',
     label: 'Webhook',

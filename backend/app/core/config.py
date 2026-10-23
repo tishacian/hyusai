@@ -155,6 +155,19 @@ class Settings(BaseSettings):
     hana_network_policy_mode: Literal["report", "enforce"] = "report"
     connector_network_policy_mode: Literal["report", "enforce"] = "report"
     connector_framework_enabled: bool = False
+    # External runners: SSH-driven machines running catalogued commands.
+    remote_runners_enabled: bool = False
+    remote_runner_poll_s: int = Field(default=30, ge=5, le=600)
+    remote_runner_connect_timeout_s: int = Field(default=20, ge=1, le=120)
+    remote_runner_max_job_hours: float = Field(default=72, gt=0, le=720)
+    remote_runner_artifact_max_mb: int = Field(default=256, ge=1, le=10240)
+    remote_runner_cancel_grace_s: int = Field(default=30, ge=0, le=600)
+    # A "local" runner executes on the worker itself: tests and development only.
+    remote_runner_local_transport_enabled: bool = False
+    # Review sets: per-record human review hosted by business apps (Lot 10).
+    review_sets_enabled: bool = False
+    review_claim_ttl_s: int = Field(default=900, ge=60, le=86400)
+    review_set_max_items: int = Field(default=50000, ge=1, le=500000)
     # Operator-attested deployed runner identity; empty values cannot qualify badges.
     connector_runner_image_sha256: str = ""
     connector_environment_id: str = ""

@@ -47,6 +47,8 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
     SurfaceMetadata("/api/v1/connections", "Data", "Connector", "canonical", "workspace-user", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/connector-catalog", "Data", "Connector", "canonical", "workspace-user", "Platform", ("/connectors",)),
     SurfaceMetadata("/api/v1/compute-runs", "Operate", "Run", "canonical", "workspace-user", "Platform", ("/connectors",)),
+    SurfaceMetadata("/api/v1/remote-runners", "Operate", "Run", "canonical", "admin", "Platform", (), notes="External machines driven over SSH through a closed command catalog; jobs, cancellation and artifacts."),
+    SurfaceMetadata("/api/v1/review-sets", "Work", "Experience", "canonical", "workspace-user", "Platform", ("/work",), notes="Per-record human review: queue, claims, annotated decisions, export."),
     SurfaceMetadata(
         "/api/v1/build-info",
         "Governance",

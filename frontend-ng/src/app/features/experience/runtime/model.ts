@@ -36,6 +36,8 @@ const CATALOG_0_2_TYPES = [
   'agenda_panel',
   'intelligence_feed',
   'decision_queue',
+  'review_workbench',
+  'review_matrix',
 ] as const;
 
 export const CERTIFIED_TYPES = [...CATALOG_0_2_TYPES, 'record_follow_up'] as const;

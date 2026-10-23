@@ -106,6 +106,14 @@ if settings.connector_framework_enabled:
         "options": {"queue": settings.celery_connectors_interactive_queue},
     }
 
+if settings.remote_runners_enabled:
+    celery_app.conf.beat_schedule["remote-runner-tick"] = {
+        "task": "agentium.remote_runner_tick",
+        "schedule": float(settings.remote_runner_poll_s),
+        "options": {"queue": settings.celery_task_default_queue,
+                    "expires": float(settings.remote_runner_poll_s)},
+    }
+
 if getattr(settings, "ml_operations_enabled", False) or getattr(
     settings, "ml_alerts_enabled", False
 ):

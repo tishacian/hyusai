@@ -1082,6 +1082,21 @@ def dataops_sample_recovery_task():
     return recover_samples()
 
 
+@celery_app.task(name="agentium.remote_runner_tick", acks_late=True, reject_on_worker_lost=True)
+def remote_runner_tick_task():
+    """Launch, probe, cancel and settle external runner jobs."""
+    if not runtime_settings.remote_runners_enabled:
+        return {"skipped": "disabled"}
+    from app.db.base import SessionLocal
+    from app.services.remote_runners.service import tick
+
+    db = SessionLocal()
+    try:
+        return tick(db)
+    finally:
+        db.close()
+
+
 @celery_app.task(name="agentium.execution_run", acks_late=True, reject_on_worker_lost=True)
 def execution_run_task(run_id: str):
     from app.services.execution.run_worker import execute

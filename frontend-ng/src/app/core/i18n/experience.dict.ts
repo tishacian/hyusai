@@ -1,6 +1,7 @@
 import { PREDICTION_FR, PREDICTION_EN } from './prediction.dict';
 import { TIMESERIES_FR, TIMESERIES_EN } from './timeseries.dict';
 import { WORK_RECORDS_FR, WORK_RECORDS_EN } from './work-records.dict';
+import { REVIEW_FR, REVIEW_EN } from './review.dict';
 /**
  * Experience / Cockpit create hub — business applications, the /create
  * intent page, and the inventory stub.
@@ -157,6 +158,7 @@ export const EXPERIENCE_FR = {
   "experience.specialized.purchasing.limits": "Une simulation ne crée pas de commande réelle. Le reçu distingue les actions effectuées des outils désactivés.",
 
   ...WORK_RECORDS_FR,
+  ...REVIEW_FR,
   ...TIMESERIES_FR,
   ...CLAIMS_FR,
   ...PREDICTION_FR,
@@ -1923,6 +1925,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   "experience.specialized.purchasing.limits": "A simulation does not create a real order. The receipt distinguishes executed actions from disabled tools.",
 
   ...WORK_RECORDS_EN,
+  ...REVIEW_EN,
   ...TIMESERIES_EN,
   ...CLAIMS_EN,
   ...PREDICTION_EN,

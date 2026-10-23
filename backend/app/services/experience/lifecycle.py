@@ -68,6 +68,8 @@ COMPONENT_TYPES = frozenset(
         "decision_queue",
         # certified-components-0.3.0
         "record_follow_up",
+        "review_workbench",
+        "review_matrix",
     }
 )
 ABSOLUTE_POSITION_KEYS = frozenset(
@@ -120,6 +122,9 @@ QUERY_BOUND_COMPONENT_TYPES = frozenset(
     }
 )
 IMPLICIT_ACTION_COMPONENT_TYPES = frozenset({"result", "runtime_status", "evidence"})
+# Components that read their own platform records (review sets) and render
+# their own loading, empty, no-results and error states.
+SELF_SOURCED_COMPONENT_TYPES = frozenset({"review_workbench", "review_matrix"})
 EMPTY_PAGES = {"pages": []}
 AUDIENCE_KEYS = frozenset({"roles", "role_templates", "groups"})
 VISIBLE_COPY_KEYS = frozenset(
@@ -1755,7 +1760,10 @@ def _has_empty_state(pages: Mapping[str, Any]) -> bool:
         if page.get("empty_state"):
             return True
         for component in page.get("components") or []:
-            if isinstance(component, Mapping) and component.get("empty_state"):
+            if isinstance(component, Mapping) and (
+                component.get("empty_state")
+                or component.get("type") in SELF_SOURCED_COMPONENT_TYPES
+            ):
                 return True
     return False
 
@@ -2686,10 +2694,14 @@ def _has_template_data_source(pages: Mapping[str, Any]) -> bool:
         if not isinstance(page, Mapping):
             continue
         for component in page.get("components") or []:
-            if (
-                not isinstance(component, Mapping)
-                or component.get("type") not in DATA_BOUND_COMPONENT_TYPES
-            ):
+            if not isinstance(component, Mapping):
+                continue
+            if component.get("type") in SELF_SOURCED_COMPONENT_TYPES:
+                props = component.get("props")
+                if isinstance(props, Mapping) and isinstance(props.get("namespace"), str):
+                    return True
+                continue
+            if component.get("type") not in DATA_BOUND_COMPONENT_TYPES:
                 continue
             props = component.get("props")
             if isinstance(props, Mapping) and (

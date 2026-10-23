@@ -110,6 +110,7 @@ test('every trigger type the backend maps to an event is reachable from the pale
     'source.schedule',
     'source.webhook',
     'source.connector_watch',
+    'source.remote_job_finished',
   ]) {
     assert.ok(types.has(trigger), trigger);
   }

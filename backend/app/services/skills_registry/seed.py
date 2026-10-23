@@ -1121,6 +1121,154 @@ SEED_SKILLS: list[dict[str, Any]] = [
         },
     },
     {
+        "slug": "remote_job_submit_v1",
+        "version": "1",
+        "name": "Remote Job Submit",
+        "description": (
+            "Queues a catalogued command on an external runner of the workspace (SSH). "
+            "The run does not wait; the end of the job is announced as remote_runner.job_finished."
+        ),
+        "type": "connector",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_job", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["runner", "command"],
+            "properties": {
+                "runner": {"type": "string", "description": "Runner slug in this workspace."},
+                "command": {"type": "string", "description": "Catalogued command key."},
+                "params": {"type": "object"},
+                "timeout_s": {"type": "integer"},
+                "correlation_key": {
+                    "type": "string",
+                    "description": "Carried into the job_finished event (defaults to the run id).",
+                },
+                "notify_system_id": {
+                    "type": "string",
+                    "description": "Only this System hears the job_finished event.",
+                },
+                "file_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Deposit files copied to inputs/<filename> before launch.",
+                },
+                "documents": {
+                    "type": "object",
+                    "description": "JSON (.json) or JSON lines (.jsonl) written to inputs/<name>.",
+                },
+                "param_keys": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Payload fields copied into params (for a pinned Skill).",
+                },
+                "document_keys": {
+                    "type": "object",
+                    "description": "Document name to the payload field holding its rows.",
+                },
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "status": {"type": "string"},
+                "runner": {"type": "string"},
+                "command": {"type": "string"},
+                "correlation_key": {"type": "string"},
+                "deadline_at": {"type": "string"},
+            },
+        },
+    },
+    {
+        "slug": "review_set_open_v1",
+        "version": "1",
+        "name": "Review Set Open",
+        "description": (
+            "Opens a set of records for per-record human review, from inline items or from "
+            "a JSON-lines artifact of a finished runner job."
+        ),
+        "type": "governance",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["namespace", "title"],
+            "properties": {
+                "namespace": {"type": "string"},
+                "group_key": {"type": "string"},
+                "group_labels": {"type": "object"},
+                "title": {"type": "string"},
+                "items": {"type": "array"},
+                "job_id": {"type": "string"},
+                "artifact": {"type": "string"},
+                "taxonomy": {"type": "object"},
+                "policy": {"type": "object"},
+                "reviewers": {"type": "array", "items": {"type": "string"}},
+                "deadline_days": {"type": "number"},
+                "label_from": {
+                    "type": "object",
+                    "description": "Set label to the payload field holding its value.",
+                },
+                "group_key_from": {
+                    "type": "string",
+                    "description": "Payload field holding the group key, when group_key is absent.",
+                },
+                "split_by_group": {
+                    "type": "boolean",
+                    "description": "Open one set per item 'group' value.",
+                },
+                "group_label": {
+                    "type": "string",
+                    "description": "Label under which each set records its group (default 'group').",
+                },
+                "correlation_key": {"type": "string"},
+                "notify_system_id": {"type": "string"},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "set_id": {"type": "string"},
+                "items": {"type": "integer"},
+                "status": {"type": "string"},
+                "group_key": {"type": "string"},
+                "sets": {"type": "array"},
+            },
+        },
+    },
+    {
+        "slug": "review_set_read_v1",
+        "version": "1",
+        "name": "Review Set Read",
+        "description": "Returns the latest human decision of every reviewed record of a set.",
+        "type": "governance",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "sync", "timeout_ms": 60_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "required": ["set_id"],
+            "properties": {
+                "set_id": {"type": "string"},
+                "decisions": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "set_id": {"type": "string"},
+                "status": {"type": "string"},
+                "stats": {"type": "object"},
+                "decisions": {"type": "array"},
+            },
+        },
+    },
+    {
         "slug": "mcp_call_v1",
         "version": "1",
         "name": "MCP Call",
@@ -4627,6 +4775,9 @@ SKILL_CATEGORIES: dict[str, str] = {
     "narration_run_v1": "Analysis",
     "publish_email_v1": "Automation",
     "role_agent_v1": "LLM",
+    "remote_job_submit_v1": "Automation",
+    "review_set_open_v1": "Governance",
+    "review_set_read_v1": "Governance",
     "rpa_dispatch_v1": "Automation",
     "rumor_origin_trace_v1": "Analysis",
     "mcp_call_v1": "Connections",
