@@ -24,10 +24,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import type { I18nKey } from '@app/core/i18n.dict';
 import { I18nService } from '@app/core/i18n.service';
@@ -38,6 +40,8 @@ import {
   applyFields,
   blankField,
   projectSchema,
+  splitRows,
+  visibleRows,
 } from './schema-builder.vm';
 
 type SchemaObject = Record<string, unknown>;
@@ -305,7 +309,11 @@ export class SchemaBuilderComponent {
   readonly jsonError = signal<string | null>(null);
 
   private readonly projection = computed(() => projectSchema(this.value() ?? {}));
-  readonly fields = computed(() => this.projection().fields);
+  /** Rows added but not named yet: visible and editable, not yet in the schema. */
+  private readonly pending = signal<SchemaField[]>([]);
+  /** The schema this builder last emitted; another value means another contract. */
+  private lastEmitted: SchemaObject | null | undefined = undefined;
+  readonly fields = computed(() => visibleRows(this.projection().fields, this.pending()));
   readonly unsupported = computed(() => this.projection().unsupported);
 
   readonly jsonText = computed(() => {
@@ -315,12 +323,21 @@ export class SchemaBuilderComponent {
     return value ? JSON.stringify(value, null, 2) : '';
   });
 
+  constructor() {
+    effect(() => {
+      const value = this.value();
+      // A contract that did not come from this builder (another node, a JSON
+      // edit, a reload) starts without leftover unnamed rows.
+      if (value !== this.lastEmitted) untracked(() => this.pending.set([]));
+    });
+  }
+
   openJson(): void {
     this.tab.set('json');
   }
 
   addField(): void {
-    this.commitFields([...this.fields(), blankField()]);
+    this.pending.update((rows) => [...rows, blankField()]);
   }
 
   removeField(index: number): void {
@@ -426,6 +443,10 @@ export class SchemaBuilderComponent {
   private commitFields(fields: readonly SchemaField[]): void {
     this.jsonDraft.set(null);
     this.jsonError.set(null);
-    this.valueChange.emit(applyFields(this.value() ?? {}, fields));
+    const { named, pending } = splitRows(fields);
+    this.pending.set(pending);
+    const next = applyFields(this.value() ?? {}, named) as SchemaObject;
+    this.lastEmitted = next;
+    this.valueChange.emit(next);
   }
 }
