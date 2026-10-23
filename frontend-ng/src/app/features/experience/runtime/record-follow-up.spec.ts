@@ -75,3 +75,9 @@ test('an action’s case identity is chosen among its input fields, with a deriv
   assert.equal(recordNamespaceFor('2nd_ticket'), 'nd_ticket');
   assert.equal(recordIdentityPatch(''), null);
 });
+
+test('a case identity is stored by payload key, not by the label shown to authors', async () => {
+  const { fieldsFromSchema } = await import('./model');
+  const fields = fieldsFromSchema({ type: 'object', properties: { incident_id: { type: 'string', title: 'Incident' } } });
+  assert.deepEqual(fields.map((field) => ({ key: field.name, label: field.label })), [{ key: 'incident_id', label: 'Incident' }]);
+});
