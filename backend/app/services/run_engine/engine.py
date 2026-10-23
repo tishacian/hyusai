@@ -800,6 +800,13 @@ def _bind_run_flow_version(
     )
 
 
+# Keys the server writes into every Run input (``_snapshot_run_flow`` below,
+# plus the ingress adapter's ``_ingress``): a step requiring one of them is fed.
+SERVER_OWNED_RUN_INPUT_KEYS = frozenset(
+    {"run_id", "system_id", "workspace_id", "workspace_slug", "user_id", "retrieval_contract", "execution", "_ingress"}
+)
+
+
 def _snapshot_run_flow(
     db: DBSession,
     run: Run,
