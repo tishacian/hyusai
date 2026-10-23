@@ -1158,6 +1158,15 @@ SEED_SKILLS: list[dict[str, Any]] = [
                     "type": "object",
                     "description": "JSON (.json) or JSON lines (.jsonl) written to inputs/<name>.",
                 },
+                "param_keys": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Payload fields copied into params (for a pinned Skill).",
+                },
+                "document_keys": {
+                    "type": "object",
+                    "description": "Document name to the payload field holding its rows.",
+                },
             },
         },
         "output_schema": {
@@ -1187,7 +1196,7 @@ SEED_SKILLS: list[dict[str, Any]] = [
         "pricing": {"unit": "per_call", "unit_price": 0.0, "currency": "USD"},
         "input_schema": {
             "type": "object",
-            "required": ["namespace", "group_key", "title"],
+            "required": ["namespace", "title"],
             "properties": {
                 "namespace": {"type": "string"},
                 "group_key": {"type": "string"},
@@ -1200,6 +1209,14 @@ SEED_SKILLS: list[dict[str, Any]] = [
                 "policy": {"type": "object"},
                 "reviewers": {"type": "array", "items": {"type": "string"}},
                 "deadline_days": {"type": "number"},
+                "label_from": {
+                    "type": "object",
+                    "description": "Set label to the payload field holding its value.",
+                },
+                "group_key_from": {
+                    "type": "string",
+                    "description": "Payload field holding the group key, when group_key is absent.",
+                },
                 "split_by_group": {
                     "type": "boolean",
                     "description": "Open one set per item 'group' value.",

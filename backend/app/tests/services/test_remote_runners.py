@@ -407,7 +407,7 @@ def test_translation_commands_need_their_runner_paths(db_session, runner):
         "prepare",
     ]
     assert argv[-4:] == ["--target", "de-DE", "--target", "it-IT"]
-    assert "inputs/pack.zip" in argv
+    assert "--archive" not in argv
     with pytest.raises(cat.CatalogError) as missing:
         cat.validate(
             "translation_suite.translate", {"lot": "L-7"}, {"translation.repo": "relative"}

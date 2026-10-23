@@ -628,6 +628,7 @@ def finished_event_payload(job: RemoteRunnerJob) -> dict:
         "error_code": job.error_code,
         "result": job.result,
         "artifacts": list(job.artifacts or []),
+        "params": dict(job.params or {}),
         "origin_run_id": job.run_id,
         "origin_node_id": job.node_id,
     }

@@ -1452,7 +1452,15 @@ async def _remote_job_submit_v1(
     command = payload.get("command")
     if not isinstance(runner_slug, str) or not isinstance(command, str):
         raise ValueError("remote_job_runner_and_command_required")
-    params = payload.get("params")
+    params = dict(payload.get("params") or {}) if isinstance(payload.get("params"), dict) else {}
+    # A pinned (frozen) skill names which run values become command parameters.
+    for key in payload.get("param_keys") or []:
+        if isinstance(key, str) and payload.get(key) is not None:
+            params[key] = payload[key]
+    documents = dict(payload.get("documents") or {}) if isinstance(payload.get("documents"), dict) else {}
+    for name, key in (payload.get("document_keys") or {}).items():
+        if isinstance(name, str) and isinstance(key, str) and payload.get(key) is not None:
+            documents[name] = payload[key]
     correlation_key = payload.get("correlation_key")
     timeout_s = payload.get("timeout_s")
 
@@ -1471,7 +1479,7 @@ async def _remote_job_submit_v1(
                     workspace_id=workspace_id,
                     runner_id=runner.id,
                     command=command,
-                    params=params if isinstance(params, dict) else None,
+                    params=params or None,
                     user_id=ctx.get("user_id"),
                     run_id=ctx.get("run_id"),
                     node_id=ctx.get("node_id"),
@@ -1483,9 +1491,7 @@ async def _remote_job_submit_v1(
                     input_file_ids=[str(item) for item in payload.get("file_ids") or []]
                     if isinstance(payload.get("file_ids"), list)
                     else None,
-                    input_documents=payload.get("documents")
-                    if isinstance(payload.get("documents"), dict)
-                    else None,
+                    input_documents=documents or None,
                 )
             except runners.RunnerError as exc:
                 db.rollback()
@@ -1570,8 +1576,14 @@ async def _review_set_open_v1(
                 groups.setdefault(None if key is None else str(key), []).append(item)
             label = str(payload.get("group_label") or "group")
             base_labels = (
-                payload.get("group_labels") if isinstance(payload.get("group_labels"), dict) else {}
+                dict(payload["group_labels"]) if isinstance(payload.get("group_labels"), dict) else {}
             )
+            for name, key in (payload.get("label_from") or {}).items():
+                if isinstance(name, str) and isinstance(key, str) and payload.get(key) is not None:
+                    base_labels[name] = str(payload[key])
+            group_key = payload.get("group_key")
+            if not group_key and isinstance(payload.get("group_key_from"), str):
+                group_key = payload.get(payload["group_key_from"])
             opened = []
             try:
                 for group, group_items in groups.items():
@@ -1579,11 +1591,7 @@ async def _review_set_open_v1(
                         db,
                         workspace_id=workspace_id,
                         namespace=payload.get("namespace"),
-                        group_key=(
-                            payload.get("group_key")
-                            if group is None
-                            else f"{payload.get('group_key')}:{group}"
-                        ),
+                        group_key=group_key if group is None else f"{group_key}:{group}",
                         title=(
                             payload.get("title")
                             if group is None

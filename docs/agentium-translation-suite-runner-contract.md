@@ -41,7 +41,7 @@ Every subcommand must:
 
 | Subcommand | Options | Reads | `result.json` | Artifacts |
 | --- | --- | --- | --- | --- |
-| `prepare` | `--archive inputs/<name>.zip`, `--source-lang`, `--pivot-lang`, `--target` (repeatable) | the staged source pack | `{job_id, languages: [..], topics: n, pivot_mode}` | `job.json` |
+| `prepare` | `--archive inputs/<name>.zip` (default: the one .zip under `inputs/`), `--source-lang`, `--pivot-lang`, `--target` (repeatable) | the staged source pack | `{job_id, languages: [..], topics: n, pivot_mode}` | `job.json` |
 | `translate` | `--max-parallel n` | the prepared lot | `{languages: {<tag>: {accept, needs_review, reject_technical, failed}}, complete: bool}` | `outcomes.json` (one entry per topic and language) |
 | `review-export` | none | reports of the lot | `{items: n, groups: [..]}` | `review.jsonl`, `quality_gate.json` |
 | `audit` | none | the lot | `{verdict: "pass" \| "fail", layers: {<layer>: "pass" \| "fail" \| "info"}}` | `audit.json` |

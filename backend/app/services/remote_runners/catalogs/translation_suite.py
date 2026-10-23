@@ -39,15 +39,15 @@ class _Lot(BaseModel):
 
 
 class _Prepare(_Lot):
-    archive: str = "pack.zip"
+    archive: str | None = None
     source_lang: str | None = None
     pivot_lang: str | None = None
     targets: list[str] = Field(default_factory=list, max_length=64)
 
     @field_validator("archive")
     @classmethod
-    def _archive(cls, value: str) -> str:
-        if not _FILE_RE.match(value) or not value.lower().endswith(".zip"):
+    def _archive(cls, value: str | None) -> str | None:
+        if value is not None and (not _FILE_RE.match(value) or not value.lower().endswith(".zip")):
             raise ValueError("archive must be the name of a staged .zip input")
         return value
 
@@ -93,7 +93,8 @@ def _entry(paths: dict[str, str], subcommand: str, lot: str, *extra: str) -> lis
 
 
 def _prepare(p: _Prepare, paths: dict[str, str]) -> list[str]:
-    extra = ["--archive", f"inputs/{p.archive}"]
+    # Without a name the entry point takes the one .zip staged under inputs/.
+    extra = ["--archive", f"inputs/{p.archive}"] if p.archive else []
     if p.source_lang:
         extra += ["--source-lang", p.source_lang]
     if p.pivot_lang:
