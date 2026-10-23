@@ -1,4 +1,5 @@
 import { TimeseriesEditorComponent } from './timeseries-editor.component';
+import { formatRunInstant } from '@app/core/run-follow-up';
 import { PredictionContractEditorComponent } from '../work/prediction-contract-editor.component';
 import { BrandAppearanceEditorComponent } from '@app/shared/brand-appearance-editor.component';
 import { brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
@@ -1455,17 +1456,32 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                           <p>{{ i18n.t('experience.editor.service_compare.audience') }} : {{ jsonText(deployment.audience) }}</p>
                         </section>
                       </div>
-                      <div class="xp-journal-row">
+                      <div class="xp-journal-row" data-testid="studio-deployment-row">
                         <span>{{ deployment.channel }} · {{ deployment.release_id }}</span>
+                        @if (deployment.withdrawn_at) {
+                          <span class="xp-hint" data-testid="studio-deployment-withdrawn">{{ withdrawnText(deployment) }}</span>
+                        }
                         @if (canRelease()) {
                           <button
                             type="button"
                             class="xp-btn"
-                            [disabled]="lifecycleBusy() || deploymentsState() !== 'ready' || !deployment.previous_release_id || !deployment.updated_at"
+                            [disabled]="lifecycleBusy() || deploymentsState() !== 'ready' || !!deployment.withdrawn_at || !deployment.previous_release_id || !deployment.updated_at"
                             (click)="rollbackCandidate.set(deployment)"
                           >{{ i18n.t('experience.editor.lifecycle.rollback') }}</button>
+                          @if (!deployment.withdrawn_at) {
+                            <button
+                              type="button"
+                              class="xp-btn"
+                              data-testid="studio-deployment-withdraw"
+                              [disabled]="lifecycleBusy() || deploymentsState() !== 'ready' || !deployment.updated_at"
+                              (click)="withdrawCandidate.set(deployment)"
+                            >{{ i18n.t('experience.editor.withdraw.action') }}</button>
+                          }
                         }
                       </div>
+                    }
+                    @if (withdrawing()) {
+                      <p role="status">{{ i18n.t('experience.editor.withdraw.pending') }}</p>
                     }
                   </section>
                   <section>
@@ -1501,6 +1517,18 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
       icon="history"
       (confirm)="confirmRollback()"
       (cancel)="rollbackCandidate.set(null)"
+    />
+
+    <app-confirm-dialog
+      [open]="withdrawCandidate() !== null"
+      [title]="i18n.t('experience.editor.withdraw.title', { channel: channelLabel(withdrawCandidate()?.channel) })"
+      [description]="withdrawDescription()"
+      [confirmLabel]="i18n.t('experience.editor.withdraw.action')"
+      [cancelLabel]="i18n.t('common.cancel')"
+      tone="danger"
+      icon="history"
+      (confirm)="confirmWithdraw()"
+      (cancel)="withdrawCandidate.set(null)"
     />
 
     <app-confirm-dialog
@@ -1581,6 +1609,16 @@ export class ExperienceEditorComponent implements OnDestroy {
     return conflict?.remote?.draft ? this.conflictPaths().map(path => describeStudioConflict(path, conflict.base, conflict.mine, conflict.remote!.draft!.pages, this.contentLocale())) : [];
   });
   readonly rollbackCandidate = signal<StudioDeployment | null>(null);
+  readonly withdrawCandidate = signal<StudioDeployment | null>(null);
+  readonly withdrawing = signal(false);
+  readonly withdrawDescription = computed(() => {
+    const candidate = this.withdrawCandidate();
+    const release = this.releases().find(item => item.id === candidate?.release_id);
+    return this.i18n.t('experience.editor.withdraw.body', {
+      channel: this.channelLabel(candidate?.channel),
+      release: release?.release_number ?? candidate?.release_id ?? '',
+    });
+  });
   readonly rollbackDescription = computed(() => {
     const candidate = this.rollbackCandidate();
     const release = this.releases().find(item => item.id === candidate?.previous_release_id);
@@ -3097,6 +3135,55 @@ export class ExperienceEditorComponent implements OnDestroy {
     }
   }
 
+  channelLabel(channel: string | null | undefined): string {
+    return channel === 'pilot' || channel === 'live' ? this.i18n.t(`experience.editor.withdraw.channel.${channel}`) : channel ?? '';
+  }
+
+  withdrawnText(deployment: StudioDeployment): string {
+    const at = deployment.withdrawn_at ? formatRunInstant(deployment.withdrawn_at, this.i18n.locale()) : null;
+    return this.i18n.t('experience.editor.withdraw.done', { at: at ?? '—', by: deployment.withdrawn_by ?? '—' });
+  }
+
+  confirmWithdraw(): void {
+    const candidate = this.withdrawCandidate();
+    this.withdrawCandidate.set(null);
+    if (candidate) this.withdraw(candidate);
+  }
+
+  withdraw(deployment: StudioDeployment): void {
+    if (!this.canRelease() || this.lifecycleBusy() || this.deploymentsState() !== 'ready') return;
+    const id = this.id();
+    const channel = deployment.channel;
+    const expectedDeploymentUpdatedAt = deployment.updated_at;
+    if (!id || (channel !== 'pilot' && channel !== 'live') || !expectedDeploymentUpdatedAt) return;
+    this.lifecycleBusy.set(true);
+    this.withdrawing.set(true);
+    const request = this.api.withdraw(id, channel, {
+      expectedCurrentReleaseId: deployment.release_id,
+      expectedDeploymentUpdatedAt,
+    }).subscribe({
+      next: () => {
+        if (this.id() !== id) return;
+        this.lifecycleBusy.set(false);
+        this.withdrawing.set(false);
+        this.reloadDeployments();
+      },
+      error: (err) => {
+        if (this.id() !== id) return;
+        this.lifecycleBusy.set(false);
+        this.withdrawing.set(false);
+        const code = apiCode(err);
+        this.error.set(code === 'EXPERIENCE_DEPLOYMENT_CONFLICT'
+          ? this.i18n.t('experience.deployment.conflict')
+          : code === 'EXPERIENCE_DEPLOYMENT_WITHDRAWN'
+            ? this.i18n.t('experience.editor.withdraw.already')
+            : studioError(this.i18n, err, 'experience.editor.withdraw.error'));
+        if (code === 'EXPERIENCE_DEPLOYMENT_CONFLICT' || code === 'EXPERIENCE_DEPLOYMENT_WITHDRAWN') this.reloadDeployments();
+      },
+    });
+    this.trackRoute(request);
+  }
+
   confirmRollback(): void {
     const candidate = this.rollbackCandidate();
     this.rollbackCandidate.set(null);
@@ -3369,6 +3456,8 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.detail.set(null);
     this.draftConflict.set(null);
     this.rollbackCandidate.set(null);
+    this.withdrawCandidate.set(null);
+    this.withdrawing.set(false);
     this.name.set('');
     this.slug.set('');
     this.stack.set(emptyStack({ pages: [] }));
