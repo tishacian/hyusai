@@ -522,6 +522,15 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 )
                 break
 
+        # A sequential Flow has no recovery branch: when the last step that ran
+        # failed, the Run produced no result and must not read as completed.
+        ran = [item for item in invocations_out if item.status in {"completed", "failed"}]
+        if ran and ran[-1].status == "failed":
+            last_output = {
+                "_status": "failed",
+                "_error": f"{ran[-1].skill_slug}: {ran[-1].error or 'unhandled_task_failure'}",
+            }
+
         duration_ms = (time.monotonic() - start) * 1000
         summary = _finalize_run(
             db,

@@ -887,3 +887,55 @@ def test_event_trigger_stamps_authoritative_system_capability(db_session):
     assert run.workspace_id == system.workspace_id
     assert run.system_id == system.id
     assert run.capability_id == system.capability_id
+
+
+@pytest.mark.asyncio
+async def test_sequential_run_whose_last_step_fails_is_failed_not_completed(db_session, monkeypatch):
+    """A sequential Flow has no recovery branch: a failed last step fails the Run."""
+    from app.services.skills_registry import wrappers
+
+    async def _boom(payload, ctx=None):
+        raise KeyError("prompt")
+
+    workspace = _workspace(db_session, "Legacy failure", {"family": "andritz"})
+    entry = wrappers._REGISTRY["audit_log_v1"]
+    monkeypatch.setitem(wrappers._REGISTRY, "audit_log_v1", (_boom, entry[1], entry[2]))
+    skill = db_session.query(Skill).filter(Skill.slug == "audit_log_v1").first() or Skill(
+        id=str(uuid4()),
+        slug="audit_log_v1",
+        name="audit_log_v1",
+        version="1",
+        input_schema={},
+        output_schema={},
+        execution={"mode": "sync"},
+        pricing={"unit_price": 0.0},
+    )
+    db_session.add(skill)
+    db_session.flush()
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Legacy sequential failure",
+        skill_ids=[skill.id],
+        flow_definition={},
+    )
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        input_ref={"incident_id": "INC-1"},
+        flow_snapshot={},
+        status="pending",
+    )
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    result = await execute_run(run.id)
+
+    invocation = db_session.query(SkillInvocation).filter_by(run_id=run.id).one()
+    assert invocation.status == "failed"
+    assert result["status"] == "failed"
+    db_session.refresh(run)
+    assert run.status == "failed"
+    assert run.error.startswith("audit_log_v1: ")
+    assert run.decision == "failed"
