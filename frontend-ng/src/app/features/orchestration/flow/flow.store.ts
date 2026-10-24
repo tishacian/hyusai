@@ -607,7 +607,15 @@ export const FlowStore = signalStore(
        * `checkpoint()` once at drag-start so a whole drag is one undo step.
        */
       moveNode(nodeId: string, position: { x: number; y: number }): void {
-        if (store.readOnly()) return;
+        if (store.readOnly()) {
+          // A published version can be rearranged to read it; nothing is saved.
+          patchState(store, {
+            nodes: store
+              .nodes()
+              .map((n) => (n.id === nodeId ? { ...n, position } : n)),
+          });
+          return;
+        }
         patchState(store, {
           nodes: store
             .nodes()
@@ -639,7 +647,11 @@ export const FlowStore = signalStore(
 
       // ---- history -------------------------------------------------------
       /** Mark an undoable checkpoint (used by the canvas at drag-start). */
-      checkpoint,
+      /** A read-only (published) graph keeps no history: its layout changes are views only. */
+      checkpoint(): void {
+        if (store.readOnly()) return;
+        checkpoint();
+      },
 
       undo(): void {
         if (store.readOnly()) return;
@@ -666,7 +678,15 @@ export const FlowStore = signalStore(
        * undoable step.
        */
       setPositions(positions: Record<string, { x: number; y: number }>): void {
-        if (store.readOnly()) return;
+        if (store.readOnly()) {
+          // Arrange on a published version: a view of it, never a change to save.
+          patchState(store, {
+            nodes: store.nodes().map((n) =>
+              positions[n.id] ? { ...n, position: positions[n.id] } : n,
+            ),
+          });
+          return;
+        }
         checkpoint();
         patchState(store, {
           nodes: store.nodes().map((n) =>

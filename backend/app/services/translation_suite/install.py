@@ -184,7 +184,41 @@ def _new_system(db, workspace, actor, *, key: str, name: str, objective: str, sk
     return system
 
 
+COLUMN_GAP = 300
+ROW_GAP = 150
+
+
+def laid_out(flow: dict) -> dict:
+    """Place nodes left to right by depth from the sources, so the canvas opens readable.
+
+    A node's column is the length of the longest path reaching it; nodes of one column are
+    stacked in their declaration order. Nodes that already have a position keep it.
+    """
+    nodes = flow.get("nodes") or []
+    ids = [node["id"] for node in nodes]
+    incoming: dict[str, list[str]] = {node_id: [] for node_id in ids}
+    for edge in flow.get("edges") or []:
+        if edge.get("to") in incoming and edge.get("from") in incoming:
+            incoming[edge["to"]].append(edge["from"])
+    depth: dict[str, int] = {}
+
+    def column(node_id: str, seen: frozenset[str] = frozenset()) -> int:
+        if node_id not in depth:
+            parents = [p for p in incoming[node_id] if p not in seen]
+            depth[node_id] = 1 + max((column(p, seen | {node_id}) for p in parents), default=-1)
+        return depth[node_id]
+
+    rows: dict[int, int] = {}
+    for node in nodes:
+        col = column(node["id"])
+        row = rows.get(col, 0)
+        rows[col] = row + 1
+        node.setdefault("position", {"x": col * COLUMN_GAP, "y": row * ROW_GAP})
+    return flow
+
+
 def _publish(db, workspace, actor, system: System, flow: dict, message: str) -> str:
+    flow = laid_out(flow)
     draft, _ = flow_publication.save_draft(
         db,
         system_id=system.id,

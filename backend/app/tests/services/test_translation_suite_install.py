@@ -331,3 +331,21 @@ def test_a_finished_package_job_queues_the_certification(db_session, seeded, mon
     )
     assert queued.params == {"lot": "LOT-7"}
     assert [item.get("path") for item in queued.inputs] == ["inputs/certify_profile.json"]
+
+
+def test_published_flows_open_laid_out_left_to_right(db_session, seeded):
+    from app.services.translation_suite.install import COLUMN_GAP, chain_flow, laid_out
+
+    workspace, user, runner = seeded
+    result = install(db_session, workspace, user, runner_slug="gpu-vm")
+    db_session.commit()
+    skills = {
+        key: db_session.query(Skill).filter(Skill.slug == slug).one()
+        for key, slug in result["skills"].items()
+    }
+    flow = laid_out(chain_flow(skills))
+    positions = {node["id"]: node["position"] for node in flow["nodes"]}
+    assert positions["source.job"]["x"] == 0
+    assert positions["decision.route"]["x"] == COLUMN_GAP
+    assert positions["task.package"]["x"] > positions["hitl.deliver"]["x"]
+    assert len({(p["x"], p["y"]) for p in positions.values()}) == len(positions)
