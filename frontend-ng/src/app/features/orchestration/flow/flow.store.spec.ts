@@ -581,3 +581,26 @@ test('two Decision labels may fan out to the same target without deduplication',
   const routes = store.edges().filter((edge) => edge.from === 'decision' && edge.to === 'sink');
   assert.deepEqual(routes.map((edge) => edge.branch_label), ['yes', 'no']);
 });
+
+test('a published (read-only) graph can be rearranged to read it without becoming an edit', () => {
+  const store = makeStore();
+  store.load({
+    source: 'flow',
+    nodes: [
+      { id: 'a', type: 'source', kind: 'source', position: { x: 0, y: 0 } },
+      { id: 'b', type: 'sink', kind: 'sink', position: { x: 0, y: 0 } },
+    ],
+    edges: [],
+  } as CanonicalFlow);
+  store.setReadOnly(true);
+  const revision = store.revision();
+  store.checkpoint();
+  store.setPositions({ a: { x: 10, y: 20 }, b: { x: 300, y: 20 } });
+  store.moveNode('b', { x: 320, y: 40 });
+  assert.deepEqual(store.nodes().map((n) => n.position), [{ x: 10, y: 20 }, { x: 320, y: 40 }]);
+  assert.equal(store.dirty(), false);
+  assert.equal(store.revision(), revision);
+  assert.equal(store.past().length, 0);
+  store.removeNode('a');
+  assert.equal(store.nodes().length, 2);
+});

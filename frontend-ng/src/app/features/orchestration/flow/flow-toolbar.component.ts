@@ -628,8 +628,13 @@ export class FlowToolbarComponent {
   protected readonly controlsDisabled = computed(
     () => this.persistence.actionsDisabled() || !this.hydrationReady(),
   );
+  /** View controls (fit, zoom, routing, focus, arrange) never write the flow, so a
+   *  published, read-only version keeps them; only a busy editable draft locks them. */
   protected readonly canvasControlsDisabled = computed(
-    () => this.controlsDisabled() || !this.canvasActive(),
+    () =>
+      !this.hydrationReady() ||
+      !this.canvasActive() ||
+      (this.persistence.actionsDisabled() && !this.persistence.readOnly()),
   );
 
   /**

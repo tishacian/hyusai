@@ -1390,7 +1390,7 @@ export class FlowBuilderComponent {
   }
 
   onCycleRouting(): void {
-    if (this.persistence.actionsDisabled()) return;
+    if (this.persistence.actionsDisabled() && !this.persistence.readOnly()) return;
     const next = this.canvas()?.cycleRouting();
     if (next) this.routingLabel.set(next);
   }
